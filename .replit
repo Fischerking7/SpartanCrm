@@ -40,3 +40,10 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_database:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+BOOTSTRAP_FOUNDER_REPID = "SF7"
+BOOTSTRAP_FOUNDER_PASSWORD = "test123"
+BOOTSTRAP_FOUNDER_NAME = "System Founder"
