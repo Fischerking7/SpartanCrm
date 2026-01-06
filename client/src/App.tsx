@@ -19,6 +19,7 @@ import ExecutiveDashboard from "@/pages/executive-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
 import Orders from "@/pages/orders";
 import Leads from "@/pages/leads";
+import Commissions from "@/pages/commissions";
 import Approvals from "@/pages/approvals";
 import PayRuns from "@/pages/payruns";
 import Accounting from "@/pages/accounting";
@@ -148,6 +149,7 @@ function Router() {
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/orders" component={Orders} />
         <Route path="/leads" component={Leads} />
+        <Route path="/commissions" component={Commissions} />
         <Route path="/adjustments" component={Adjustments} />
         <Route path="/change-password" component={ChangePassword} />
         

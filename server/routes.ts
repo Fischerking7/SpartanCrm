@@ -1712,5 +1712,72 @@ export async function registerRoutes(
     }
   });
 
+  // Commissions - role-based view
+  app.get("/api/commissions", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const isRep = user.role === "REP";
+      
+      // Get user's own orders with earned commissions (approved orders)
+      const allOrders = await storage.getOrders();
+      const myOrders = allOrders.filter((o: SalesOrder) => 
+        o.repId === user.repId && 
+        o.jobStatus === "COMPLETED" && 
+        o.approvalStatus === "APPROVED"
+      );
+      
+      const ownSoldCommissions = myOrders.map((o: SalesOrder) => ({
+        id: o.id,
+        dateSold: o.dateSold,
+        customerName: o.customerName,
+        accountNumber: o.accountNumber,
+        baseCommission: parseFloat(o.baseCommissionEarned),
+        incentive: parseFloat(o.incentiveEarned),
+        total: parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned),
+      }));
+      
+      const ownTotalConnected = myOrders.length;
+      const ownTotalEarned = myOrders.reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      
+      // For non-REP roles, also get override earnings
+      let overrideEarnings: any[] = [];
+      let overrideTotalEarned = 0;
+      
+      if (!isRep) {
+        const rawOverrides = await storage.getOverrideEarningsByRecipient(user.id);
+        
+        // Get order details for each override
+        for (const override of rawOverrides) {
+          const order = allOrders.find((o: SalesOrder) => o.id === override.salesOrderId);
+          if (order) {
+            overrideEarnings.push({
+              id: override.id,
+              salesOrderId: override.salesOrderId,
+              sourceRepId: override.sourceRepId,
+              sourceLevelUsed: override.sourceLevelUsed,
+              amount: parseFloat(override.amount),
+              dateSold: order.dateSold,
+              customerName: order.customerName,
+            });
+            overrideTotalEarned += parseFloat(override.amount);
+          }
+        }
+      }
+      
+      res.json({
+        role: user.role,
+        ownSoldCommissions,
+        ownTotalConnected,
+        ownTotalEarned,
+        overrideEarnings: isRep ? null : overrideEarnings,
+        overrideTotalEarned: isRep ? null : overrideTotalEarned,
+        grandTotal: ownTotalEarned + overrideTotalEarned,
+      });
+    } catch (error) {
+      console.error("Commissions error:", error);
+      res.status(500).json({ message: "Failed to fetch commissions" });
+    }
+  });
+
   return httpServer;
 }
