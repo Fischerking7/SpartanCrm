@@ -77,53 +77,57 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   }
   
   const earnings: OverrideEarning[] = [];
-  const orderFilter = { 
+  
+  // Fetch mobile line items for per-line override calculation
+  const mobileLines = await storage.getMobileLineItemsByOrderId(approvedOrder.id);
+  
+  // Base order filter (without mobile product type - we'll handle mobile per-line)
+  const baseOrderFilter = { 
     providerId: approvedOrder.providerId, 
     clientId: approvedOrder.clientId, 
     serviceId: approvedOrder.serviceId,
-    mobileProductType: approvedOrder.mobileProductType,
     tvSold: approvedOrder.tvSold
   };
   
-  // Helper: Calculate override amount - multiply by mobile lines if agreement is for mobile products
+  // Helper: Calculate override amount for non-mobile or legacy mobile orders
   const calculateOverrideAmount = (agreement: { amountFlat: string; mobileProductType: string | null }): string => {
-    const baseAmount = parseFloat(agreement.amountFlat);
-    // If agreement is for mobile products (has mobileProductType and not "NO_MOBILE")
-    // and order has mobile lines, multiply by mobileLinesQty
-    if (agreement.mobileProductType && agreement.mobileProductType !== "NO_MOBILE" && approvedOrder.mobileLinesQty > 0) {
-      return (baseAmount * approvedOrder.mobileLinesQty).toFixed(2);
+    // For non-mobile agreements or when no mobile line items exist, use the base amount
+    // If using legacy aggregate fields, multiply by mobileLinesQty
+    if (agreement.mobileProductType && agreement.mobileProductType !== "NO_MOBILE" && mobileLines.length === 0 && approvedOrder.mobileLinesQty > 0) {
+      return (parseFloat(agreement.amountFlat) * approvedOrder.mobileLinesQty).toFixed(2);
     }
     return agreement.amountFlat;
   };
   
-  // Get hierarchy for the rep
-  const hierarchy = await storage.getRepHierarchy(approvedOrder.repId);
-  
-  // Get all admins - they get overrides on every approved order globally
-  const admins = await storage.getUsersByRole("ADMIN");
-  for (const admin of admins) {
-    const agreements = await storage.getActiveOverrideAgreements(admin.id, "REP", approvedOrder.dateSold, orderFilter);
+  // Helper: Process agreements for a recipient and source level
+  const processAgreements = async (
+    recipientUserId: string, 
+    sourceLevel: "REP" | "SUPERVISOR" | "MANAGER",
+    filter: typeof baseOrderFilter & { mobileProductType?: string | null }
+  ) => {
+    const agreements = await storage.getActiveOverrideAgreements(recipientUserId, sourceLevel, approvedOrder.dateSold, filter);
     for (const agreement of agreements) {
-      const earning = await storage.createOverrideEarning({
-        salesOrderId: approvedOrder.id,
-        recipientUserId: admin.id,
-        sourceRepId: approvedOrder.repId,
-        sourceLevelUsed: "REP",
-        amount: calculateOverrideAmount(agreement),
-        overrideAgreementId: agreement.id,
-      });
-      earnings.push(earning);
-    }
-  }
-
-  // Executive overrides (MANAGER, SUPERVISOR, REP levels)
-  if (hierarchy.executive) {
-    for (const sourceLevel of ["REP", "SUPERVISOR", "MANAGER"] as const) {
-      const agreements = await storage.getActiveOverrideAgreements(hierarchy.executive.id, sourceLevel, approvedOrder.dateSold, orderFilter);
-      for (const agreement of agreements) {
+      // For mobile-specific agreements with mobile line items, process per-line
+      if (agreement.mobileProductType && agreement.mobileProductType !== "NO_MOBILE" && mobileLines.length > 0) {
+        // Count matching mobile lines for this specific product type
+        const matchingLines = mobileLines.filter(line => line.mobileProductType === agreement.mobileProductType);
+        if (matchingLines.length > 0) {
+          const totalAmount = (parseFloat(agreement.amountFlat) * matchingLines.length).toFixed(2);
+          const earning = await storage.createOverrideEarning({
+            salesOrderId: approvedOrder.id,
+            recipientUserId,
+            sourceRepId: approvedOrder.repId,
+            sourceLevelUsed: sourceLevel,
+            amount: totalAmount,
+            overrideAgreementId: agreement.id,
+          });
+          earnings.push(earning);
+        }
+      } else {
+        // Non-mobile agreement or legacy order
         const earning = await storage.createOverrideEarning({
           salesOrderId: approvedOrder.id,
-          recipientUserId: hierarchy.executive.id,
+          recipientUserId,
           sourceRepId: approvedOrder.repId,
           sourceLevelUsed: sourceLevel,
           amount: calculateOverrideAmount(agreement),
@@ -132,54 +136,57 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
         earnings.push(earning);
       }
     }
+  };
+  
+  // Get hierarchy for the rep
+  const hierarchy = await storage.getRepHierarchy(approvedOrder.repId);
+  
+  // Build filter for agreements - include each mobile product type from the order
+  const mobileProductTypes = mobileLines.length > 0 
+    ? Array.from(new Set(mobileLines.map(l => l.mobileProductType))) 
+    : (approvedOrder.mobileProductType ? [approvedOrder.mobileProductType] : []);
+  
+  // Get all admins - they get overrides on every approved order globally
+  const admins = await storage.getUsersByRole("ADMIN");
+  for (const admin of admins) {
+    // Process non-mobile agreements
+    await processAgreements(admin.id, "REP", { ...baseOrderFilter, mobileProductType: null });
+    // Process mobile agreements for each product type
+    for (const mobileType of mobileProductTypes) {
+      await processAgreements(admin.id, "REP", { ...baseOrderFilter, mobileProductType: mobileType });
+    }
+  }
+
+  // Executive overrides (MANAGER, SUPERVISOR, REP levels)
+  if (hierarchy.executive) {
+    for (const sourceLevel of ["REP", "SUPERVISOR", "MANAGER"] as const) {
+      await processAgreements(hierarchy.executive.id, sourceLevel, { ...baseOrderFilter, mobileProductType: null });
+      for (const mobileType of mobileProductTypes) {
+        await processAgreements(hierarchy.executive.id, sourceLevel, { ...baseOrderFilter, mobileProductType: mobileType });
+      }
+    }
   }
 
   // Manager overrides (REP level always, SUPERVISOR level only if supervisor exists)
   if (hierarchy.manager) {
-    // Manager always gets REP-level overrides (whether direct or indirect)
-    const repAgreements = await storage.getActiveOverrideAgreements(hierarchy.manager.id, "REP", approvedOrder.dateSold, orderFilter);
-    for (const agreement of repAgreements) {
-      const earning = await storage.createOverrideEarning({
-        salesOrderId: approvedOrder.id,
-        recipientUserId: hierarchy.manager.id,
-        sourceRepId: approvedOrder.repId,
-        sourceLevelUsed: "REP",
-        amount: calculateOverrideAmount(agreement),
-        overrideAgreementId: agreement.id,
-      });
-      earnings.push(earning);
+    await processAgreements(hierarchy.manager.id, "REP", { ...baseOrderFilter, mobileProductType: null });
+    for (const mobileType of mobileProductTypes) {
+      await processAgreements(hierarchy.manager.id, "REP", { ...baseOrderFilter, mobileProductType: mobileType });
     }
     
-    // Manager gets SUPERVISOR-level overrides ONLY if rep has a supervisor
     if (hierarchy.supervisor) {
-      const supervisorAgreements = await storage.getActiveOverrideAgreements(hierarchy.manager.id, "SUPERVISOR", approvedOrder.dateSold, orderFilter);
-      for (const agreement of supervisorAgreements) {
-        const earning = await storage.createOverrideEarning({
-          salesOrderId: approvedOrder.id,
-          recipientUserId: hierarchy.manager.id,
-          sourceRepId: approvedOrder.repId,
-          sourceLevelUsed: "SUPERVISOR",
-          amount: calculateOverrideAmount(agreement),
-          overrideAgreementId: agreement.id,
-        });
-        earnings.push(earning);
+      await processAgreements(hierarchy.manager.id, "SUPERVISOR", { ...baseOrderFilter, mobileProductType: null });
+      for (const mobileType of mobileProductTypes) {
+        await processAgreements(hierarchy.manager.id, "SUPERVISOR", { ...baseOrderFilter, mobileProductType: mobileType });
       }
     }
   }
 
   // Supervisor overrides (REP level only)
   if (hierarchy.supervisor) {
-    const agreements = await storage.getActiveOverrideAgreements(hierarchy.supervisor.id, "REP", approvedOrder.dateSold, orderFilter);
-    for (const agreement of agreements) {
-      const earning = await storage.createOverrideEarning({
-        salesOrderId: approvedOrder.id,
-        recipientUserId: hierarchy.supervisor.id,
-        sourceRepId: approvedOrder.repId,
-        sourceLevelUsed: "REP",
-        amount: calculateOverrideAmount(agreement),
-        overrideAgreementId: agreement.id,
-      });
-      earnings.push(earning);
+    await processAgreements(hierarchy.supervisor.id, "REP", { ...baseOrderFilter, mobileProductType: null });
+    for (const mobileType of mobileProductTypes) {
+      await processAgreements(hierarchy.supervisor.id, "REP", { ...baseOrderFilter, mobileProductType: mobileType });
     }
   }
 
@@ -836,9 +843,19 @@ export async function registerRoutes(
       const user = req.user!;
       
       // Validate required fields
-      const { clientId, providerId, serviceId, dateSold, customerName } = req.body;
+      const { clientId, providerId, serviceId, dateSold, customerName, mobileLines, repId: submittedRepId } = req.body;
       if (!clientId || !providerId || !serviceId || !dateSold || !customerName) {
         return res.status(400).json({ message: "Missing required fields: clientId, providerId, serviceId, dateSold, customerName" });
+      }
+      
+      // Determine repId - admins can assign to any rep, others use their own
+      let assignedRepId = user.repId;
+      if (["ADMIN", "FOUNDER"].includes(user.role) && submittedRepId) {
+        // Verify the rep exists
+        const rep = await storage.getUserByRepId(submittedRepId);
+        if (rep) {
+          assignedRepId = submittedRepId;
+        }
       }
       
       // Strict whitelist of allowed fields for order creation
@@ -853,6 +870,23 @@ export async function registerRoutes(
         if (req.body[field] !== undefined) {
           orderData[field] = req.body[field];
         }
+      }
+      
+      // Handle mobile lines array - set legacy fields for backward compatibility
+      const hasMobileLines = Array.isArray(mobileLines) && mobileLines.length > 0;
+      if (hasMobileLines) {
+        orderData.mobileSold = true;
+        orderData.mobileLinesQty = mobileLines.length;
+        // Set legacy single-value fields from first line for backward compatibility
+        orderData.mobileProductType = mobileLines[0].mobileProductType || null;
+        orderData.mobilePortedStatus = mobileLines[0].mobilePortedStatus || null;
+      } else if (req.body.hasMobile || req.body.mobileSold) {
+        orderData.mobileSold = true;
+      }
+      
+      // Handle hasTv -> tvSold mapping
+      if (req.body.hasTv !== undefined) {
+        orderData.tvSold = !!req.body.hasTv;
       }
       
       // Calculate commission from rate card
@@ -879,7 +913,7 @@ export async function registerRoutes(
       // System-controlled fields - cannot be set by user
       const data = { 
         ...orderData,
-        repId: user.repId,
+        repId: assignedRepId,
         jobStatus: "PENDING" as const,
         approvalStatus: "UNAPPROVED" as const,
         baseCommissionEarned: baseCommission,
@@ -893,6 +927,20 @@ export async function registerRoutes(
       };
       
       const order = await storage.createOrder(data as any);
+      
+      // Create mobile line items if provided
+      if (hasMobileLines) {
+        for (let i = 0; i < mobileLines.length; i++) {
+          const line = mobileLines[i];
+          await storage.createMobileLineItem({
+            salesOrderId: order.id,
+            lineNumber: i + 1,
+            mobileProductType: line.mobileProductType || "OTHER",
+            mobilePortedStatus: line.mobilePortedStatus || "NON_PORTED",
+          });
+        }
+      }
+      
       await storage.createAuditLog({ action: "create_order", tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(order), userId: user.id });
       res.json(order);
     } catch (error: any) {
@@ -1032,12 +1080,13 @@ export async function registerRoutes(
       let baseCommission = "0";
       let rateCard = await storage.findMatchingRateCard(order, order.dateSold);
       if (rateCard) {
-        baseCommission = storage.calculateCommission(rateCard, order).toString();
-        
-        // Create commission line items for Internet, Mobile, Video
+        // Create commission line items for Internet, Mobile, Video (using async version for per-line mobile)
         await storage.deleteCommissionLineItemsByOrderId(id); // Clear existing
-        const lineItems = storage.calculateCommissionLineItems(rateCard, order);
+        const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
         await storage.createCommissionLineItems(id, lineItems);
+        
+        // Calculate total commission from line items
+        baseCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0).toFixed(2);
       } else {
         await storage.createRateIssue({ salesOrderId: id, type: "MISSING_RATE", details: "No matching rate card found for this order" });
       }
@@ -1101,12 +1150,13 @@ export async function registerRoutes(
         let baseCommission = "0";
         const rateCard = await storage.findMatchingRateCard(order, order.dateSold);
         if (rateCard) {
-          baseCommission = storage.calculateCommission(rateCard, order).toString();
-          
-          // Create commission line items for Internet, Mobile, Video
+          // Create commission line items for Internet, Mobile, Video (using async version for per-line mobile)
           await storage.deleteCommissionLineItemsByOrderId(id);
-          const lineItems = storage.calculateCommissionLineItems(rateCard, order);
+          const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
           await storage.createCommissionLineItems(id, lineItems);
+          
+          // Calculate total commission from line items
+          baseCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0).toFixed(2);
           
           const updated = await storage.updateOrder(id, {
             approvalStatus: "APPROVED",

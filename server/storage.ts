@@ -327,6 +327,150 @@ export const storage = {
   },
 
   // Calculate commission line items - returns separate entries for Internet, Mobile, Video
+  // This now handles per-line mobile commissions using mobileLineItems table
+  async calculateCommissionLineItemsAsync(rateCard: RateCard, order: SalesOrder): Promise<Omit<InsertCommissionLineItem, "salesOrderId">[]> {
+    const lineItems: Omit<InsertCommissionLineItem, "salesOrderId">[] = [];
+    
+    const baseAmount = parseFloat(rateCard.baseAmount || "0");
+    const tvAddonAmount = parseFloat(rateCard.tvAddonAmount || "0");
+    
+    // Internet line item (base service)
+    if (baseAmount > 0) {
+      lineItems.push({
+        serviceCategory: "INTERNET",
+        quantity: 1,
+        unitAmount: baseAmount.toFixed(2),
+        totalAmount: baseAmount.toFixed(2),
+        mobileProductType: null,
+        mobilePortedStatus: null,
+        appliedRateCardId: rateCard.id,
+      });
+    }
+    
+    // Video/TV line item
+    if (order.tvSold && tvAddonAmount > 0) {
+      lineItems.push({
+        serviceCategory: "VIDEO",
+        quantity: 1,
+        unitAmount: tvAddonAmount.toFixed(2),
+        totalAmount: tvAddonAmount.toFixed(2),
+        mobileProductType: null,
+        mobilePortedStatus: null,
+        appliedRateCardId: rateCard.id,
+      });
+    }
+    
+    // Mobile line items - now processed per individual line from mobileLineItems table
+    if (order.mobileSold) {
+      const mobileLines = await this.getMobileLineItemsByOrderId(order.id);
+      
+      if (mobileLines.length > 0) {
+        // Process each mobile line individually
+        for (const mobileLine of mobileLines) {
+          // Find rate card for this specific mobile line's product type and ported status
+          const mobileRateCard = await this.findRateCardForMobileLine(order, mobileLine);
+          const perLineAmount = parseFloat(mobileRateCard?.mobilePerLineAmount || "0");
+          
+          if (perLineAmount > 0) {
+            lineItems.push({
+              serviceCategory: "MOBILE",
+              quantity: 1,
+              unitAmount: perLineAmount.toFixed(2),
+              totalAmount: perLineAmount.toFixed(2),
+              mobileProductType: mobileLine.mobileProductType,
+              mobilePortedStatus: mobileLine.mobilePortedStatus,
+              appliedRateCardId: mobileRateCard?.id || null,
+            });
+            
+            // Update the mobile line item with its commission
+            await this.updateMobileLineItemCommission(mobileLine.id, perLineAmount.toFixed(2), mobileRateCard?.id || null);
+          }
+        }
+      } else {
+        // Fallback: Use legacy aggregate fields if no mobile line items exist
+        const mobilePerLineAmount = parseFloat(rateCard.mobilePerLineAmount || "0");
+        if (order.mobileLinesQty > 0 && mobilePerLineAmount > 0) {
+          const mobileTotal = mobilePerLineAmount * order.mobileLinesQty;
+          lineItems.push({
+            serviceCategory: "MOBILE",
+            quantity: order.mobileLinesQty,
+            unitAmount: mobilePerLineAmount.toFixed(2),
+            totalAmount: mobileTotal.toFixed(2),
+            mobileProductType: order.mobileProductType,
+            mobilePortedStatus: order.mobilePortedStatus,
+            appliedRateCardId: rateCard.id,
+          });
+        }
+      }
+    }
+    
+    return lineItems;
+  },
+
+  // Find rate card for a specific mobile line based on its product type and ported status
+  async findRateCardForMobileLine(order: SalesOrder, mobileLine: MobileLineItem): Promise<RateCard | null> {
+    const date = order.dateSold;
+    
+    // Try to find rate card matching mobile product type and ported status
+    const cards = await db.query.rateCards.findMany({
+      where: and(
+        eq(rateCards.providerId, order.providerId),
+        eq(rateCards.active, true),
+        isNull(rateCards.deletedAt),
+        lte(rateCards.effectiveStart, date),
+        or(isNull(rateCards.effectiveEnd), gte(rateCards.effectiveEnd, date))
+      ),
+    });
+    
+    // Priority matching: most specific to least specific
+    // 1. Match provider + client + mobile product type + ported status
+    const fullMatch = cards.find(c => 
+      c.clientId === order.clientId && 
+      c.mobileProductType === mobileLine.mobileProductType && 
+      c.mobilePortedStatus === mobileLine.mobilePortedStatus
+    );
+    if (fullMatch) return fullMatch;
+    
+    // 2. Match provider + client + mobile product type (any ported)
+    const typeMatch = cards.find(c => 
+      c.clientId === order.clientId && 
+      c.mobileProductType === mobileLine.mobileProductType && 
+      !c.mobilePortedStatus
+    );
+    if (typeMatch) return typeMatch;
+    
+    // 3. Match provider + client + ported status (any type)
+    const portedMatch = cards.find(c => 
+      c.clientId === order.clientId && 
+      !c.mobileProductType && 
+      c.mobilePortedStatus === mobileLine.mobilePortedStatus
+    );
+    if (portedMatch) return portedMatch;
+    
+    // 4. Match provider + client (any mobile)
+    const clientMatch = cards.find(c => 
+      c.clientId === order.clientId && 
+      !c.mobileProductType && 
+      !c.mobilePortedStatus
+    );
+    if (clientMatch) return clientMatch;
+    
+    // 5. Match provider only with mobile product type
+    const providerTypeMatch = cards.find(c => 
+      !c.clientId && 
+      c.mobileProductType === mobileLine.mobileProductType
+    );
+    if (providerTypeMatch) return providerTypeMatch;
+    
+    // 6. Match provider only (fallback)
+    const providerMatch = cards.find(c => 
+      !c.clientId && 
+      !c.mobileProductType
+    );
+    return providerMatch || null;
+  },
+
+  // Legacy synchronous version for backward compatibility
   calculateCommissionLineItems(rateCard: RateCard, order: SalesOrder): Omit<InsertCommissionLineItem, "salesOrderId">[] {
     const lineItems: Omit<InsertCommissionLineItem, "salesOrderId">[] = [];
     
@@ -360,7 +504,7 @@ export const storage = {
       });
     }
     
-    // Mobile line item (per line)
+    // Mobile line item (per line) - uses aggregate fields
     if (order.mobileSold && order.mobileLinesQty > 0 && mobilePerLineAmount > 0) {
       const mobileTotal = mobilePerLineAmount * order.mobileLinesQty;
       lineItems.push({

@@ -13,8 +13,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle } from "lucide-react";
+import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2 } from "lucide-react";
 import type { SalesOrder, Client, Provider, Service, User } from "@shared/schema";
+
+interface MobileLineEntry {
+  mobileProductType: string;
+  mobilePortedStatus: string;
+}
 
 export default function Orders() {
   const { user } = useAuth();
@@ -44,10 +49,31 @@ export default function Orders() {
     customerEmail: "",
     hasTv: false,
     hasMobile: false,
-    mobileProductType: "",
-    mobilePortedStatus: "",
-    mobileLinesSold: 0,
+    mobileLines: [] as MobileLineEntry[],
   });
+
+  const addMobileLine = () => {
+    setNewOrderForm(f => ({
+      ...f,
+      mobileLines: [...f.mobileLines, { mobileProductType: "", mobilePortedStatus: "" }]
+    }));
+  };
+
+  const removeMobileLine = (index: number) => {
+    setNewOrderForm(f => ({
+      ...f,
+      mobileLines: f.mobileLines.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateMobileLine = (index: number, field: keyof MobileLineEntry, value: string) => {
+    setNewOrderForm(f => ({
+      ...f,
+      mobileLines: f.mobileLines.map((line, i) => 
+        i === index ? { ...line, [field]: value } : line
+      )
+    }));
+  };
 
   const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
 
@@ -179,9 +205,7 @@ export default function Orders() {
           customerEmail: orderData.customerEmail || null,
           hasTv: orderData.hasTv,
           hasMobile: orderData.hasMobile,
-          mobileProductType: orderData.hasMobile && orderData.mobileProductType ? orderData.mobileProductType : null,
-          mobilePortedStatus: orderData.hasMobile && orderData.mobilePortedStatus ? orderData.mobilePortedStatus : null,
-          mobileLinesSold: orderData.hasMobile ? orderData.mobileLinesSold : 0,
+          mobileLines: orderData.hasMobile ? orderData.mobileLines : [],
         }),
       });
       if (!res.ok) {
@@ -216,9 +240,7 @@ export default function Orders() {
       customerEmail: "",
       hasTv: false,
       hasMobile: false,
-      mobileProductType: "",
-      mobilePortedStatus: "",
-      mobileLinesSold: 0,
+      mobileLines: [],
     });
   };
 
@@ -707,62 +729,82 @@ export default function Orders() {
                 <Checkbox 
                   id="hasMobile" 
                   checked={newOrderForm.hasMobile}
-                  onCheckedChange={(checked) => setNewOrderForm(f => ({ ...f, hasMobile: !!checked, mobileProductType: checked ? f.mobileProductType : "", mobilePortedStatus: checked ? f.mobilePortedStatus : "", mobileLinesSold: checked ? f.mobileLinesSold : 0 }))}
+                  onCheckedChange={(checked) => setNewOrderForm(f => ({ 
+                    ...f, 
+                    hasMobile: !!checked, 
+                    mobileLines: checked ? (f.mobileLines.length > 0 ? f.mobileLines : [{ mobileProductType: "", mobilePortedStatus: "" }]) : [] 
+                  }))}
                   data-testid="checkbox-has-mobile"
                 />
                 <Label htmlFor="hasMobile" className="cursor-pointer">Mobile</Label>
               </div>
-              {newOrderForm.hasMobile && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <Label>Product:</Label>
-                    <Select 
-                      value={newOrderForm.mobileProductType || "__none__"} 
-                      onValueChange={(v) => setNewOrderForm(f => ({ ...f, mobileProductType: v === "__none__" ? "" : v }))}
-                    >
-                      <SelectTrigger className="w-32" data-testid="select-mobile-product-type">
-                        <SelectValue placeholder="Select" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Select type</SelectItem>
-                        <SelectItem value="UNLIMITED">Unlimited</SelectItem>
-                        <SelectItem value="3_GIG">3 Gig</SelectItem>
-                        <SelectItem value="1_GIG">1 Gig</SelectItem>
-                        <SelectItem value="BYOD">BYOD</SelectItem>
-                        <SelectItem value="OTHER">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label>Ported:</Label>
-                    <Select 
-                      value={newOrderForm.mobilePortedStatus || "__none__"} 
-                      onValueChange={(v) => setNewOrderForm(f => ({ ...f, mobilePortedStatus: v === "__none__" ? "" : v }))}
-                    >
-                      <SelectTrigger className="w-32" data-testid="select-mobile-ported-status">
-                        <SelectValue placeholder="Select" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Select</SelectItem>
-                        <SelectItem value="PORTED">Ported</SelectItem>
-                        <SelectItem value="NON_PORTED">Non-Ported</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label>Lines:</Label>
-                    <Input 
-                      type="number" 
-                      min="0"
-                      className="w-20"
-                      value={newOrderForm.mobileLinesSold}
-                      onChange={(e) => setNewOrderForm(f => ({ ...f, mobileLinesSold: parseInt(e.target.value) || 0 }))}
-                      data-testid="input-mobile-lines"
-                    />
-                  </div>
-                </>
-              )}
             </div>
+            {newOrderForm.hasMobile && (
+              <div className="space-y-3 border rounded-md p-4 bg-muted/30">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">Mobile Lines ({newOrderForm.mobileLines.length})</Label>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={addMobileLine}
+                    data-testid="button-add-mobile-line"
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Add Line
+                  </Button>
+                </div>
+                {newOrderForm.mobileLines.map((line, index) => (
+                  <div key={index} className="flex items-center gap-3 p-2 bg-background rounded-md border">
+                    <span className="text-sm text-muted-foreground w-8">#{index + 1}</span>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm">Product:</Label>
+                      <Select 
+                        value={line.mobileProductType || "__none__"} 
+                        onValueChange={(v) => updateMobileLine(index, "mobileProductType", v === "__none__" ? "" : v)}
+                      >
+                        <SelectTrigger className="w-28" data-testid={`select-mobile-product-type-${index}`}>
+                          <SelectValue placeholder="Select" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Select</SelectItem>
+                          <SelectItem value="UNLIMITED">Unlimited</SelectItem>
+                          <SelectItem value="3_GIG">3 Gig</SelectItem>
+                          <SelectItem value="1_GIG">1 Gig</SelectItem>
+                          <SelectItem value="BYOD">BYOD</SelectItem>
+                          <SelectItem value="OTHER">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm">Ported:</Label>
+                      <Select 
+                        value={line.mobilePortedStatus || "__none__"} 
+                        onValueChange={(v) => updateMobileLine(index, "mobilePortedStatus", v === "__none__" ? "" : v)}
+                      >
+                        <SelectTrigger className="w-28" data-testid={`select-mobile-ported-status-${index}`}>
+                          <SelectValue placeholder="Select" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Select</SelectItem>
+                          <SelectItem value="PORTED">Ported</SelectItem>
+                          <SelectItem value="NON_PORTED">Non-Ported</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button 
+                      type="button" 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => removeMobileLine(index)}
+                      disabled={newOrderForm.mobileLines.length === 1}
+                      data-testid={`button-remove-mobile-line-${index}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowNewOrderDialog(false); resetNewOrderForm(); }}>
