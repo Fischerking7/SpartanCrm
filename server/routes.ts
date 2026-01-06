@@ -1769,8 +1769,8 @@ export async function registerRoutes(
     }
   });
 
-  // Import leads from Excel (admin/manager+)
-  app.post("/api/admin/leads/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+  // Import leads from Excel (REP and above can import)
+  app.post("/api/leads/import", auth, upload.single("file"), async (req: AuthRequest, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
@@ -1791,27 +1791,33 @@ export async function registerRoutes(
 
       // Get users for validation
       const users = await storage.getUsers();
+      const currentUser = req.user!;
+      const isRep = currentUser.role === "REP";
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const rowNum = i + 2;
 
         try {
-          const repId = row.repId?.toString().trim();
           const customerName = row.customerName?.toString().trim();
-
-          if (!repId) {
-            errors.push(`Row ${rowNum}: Missing repId`);
-            failed++;
-            continue;
+          // For REPs, use their own repId; for others, use from file or default to their own
+          let repId = row.repId?.toString().trim();
+          
+          if (isRep) {
+            // REPs can only import leads for themselves
+            repId = currentUser.repId;
+          } else if (!repId) {
+            // Non-REPs default to their own repId if not specified
+            repId = currentUser.repId;
           }
+
           if (!customerName) {
             errors.push(`Row ${rowNum}: Missing customerName`);
             failed++;
             continue;
           }
 
-          // Verify rep exists
+          // Verify rep exists (for non-REPs importing for other reps)
           const rep = users.find(u => u.repId === repId);
           if (!rep) {
             errors.push(`Row ${rowNum}: Rep '${repId}' not found`);

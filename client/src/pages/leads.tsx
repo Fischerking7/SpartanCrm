@@ -32,7 +32,7 @@ export default function Leads() {
   const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
+  const canImport = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
 
   const buildQueryUrl = () => {
     const params = new URLSearchParams();
@@ -119,7 +119,7 @@ export default function Leads() {
       formData.append("file", importFile);
       
       const authHeaders = getAuthHeaders() as { Authorization: string };
-      const res = await fetch("/api/admin/leads/import", {
+      const res = await fetch("/api/leads/import", {
         method: "POST",
         headers: {
           Authorization: authHeaders.Authorization,
@@ -167,7 +167,7 @@ export default function Leads() {
           <p className="text-muted-foreground">View and manage your imported leads</p>
         </div>
         <div className="flex items-center gap-4">
-          {isAdmin && (
+          {canImport && (
             <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-leads">
               <Upload className="h-4 w-4 mr-2" />
               Import Leads
