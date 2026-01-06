@@ -1739,6 +1739,53 @@ export async function registerRoutes(
       const ownTotalConnected = myOrders.length;
       const ownTotalEarned = myOrders.reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       
+      // Calculate weekly and MTD earnings (America/New_York timezone)
+      const now = new Date();
+      const nyOffset = -5 * 60; // EST offset in minutes
+      const nyNow = new Date(now.getTime() + (now.getTimezoneOffset() + nyOffset) * 60000);
+      
+      // Week start (Monday)
+      const dayOfWeek = nyNow.getDay();
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const weekStart = new Date(nyNow);
+      weekStart.setDate(nyNow.getDate() - daysFromMonday);
+      weekStart.setHours(0, 0, 0, 0);
+      
+      // Month start
+      const monthStart = new Date(nyNow.getFullYear(), nyNow.getMonth(), 1);
+      
+      const weeklyEarned = myOrders
+        .filter((o: SalesOrder) => o.approvedAt && new Date(o.approvedAt) >= weekStart)
+        .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      
+      const mtdEarned = myOrders
+        .filter((o: SalesOrder) => o.approvedAt && new Date(o.approvedAt) >= monthStart)
+        .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      
+      // Generate daily data for charts (last 7 days for weekly, current month for MTD)
+      const weeklyChartData: { day: string; amount: number }[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(nyNow);
+        date.setDate(nyNow.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+        const dayTotal = myOrders
+          .filter((o: SalesOrder) => o.approvedAt && new Date(o.approvedAt).toISOString().split('T')[0] === dateStr)
+          .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        weeklyChartData.push({ day: dayName, amount: dayTotal });
+      }
+      
+      const mtdChartData: { day: string; amount: number }[] = [];
+      const daysInMonth = new Date(nyNow.getFullYear(), nyNow.getMonth() + 1, 0).getDate();
+      for (let d = 1; d <= Math.min(nyNow.getDate(), daysInMonth); d++) {
+        const date = new Date(nyNow.getFullYear(), nyNow.getMonth(), d);
+        const dateStr = date.toISOString().split('T')[0];
+        const dayTotal = myOrders
+          .filter((o: SalesOrder) => o.approvedAt && new Date(o.approvedAt).toISOString().split('T')[0] === dateStr)
+          .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        mtdChartData.push({ day: d.toString(), amount: dayTotal });
+      }
+      
       // For non-REP roles, also get override earnings
       let overrideEarnings: any[] = [];
       let overrideTotalEarned = 0;
@@ -1769,6 +1816,10 @@ export async function registerRoutes(
         ownSoldCommissions,
         ownTotalConnected,
         ownTotalEarned,
+        weeklyEarned,
+        mtdEarned,
+        weeklyChartData,
+        mtdChartData,
         overrideEarnings: isRep ? null : overrideEarnings,
         overrideTotalEarned: isRep ? null : overrideTotalEarned,
         grandTotal: ownTotalEarned + overrideTotalEarned,
