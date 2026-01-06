@@ -828,7 +828,7 @@ export async function registerRoutes(
       const allowedFields = [
         "clientId", "providerId", "serviceId", "dateSold", "customerName",
         "customerPhone", "customerEmail", "customerAddress", "accountNumber",
-        "installDate", "tvSold", "mobileSold", "mobileLinesQty", "notes"
+        "installDate", "tvSold", "mobileSold", "mobileProductType", "mobileLinesQty", "notes"
       ];
       
       const orderData: Record<string, any> = {};
@@ -909,7 +909,7 @@ export async function registerRoutes(
       // Define strict whitelists based on approval status and role
       const statusFields = ["jobStatus", "installDate"];
       const customerFields = ["customerName", "customerPhone", "customerEmail", "customerAddress", "accountNumber"];
-      const orderFields = ["clientId", "providerId", "serviceId", "dateSold", "tvSold", "mobileSold", "mobileLinesQty", "notes"];
+      const orderFields = ["clientId", "providerId", "serviceId", "dateSold", "tvSold", "mobileSold", "mobileProductType", "mobileLinesQty", "notes"];
       
       let allowedFields: string[] = [];
       
@@ -942,7 +942,7 @@ export async function registerRoutes(
       }
       
       // Check if commission-affecting fields changed and recalculate if needed
-      const commissionFields = ["providerId", "serviceId", "clientId", "dateSold", "tvSold", "mobileSold", "mobileLinesQty"];
+      const commissionFields = ["providerId", "serviceId", "clientId", "dateSold", "tvSold", "mobileSold", "mobileProductType", "mobileLinesQty"];
       const needsRecalc = commissionFields.some(f => updateData[f] !== undefined);
       
       if (needsRecalc && order.approvalStatus !== "APPROVED") {

@@ -21,6 +21,7 @@ export const payeeTypeEnum = pgEnum("payee_type", ["REP", "SUPERVISOR", "MANAGER
 export const payRunStatusEnum = pgEnum("payrun_status", ["DRAFT", "FINALIZED"]);
 export const rateIssueTypeEnum = pgEnum("rate_issue_type", ["MISSING_RATE", "CONFLICT_RATE"]);
 export const sourceLevelEnum = pgEnum("source_level", ["REP", "SUPERVISOR", "MANAGER"]);
+export const mobileProductTypeEnum = pgEnum("mobile_product_type", ["UNLIMITED", "3_GIG", "1_GIG", "BYOD", "OTHER"]);
 
 // Users table with expanded hierarchy
 export const users = pgTable("users", {
@@ -95,6 +96,7 @@ export const rateCards = pgTable("rate_cards", {
   providerId: varchar("provider_id").notNull().references(() => providers.id),
   clientId: varchar("client_id").references(() => clients.id),
   serviceId: varchar("service_id").notNull().references(() => services.id),
+  mobileProductType: mobileProductTypeEnum("mobile_product_type"),
   baseAmount: decimal("base_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   tvAddonAmount: decimal("tv_addon_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   mobilePerLineAmount: decimal("mobile_per_line_amount", { precision: 10, scale: 2 }).notNull().default("0"),
@@ -145,6 +147,7 @@ export const salesOrders = pgTable("sales_orders", {
   accountNumber: text("account_number"),
   tvSold: boolean("tv_sold").notNull().default(false),
   mobileSold: boolean("mobile_sold").notNull().default(false),
+  mobileProductType: mobileProductTypeEnum("mobile_product_type"),
   mobileLinesQty: integer("mobile_lines_qty").notNull().default(0),
   customerName: text("customer_name").notNull(),
   customerAddress: text("customer_address"),

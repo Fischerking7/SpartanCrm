@@ -17,6 +17,15 @@ import { Plus, Search, DollarSign, Edit, Trash2, ChevronDown, Check } from "luci
 import type { RateCard, Provider, Client, Service } from "@shared/schema";
 
 const __ANY_CLIENT__ = "__ANY_CLIENT__";
+const __NO_MOBILE__ = "__NO_MOBILE__";
+
+const MOBILE_PRODUCT_TYPES = [
+  { value: "UNLIMITED", label: "Unlimited" },
+  { value: "3_GIG", label: "3 Gig" },
+  { value: "1_GIG", label: "1 Gig" },
+  { value: "BYOD", label: "BYOD" },
+  { value: "OTHER", label: "Other" },
+];
 
 export default function AdminRateCards() {
   const { toast } = useToast();
@@ -29,6 +38,7 @@ export default function AdminRateCards() {
     clientId: __ANY_CLIENT__,
     serviceId: "",
     serviceName: "",
+    mobileProductType: __NO_MOBILE__,
     baseAmount: "",
     tvAddonAmount: "",
     mobilePerLineAmount: "",
@@ -133,6 +143,7 @@ export default function AdminRateCards() {
       clientId: __ANY_CLIENT__,
       serviceId: "",
       serviceName: "",
+      mobileProductType: __NO_MOBILE__,
       baseAmount: "",
       tvAddonAmount: "",
       mobilePerLineAmount: "",
@@ -151,6 +162,7 @@ export default function AdminRateCards() {
       clientId: r.clientId || __ANY_CLIENT__,
       serviceId: r.serviceId,
       serviceName: existingService?.name || "",
+      mobileProductType: r.mobileProductType || __NO_MOBILE__,
       baseAmount: r.baseAmount || "0",
       tvAddonAmount: r.tvAddonAmount || "0",
       mobilePerLineAmount: r.mobilePerLineAmount || "0",
@@ -202,6 +214,15 @@ export default function AdminRateCards() {
       cell: (r: RateCard) => <span className="text-sm">{getServiceName(r.serviceId)}</span>,
     },
     {
+      key: "mobileProductType",
+      header: "Mobile Product",
+      cell: (r: RateCard) => r.mobileProductType ? (
+        <Badge variant="outline">{MOBILE_PRODUCT_TYPES.find(t => t.value === r.mobileProductType)?.label || r.mobileProductType}</Badge>
+      ) : (
+        <span className="text-muted-foreground text-sm">-</span>
+      ),
+    },
+    {
       key: "baseAmount",
       header: "Base",
       cell: (r: RateCard) => <span className="font-mono">${parseFloat(r.baseAmount || "0").toFixed(2)}</span>,
@@ -244,6 +265,7 @@ export default function AdminRateCards() {
     const data: any = {
       providerId: formData.providerId,
       clientId: formData.clientId === __ANY_CLIENT__ ? null : formData.clientId,
+      mobileProductType: formData.mobileProductType === __NO_MOBILE__ ? null : formData.mobileProductType,
       baseAmount: formData.baseAmount || "0",
       tvAddonAmount: formData.tvAddonAmount || "0",
       mobilePerLineAmount: formData.mobilePerLineAmount || "0",
@@ -378,6 +400,22 @@ export default function AdminRateCards() {
                 </Popover>
                 <p className="text-xs text-muted-foreground">Select existing or type custom</p>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Mobile Product Type (Optional)</Label>
+              <Select value={formData.mobileProductType} onValueChange={(v) => setFormData({ ...formData, mobileProductType: v })}>
+                <SelectTrigger data-testid="select-mobile-product-type">
+                  <SelectValue placeholder="No mobile product" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={__NO_MOBILE__}>No specific mobile product</SelectItem>
+                  {MOBILE_PRODUCT_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Set different rates for Unlimited, 3 Gig, 1 Gig, etc.</p>
             </div>
 
             <div className="grid grid-cols-3 gap-4">

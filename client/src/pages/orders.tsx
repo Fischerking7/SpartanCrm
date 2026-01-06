@@ -44,6 +44,7 @@ export default function Orders() {
     customerEmail: "",
     hasTv: false,
     hasMobile: false,
+    mobileProductType: "",
     mobileLinesSold: 0,
   });
 
@@ -177,6 +178,7 @@ export default function Orders() {
           customerEmail: orderData.customerEmail || null,
           hasTv: orderData.hasTv,
           hasMobile: orderData.hasMobile,
+          mobileProductType: orderData.hasMobile && orderData.mobileProductType ? orderData.mobileProductType : null,
           mobileLinesSold: orderData.hasMobile ? orderData.mobileLinesSold : 0,
         }),
       });
@@ -212,6 +214,7 @@ export default function Orders() {
       customerEmail: "",
       hasTv: false,
       hasMobile: false,
+      mobileProductType: "",
       mobileLinesSold: 0,
     });
   };
@@ -701,23 +704,44 @@ export default function Orders() {
                 <Checkbox 
                   id="hasMobile" 
                   checked={newOrderForm.hasMobile}
-                  onCheckedChange={(checked) => setNewOrderForm(f => ({ ...f, hasMobile: !!checked, mobileLinesSold: checked ? f.mobileLinesSold : 0 }))}
+                  onCheckedChange={(checked) => setNewOrderForm(f => ({ ...f, hasMobile: !!checked, mobileProductType: checked ? f.mobileProductType : "", mobileLinesSold: checked ? f.mobileLinesSold : 0 }))}
                   data-testid="checkbox-has-mobile"
                 />
                 <Label htmlFor="hasMobile" className="cursor-pointer">Mobile</Label>
               </div>
               {newOrderForm.hasMobile && (
-                <div className="flex items-center gap-2">
-                  <Label>Lines Sold:</Label>
-                  <Input 
-                    type="number" 
-                    min="0"
-                    className="w-20"
-                    value={newOrderForm.mobileLinesSold}
-                    onChange={(e) => setNewOrderForm(f => ({ ...f, mobileLinesSold: parseInt(e.target.value) || 0 }))}
-                    data-testid="input-mobile-lines"
-                  />
-                </div>
+                <>
+                  <div className="flex items-center gap-2">
+                    <Label>Product:</Label>
+                    <Select 
+                      value={newOrderForm.mobileProductType || "__none__"} 
+                      onValueChange={(v) => setNewOrderForm(f => ({ ...f, mobileProductType: v === "__none__" ? "" : v }))}
+                    >
+                      <SelectTrigger className="w-32" data-testid="select-mobile-product-type">
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Select type</SelectItem>
+                        <SelectItem value="UNLIMITED">Unlimited</SelectItem>
+                        <SelectItem value="3_GIG">3 Gig</SelectItem>
+                        <SelectItem value="1_GIG">1 Gig</SelectItem>
+                        <SelectItem value="BYOD">BYOD</SelectItem>
+                        <SelectItem value="OTHER">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label>Lines:</Label>
+                    <Input 
+                      type="number" 
+                      min="0"
+                      className="w-20"
+                      value={newOrderForm.mobileLinesSold}
+                      onChange={(e) => setNewOrderForm(f => ({ ...f, mobileLinesSold: parseInt(e.target.value) || 0 }))}
+                      data-testid="input-mobile-lines"
+                    />
+                  </div>
+                </>
               )}
             </div>
           </div>

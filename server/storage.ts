@@ -210,10 +210,34 @@ export const storage = {
         or(isNull(rateCards.effectiveEnd), gte(rateCards.effectiveEnd, date))
       ),
     });
-    // Find best match: client-specific first, then any client
-    const clientSpecific = cards.find(card => card.clientId === order.clientId);
-    const anyClient = cards.find(card => !card.clientId);
-    return clientSpecific || anyClient || cards[0];
+    
+    // Priority for matching:
+    // 1. Client-specific + mobile product type match
+    // 2. Client-specific + no mobile product type (general)
+    // 3. Any client + mobile product type match
+    // 4. Any client + no mobile product type (general)
+    
+    const orderMobileType = order.mobileProductType;
+    
+    // Client + mobile product type specific
+    if (orderMobileType) {
+      const clientAndMobile = cards.find(card => card.clientId === order.clientId && card.mobileProductType === orderMobileType);
+      if (clientAndMobile) return clientAndMobile;
+    }
+    
+    // Client-specific, no mobile product type
+    const clientNoMobile = cards.find(card => card.clientId === order.clientId && !card.mobileProductType);
+    if (clientNoMobile) return clientNoMobile;
+    
+    // Any client + mobile product type
+    if (orderMobileType) {
+      const anyClientMobile = cards.find(card => !card.clientId && card.mobileProductType === orderMobileType);
+      if (anyClientMobile) return anyClientMobile;
+    }
+    
+    // Any client, no mobile product type (fallback)
+    const anyClientNoMobile = cards.find(card => !card.clientId && !card.mobileProductType);
+    return anyClientNoMobile || cards[0];
   },
   
   // Calculate commission using rate card with new payout structure
