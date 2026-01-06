@@ -37,14 +37,14 @@ import {
 const repMenuItems = [
   { title: "My Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
 ];
 
 const managerMenuItems = [
   { title: "Team Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Team Overview", url: "/team", icon: Users },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
 ];
@@ -52,7 +52,7 @@ const managerMenuItems = [
 const adminMenuItems = [
   { title: "All Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Approvals Queue", url: "/approvals", icon: CheckSquare },
   { title: "Pay Runs", url: "/payruns", icon: Calendar },
   { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
