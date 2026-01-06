@@ -513,6 +513,42 @@ export async function registerRoutes(
     }
   });
 
+  // Filter options for manager dashboard - returns supervisors, reps, providers in manager's scope
+  app.get("/api/team/filter-options", auth, managerOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      
+      let supervisors: { id: string; name: string }[] = [];
+      let reps: { id: string; name: string; repId: string }[] = [];
+      
+      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+        // Admin sees all
+        const allUsers = await storage.getUsers();
+        supervisors = allUsers.filter(u => u.role === "SUPERVISOR" && u.status === "ACTIVE" && !u.deletedAt).map(u => ({ id: u.id, name: u.name }));
+        reps = allUsers.filter(u => u.role === "REP" && u.status === "ACTIVE" && !u.deletedAt).map(u => ({ id: u.id, name: u.name, repId: u.repId }));
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        const allUsers = await storage.getUsers();
+        supervisors = allUsers.filter(u => scope.supervisorIds.includes(u.id) && u.status === "ACTIVE" && !u.deletedAt).map(u => ({ id: u.id, name: u.name }));
+        reps = allUsers.filter(u => scope.allRepIds.includes(u.id) && u.status === "ACTIVE" && !u.deletedAt).map(u => ({ id: u.id, name: u.name, repId: u.repId }));
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        const allUsers = await storage.getUsers();
+        supervisors = allUsers.filter(u => scope.supervisorIds.includes(u.id) && u.status === "ACTIVE" && !u.deletedAt).map(u => ({ id: u.id, name: u.name }));
+        reps = allUsers.filter(u => scope.allRepIds.includes(u.id) && u.status === "ACTIVE" && !u.deletedAt).map(u => ({ id: u.id, name: u.name, repId: u.repId }));
+      }
+      
+      // Get providers (visible to all managers+)
+      const providers = await storage.getProviders();
+      const activeProviders = providers.filter(p => p.active && !p.deletedAt).map(p => ({ id: p.id, name: p.name }));
+      
+      res.json({ supervisors, reps, providers: activeProviders });
+    } catch (error) {
+      console.error("Filter options error:", error);
+      res.status(500).json({ message: "Failed to get filter options" });
+    }
+  });
+
   // Orders routes
   app.get("/api/orders", auth, async (req: AuthRequest, res) => {
     try {

@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth, getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Users, Target, CheckCircle, TrendingUp, Filter } from "lucide-react";
-import type { User, Provider } from "@shared/schema";
 
 type Cadence = "DAY" | "WEEK" | "MONTH";
 
@@ -29,10 +28,15 @@ interface ProductionData {
   }>;
 }
 
+interface FilterOptions {
+  supervisors: Array<{ id: string; name: string }>;
+  reps: Array<{ id: string; name: string; repId: string }>;
+  providers: Array<{ id: string; name: string }>;
+}
+
 const __ALL__ = "__ALL__";
 
 export default function ManagerDashboard() {
-  const { user } = useAuth();
   const [cadence, setCadence] = useState<Cadence>("WEEK");
   const [supervisorFilter, setSupervisorFilter] = useState<string>(__ALL__);
   const [repFilter, setRepFilter] = useState<string>(__ALL__);
@@ -58,31 +62,11 @@ export default function ManagerDashboard() {
     },
   });
 
-  const { data: supervisors } = useQuery<User[]>({
-    queryKey: ["/api/admin/users"],
+  const { data: filterOptions } = useQuery<FilterOptions>({
+    queryKey: ["/api/team/filter-options"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
-      if (!res.ok) return [];
-      const users = await res.json();
-      return users.filter((u: User) => u.role === "SUPERVISOR" && u.status === "ACTIVE");
-    },
-  });
-
-  const { data: reps } = useQuery<User[]>({
-    queryKey: ["/api/admin/users", "reps"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
-      if (!res.ok) return [];
-      const users = await res.json();
-      return users.filter((u: User) => u.role === "REP" && u.status === "ACTIVE");
-    },
-  });
-
-  const { data: providers } = useQuery<Provider[]>({
-    queryKey: ["/api/admin/providers"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/providers", { headers: getAuthHeaders() });
-      if (!res.ok) return [];
+      const res = await fetch("/api/team/filter-options", { headers: getAuthHeaders() });
+      if (!res.ok) return { supervisors: [], reps: [], providers: [] };
       return res.json();
     },
   });
@@ -243,7 +227,7 @@ export default function ManagerDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={__ALL__}>All Supervisors</SelectItem>
-                  {supervisors?.map((s) => (
+                  {filterOptions?.supervisors.map((s) => (
                     <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -254,7 +238,7 @@ export default function ManagerDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={__ALL__}>All Reps</SelectItem>
-                  {reps?.map((r) => (
+                  {filterOptions?.reps.map((r) => (
                     <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -265,7 +249,7 @@ export default function ManagerDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={__ALL__}>All Providers</SelectItem>
-                  {providers?.filter(p => p.active).map((p) => (
+                  {filterOptions?.providers.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                   ))}
                 </SelectContent>

@@ -545,8 +545,10 @@ export const storage = {
   },
   
   // Executive scope: returns all rep repIds an executive can see (their entire org tree)
-  async getExecutiveScope(executiveId: string): Promise<{ managerIds: string[]; allRepRepIds: string[] }> {
+  async getExecutiveScope(executiveId: string): Promise<{ managerIds: string[]; supervisorIds: string[]; allRepIds: string[]; allRepRepIds: string[] }> {
     const allRepRepIds: string[] = [];
+    const allRepIds: string[] = [];
+    const supervisorIds: string[] = [];
     
     // Get managers assigned to this executive
     const managers = await db.query.users.findMany({
@@ -559,6 +561,8 @@ export const storage = {
       allRepRepIds.push(manager.repId); // Include manager's own repId
       const scope = await this.getManagerScope(manager.id);
       allRepRepIds.push(...scope.allRepRepIds);
+      allRepIds.push(...scope.allRepIds);
+      supervisorIds.push(...scope.supervisorIds);
     }
     
     // Get supervisors directly assigned to this executive (if any)
@@ -566,9 +570,11 @@ export const storage = {
       where: and(eq(users.assignedExecutiveId, executiveId), eq(users.role, "SUPERVISOR"), eq(users.status, "ACTIVE"))
     });
     for (const supervisor of supervisors) {
+      supervisorIds.push(supervisor.id);
       allRepRepIds.push(supervisor.repId);
       const supervisedReps = await this.getSupervisedReps(supervisor.id);
       allRepRepIds.push(...supervisedReps.map(r => r.repId));
+      allRepIds.push(...supervisedReps.map(r => r.id));
     }
     
     // Get reps directly assigned to this executive (if any)
@@ -576,9 +582,12 @@ export const storage = {
       where: and(eq(users.assignedExecutiveId, executiveId), eq(users.role, "REP"), eq(users.status, "ACTIVE"))
     });
     allRepRepIds.push(...directReps.map(r => r.repId));
+    allRepIds.push(...directReps.map(r => r.id));
     
     return {
       managerIds,
+      supervisorIds: Array.from(new Set(supervisorIds)),
+      allRepIds: Array.from(new Set(allRepIds)),
       allRepRepIds: Array.from(new Set(allRepRepIds)),
     };
   },
