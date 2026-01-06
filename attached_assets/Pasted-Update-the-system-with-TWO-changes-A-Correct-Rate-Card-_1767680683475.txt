@@ -1,0 +1,130 @@
+Update the system with TWO changes:
+(A) Correct Rate Card logic for TV/Mobile
+(B) Allow FOUNDER and ADMIN to remove Users, Services, Rate Cards, Providers (and Clients if applicable) safely.
+
+========================================================
+(A) RATE CARD LOGIC CORRECTION (TV/MOBILE)
+========================================================
+BUSINESS RULE:
+- “TV/Video?” and “Mobile sold?” are sale attributes on the SalesOrder (tvSold, mobileSold).
+- Mobile payout is PAID PER LINE quantity (mobileLinesQty), not a yes/no condition.
+
+REMOVE these fields from RateCard everywhere:
+- tvCondition (YES/NO/ANY)
+- mobileCondition (YES/NO/ANY)
+- linesMin/linesMax (unless later needed)
+
+IMPLEMENT RateCard payouts using ONE of these two supported patterns:
+
+Option A (preferred, more flexible):
+RateCard:
+- id, providerId, clientId(nullable for ANY), serviceId, effectiveStart, effectiveEnd(nullable), active
+RateCardPayout:
+- id, rateCardId
+- payoutType enum: BASE, TV_ADDON, MOBILE_PER_LINE
+- amount (currency)
+Rules:
+- BASE always applies
+- TV_ADDON applies only if SalesOrder.tvSold == true
+- MOBILE_PER_LINE applies only if SalesOrder.mobileSold == true, total = amount * SalesOrder.mobileLinesQty
+
+Option B (simpler v1, fewer tables):
+RateCard fields:
+- baseAmount
+- tvAddonAmount
+- mobilePerLineAmount
+Rules:
+commission = baseAmount
+          + (SalesOrder.tvSold ? tvAddonAmount : 0)
+          + (SalesOrder.mobileSold ? mobilePerLineAmount * SalesOrder.mobileLinesQty : 0)
+
+UI:
+- Update Add/Edit Rate Card forms to capture baseAmount, tvAddonAmount, mobilePerLineAmount (or payout components).
+- Remove any UI references to tvCondition/mobileCondition.
+- Ensure commission calculation service uses this formula and stores:
+  - baseCommissionEarned (computed)
+  - appliedRateCardId
+  - calcAt timestamp
+
+========================================================
+(B) REMOVE (DELETE) ENTITIES – FOUNDER + ADMIN ONLY
+========================================================
+Requirement:
+- FOUNDER and ADMIN can remove:
+  - Users
+  - Services
+  - Rate Cards
+  - Providers
+  - (and Clients if applicable)
+- Removal must NOT corrupt historical Orders/Invoices/Payments/Chargebacks/Audit.
+
+IMPLEMENTATION: SAFE DELETE POLICY
+Use "soft delete" by default:
+- Add fields where needed:
+  - deletedAt (DateTime nullable)
+  - deletedByUserId (nullable)
+  - isDeleted boolean optional (or derive from deletedAt)
+
+Rules:
+1) Soft delete means:
+   - Excluded from dropdowns and new selections
+   - Still available for historical records, reporting, and audits
+2) Hard delete is allowed ONLY if there are zero dependent records.
+   - If dependencies exist, return a clear error:
+     "Cannot permanently delete because historical records exist. Use deactivate/soft-delete instead."
+
+Entity-specific rules:
+
+USERS:
+- Provide ADMIN/FOUNDER endpoint to remove a user:
+  - Prefer soft delete OR deactivate + deletedAt
+  - Must NOT delete historical SalesOrders, payments, overrides, audit logs.
+- If user is removed:
+  - They cannot login
+  - Their repId remains reserved (cannot be reused)
+  - Orders credited to their repId remain intact
+
+SERVICES / PROVIDERS / CLIENTS:
+- Removing should default to soft delete.
+- If referenced by any SalesOrder or RateCard, prevent hard delete and soft delete instead.
+
+RATE CARDS:
+- Removing a rate card should default to soft delete (or set active=false plus deletedAt).
+- Past approved orders must retain their appliedRateCardId reference.
+- If a rate card has EVER been applied to an approved order, hard delete should be blocked.
+
+AUTHORIZATION:
+- Only ADMIN and FOUNDER can remove these entities.
+- FOUNDER can remove anything including Admin-created items.
+- ADMIN cannot remove Founders unless explicitly allowed by Founder policy (optional; default restrict).
+
+AUDIT (NON-NEGOTIABLE):
+- Every remove action must log in AuditLog:
+  - action: USER_REMOVED / SERVICE_REMOVED / PROVIDER_REMOVED / RATECARD_REMOVED / CLIENT_REMOVED
+  - target record id
+  - changedBy user id
+  - timestamp
+  - beforeJson/afterJson (excluding secrets)
+- Never log password values.
+
+API:
+Create delete endpoints (or PATCH /archive endpoints) for Admin/Founder:
+- DELETE /api/admin/users/:id   (soft delete; or deactivate+deletedAt)
+- DELETE /api/admin/services/:id
+- DELETE /api/admin/providers/:id
+- DELETE /api/admin/clients/:id
+- DELETE /api/admin/rate-cards/:id
+(FOUNDER can use same endpoints; authorization middleware should allow both)
+
+UI:
+- In Admin/Founder dashboards, add “Remove” actions.
+- Add confirmation modal:
+  - Show dependencies count if any (e.g., “This provider is used in 312 orders”).
+  - If dependencies exist, label action “Archive” (soft delete) not “Delete”.
+
+TEST CASES:
+- Admin removes provider used in orders -> provider archived, historical orders still display provider name.
+- Admin removes rate card previously applied -> archived, orders keep appliedRateCardId.
+- Admin removes user -> user cannot login, historical credited orders remain.
+- Founder can remove any service/provider/rate card/user.
+- Dropdowns never include deleted items.

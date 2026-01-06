@@ -36,6 +36,8 @@ export const users = pgTable("users", {
   assignedSupervisorId: varchar("assigned_supervisor_id"),
   assignedManagerId: varchar("assigned_manager_id"),
   assignedExecutiveId: varchar("assigned_executive_id"),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: varchar("deleted_by_user_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -55,6 +57,8 @@ export const providers = pgTable("providers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
   active: boolean("active").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: varchar("deleted_by_user_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -64,6 +68,8 @@ export const clients = pgTable("clients", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
   active: boolean("active").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: varchar("deleted_by_user_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -76,27 +82,27 @@ export const services = pgTable("services", {
   category: text("category"),
   unitType: text("unit_type"),
   active: boolean("active").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: varchar("deleted_by_user_id"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// Rate Cards table
+// Rate Cards table - Simplified payout structure
 export const rateCards = pgTable("rate_cards", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   providerId: varchar("provider_id").notNull().references(() => providers.id),
   clientId: varchar("client_id").references(() => clients.id),
   serviceId: varchar("service_id").notNull().references(() => services.id),
-  tvCondition: conditionEnum("tv_condition").notNull().default("ANY"),
-  mobileCondition: conditionEnum("mobile_condition").notNull().default("ANY"),
-  linesMin: integer("lines_min"),
-  linesMax: integer("lines_max"),
-  commissionType: commissionTypeEnum("commission_type").notNull().default("FLAT"),
-  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  baseAmount: decimal("base_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  tvAddonAmount: decimal("tv_addon_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  mobilePerLineAmount: decimal("mobile_per_line_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   effectiveStart: date("effective_start").notNull(),
   effectiveEnd: date("effective_end"),
   active: boolean("active").notNull().default(true),
-  requiresReview: boolean("requires_review").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: varchar("deleted_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
