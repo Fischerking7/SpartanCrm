@@ -593,14 +593,14 @@ export const storage = {
   },
   
   // Validate org hierarchy rules
-  async validateOrgHierarchy(userData: { role?: string; assignedSupervisorId?: string | null; assignedManagerId?: string | null }): Promise<{ valid: boolean; error?: string }> {
-    const { role, assignedSupervisorId, assignedManagerId } = userData;
+  async validateOrgHierarchy(userData: { role?: string; assignedSupervisorId?: string | null; assignedManagerId?: string | null; assignedExecutiveId?: string | null }): Promise<{ valid: boolean; error?: string }> {
+    const { role, assignedSupervisorId, assignedManagerId, assignedExecutiveId } = userData;
     
     // REP rules
     if (role === "REP") {
-      // REP must have either supervisor or direct manager
-      if (!assignedSupervisorId && !assignedManagerId) {
-        return { valid: false, error: "Rep must be assigned to either a Supervisor or a Manager" };
+      // REP must have either supervisor, direct manager, or executive
+      if (!assignedSupervisorId && !assignedManagerId && !assignedExecutiveId) {
+        return { valid: false, error: "Rep must be assigned to a Supervisor, Manager, or Executive" };
       }
       
       // If supervisor is set, check for manager mismatch
