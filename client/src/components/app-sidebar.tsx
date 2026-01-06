@@ -31,24 +31,28 @@ import {
   Calendar,
   FileSpreadsheet,
   History,
+  UserPlus,
 } from "lucide-react";
 
 const repMenuItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "My Orders", url: "/orders", icon: FileText },
+  { title: "My Leads", url: "/leads", icon: UserPlus },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
 ];
 
 const managerMenuItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Team Orders", url: "/orders", icon: FileText },
+  { title: "My Leads", url: "/leads", icon: UserPlus },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Team Overview", url: "/team", icon: Users },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
 ];
 
 const adminMenuItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "All Orders", url: "/orders", icon: FileText },
+  { title: "My Leads", url: "/leads", icon: UserPlus },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Approvals Queue", url: "/approvals", icon: CheckSquare },
   { title: "Pay Runs", url: "/payruns", icon: Calendar },
   { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },

@@ -385,6 +385,35 @@ export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type ExportBatch = typeof exportBatches.$inferSelect;
 export type Counter = typeof counters.$inferSelect;
 
+// Leads table - for imported lead data
+export const leads = pgTable("leads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  repId: text("rep_id").notNull(),
+  customerName: text("customer_name").notNull(),
+  customerAddress: text("customer_address"),
+  customerPhone: text("customer_phone"),
+  customerEmail: text("customer_email"),
+  street: text("street"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  notes: text("notes"),
+  importedAt: timestamp("imported_at").defaultNow().notNull(),
+  importedBy: varchar("imported_by").references(() => users.id),
+  status: text("status").notNull().default("NEW"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertLeadSchema = createInsertSchema(leads).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  importedAt: true,
+});
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = z.infer<typeof insertLeadSchema>;
+
 // Login schema
 export const loginSchema = z.object({
   repId: z.string().min(1, "Rep ID is required"),
