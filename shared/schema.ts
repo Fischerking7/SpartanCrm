@@ -208,6 +208,7 @@ export const incentives = pgTable("incentives", {
 // Override Agreements table - Flat rate overrides for hierarchy
 export const overrideAgreements = pgTable("override_agreements", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceUserId: varchar("source_user_id").references(() => users.id),
   recipientUserId: varchar("recipient_user_id").notNull().references(() => users.id),
   sourceLevel: sourceLevelEnum("source_level").notNull(),
   amountFlat: decimal("amount_flat", { precision: 10, scale: 2 }).notNull(),
@@ -223,7 +224,8 @@ export const overrideAgreements = pgTable("override_agreements", {
 });
 
 export const overrideAgreementsRelations = relations(overrideAgreements, ({ one }) => ({
-  recipient: one(users, { fields: [overrideAgreements.recipientUserId], references: [users.id] }),
+  sourceUser: one(users, { fields: [overrideAgreements.sourceUserId], references: [users.id], relationName: "sourceUser" }),
+  recipient: one(users, { fields: [overrideAgreements.recipientUserId], references: [users.id], relationName: "recipient" }),
   provider: one(providers, { fields: [overrideAgreements.providerId], references: [providers.id] }),
   client: one(clients, { fields: [overrideAgreements.clientId], references: [clients.id] }),
   service: one(services, { fields: [overrideAgreements.serviceId], references: [services.id] }),

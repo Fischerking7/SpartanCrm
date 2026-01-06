@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
-import { DataTable } from "@/components/data-table";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -10,31 +9,32 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Users, Edit, Trash2 } from "lucide-react";
+import { Search, Users, Plus, Trash2, ChevronRight, DollarSign } from "lucide-react";
 import type { OverrideAgreement, User, Provider, Client, Service } from "@shared/schema";
+
+type OverrideEntry = {
+  id?: string;
+  recipientUserId: string;
+  amountFlat: string;
+  providerId: string;
+  clientId: string;
+  serviceId: string;
+  effectiveStart: string;
+  effectiveEnd: string;
+  active: boolean;
+  notes: string;
+};
 
 export default function AdminOverrides() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
-  const [showDialog, setShowDialog] = useState(false);
-  const [editingItem, setEditingItem] = useState<OverrideAgreement | null>(null);
-  const [formData, setFormData] = useState({
-    recipientUserId: "",
-    sourceLevel: "REP",
-    amountFlat: "",
-    providerId: "",
-    clientId: "",
-    serviceId: "",
-    effectiveStart: "",
-    effectiveEnd: "",
-    active: true,
-    notes: "",
-  });
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [overrides, setOverrides] = useState<OverrideEntry[]>([]);
+  const [saving, setSaving] = useState(false);
 
-  const { data: items, isLoading } = useQuery<OverrideAgreement[]>({
+  const { data: allOverrides, isLoading: overridesLoading } = useQuery<OverrideAgreement[]>({
     queryKey: ["/api/admin/overrides"],
     queryFn: async () => {
       const res = await fetch("/api/admin/overrides", { headers: getAuthHeaders() });
@@ -42,7 +42,7 @@ export default function AdminOverrides() {
     },
   });
 
-  const { data: users } = useQuery<User[]>({
+  const { data: users, isLoading: usersLoading } = useQuery<User[]>({
     queryKey: ["/api/admin/users"],
     queryFn: async () => {
       const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
@@ -74,217 +74,145 @@ export default function AdminOverrides() {
     },
   });
 
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await fetch("/api/admin/overrides", {
-        method: "POST",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error((await res.json()).message || "Failed");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/overrides"] });
-      closeDialog();
-      toast({ title: "Override agreement created" });
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
+  const salesUsers = users?.filter((u) => 
+    ["REP", "SUPERVISOR", "MANAGER"].includes(u.role) && u.status === "ACTIVE"
+  ) || [];
 
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: any }) => {
-      const res = await fetch(`/api/admin/overrides/${id}`, {
-        method: "PATCH",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error((await res.json()).message || "Failed");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/overrides"] });
-      closeDialog();
-      toast({ title: "Override agreement updated" });
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
+  const eligibleRecipients = users?.filter((u) =>
+    ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"].includes(u.role) && u.status === "ACTIVE"
+  ) || [];
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/admin/overrides/${id}`, {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) throw new Error((await res.json()).message || "Failed");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/overrides"] });
-      toast({ title: "Override agreement deleted" });
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
+  const getUserName = (userId: string) => users?.find((u) => u.id === userId)?.name || userId;
+  const getUserRole = (userId: string) => users?.find((u) => u.id === userId)?.role || "";
+
+  const getOverridesForUser = (userId: string) => {
+    return allOverrides?.filter((o) => o.sourceUserId === userId) || [];
+  };
+
+  const filteredUsers = salesUsers.filter((u) =>
+    u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    u.role.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const openUserOverrides = (user: User) => {
+    setSelectedUser(user);
+    const existing = getOverridesForUser(user.id);
+    if (existing.length > 0) {
+      setOverrides(existing.map((o) => ({
+        id: o.id,
+        recipientUserId: o.recipientUserId,
+        amountFlat: o.amountFlat,
+        providerId: o.providerId || "",
+        clientId: o.clientId || "",
+        serviceId: o.serviceId || "",
+        effectiveStart: o.effectiveStart,
+        effectiveEnd: o.effectiveEnd || "",
+        active: o.active,
+        notes: o.notes || "",
+      })));
+    } else {
+      setOverrides([]);
+    }
+  };
 
   const closeDialog = () => {
-    setShowDialog(false);
-    setEditingItem(null);
-    setFormData({
+    setSelectedUser(null);
+    setOverrides([]);
+  };
+
+  const addOverrideRow = () => {
+    const today = new Date().toISOString().split("T")[0];
+    setOverrides([...overrides, {
       recipientUserId: "",
-      sourceLevel: "REP",
       amountFlat: "",
       providerId: "",
       clientId: "",
       serviceId: "",
-      effectiveStart: "",
+      effectiveStart: today,
       effectiveEnd: "",
       active: true,
       notes: "",
-    });
+    }]);
   };
 
-  const eligibleRecipients = users?.filter((u) =>
-    ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"].includes(u.role) && u.status === "ACTIVE"
-  );
+  const updateOverrideRow = (index: number, field: keyof OverrideEntry, value: any) => {
+    const updated = [...overrides];
+    updated[index] = { ...updated[index], [field]: value };
+    setOverrides(updated);
+  };
 
-  const getUserName = (userId: string) => users?.find((u) => u.id === userId)?.name || userId;
-  const getUserRole = (userId: string) => users?.find((u) => u.id === userId)?.role || "";
-  const getProviderName = (id: string | null) => providers?.find((p) => p.id === id)?.name || "All";
-  const getClientName = (id: string | null) => clients?.find((c) => c.id === id)?.name || "All";
-  const getServiceName = (id: string | null) => services?.find((s) => s.id === id)?.name || "All";
+  const removeOverrideRow = (index: number) => {
+    setOverrides(overrides.filter((_, i) => i !== index));
+  };
 
-  const filtered = items?.filter((i) => {
-    const recipientName = getUserName(i.recipientUserId).toLowerCase();
-    return recipientName.includes(searchTerm.toLowerCase()) || i.sourceLevel.toLowerCase().includes(searchTerm.toLowerCase());
-  });
+  const saveOverrides = async () => {
+    if (!selectedUser) return;
+    setSaving(true);
 
-  const columns = [
-    {
-      key: "recipient",
-      header: "Recipient",
-      cell: (r: OverrideAgreement) => (
-        <div>
-          <span className="font-medium">{getUserName(r.recipientUserId)}</span>
-          <Badge variant="outline" className="ml-2">{getUserRole(r.recipientUserId)}</Badge>
-        </div>
-      ),
-    },
-    {
-      key: "sourceLevel",
-      header: "Source Level",
-      cell: (r: OverrideAgreement) => <Badge variant="secondary">{r.sourceLevel}</Badge>,
-    },
-    {
-      key: "amountFlat",
-      header: "Amount",
-      cell: (r: OverrideAgreement) => <span className="font-mono">${parseFloat(r.amountFlat).toFixed(2)}</span>,
-      className: "text-right",
-    },
-    {
-      key: "filters",
-      header: "Filters",
-      cell: (r: OverrideAgreement) => (
-        <div className="text-sm text-muted-foreground">
-          {r.providerId || r.clientId || r.serviceId ? (
-            <span>
-              {r.providerId && `Provider: ${getProviderName(r.providerId)}`}
-              {r.clientId && ` | Client: ${getClientName(r.clientId)}`}
-              {r.serviceId && ` | Service: ${getServiceName(r.serviceId)}`}
-            </span>
-          ) : (
-            "All orders"
-          )}
-        </div>
-      ),
-    },
-    {
-      key: "dates",
-      header: "Effective Period",
-      cell: (r: OverrideAgreement) => (
-        <span className="text-sm text-muted-foreground">
-          {new Date(r.effectiveStart).toLocaleDateString()} - {r.effectiveEnd ? new Date(r.effectiveEnd).toLocaleDateString() : "Ongoing"}
-        </span>
-      ),
-    },
-    {
-      key: "active",
-      header: "Status",
-      cell: (r: OverrideAgreement) => <Badge variant={r.active ? "default" : "secondary"}>{r.active ? "Active" : "Inactive"}</Badge>,
-    },
-    {
-      key: "actions",
-      header: "",
-      cell: (r: OverrideAgreement) => (
-        <div className="flex items-center gap-1">
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => {
-              setEditingItem(r);
-              setFormData({
-                recipientUserId: r.recipientUserId,
-                sourceLevel: r.sourceLevel,
-                amountFlat: r.amountFlat,
-                providerId: r.providerId || "",
-                clientId: r.clientId || "",
-                serviceId: r.serviceId || "",
-                effectiveStart: r.effectiveStart,
-                effectiveEnd: r.effectiveEnd || "",
-                active: r.active,
-                notes: r.notes || "",
-              });
-              setShowDialog(true);
-            }}
-            data-testid={`button-edit-override-${r.id}`}
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => {
-              if (confirm("Are you sure you want to delete this override agreement?")) {
-                deleteMutation.mutate(r.id);
-              }
-            }}
-            data-testid={`button-delete-override-${r.id}`}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      ),
-    },
-  ];
+    try {
+      const existingIds = getOverridesForUser(selectedUser.id).map((o) => o.id);
+      const newOverrideIds = overrides.filter((o) => o.id).map((o) => o.id);
+      const toDelete = existingIds.filter((id) => !newOverrideIds.includes(id));
 
-  const handleSubmit = () => {
-    const data = {
-      ...formData,
-      providerId: formData.providerId || null,
-      clientId: formData.clientId || null,
-      serviceId: formData.serviceId || null,
-      effectiveEnd: formData.effectiveEnd || null,
-    };
-    if (editingItem) {
-      updateMutation.mutate({ id: editingItem.id, data });
-    } else {
-      createMutation.mutate(data);
+      for (const id of toDelete) {
+        await fetch(`/api/admin/overrides/${id}`, {
+          method: "DELETE",
+          headers: getAuthHeaders(),
+        });
+      }
+
+      for (const override of overrides) {
+        if (!override.recipientUserId || !override.amountFlat || !override.effectiveStart) continue;
+
+        const data = {
+          sourceUserId: selectedUser.id,
+          recipientUserId: override.recipientUserId,
+          sourceLevel: selectedUser.role,
+          amountFlat: override.amountFlat,
+          providerId: override.providerId || null,
+          clientId: override.clientId || null,
+          serviceId: override.serviceId || null,
+          effectiveStart: override.effectiveStart,
+          effectiveEnd: override.effectiveEnd || null,
+          active: override.active,
+          notes: override.notes || null,
+        };
+
+        if (override.id) {
+          await fetch(`/api/admin/overrides/${override.id}`, {
+            method: "PATCH",
+            headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          });
+        } else {
+          await fetch("/api/admin/overrides", {
+            method: "POST",
+            headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          });
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/overrides"] });
+      toast({ title: "Overrides saved successfully" });
+      closeDialog();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Failed to save", variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
   };
 
+  const isLoading = overridesLoading || usersLoading;
+
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <Users className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-semibold">Override Agreements</h1>
-            <p className="text-muted-foreground">Configure commission overrides for hierarchy roles</p>
-          </div>
+      <div className="flex items-center gap-3">
+        <Users className="h-6 w-6 text-primary" />
+        <div>
+          <h1 className="text-2xl font-semibold">Override Agreements</h1>
+          <p className="text-muted-foreground">Configure who earns overrides on each person's sales</p>
         </div>
-        <Button onClick={() => setShowDialog(true)} data-testid="button-new-override">
-          <Plus className="h-4 w-4 mr-2" />
-          New Override
-        </Button>
       </div>
 
       <Card>
@@ -292,157 +220,228 @@ export default function AdminOverrides() {
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by recipient or source level..."
+              placeholder="Search by name or role..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
-              data-testid="input-search-overrides"
+              data-testid="input-search-users"
             />
           </div>
         </CardHeader>
         <CardContent>
-          <DataTable columns={columns} data={filtered || []} isLoading={isLoading} emptyMessage="No override agreements" testId="table-overrides" />
+          {isLoading ? (
+            <div className="text-center py-8 text-muted-foreground">Loading...</div>
+          ) : filteredUsers.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">No sales users found</div>
+          ) : (
+            <div className="space-y-2">
+              {filteredUsers.map((user) => {
+                const userOverrides = getOverridesForUser(user.id);
+                const totalAmount = userOverrides.reduce((sum, o) => sum + parseFloat(o.amountFlat || "0"), 0);
+                
+                return (
+                  <div
+                    key={user.id}
+                    className="flex items-center justify-between p-4 rounded-md border hover-elevate cursor-pointer"
+                    onClick={() => openUserOverrides(user)}
+                    data-testid={`row-user-${user.id}`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div>
+                        <span className="font-medium">{user.name}</span>
+                        <Badge variant="outline" className="ml-2">{user.role}</Badge>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      {userOverrides.length > 0 ? (
+                        <div className="text-sm text-muted-foreground">
+                          <span className="font-medium text-foreground">{userOverrides.length}</span> recipient{userOverrides.length !== 1 ? "s" : ""} 
+                          <span className="mx-2">|</span>
+                          <span className="font-mono">${totalAmount.toFixed(2)}</span> total per sale
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">No overrides configured</span>
+                      )}
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      <Dialog open={showDialog} onOpenChange={closeDialog}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={!!selectedUser} onOpenChange={() => closeDialog()}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingItem ? "Edit" : "Create"} Override Agreement</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              Override Recipients for {selectedUser?.name}
+              <Badge variant="outline">{selectedUser?.role}</Badge>
+            </DialogTitle>
           </DialogHeader>
+          
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Recipient (Who receives the override)</Label>
-              <Select value={formData.recipientUserId} onValueChange={(v) => setFormData({ ...formData, recipientUserId: v })}>
-                <SelectTrigger data-testid="select-recipient">
-                  <SelectValue placeholder="Select recipient" />
-                </SelectTrigger>
-                <SelectContent>
-                  {eligibleRecipients?.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.name} ({u.role})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              Configure who earns commission overrides when {selectedUser?.name} makes a sale. Each recipient will earn their specified amount per qualifying order.
+            </p>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Source Level (Whose sales generate overrides)</Label>
-                <Select value={formData.sourceLevel} onValueChange={(v) => setFormData({ ...formData, sourceLevel: v })}>
-                  <SelectTrigger data-testid="select-source-level">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="REP">REP</SelectItem>
-                    <SelectItem value="SUPERVISOR">SUPERVISOR</SelectItem>
-                    <SelectItem value="MANAGER">MANAGER</SelectItem>
-                  </SelectContent>
-                </Select>
+            {overrides.length === 0 ? (
+              <div className="text-center py-8 border rounded-md bg-muted/20">
+                <DollarSign className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-muted-foreground">No override recipients configured</p>
+                <Button variant="outline" className="mt-4" onClick={addOverrideRow} data-testid="button-add-first-override">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Override Recipient
+                </Button>
               </div>
-              <div className="space-y-2">
-                <Label>Amount (Flat $ per order)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={formData.amountFlat}
-                  onChange={(e) => setFormData({ ...formData, amountFlat: e.target.value })}
-                  placeholder="0.00"
-                  data-testid="input-amount"
-                />
-              </div>
-            </div>
+            ) : (
+              <div className="space-y-4">
+                {overrides.map((override, index) => (
+                  <Card key={index} className="p-4">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1 grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Recipient</Label>
+                            <Select 
+                              value={override.recipientUserId || "__none__"} 
+                              onValueChange={(v) => updateOverrideRow(index, "recipientUserId", v === "__none__" ? "" : v)}
+                            >
+                              <SelectTrigger data-testid={`select-recipient-${index}`}>
+                                <SelectValue placeholder="Select recipient" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">Select recipient</SelectItem>
+                                {eligibleRecipients.map((u) => (
+                                  <SelectItem key={u.id} value={u.id}>
+                                    {u.name} ({u.role})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Amount ($)</Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={override.amountFlat}
+                              onChange={(e) => updateOverrideRow(index, "amountFlat", e.target.value)}
+                              placeholder="0.00"
+                              data-testid={`input-amount-${index}`}
+                            />
+                          </div>
+                        </div>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="mt-6"
+                          onClick={() => removeOverrideRow(index)}
+                          data-testid={`button-remove-override-${index}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Provider (Optional)</Label>
-                <Select value={formData.providerId || "__all__"} onValueChange={(v) => setFormData({ ...formData, providerId: v === "__all__" ? "" : v })}>
-                  <SelectTrigger data-testid="select-provider">
-                    <SelectValue placeholder="All" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">All Providers</SelectItem>
-                    {providers?.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Client (Optional)</Label>
-                <Select value={formData.clientId || "__all__"} onValueChange={(v) => setFormData({ ...formData, clientId: v === "__all__" ? "" : v })}>
-                  <SelectTrigger data-testid="select-client">
-                    <SelectValue placeholder="All" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">All Clients</SelectItem>
-                    {clients?.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Service (Optional)</Label>
-                <Select value={formData.serviceId || "__all__"} onValueChange={(v) => setFormData({ ...formData, serviceId: v === "__all__" ? "" : v })}>
-                  <SelectTrigger data-testid="select-service">
-                    <SelectValue placeholder="All" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">All Services</SelectItem>
-                    {services?.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Provider Filter</Label>
+                          <Select 
+                            value={override.providerId || "__all__"} 
+                            onValueChange={(v) => updateOverrideRow(index, "providerId", v === "__all__" ? "" : v)}
+                          >
+                            <SelectTrigger data-testid={`select-provider-${index}`}>
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__all__">All Providers</SelectItem>
+                              {providers?.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Client Filter</Label>
+                          <Select 
+                            value={override.clientId || "__all__"} 
+                            onValueChange={(v) => updateOverrideRow(index, "clientId", v === "__all__" ? "" : v)}
+                          >
+                            <SelectTrigger data-testid={`select-client-${index}`}>
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__all__">All Clients</SelectItem>
+                              {clients?.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Service Filter</Label>
+                          <Select 
+                            value={override.serviceId || "__all__"} 
+                            onValueChange={(v) => updateOverrideRow(index, "serviceId", v === "__all__" ? "" : v)}
+                          >
+                            <SelectTrigger data-testid={`select-service-${index}`}>
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__all__">All Services</SelectItem>
+                              {services?.map((s) => (
+                                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Effective Start</Label>
-                <Input
-                  type="date"
-                  value={formData.effectiveStart}
-                  onChange={(e) => setFormData({ ...formData, effectiveStart: e.target.value })}
-                  data-testid="input-effective-start"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Effective End (Optional)</Label>
-                <Input
-                  type="date"
-                  value={formData.effectiveEnd}
-                  onChange={(e) => setFormData({ ...formData, effectiveEnd: e.target.value })}
-                  data-testid="input-effective-end"
-                />
-              </div>
-            </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Start Date</Label>
+                          <Input
+                            type="date"
+                            value={override.effectiveStart}
+                            onChange={(e) => updateOverrideRow(index, "effectiveStart", e.target.value)}
+                            data-testid={`input-start-${index}`}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">End Date (Optional)</Label>
+                          <Input
+                            type="date"
+                            value={override.effectiveEnd}
+                            onChange={(e) => updateOverrideRow(index, "effectiveEnd", e.target.value)}
+                            data-testid={`input-end-${index}`}
+                          />
+                        </div>
+                        <div className="flex items-end gap-2 pb-1">
+                          <Switch 
+                            checked={override.active} 
+                            onCheckedChange={(c) => updateOverrideRow(index, "active", c)} 
+                            data-testid={`switch-active-${index}`}
+                          />
+                          <Label className="text-xs">Active</Label>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
 
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Textarea
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Optional notes about this override agreement..."
-                data-testid="input-notes"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Switch checked={formData.active} onCheckedChange={(c) => setFormData({ ...formData, active: c })} data-testid="switch-active" />
-              <Label>Active</Label>
-            </div>
+                <Button variant="outline" onClick={addOverrideRow} data-testid="button-add-override">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Another Recipient
+                </Button>
+              </div>
+            )}
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={closeDialog}>Cancel</Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={!formData.recipientUserId || !formData.amountFlat || !formData.effectiveStart}
-              data-testid="button-save-override"
-            >
-              Save
+            <Button onClick={saveOverrides} disabled={saving} data-testid="button-save-overrides">
+              {saving ? "Saving..." : "Save All"}
             </Button>
           </DialogFooter>
         </DialogContent>
