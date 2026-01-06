@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 interface Column<T> {
   key: string;
-  header: string;
+  header: string | (() => React.ReactNode);
   cell: (row: T) => React.ReactNode;
   className?: string;
 }
@@ -40,7 +40,7 @@ export function DataTable<T extends { id?: string }>({
             <TableRow>
               {columns.map((col) => (
                 <TableHead key={col.key} className={col.className}>
-                  {col.header}
+                  {typeof col.header === "function" ? col.header() : col.header}
                 </TableHead>
               ))}
             </TableRow>
@@ -76,7 +76,7 @@ export function DataTable<T extends { id?: string }>({
           <TableRow>
             {columns.map((col) => (
               <TableHead key={col.key} className={col.className}>
-                {col.header}
+                {typeof col.header === "function" ? col.header() : col.header}
               </TableHead>
             ))}
           </TableRow>
