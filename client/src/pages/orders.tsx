@@ -45,6 +45,7 @@ export default function Orders() {
     hasTv: false,
     hasMobile: false,
     mobileProductType: "",
+    mobilePortedStatus: "",
     mobileLinesSold: 0,
   });
 
@@ -179,6 +180,7 @@ export default function Orders() {
           hasTv: orderData.hasTv,
           hasMobile: orderData.hasMobile,
           mobileProductType: orderData.hasMobile && orderData.mobileProductType ? orderData.mobileProductType : null,
+          mobilePortedStatus: orderData.hasMobile && orderData.mobilePortedStatus ? orderData.mobilePortedStatus : null,
           mobileLinesSold: orderData.hasMobile ? orderData.mobileLinesSold : 0,
         }),
       });
@@ -215,6 +217,7 @@ export default function Orders() {
       hasTv: false,
       hasMobile: false,
       mobileProductType: "",
+      mobilePortedStatus: "",
       mobileLinesSold: 0,
     });
   };
@@ -704,7 +707,7 @@ export default function Orders() {
                 <Checkbox 
                   id="hasMobile" 
                   checked={newOrderForm.hasMobile}
-                  onCheckedChange={(checked) => setNewOrderForm(f => ({ ...f, hasMobile: !!checked, mobileProductType: checked ? f.mobileProductType : "", mobileLinesSold: checked ? f.mobileLinesSold : 0 }))}
+                  onCheckedChange={(checked) => setNewOrderForm(f => ({ ...f, hasMobile: !!checked, mobileProductType: checked ? f.mobileProductType : "", mobilePortedStatus: checked ? f.mobilePortedStatus : "", mobileLinesSold: checked ? f.mobileLinesSold : 0 }))}
                   data-testid="checkbox-has-mobile"
                 />
                 <Label htmlFor="hasMobile" className="cursor-pointer">Mobile</Label>
@@ -727,6 +730,22 @@ export default function Orders() {
                         <SelectItem value="1_GIG">1 Gig</SelectItem>
                         <SelectItem value="BYOD">BYOD</SelectItem>
                         <SelectItem value="OTHER">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label>Ported:</Label>
+                    <Select 
+                      value={newOrderForm.mobilePortedStatus || "__none__"} 
+                      onValueChange={(v) => setNewOrderForm(f => ({ ...f, mobilePortedStatus: v === "__none__" ? "" : v }))}
+                    >
+                      <SelectTrigger className="w-32" data-testid="select-mobile-ported-status">
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Select</SelectItem>
+                        <SelectItem value="PORTED">Ported</SelectItem>
+                        <SelectItem value="NON_PORTED">Non-Ported</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

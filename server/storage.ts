@@ -225,32 +225,68 @@ export const storage = {
     }) : [];
     
     const orderMobileType = order.mobileProductType;
+    const orderPortedStatus = order.mobilePortedStatus;
     
-    // Priority for matching:
-    // 1. Service + Client + mobile product type match
-    // 2. Service + Client + no mobile product type (general)
-    // 3. Service + Any client + mobile product type
-    // 4. Service + Any client + no mobile product type
-    // 5. Mobile-only (no service) + Client + mobile product type
-    // 6. Mobile-only (no service) + Any client + mobile product type
+    // Helper to check if rate card matches mobile criteria
+    const matchesMobile = (card: RateCard, matchType: boolean, matchPorted: boolean) => {
+      const typeMatch = matchType ? card.mobileProductType === orderMobileType : !card.mobileProductType;
+      const portedMatch = matchPorted ? card.mobilePortedStatus === orderPortedStatus : !card.mobilePortedStatus;
+      return typeMatch && portedMatch;
+    };
+    
+    // Priority for matching (most specific to least specific):
+    // 1. Service + Client + mobile type + ported status
+    // 2. Service + Client + mobile type (any ported)
+    // 3. Service + Client + ported status (any type)
+    // 4. Service + Client (general)
+    // 5-8. Same pattern for Any client
+    // 9-12. Mobile-only cards follow same pattern
     
     // Service-specific cards first
     if (serviceCards.length > 0) {
-      if (orderMobileType) {
-        const clientAndMobile = serviceCards.find(card => card.clientId === order.clientId && card.mobileProductType === orderMobileType);
-        if (clientAndMobile) return clientAndMobile;
+      // Full match: client + mobile type + ported status
+      if (orderMobileType && orderPortedStatus) {
+        const fullMatch = serviceCards.find(card => card.clientId === order.clientId && matchesMobile(card, true, true));
+        if (fullMatch) return fullMatch;
       }
       
-      const clientNoMobile = serviceCards.find(card => card.clientId === order.clientId && !card.mobileProductType);
-      if (clientNoMobile) return clientNoMobile;
-      
+      // Client + mobile type (any ported)
       if (orderMobileType) {
-        const anyClientMobile = serviceCards.find(card => !card.clientId && card.mobileProductType === orderMobileType);
-        if (anyClientMobile) return anyClientMobile;
+        const typeMatch = serviceCards.find(card => card.clientId === order.clientId && card.mobileProductType === orderMobileType && !card.mobilePortedStatus);
+        if (typeMatch) return typeMatch;
       }
       
-      const anyClientNoMobile = serviceCards.find(card => !card.clientId && !card.mobileProductType);
-      if (anyClientNoMobile) return anyClientNoMobile;
+      // Client + ported status (any type)
+      if (orderPortedStatus) {
+        const portedMatch = serviceCards.find(card => card.clientId === order.clientId && !card.mobileProductType && card.mobilePortedStatus === orderPortedStatus);
+        if (portedMatch) return portedMatch;
+      }
+      
+      // Client only (general)
+      const clientGeneral = serviceCards.find(card => card.clientId === order.clientId && !card.mobileProductType && !card.mobilePortedStatus);
+      if (clientGeneral) return clientGeneral;
+      
+      // Any client + mobile type + ported
+      if (orderMobileType && orderPortedStatus) {
+        const anyFullMatch = serviceCards.find(card => !card.clientId && matchesMobile(card, true, true));
+        if (anyFullMatch) return anyFullMatch;
+      }
+      
+      // Any client + mobile type
+      if (orderMobileType) {
+        const anyTypeMatch = serviceCards.find(card => !card.clientId && card.mobileProductType === orderMobileType && !card.mobilePortedStatus);
+        if (anyTypeMatch) return anyTypeMatch;
+      }
+      
+      // Any client + ported status
+      if (orderPortedStatus) {
+        const anyPortedMatch = serviceCards.find(card => !card.clientId && !card.mobileProductType && card.mobilePortedStatus === orderPortedStatus);
+        if (anyPortedMatch) return anyPortedMatch;
+      }
+      
+      // Any client general
+      const anyGeneral = serviceCards.find(card => !card.clientId && !card.mobileProductType && !card.mobilePortedStatus);
+      if (anyGeneral) return anyGeneral;
       
       // Fall back to any service card
       if (serviceCards[0]) return serviceCards[0];
@@ -258,11 +294,25 @@ export const storage = {
     
     // Mobile-only rate cards (no service requirement) - used for per-product mobile rates
     if (mobileOnlyCards.length > 0 && orderMobileType) {
-      const clientAndMobile = mobileOnlyCards.find(card => card.clientId === order.clientId && card.mobileProductType === orderMobileType);
-      if (clientAndMobile) return clientAndMobile;
+      // Full match with ported
+      if (orderPortedStatus) {
+        const fullMatch = mobileOnlyCards.find(card => card.clientId === order.clientId && matchesMobile(card, true, true));
+        if (fullMatch) return fullMatch;
+      }
       
-      const anyClientMobile = mobileOnlyCards.find(card => !card.clientId && card.mobileProductType === orderMobileType);
-      if (anyClientMobile) return anyClientMobile;
+      // Client + type
+      const clientType = mobileOnlyCards.find(card => card.clientId === order.clientId && card.mobileProductType === orderMobileType && !card.mobilePortedStatus);
+      if (clientType) return clientType;
+      
+      // Any client + full match
+      if (orderPortedStatus) {
+        const anyFullMatch = mobileOnlyCards.find(card => !card.clientId && matchesMobile(card, true, true));
+        if (anyFullMatch) return anyFullMatch;
+      }
+      
+      // Any client + type
+      const anyType = mobileOnlyCards.find(card => !card.clientId && card.mobileProductType === orderMobileType && !card.mobilePortedStatus);
+      if (anyType) return anyType;
     }
     
     return serviceCards[0] || mobileOnlyCards[0];

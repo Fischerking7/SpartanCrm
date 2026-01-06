@@ -18,6 +18,7 @@ import type { RateCard, Provider, Client, Service } from "@shared/schema";
 
 const __ANY_CLIENT__ = "__ANY_CLIENT__";
 const __NO_MOBILE__ = "__NO_MOBILE__";
+const __NO_PORTED__ = "__NO_PORTED__";
 
 const MOBILE_PRODUCT_TYPES = [
   { value: "UNLIMITED", label: "Unlimited" },
@@ -25,6 +26,11 @@ const MOBILE_PRODUCT_TYPES = [
   { value: "1_GIG", label: "1 Gig" },
   { value: "BYOD", label: "BYOD" },
   { value: "OTHER", label: "Other" },
+];
+
+const MOBILE_PORTED_STATUS = [
+  { value: "PORTED", label: "Ported" },
+  { value: "NON_PORTED", label: "Non-Ported" },
 ];
 
 export default function AdminRateCards() {
@@ -39,6 +45,7 @@ export default function AdminRateCards() {
     serviceId: "",
     serviceName: "",
     mobileProductType: __NO_MOBILE__,
+    mobilePortedStatus: __NO_PORTED__,
     baseAmount: "",
     tvAddonAmount: "",
     mobilePerLineAmount: "",
@@ -144,6 +151,7 @@ export default function AdminRateCards() {
       serviceId: "",
       serviceName: "",
       mobileProductType: __NO_MOBILE__,
+      mobilePortedStatus: __NO_PORTED__,
       baseAmount: "",
       tvAddonAmount: "",
       mobilePerLineAmount: "",
@@ -163,6 +171,7 @@ export default function AdminRateCards() {
       serviceId: r.serviceId || "",
       serviceName: existingService?.name || "",
       mobileProductType: r.mobileProductType || __NO_MOBILE__,
+      mobilePortedStatus: r.mobilePortedStatus || __NO_PORTED__,
       baseAmount: r.baseAmount || "0",
       tvAddonAmount: r.tvAddonAmount || "0",
       mobilePerLineAmount: r.mobilePerLineAmount || "0",
@@ -223,6 +232,15 @@ export default function AdminRateCards() {
       ),
     },
     {
+      key: "mobilePortedStatus",
+      header: "Ported",
+      cell: (r: RateCard) => r.mobilePortedStatus ? (
+        <Badge variant="outline">{MOBILE_PORTED_STATUS.find(t => t.value === r.mobilePortedStatus)?.label || r.mobilePortedStatus}</Badge>
+      ) : (
+        <span className="text-muted-foreground text-sm">-</span>
+      ),
+    },
+    {
       key: "baseAmount",
       header: "Base",
       cell: (r: RateCard) => <span className="font-mono">${parseFloat(r.baseAmount || "0").toFixed(2)}</span>,
@@ -266,6 +284,7 @@ export default function AdminRateCards() {
       providerId: formData.providerId,
       clientId: formData.clientId === __ANY_CLIENT__ ? null : formData.clientId,
       mobileProductType: formData.mobileProductType === __NO_MOBILE__ ? null : formData.mobileProductType,
+      mobilePortedStatus: formData.mobilePortedStatus === __NO_PORTED__ ? null : formData.mobilePortedStatus,
       baseAmount: formData.baseAmount || "0",
       tvAddonAmount: formData.tvAddonAmount || "0",
       mobilePerLineAmount: formData.mobilePerLineAmount || "0",
@@ -406,20 +425,37 @@ export default function AdminRateCards() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Mobile Product Type (Optional)</Label>
-              <Select value={formData.mobileProductType} onValueChange={(v) => setFormData({ ...formData, mobileProductType: v })}>
-                <SelectTrigger data-testid="select-mobile-product-type">
-                  <SelectValue placeholder="No mobile product" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={__NO_MOBILE__}>No specific mobile product</SelectItem>
-                  {MOBILE_PRODUCT_TYPES.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">Set different rates for Unlimited, 3 Gig, 1 Gig, etc.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Mobile Product Type (Optional)</Label>
+                <Select value={formData.mobileProductType} onValueChange={(v) => setFormData({ ...formData, mobileProductType: v })}>
+                  <SelectTrigger data-testid="select-mobile-product-type">
+                    <SelectValue placeholder="No mobile product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={__NO_MOBILE__}>No specific mobile product</SelectItem>
+                    {MOBILE_PRODUCT_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Unlimited, 3 Gig, 1 Gig, etc.</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Ported Status (Optional)</Label>
+                <Select value={formData.mobilePortedStatus} onValueChange={(v) => setFormData({ ...formData, mobilePortedStatus: v })}>
+                  <SelectTrigger data-testid="select-mobile-ported-status">
+                    <SelectValue placeholder="Any ported status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={__NO_PORTED__}>Any ported status</SelectItem>
+                    {MOBILE_PORTED_STATUS.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Ported or Non-Ported lines</p>
+              </div>
             </div>
 
             <div className="grid grid-cols-3 gap-4">
