@@ -144,7 +144,10 @@ function Router() {
   return (
     <AuthenticatedLayout>
       <Switch>
-        <Route path="/" component={Dashboard} />
+        <Route path="/">
+          <Redirect to="/dashboard" />
+        </Route>
+        <Route path="/dashboard" component={Dashboard} />
         <Route path="/orders" component={Orders} />
         <Route path="/adjustments" component={Adjustments} />
         <Route path="/change-password" component={ChangePassword} />
