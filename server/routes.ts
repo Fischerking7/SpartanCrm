@@ -1278,14 +1278,35 @@ export async function registerRoutes(
   });
   app.post("/api/admin/rate-cards", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const rateCard = await storage.createRateCard(req.body);
+      let { customServiceName, serviceId, ...rateCardData } = req.body;
+      
+      // If customServiceName provided but no serviceId, create a new service
+      if (customServiceName && !serviceId) {
+        const code = customServiceName.toUpperCase().replace(/[^A-Z0-9]/g, '_').substring(0, 20);
+        const newService = await storage.createService({ name: customServiceName, code, active: true });
+        await storage.createAuditLog({ action: "create_service", tableName: "services", recordId: newService.id, afterJson: JSON.stringify(newService), userId: req.user!.id });
+        serviceId = newService.id;
+      }
+      
+      const rateCard = await storage.createRateCard({ ...rateCardData, serviceId });
       await storage.createAuditLog({ action: "create_rate_card", tableName: "rate_cards", recordId: rateCard.id, afterJson: JSON.stringify(rateCard), userId: req.user!.id });
       res.json(rateCard);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
   app.patch("/api/admin/rate-cards/:id", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const rateCard = await storage.updateRateCard(req.params.id, req.body);
+      let { customServiceName, serviceId, ...rateCardData } = req.body;
+      
+      // If customServiceName provided but no serviceId, create a new service
+      if (customServiceName && !serviceId) {
+        const code = customServiceName.toUpperCase().replace(/[^A-Z0-9]/g, '_').substring(0, 20);
+        const newService = await storage.createService({ name: customServiceName, code, active: true });
+        await storage.createAuditLog({ action: "create_service", tableName: "services", recordId: newService.id, afterJson: JSON.stringify(newService), userId: req.user!.id });
+        serviceId = newService.id;
+      }
+      
+      const updateData = serviceId ? { ...rateCardData, serviceId } : rateCardData;
+      const rateCard = await storage.updateRateCard(req.params.id, updateData);
       await storage.createAuditLog({ action: "update_rate_card", tableName: "rate_cards", recordId: req.params.id, afterJson: JSON.stringify(rateCard), userId: req.user!.id });
       res.json(rateCard);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
@@ -9,10 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, DollarSign, Edit, Trash2 } from "lucide-react";
+import { Plus, Search, DollarSign, Edit, Trash2, ChevronDown, Check } from "lucide-react";
 import type { RateCard, Provider, Client, Service } from "@shared/schema";
 
 const __ANY_CLIENT__ = "__ANY_CLIENT__";
@@ -27,6 +28,7 @@ export default function AdminRateCards() {
     providerId: "",
     clientId: __ANY_CLIENT__,
     serviceId: "",
+    serviceName: "",
     baseAmount: "",
     tvAddonAmount: "",
     mobilePerLineAmount: "",
@@ -34,6 +36,7 @@ export default function AdminRateCards() {
     effectiveEnd: "",
     active: true,
   });
+  const [servicePopoverOpen, setServicePopoverOpen] = useState(false);
 
   const { data: items, isLoading } = useQuery<RateCard[]>({
     queryKey: ["/api/admin/rate-cards"],
@@ -129,6 +132,7 @@ export default function AdminRateCards() {
       providerId: "",
       clientId: __ANY_CLIENT__,
       serviceId: "",
+      serviceName: "",
       baseAmount: "",
       tvAddonAmount: "",
       mobilePerLineAmount: "",
@@ -136,14 +140,17 @@ export default function AdminRateCards() {
       effectiveEnd: "",
       active: true,
     });
+    setServicePopoverOpen(false);
   };
 
   const openEdit = (r: RateCard) => {
     setEditingItem(r);
+    const existingService = services?.find(s => s.id === r.serviceId);
     setFormData({
       providerId: r.providerId,
       clientId: r.clientId || __ANY_CLIENT__,
       serviceId: r.serviceId,
+      serviceName: existingService?.name || "",
       baseAmount: r.baseAmount || "0",
       tvAddonAmount: r.tvAddonAmount || "0",
       mobilePerLineAmount: r.mobilePerLineAmount || "0",
@@ -152,6 +159,19 @@ export default function AdminRateCards() {
       active: r.active,
     });
     setShowDialog(true);
+  };
+
+  const filteredServices = services?.filter(
+    (s) => s.active && !s.deletedAt && s.name.toLowerCase().includes(formData.serviceName.toLowerCase())
+  ) || [];
+
+  const selectService = (service: Service) => {
+    setFormData({ ...formData, serviceId: service.id, serviceName: service.name });
+    setServicePopoverOpen(false);
+  };
+
+  const handleServiceNameChange = (value: string) => {
+    setFormData({ ...formData, serviceName: value, serviceId: "" });
   };
 
   const getProviderName = (id: string) => providers?.find((p) => p.id === id)?.name || id;
@@ -221,10 +241,9 @@ export default function AdminRateCards() {
   ];
 
   const submitData = () => {
-    const data = {
+    const data: any = {
       providerId: formData.providerId,
       clientId: formData.clientId === __ANY_CLIENT__ ? null : formData.clientId,
-      serviceId: formData.serviceId,
       baseAmount: formData.baseAmount || "0",
       tvAddonAmount: formData.tvAddonAmount || "0",
       mobilePerLineAmount: formData.mobilePerLineAmount || "0",
@@ -232,12 +251,19 @@ export default function AdminRateCards() {
       effectiveEnd: formData.effectiveEnd || null,
       active: formData.active,
     };
+    if (formData.serviceId) {
+      data.serviceId = formData.serviceId;
+    } else if (formData.serviceName.trim()) {
+      data.customServiceName = formData.serviceName.trim();
+    }
     if (editingItem) {
       updateMutation.mutate({ id: editingItem.id, data });
     } else {
       createMutation.mutate(data);
     }
   };
+
+  const isServiceValid = formData.serviceId || formData.serviceName.trim();
 
   return (
     <div className="p-6 space-y-6">
@@ -310,16 +336,46 @@ export default function AdminRateCards() {
               </div>
               <div className="space-y-2">
                 <Label>Service</Label>
-                <Select value={formData.serviceId} onValueChange={(v) => setFormData({ ...formData, serviceId: v })}>
-                  <SelectTrigger data-testid="select-service">
-                    <SelectValue placeholder="Select service" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {services?.filter((s) => s.active && s.id && !s.deletedAt).map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={servicePopoverOpen} onOpenChange={setServicePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <div className="relative">
+                      <Input
+                        placeholder="Type or select service..."
+                        value={formData.serviceName}
+                        onChange={(e) => handleServiceNameChange(e.target.value)}
+                        onFocus={() => setServicePopoverOpen(true)}
+                        data-testid="input-service"
+                      />
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    </div>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[200px] p-0" align="start">
+                    <div className="max-h-[200px] overflow-y-auto">
+                      {filteredServices.length > 0 ? (
+                        filteredServices.map((s) => (
+                          <div
+                            key={s.id}
+                            className="flex items-center gap-2 px-3 py-2 cursor-pointer hover-elevate"
+                            onClick={() => selectService(s)}
+                            data-testid={`option-service-${s.id}`}
+                          >
+                            {formData.serviceId === s.id && <Check className="h-4 w-4 text-primary" />}
+                            <span className={formData.serviceId === s.id ? "font-medium" : ""}>{s.name}</span>
+                          </div>
+                        ))
+                      ) : formData.serviceName ? (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          Custom: "{formData.serviceName}"
+                        </div>
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          No services found
+                        </div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                <p className="text-xs text-muted-foreground">Select existing or type custom</p>
               </div>
             </div>
 
@@ -392,7 +448,7 @@ export default function AdminRateCards() {
             <Button variant="outline" onClick={closeDialog}>Cancel</Button>
             <Button
               onClick={submitData}
-              disabled={!formData.providerId || !formData.serviceId || !formData.effectiveStart || createMutation.isPending || updateMutation.isPending}
+              disabled={!formData.providerId || !isServiceValid || !formData.effectiveStart || createMutation.isPending || updateMutation.isPending}
               data-testid="button-save-rate-card"
             >
               {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
