@@ -4,7 +4,7 @@ import {
   users, providers, clients, services, rateCards, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues,
-  auditLogs, exportBatches, counters, overrideEarnings, leads, commissionLineItems,
+  auditLogs, exportBatches, counters, overrideEarnings, leads, commissionLineItems, mobileLineItems,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -14,6 +14,7 @@ import {
   type PayRun, type InsertPayRun, type UnmatchedPayment, type UnmatchedChargeback,
   type RateIssue, type AuditLog, type InsertAuditLog, type Lead, type InsertLead,
   type CommissionLineItem, type InsertCommissionLineItem,
+  type MobileLineItem, type InsertMobileLineItem,
 } from "@shared/schema";
 
 export const storage = {
@@ -393,6 +394,37 @@ export const storage = {
     if (items.length === 0) return [];
     const itemsWithOrderId = items.map(item => ({ ...item, salesOrderId: orderId }));
     return db.insert(commissionLineItems).values(itemsWithOrderId).returning();
+  },
+
+  // Mobile Line Items CRUD
+  async getMobileLineItemsByOrderId(orderId: string) {
+    return db.query.mobileLineItems.findMany({
+      where: eq(mobileLineItems.salesOrderId, orderId),
+      orderBy: [mobileLineItems.lineNumber],
+    });
+  },
+  async createMobileLineItem(data: InsertMobileLineItem) {
+    const [item] = await db.insert(mobileLineItems).values(data).returning();
+    return item;
+  },
+  async deleteMobileLineItemsByOrderId(orderId: string) {
+    await db.delete(mobileLineItems).where(eq(mobileLineItems.salesOrderId, orderId));
+  },
+  async createMobileLineItems(orderId: string, items: Omit<InsertMobileLineItem, "salesOrderId">[]) {
+    if (items.length === 0) return [];
+    const itemsWithOrderId = items.map((item, index) => ({ 
+      ...item, 
+      salesOrderId: orderId,
+      lineNumber: index + 1,
+    }));
+    return db.insert(mobileLineItems).values(itemsWithOrderId).returning();
+  },
+  async updateMobileLineItemCommission(id: string, commissionAmount: string, appliedRateCardId: string | null) {
+    const [item] = await db.update(mobileLineItems).set({ 
+      commissionAmount, 
+      appliedRateCardId 
+    }).where(eq(mobileLineItems.id, id)).returning();
+    return item;
   },
 
   // Sales Orders

@@ -284,6 +284,31 @@ export const insertCommissionLineItemSchema = createInsertSchema(commissionLineI
   createdAt: true,
 });
 
+// Mobile Line Items - Individual mobile lines per order with their own product type and ported status
+export const mobileLineItems = pgTable("mobile_line_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  salesOrderId: varchar("sales_order_id").notNull().references(() => salesOrders.id),
+  lineNumber: integer("line_number").notNull().default(1),
+  mobileProductType: mobileProductTypeEnum("mobile_product_type").notNull(),
+  mobilePortedStatus: mobilePortedStatusEnum("mobile_ported_status").notNull(),
+  appliedRateCardId: varchar("applied_rate_card_id").references(() => rateCards.id),
+  commissionAmount: decimal("commission_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const mobileLineItemsRelations = relations(mobileLineItems, ({ one }) => ({
+  salesOrder: one(salesOrders, { fields: [mobileLineItems.salesOrderId], references: [salesOrders.id] }),
+  appliedRateCard: one(rateCards, { fields: [mobileLineItems.appliedRateCardId], references: [rateCards.id] }),
+}));
+
+export const insertMobileLineItemSchema = createInsertSchema(mobileLineItems).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertMobileLineItem = z.infer<typeof insertMobileLineItemSchema>;
+export type MobileLineItem = typeof mobileLineItems.$inferSelect;
+
 // Chargebacks table
 export const chargebacks = pgTable("chargebacks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
