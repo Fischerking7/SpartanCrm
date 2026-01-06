@@ -319,7 +319,7 @@ export default function AdminOverrides() {
                       <div className="flex items-center justify-between gap-4">
                         <div className="flex-1 grid grid-cols-2 gap-4">
                           <div className="space-y-2">
-                            <Label>Recipient</Label>
+                            <Label>Recipient ({eligibleRecipients.length} available)</Label>
                             <Select 
                               value={override.recipientUserId || "__none__"} 
                               onValueChange={(v) => updateOverrideRow(index, "recipientUserId", v === "__none__" ? "" : v)}
