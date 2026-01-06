@@ -211,14 +211,59 @@ async function bootstrapFounder(): Promise<void> {
   }
 }
 
+// Bootstrap ADMIN user on first run
+async function bootstrapAdmin(): Promise<void> {
+  try {
+    // Check env vars
+    const repId = process.env.BOOTSTRAP_ADMIN_REPID;
+    const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+    const name = process.env.BOOTSTRAP_ADMIN_NAME || "System Admin";
+    
+    if (!repId || !password) {
+      console.log("BOOTSTRAP_ADMIN_REPID and BOOTSTRAP_ADMIN_PASSWORD env vars not set, skipping admin bootstrap");
+      return;
+    }
+    
+    // Check if this admin already exists
+    const existingUser = await storage.getUserByRepId(repId);
+    if (existingUser) {
+      console.log(`ADMIN user with repId '${repId}' already exists, skipping bootstrap`);
+      return;
+    }
+    
+    // Create ADMIN user
+    const hashedPassword = await hashPassword(password);
+    await storage.createUser({
+      name,
+      repId,
+      role: "ADMIN",
+      status: "ACTIVE",
+      passwordHash: hashedPassword,
+    });
+    
+    console.log(`ADMIN user '${name}' created with repId '${repId}'`);
+    
+    // Log the bootstrap event
+    await storage.createAuditLog({
+      action: "ADMIN_BOOTSTRAP",
+      tableName: "users",
+      afterJson: JSON.stringify({ repId, name, role: "ADMIN" }),
+      userId: null,
+    });
+  } catch (error) {
+    console.error("Error bootstrapping admin:", error);
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   const auth = authMiddleware(db);
   
-  // Bootstrap FOUNDER on first run (empty users table)
+  // Bootstrap FOUNDER and ADMIN on first run
   await bootstrapFounder();
+  await bootstrapAdmin();
 
   // Auth routes
   app.post("/api/auth/login", async (req, res) => {
