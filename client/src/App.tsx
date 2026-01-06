@@ -18,6 +18,7 @@ import ManagerDashboard from "@/pages/manager-dashboard";
 import ExecutiveDashboard from "@/pages/executive-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
 import Orders from "@/pages/orders";
+import Leads from "@/pages/leads";
 import Approvals from "@/pages/approvals";
 import PayRuns from "@/pages/payruns";
 import Accounting from "@/pages/accounting";
@@ -146,6 +147,7 @@ function Router() {
       <Switch>
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/orders" component={Orders} />
+        <Route path="/leads" component={Leads} />
         <Route path="/adjustments" component={Adjustments} />
         <Route path="/change-password" component={ChangePassword} />
         
@@ -165,8 +167,11 @@ function Router() {
           </>
         )}
         
+        <Route path="/">
+          <Redirect to="/orders" />
+        </Route>
         <Route>
-          <Redirect to="/dashboard" />
+          <Redirect to="/orders" />
         </Route>
       </Switch>
     </AuthenticatedLayout>
