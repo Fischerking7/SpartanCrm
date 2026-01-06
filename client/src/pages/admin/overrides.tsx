@@ -15,6 +15,7 @@ import { Search, Users, Plus, Trash2, ChevronRight, DollarSign } from "lucide-re
 import type { OverrideAgreement, User, Provider, Client, Service } from "@shared/schema";
 
 const MOBILE_PRODUCT_TYPES = [
+  { value: "NO_MOBILE", label: "No Mobile" },
   { value: "UNLIMITED", label: "Unlimited" },
   { value: "3_GIG", label: "3 Gig" },
   { value: "1_GIG", label: "1 Gig" },

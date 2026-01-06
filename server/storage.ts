@@ -546,9 +546,18 @@ export const storage = {
       if (a.providerId && a.providerId !== filter?.providerId) return false;
       if (a.clientId && a.clientId !== filter?.clientId) return false;
       if (a.serviceId && a.serviceId !== filter?.serviceId) return false;
-      // If override specifies mobile product type, order must have matching mobile type
-      // (won't match orders without mobile products)
-      if (a.mobileProductType && a.mobileProductType !== filter?.mobileProductType) return false;
+      // Mobile product type matching:
+      // - "NO_MOBILE" matches orders without mobile products (mobileProductType is null/undefined)
+      // - Specific types (UNLIMITED, 3_GIG, etc.) match orders with that exact type
+      if (a.mobileProductType) {
+        if (a.mobileProductType === "NO_MOBILE") {
+          // Only match orders that have NO mobile product
+          if (filter?.mobileProductType) return false;
+        } else {
+          // Match orders with specific mobile product type
+          if (a.mobileProductType !== filter?.mobileProductType) return false;
+        }
+      }
       // If override specifies TV sold filter, order must match
       if (a.tvSoldFilter !== null && a.tvSoldFilter !== undefined && a.tvSoldFilter !== filter?.tvSold) return false;
       return true;
