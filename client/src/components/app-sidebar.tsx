@@ -101,12 +101,8 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center gap-3">
-          <img src={logoImage} alt="Iron Crest Solutions" className="h-10 w-auto" />
-          <div>
-            <h1 className="font-semibold text-lg">SalesOps Pro</h1>
-            <p className="text-xs text-muted-foreground">Commissions Manager</p>
-          </div>
+        <div className="flex items-center">
+          <img src={logoImage} alt="Iron Crest Solutions" className="h-12 w-auto" />
         </div>
       </SidebarHeader>
       
