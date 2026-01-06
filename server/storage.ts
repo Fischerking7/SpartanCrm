@@ -4,7 +4,7 @@ import {
   users, providers, clients, services, rateCards, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues,
-  auditLogs, exportBatches, counters, overrideEarnings, leads,
+  auditLogs, exportBatches, counters, overrideEarnings, leads, commissionLineItems,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -13,6 +13,7 @@ import {
   type Chargeback, type InsertChargeback, type Adjustment, type InsertAdjustment,
   type PayRun, type InsertPayRun, type UnmatchedPayment, type UnmatchedChargeback,
   type RateIssue, type AuditLog, type InsertAuditLog, type Lead, type InsertLead,
+  type CommissionLineItem, type InsertCommissionLineItem,
 } from "@shared/schema";
 
 export const storage = {
@@ -318,20 +319,80 @@ export const storage = {
     return serviceCards[0] || mobileOnlyCards[0];
   },
   
-  // Calculate commission using rate card with new payout structure
+  // Calculate commission using rate card with new payout structure - returns total for backward compatibility
   calculateCommission(rateCard: RateCard, order: SalesOrder): number {
+    const lineItems = this.calculateCommissionLineItems(rateCard, order);
+    return lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
+  },
+
+  // Calculate commission line items - returns separate entries for Internet, Mobile, Video
+  calculateCommissionLineItems(rateCard: RateCard, order: SalesOrder): Omit<InsertCommissionLineItem, "salesOrderId">[] {
+    const lineItems: Omit<InsertCommissionLineItem, "salesOrderId">[] = [];
+    
     const baseAmount = parseFloat(rateCard.baseAmount || "0");
     const tvAddonAmount = parseFloat(rateCard.tvAddonAmount || "0");
     const mobilePerLineAmount = parseFloat(rateCard.mobilePerLineAmount || "0");
     
-    let total = baseAmount;
-    if (order.tvSold) {
-      total += tvAddonAmount;
+    // Internet line item (base service)
+    if (baseAmount > 0) {
+      lineItems.push({
+        serviceCategory: "INTERNET",
+        quantity: 1,
+        unitAmount: baseAmount.toFixed(2),
+        totalAmount: baseAmount.toFixed(2),
+        mobileProductType: null,
+        mobilePortedStatus: null,
+        appliedRateCardId: rateCard.id,
+      });
     }
-    if (order.mobileSold && order.mobileLinesQty > 0) {
-      total += mobilePerLineAmount * order.mobileLinesQty;
+    
+    // Video/TV line item
+    if (order.tvSold && tvAddonAmount > 0) {
+      lineItems.push({
+        serviceCategory: "VIDEO",
+        quantity: 1,
+        unitAmount: tvAddonAmount.toFixed(2),
+        totalAmount: tvAddonAmount.toFixed(2),
+        mobileProductType: null,
+        mobilePortedStatus: null,
+        appliedRateCardId: rateCard.id,
+      });
     }
-    return total;
+    
+    // Mobile line item (per line)
+    if (order.mobileSold && order.mobileLinesQty > 0 && mobilePerLineAmount > 0) {
+      const mobileTotal = mobilePerLineAmount * order.mobileLinesQty;
+      lineItems.push({
+        serviceCategory: "MOBILE",
+        quantity: order.mobileLinesQty,
+        unitAmount: mobilePerLineAmount.toFixed(2),
+        totalAmount: mobileTotal.toFixed(2),
+        mobileProductType: order.mobileProductType,
+        mobilePortedStatus: order.mobilePortedStatus,
+        appliedRateCardId: rateCard.id,
+      });
+    }
+    
+    return lineItems;
+  },
+
+  // Commission Line Items CRUD
+  async getCommissionLineItemsByOrderId(orderId: string) {
+    return db.query.commissionLineItems.findMany({
+      where: eq(commissionLineItems.salesOrderId, orderId),
+    });
+  },
+  async createCommissionLineItem(data: InsertCommissionLineItem) {
+    const [item] = await db.insert(commissionLineItems).values(data).returning();
+    return item;
+  },
+  async deleteCommissionLineItemsByOrderId(orderId: string) {
+    await db.delete(commissionLineItems).where(eq(commissionLineItems.salesOrderId, orderId));
+  },
+  async createCommissionLineItems(orderId: string, items: Omit<InsertCommissionLineItem, "salesOrderId">[]) {
+    if (items.length === 0) return [];
+    const itemsWithOrderId = items.map(item => ({ ...item, salesOrderId: orderId }));
+    return db.insert(commissionLineItems).values(itemsWithOrderId).returning();
   },
 
   // Sales Orders

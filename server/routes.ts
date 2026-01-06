@@ -888,6 +888,17 @@ export async function registerRoutes(
       res.status(500).json({ message: error.message || "Failed to create order" });
     }
   });
+
+  // Get commission line items for an order
+  app.get("/api/orders/:id/commission-lines", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const lineItems = await storage.getCommissionLineItemsByOrderId(id);
+      res.json(lineItems);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get commission line items" });
+    }
+  });
   
   // Strict whitelist-based order mutation
   app.patch("/api/orders/:id", auth, async (req: AuthRequest, res) => {
@@ -1011,6 +1022,11 @@ export async function registerRoutes(
       let rateCard = await storage.findMatchingRateCard(order, order.dateSold);
       if (rateCard) {
         baseCommission = storage.calculateCommission(rateCard, order).toString();
+        
+        // Create commission line items for Internet, Mobile, Video
+        await storage.deleteCommissionLineItemsByOrderId(id); // Clear existing
+        const lineItems = storage.calculateCommissionLineItems(rateCard, order);
+        await storage.createCommissionLineItems(id, lineItems);
       } else {
         await storage.createRateIssue({ salesOrderId: id, type: "MISSING_RATE", details: "No matching rate card found for this order" });
       }
@@ -1075,6 +1091,12 @@ export async function registerRoutes(
         const rateCard = await storage.findMatchingRateCard(order, order.dateSold);
         if (rateCard) {
           baseCommission = storage.calculateCommission(rateCard, order).toString();
+          
+          // Create commission line items for Internet, Mobile, Video
+          await storage.deleteCommissionLineItemsByOrderId(id);
+          const lineItems = storage.calculateCommissionLineItems(rateCard, order);
+          await storage.createCommissionLineItems(id, lineItems);
+          
           const updated = await storage.updateOrder(id, {
             approvalStatus: "APPROVED",
             approvedByUserId: user.id,
