@@ -11,6 +11,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import Login from "@/pages/login";
+import ChangePassword from "@/pages/change-password";
 import RepDashboard from "@/pages/rep-dashboard";
 import ManagerDashboard from "@/pages/manager-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
@@ -34,8 +35,10 @@ function Dashboard() {
   if (!user) return null;
   
   switch (user.role) {
+    case "FOUNDER":
     case "ADMIN":
       return <AdminDashboard />;
+    case "EXECUTIVE":
     case "MANAGER":
       return <ManagerDashboard />;
     default:
@@ -95,7 +98,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 }
 
 function Router() {
-  const { user, isLoading } = useAuth();
+  const { user, mustChangePassword, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -118,8 +121,20 @@ function Router() {
       </Switch>
     );
   }
+  
+  // Force password change if required
+  if (mustChangePassword) {
+    return (
+      <Switch>
+        <Route path="/change-password" component={ChangePassword} />
+        <Route>
+          <Redirect to="/change-password" />
+        </Route>
+      </Switch>
+    );
+  }
 
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = user.role === "ADMIN" || user.role === "FOUNDER";
 
   return (
     <AuthenticatedLayout>
@@ -127,6 +142,7 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/orders" component={Orders} />
         <Route path="/adjustments" component={Adjustments} />
+        <Route path="/change-password" component={ChangePassword} />
         
         {isAdmin && (
           <>

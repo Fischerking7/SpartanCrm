@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Users, Edit, UserX, AlertTriangle } from "lucide-react";
+import { Plus, Search, Users, Edit, UserX, AlertTriangle, KeyRound } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { User } from "@shared/schema";
 
@@ -24,6 +24,8 @@ export default function AdminUsers() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [skipValidation, setSkipValidation] = useState(false);
+  const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
+  const [tempPasswordResult, setTempPasswordResult] = useState<{ tempPassword: string; expiresInHours: number } | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     repId: "",
@@ -109,6 +111,28 @@ export default function AdminUsers() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to deactivate", description: error.message, variant: "destructive" });
+    },
+  });
+  
+  const resetPasswordMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await fetch(`/api/users/${userId}/password-reset`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to reset password");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setTempPasswordResult({ tempPassword: data.tempPassword, expiresInHours: data.expiresInHours });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to reset password", description: error.message, variant: "destructive" });
+      setResetPasswordUser(null);
     },
   });
 
@@ -263,6 +287,15 @@ export default function AdminUsers() {
             data-testid={`button-edit-${row.id}`}
           >
             <Edit className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setResetPasswordUser(row)}
+            data-testid={`button-reset-password-${row.id}`}
+            title="Reset Password"
+          >
+            <KeyRound className="h-4 w-4 text-amber-600" />
           </Button>
           {row.status === "ACTIVE" && (
             <Button
@@ -499,6 +532,68 @@ export default function AdminUsers() {
               {editingUser ? "Update User" : "Create User"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Password Reset Dialog */}
+      <Dialog open={!!resetPasswordUser} onOpenChange={() => { setResetPasswordUser(null); setTempPasswordResult(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5" />
+              Reset Password
+            </DialogTitle>
+            <DialogDescription>
+              {tempPasswordResult 
+                ? "Temporary password generated successfully"
+                : `Generate a temporary password for ${resetPasswordUser?.name}`
+              }
+            </DialogDescription>
+          </DialogHeader>
+          
+          {!tempPasswordResult ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This will generate a temporary password that expires in 24 hours. 
+                The user will be required to change their password on next login.
+              </p>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setResetPasswordUser(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => resetPasswordUser && resetPasswordMutation.mutate(resetPasswordUser.id)}
+                  disabled={resetPasswordMutation.isPending}
+                  data-testid="button-confirm-reset-password"
+                >
+                  {resetPasswordMutation.isPending ? "Generating..." : "Generate Temporary Password"}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <Alert>
+                <AlertDescription>
+                  <p className="font-medium mb-2">Temporary Password (copy now):</p>
+                  <code className="block p-3 bg-muted rounded-md text-lg font-mono select-all" data-testid="text-temp-password">
+                    {tempPasswordResult.tempPassword}
+                  </code>
+                  <p className="text-sm mt-3 text-muted-foreground">
+                    This password will expire in {tempPasswordResult.expiresInHours} hours.
+                    The user must change their password on next login.
+                  </p>
+                </AlertDescription>
+              </Alert>
+              <DialogFooter>
+                <Button 
+                  onClick={() => { setResetPasswordUser(null); setTempPasswordResult(null); }}
+                  data-testid="button-close-reset-dialog"
+                >
+                  Done
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

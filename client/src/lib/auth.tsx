@@ -4,8 +4,10 @@ import type { User } from "@shared/schema";
 interface AuthContextType {
   user: User | null;
   token: string | null;
+  mustChangePassword: boolean;
   login: (repId: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -14,12 +16,15 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const storedToken = localStorage.getItem("token");
+    const storedMustChange = localStorage.getItem("mustChangePassword") === "true";
     if (storedToken) {
       setToken(storedToken);
+      setMustChangePassword(storedMustChange);
       fetchUser(storedToken);
     } else {
       setIsLoading(false);
@@ -34,13 +39,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
+        // Update mustChangePassword from server
+        if (data.user?.mustChangePassword) {
+          setMustChangePassword(true);
+          localStorage.setItem("mustChangePassword", "true");
+        }
       } else {
         localStorage.removeItem("token");
+        localStorage.removeItem("mustChangePassword");
         setToken(null);
+        setMustChangePassword(false);
       }
     } catch {
       localStorage.removeItem("token");
+      localStorage.removeItem("mustChangePassword");
       setToken(null);
+      setMustChangePassword(false);
     } finally {
       setIsLoading(false);
     }
@@ -60,16 +74,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(data.token);
     setUser(data.user);
     localStorage.setItem("token", data.token);
+    
+    // Handle mustChangePassword flag from login response
+    if (data.mustChangePassword) {
+      setMustChangePassword(true);
+      localStorage.setItem("mustChangePassword", "true");
+    } else {
+      setMustChangePassword(false);
+      localStorage.removeItem("mustChangePassword");
+    }
+  }
+  
+  async function refreshUser() {
+    if (token) {
+      await fetchUser(token);
+      // Clear mustChangePassword if user no longer requires it
+      const res = await fetch("/api/auth/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (!data.user?.mustChangePassword) {
+          setMustChangePassword(false);
+          localStorage.removeItem("mustChangePassword");
+        }
+      }
+    }
   }
 
   function logout() {
     setToken(null);
     setUser(null);
+    setMustChangePassword(false);
     localStorage.removeItem("token");
+    localStorage.removeItem("mustChangePassword");
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, token, mustChangePassword, login, logout, refreshUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
