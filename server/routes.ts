@@ -1799,7 +1799,6 @@ export async function registerRoutes(
         const rowNum = i + 2;
 
         try {
-          const customerName = row.customerName?.toString().trim();
           // For REPs, use their own repId; for others, use from file or default to their own
           let repId = row.repId?.toString().trim();
           
@@ -1811,11 +1810,17 @@ export async function registerRoutes(
             repId = currentUser.repId;
           }
 
-          if (!customerName) {
-            errors.push(`Row ${rowNum}: Missing customerName`);
+          // Address is required - can be customerAddress or street
+          const customerAddress = row.customerAddress?.toString().trim() || row.address?.toString().trim();
+          const street = row.street?.toString().trim();
+          
+          if (!customerAddress && !street) {
+            errors.push(`Row ${rowNum}: Missing address (customerAddress or street required)`);
             failed++;
             continue;
           }
+
+          const customerName = row.customerName?.toString().trim() || "";
 
           // Verify rep exists (for non-REPs importing for other reps)
           const rep = users.find(u => u.repId === repId);

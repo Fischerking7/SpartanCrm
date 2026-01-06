@@ -378,7 +378,7 @@ export default function Leads() {
               Import Leads from Excel
             </DialogTitle>
             <DialogDescription>
-              Upload an Excel file (.xlsx) with lead data. Required columns: repId, customerName. Optional: customerAddress, customerPhone, customerEmail, street, city, state, zipCode, notes.
+              Upload an Excel file (.xlsx) with lead data. Required: address (or street). Optional: customerName, customerPhone, customerEmail, city, state, zipCode, notes.
             </DialogDescription>
           </DialogHeader>
           
