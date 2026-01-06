@@ -422,6 +422,76 @@ export async function registerRoutes(
     }
   });
 
+  // Production aggregation endpoint for hierarchical dashboards
+  app.get("/api/dashboard/production", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const cadence = (req.query.cadence as "DAY" | "WEEK" | "MONTH") || "WEEK";
+      const role = user.role as "SUPERVISOR" | "MANAGER" | "EXECUTIVE";
+      
+      // Only SUPERVISOR, MANAGER, EXECUTIVE can use this endpoint
+      if (!["SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const result = await storage.getProductionAggregation(user.id, role, cadence);
+      res.json(result);
+    } catch (error) {
+      console.error("Production aggregation error:", error);
+      res.status(500).json({ message: "Failed to get production data" });
+    }
+  });
+
+  // Production aggregation with filters (for Manager dashboard)
+  app.get("/api/dashboard/production/filtered", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const cadence = (req.query.cadence as "DAY" | "WEEK" | "MONTH") || "WEEK";
+      const supervisorId = req.query.supervisorId as string | undefined;
+      const repId = req.query.repId as string | undefined;
+      const providerId = req.query.providerId as string | undefined;
+      
+      // Only MANAGER or higher can use filtered endpoint
+      if (!["MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const result = await storage.getFilteredProductionAggregation(user.id, cadence, { supervisorId, repId, providerId });
+      res.json(result);
+    } catch (error) {
+      console.error("Filtered production aggregation error:", error);
+      res.status(500).json({ message: "Failed to get filtered production data" });
+    }
+  });
+
+  // Get manager production for executive drill-down
+  app.get("/api/dashboard/production/manager/:managerId", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const managerId = req.params.managerId;
+      const cadence = (req.query.cadence as "DAY" | "WEEK" | "MONTH") || "WEEK";
+      
+      // Only EXECUTIVE, ADMIN, FOUNDER can drill into manager data
+      if (!["EXECUTIVE", "ADMIN", "FOUNDER"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // Verify executive has access to this manager
+      if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        if (!scope.managerIds.includes(managerId)) {
+          return res.status(403).json({ message: "Manager not in your scope" });
+        }
+      }
+      
+      const result = await storage.getProductionAggregation(managerId, "MANAGER", cadence);
+      res.json(result);
+    } catch (error) {
+      console.error("Manager drill-down error:", error);
+      res.status(500).json({ message: "Failed to get manager production data" });
+    }
+  });
+
   // Team routes
   app.get("/api/team/members", auth, managerOrAdmin, async (req: AuthRequest, res) => {
     try {
