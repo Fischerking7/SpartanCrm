@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useAuth } from "@/lib/auth";
+import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X } from "lucide-react";
 import type { Lead } from "@shared/schema";
 
@@ -38,15 +38,26 @@ export default function Leads() {
   };
 
   const { data: leads, isLoading } = useQuery<Lead[]>({
-    queryKey: [buildQueryUrl()],
+    queryKey: ["/api/leads", filters],
+    queryFn: async () => {
+      const res = await fetch(buildQueryUrl(), { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch leads");
+      return res.json();
+    },
   });
 
   const updateNotesMutation = useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
-      return apiRequest("PATCH", `/api/leads/${id}/notes`, { notes });
+      const res = await fetch(`/api/leads/${id}/notes`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ notes }),
+      });
+      if (!res.ok) throw new Error("Failed to update notes");
+      return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [buildQueryUrl()] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       setEditingNotes(null);
       toast({ title: "Notes updated successfully" });
     },
