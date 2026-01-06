@@ -34,21 +34,15 @@ import {
   UserPlus,
 } from "lucide-react";
 
-const repMenuItems = [
-  { title: "My Orders", url: "/orders", icon: FileText },
+// Sales roles (REP, SUPERVISOR, MANAGER, EXECUTIVE) get the same navigation
+const salesMenuItems = [
+  { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "Commissions", url: "/commissions", icon: DollarSign },
 ];
 
-const managerMenuItems = [
-  { title: "Team Orders", url: "/orders", icon: FileText },
-  { title: "My Leads", url: "/leads", icon: UserPlus },
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Team Overview", url: "/team", icon: Users },
-  { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
-];
-
+// Admin/Founder get additional accounting and management options
 const adminMenuItems = [
   { title: "All Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
@@ -76,11 +70,10 @@ export function AppSidebar() {
 
   if (!user) return null;
 
-  const isRep = user.role === "REP";
-  const isManager = user.role === "MANAGER";
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = user.role === "ADMIN" || user.role === "FOUNDER";
+  const isSalesRole = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(user.role);
 
-  const menuItems = isAdmin ? adminMenuItems : isManager ? managerMenuItems : repMenuItems;
+  const menuItems = isAdmin ? adminMenuItems : salesMenuItems;
 
   const getInitials = (name: string) => {
     return name
@@ -94,7 +87,9 @@ export function AppSidebar() {
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
       case "ADMIN":
+      case "FOUNDER":
         return "default";
+      case "EXECUTIVE":
       case "MANAGER":
         return "secondary";
       default:
