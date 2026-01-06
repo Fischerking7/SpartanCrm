@@ -176,8 +176,9 @@ export default function AdminUsers() {
     const hasManager = formData.assignedManagerId !== __NONE__;
     
     if (role === "REP") {
-      if (!hasSupervisor && !hasManager) {
-        warnings.push("Rep must be assigned to either a Supervisor or a Manager");
+      const hasExecutive = formData.assignedExecutiveId !== __NONE__;
+      if (!hasSupervisor && !hasManager && !hasExecutive) {
+        warnings.push("Rep must be assigned to a Supervisor, Manager, or Executive");
       }
       if (hasSupervisor && hasManager) {
         const supervisor = supervisors.find(s => s.id === formData.assignedSupervisorId);
