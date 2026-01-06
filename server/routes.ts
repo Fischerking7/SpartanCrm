@@ -85,6 +85,17 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
     tvSold: approvedOrder.tvSold
   };
   
+  // Helper: Calculate override amount - multiply by mobile lines if agreement is for mobile products
+  const calculateOverrideAmount = (agreement: { amountFlat: string; mobileProductType: string | null }): string => {
+    const baseAmount = parseFloat(agreement.amountFlat);
+    // If agreement is for mobile products (has mobileProductType and not "NO_MOBILE")
+    // and order has mobile lines, multiply by mobileLinesQty
+    if (agreement.mobileProductType && agreement.mobileProductType !== "NO_MOBILE" && approvedOrder.mobileLinesQty > 0) {
+      return (baseAmount * approvedOrder.mobileLinesQty).toFixed(2);
+    }
+    return agreement.amountFlat;
+  };
+  
   // Get hierarchy for the rep
   const hierarchy = await storage.getRepHierarchy(approvedOrder.repId);
   
@@ -98,7 +109,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
         recipientUserId: admin.id,
         sourceRepId: approvedOrder.repId,
         sourceLevelUsed: "REP",
-        amount: agreement.amountFlat,
+        amount: calculateOverrideAmount(agreement),
         overrideAgreementId: agreement.id,
       });
       earnings.push(earning);
@@ -115,7 +126,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
           recipientUserId: hierarchy.executive.id,
           sourceRepId: approvedOrder.repId,
           sourceLevelUsed: sourceLevel,
-          amount: agreement.amountFlat,
+          amount: calculateOverrideAmount(agreement),
           overrideAgreementId: agreement.id,
         });
         earnings.push(earning);
@@ -133,7 +144,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
         recipientUserId: hierarchy.manager.id,
         sourceRepId: approvedOrder.repId,
         sourceLevelUsed: "REP",
-        amount: agreement.amountFlat,
+        amount: calculateOverrideAmount(agreement),
         overrideAgreementId: agreement.id,
       });
       earnings.push(earning);
@@ -148,7 +159,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
           recipientUserId: hierarchy.manager.id,
           sourceRepId: approvedOrder.repId,
           sourceLevelUsed: "SUPERVISOR",
-          amount: agreement.amountFlat,
+          amount: calculateOverrideAmount(agreement),
           overrideAgreementId: agreement.id,
         });
         earnings.push(earning);
@@ -165,7 +176,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
         recipientUserId: hierarchy.supervisor.id,
         sourceRepId: approvedOrder.repId,
         sourceLevelUsed: "REP",
-        amount: agreement.amountFlat,
+        amount: calculateOverrideAmount(agreement),
         overrideAgreementId: agreement.id,
       });
       earnings.push(earning);
