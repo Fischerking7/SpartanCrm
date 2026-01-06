@@ -267,6 +267,8 @@ export default function Orders() {
         return multiplier * (new Date(a.dateSold).getTime() - new Date(b.dateSold).getTime());
       case "customerName":
         return multiplier * a.customerName.localeCompare(b.customerName);
+      case "repId":
+        return multiplier * a.repId.localeCompare(b.repId);
       case "commission":
         return multiplier * (parseFloat(a.baseCommissionEarned) - parseFloat(b.baseCommissionEarned));
       case "createdAt":
@@ -423,6 +425,8 @@ export default function Orders() {
                 <SelectValue placeholder="Sort by" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="repId_asc">Rep ID (A-Z)</SelectItem>
+                <SelectItem value="repId_desc">Rep ID (Z-A)</SelectItem>
                 <SelectItem value="dateSold_desc">Date Sold (Newest)</SelectItem>
                 <SelectItem value="dateSold_asc">Date Sold (Oldest)</SelectItem>
                 <SelectItem value="customerName_asc">Customer (A-Z)</SelectItem>
