@@ -686,15 +686,11 @@ export async function registerRoutes(
       const order = await storage.getOrderById(id);
       if (!order) return res.status(404).json({ message: "Order not found" });
 
-      // Calculate commission
+      // Calculate commission using new rate card formula
       let baseCommission = "0";
       let rateCard = await storage.findMatchingRateCard(order, order.dateSold);
       if (rateCard) {
-        if (rateCard.commissionType === "FLAT") {
-          baseCommission = rateCard.amount;
-        } else if (rateCard.commissionType === "PER_LINE") {
-          baseCommission = (parseFloat(rateCard.amount) * order.mobileLinesQty).toString();
-        }
+        baseCommission = storage.calculateCommission(rateCard, order).toString();
       } else {
         await storage.createRateIssue({ salesOrderId: id, type: "MISSING_RATE", details: "No matching rate card found for this order" });
       }
@@ -758,11 +754,7 @@ export async function registerRoutes(
         let baseCommission = "0";
         const rateCard = await storage.findMatchingRateCard(order, order.dateSold);
         if (rateCard) {
-          if (rateCard.commissionType === "FLAT") {
-            baseCommission = rateCard.amount;
-          } else if (rateCard.commissionType === "PER_LINE") {
-            baseCommission = (parseFloat(rateCard.amount) * order.mobileLinesQty).toString();
-          }
+          baseCommission = storage.calculateCommission(rateCard, order).toString();
           const updated = await storage.updateOrder(id, {
             approvalStatus: "APPROVED",
             approvedByUserId: user.id,

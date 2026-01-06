@@ -13,7 +13,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import Login from "@/pages/login";
 import ChangePassword from "@/pages/change-password";
 import RepDashboard from "@/pages/rep-dashboard";
+import SupervisorDashboard from "@/pages/supervisor-dashboard";
 import ManagerDashboard from "@/pages/manager-dashboard";
+import ExecutiveDashboard from "@/pages/executive-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
 import Orders from "@/pages/orders";
 import Approvals from "@/pages/approvals";
@@ -39,8 +41,11 @@ function Dashboard() {
     case "ADMIN":
       return <AdminDashboard />;
     case "EXECUTIVE":
+      return <ExecutiveDashboard />;
     case "MANAGER":
       return <ManagerDashboard />;
+    case "SUPERVISOR":
+      return <SupervisorDashboard />;
     default:
       return <RepDashboard />;
   }

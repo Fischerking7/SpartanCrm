@@ -1,13 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth, getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Target, CheckCircle, TrendingUp, Filter } from "lucide-react";
-import type { User, Provider } from "@shared/schema";
+import { Users, Target, CheckCircle, TrendingUp } from "lucide-react";
 
 type Cadence = "DAY" | "WEEK" | "MONTH";
 
@@ -29,60 +27,16 @@ interface ProductionData {
   }>;
 }
 
-const __ALL__ = "__ALL__";
-
-export default function ManagerDashboard() {
-  const { user } = useAuth();
+export default function SupervisorDashboard() {
   const [cadence, setCadence] = useState<Cadence>("WEEK");
-  const [supervisorFilter, setSupervisorFilter] = useState<string>(__ALL__);
-  const [repFilter, setRepFilter] = useState<string>(__ALL__);
-  const [providerFilter, setProviderFilter] = useState<string>(__ALL__);
-
-  const buildQueryParams = () => {
-    const params = new URLSearchParams();
-    params.set("cadence", cadence);
-    if (supervisorFilter !== __ALL__) params.set("supervisorId", supervisorFilter);
-    if (repFilter !== __ALL__) params.set("repId", repFilter);
-    if (providerFilter !== __ALL__) params.set("providerId", providerFilter);
-    return params.toString();
-  };
 
   const { data, isLoading } = useQuery<ProductionData>({
-    queryKey: ["/api/dashboard/production/filtered", cadence, supervisorFilter, repFilter, providerFilter],
+    queryKey: ["/api/dashboard/production", cadence],
     queryFn: async () => {
-      const res = await fetch(`/api/dashboard/production/filtered?${buildQueryParams()}`, {
+      const res = await fetch(`/api/dashboard/production?cadence=${cadence}`, {
         headers: getAuthHeaders(),
       });
       if (!res.ok) throw new Error("Failed to fetch production data");
-      return res.json();
-    },
-  });
-
-  const { data: supervisors } = useQuery<User[]>({
-    queryKey: ["/api/admin/users"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
-      if (!res.ok) return [];
-      const users = await res.json();
-      return users.filter((u: User) => u.role === "SUPERVISOR" && u.status === "ACTIVE");
-    },
-  });
-
-  const { data: reps } = useQuery<User[]>({
-    queryKey: ["/api/admin/users", "reps"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
-      if (!res.ok) return [];
-      const users = await res.json();
-      return users.filter((u: User) => u.role === "REP" && u.status === "ACTIVE");
-    },
-  });
-
-  const { data: providers } = useQuery<Provider[]>({
-    queryKey: ["/api/admin/providers"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/providers", { headers: getAuthHeaders() });
-      if (!res.ok) return [];
       return res.json();
     },
   });
@@ -92,14 +46,6 @@ export default function ManagerDashboard() {
     WEEK: "This Week",
     MONTH: "This Month",
   };
-
-  const clearFilters = () => {
-    setSupervisorFilter(__ALL__);
-    setRepFilter(__ALL__);
-    setProviderFilter(__ALL__);
-  };
-
-  const hasFilters = supervisorFilter !== __ALL__ || repFilter !== __ALL__ || providerFilter !== __ALL__;
 
   const columns = [
     {
@@ -230,53 +176,8 @@ export default function ManagerDashboard() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <CardTitle>Team Production</CardTitle>
-              <CardDescription>Production by rep for {cadenceLabels[cadence].toLowerCase()}</CardDescription>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <Select value={supervisorFilter} onValueChange={setSupervisorFilter}>
-                <SelectTrigger className="w-40" data-testid="select-supervisor-filter">
-                  <SelectValue placeholder="Supervisor" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={__ALL__}>All Supervisors</SelectItem>
-                  {supervisors?.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={repFilter} onValueChange={setRepFilter}>
-                <SelectTrigger className="w-40" data-testid="select-rep-filter">
-                  <SelectValue placeholder="Rep" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={__ALL__}>All Reps</SelectItem>
-                  {reps?.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={providerFilter} onValueChange={setProviderFilter}>
-                <SelectTrigger className="w-40" data-testid="select-provider-filter">
-                  <SelectValue placeholder="Provider" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={__ALL__}>All Providers</SelectItem>
-                  {providers?.filter(p => p.active).map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {hasFilters && (
-                <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="button-clear-filters">
-                  Clear
-                </Button>
-              )}
-            </div>
-          </div>
+          <CardTitle>Rep Production</CardTitle>
+          <CardDescription>Production by team member for {cadenceLabels[cadence].toLowerCase()}</CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable
@@ -284,7 +185,7 @@ export default function ManagerDashboard() {
             data={data?.breakdown || []}
             isLoading={isLoading}
             emptyMessage="No production data available"
-            testId="table-team-production"
+            testId="table-rep-production"
           />
         </CardContent>
       </Card>
