@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums
-export const userRoleEnum = pgEnum("user_role", ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"]);
+export const userRoleEnum = pgEnum("user_role", ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"]);
 export const userStatusEnum = pgEnum("user_status", ["ACTIVE", "DEACTIVATED"]);
 export const jobStatusEnum = pgEnum("job_status", ["PENDING", "COMPLETED", "CANCELED"]);
 export const approvalStatusEnum = pgEnum("approval_status", ["UNAPPROVED", "APPROVED", "REJECTED"]);
@@ -30,6 +30,9 @@ export const users = pgTable("users", {
   role: userRoleEnum("role").notNull().default("REP"),
   status: userStatusEnum("status").notNull().default("ACTIVE"),
   passwordHash: text("password_hash").notNull(),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  tempPasswordExpiresAt: timestamp("temp_password_expires_at"),
+  passwordUpdatedAt: timestamp("password_updated_at"),
   assignedSupervisorId: varchar("assigned_supervisor_id"),
   assignedManagerId: varchar("assigned_manager_id"),
   assignedExecutiveId: varchar("assigned_executive_id"),

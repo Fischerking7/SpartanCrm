@@ -3,9 +3,69 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, managerOrAdmin, type AuthRequest } from "./auth";
-import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, type SalesOrder, type OverrideEarning } from "@shared/schema";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, type SalesOrder, type OverrideEarning, type User } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
+import crypto from "crypto";
+
+// Role hierarchy for authority comparisons (higher number = more authority)
+const ROLE_HIERARCHY: Record<string, number> = {
+  REP: 1,
+  SUPERVISOR: 2,
+  MANAGER: 3,
+  EXECUTIVE: 4,
+  ADMIN: 5,
+  FOUNDER: 6,
+};
+
+// Generate secure temporary password
+function generateTempPassword(): string {
+  return crypto.randomBytes(12).toString("base64url").slice(0, 16);
+}
+
+// Check if actor can reset target's password based on PASSWORD AUTHORITY rules
+async function checkPasswordAuthority(actor: User, target: User): Promise<boolean> {
+  // Rule 1: FOUNDER can reset any password
+  if (actor.role === "FOUNDER") {
+    return true;
+  }
+  
+  // Rule 2: ADMIN can reset any password except FOUNDER
+  if (actor.role === "ADMIN") {
+    return target.role !== "FOUNDER";
+  }
+  
+  // Rule 3: MANAGER can reset passwords for their supervisors and reps in their org tree
+  if (actor.role === "MANAGER") {
+    // Cannot reset Executives, Admins, Founders, or other Managers
+    if (["EXECUTIVE", "ADMIN", "FOUNDER", "MANAGER"].includes(target.role)) {
+      return false;
+    }
+    // Check if target is in manager's org tree
+    const scope = await storage.getManagerScope(actor.id);
+    if (target.role === "SUPERVISOR") {
+      // Check if supervisor is assigned to this manager
+      return target.assignedManagerId === actor.id;
+    }
+    if (target.role === "REP") {
+      // Check if rep is in manager's org tree (direct or indirect)
+      return scope.allRepRepIds.includes(target.repId);
+    }
+    return false;
+  }
+  
+  // Rule 4: SUPERVISOR can reset passwords only for their assigned reps
+  if (actor.role === "SUPERVISOR") {
+    if (target.role !== "REP") {
+      return false;
+    }
+    // Check if rep is directly assigned to this supervisor
+    return target.assignedSupervisorId === actor.id;
+  }
+  
+  // Rule 5: REP cannot reset anyone else's password (only their own via self-service)
+  return false;
+}
 
 async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder: SalesOrder): Promise<OverrideEarning[]> {
   // Check if override earnings already exist for this order to prevent duplicates
@@ -107,11 +167,58 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   return earnings;
 }
 
+// Bootstrap FOUNDER user on first run
+async function bootstrapFounder(): Promise<void> {
+  try {
+    // Check if any FOUNDER exists
+    const founders = await storage.getUsersByRole("FOUNDER");
+    if (founders.length > 0) {
+      console.log("FOUNDER user already exists, skipping bootstrap");
+      return;
+    }
+    
+    // Check env vars
+    const repId = process.env.BOOTSTRAP_FOUNDER_REPID;
+    const password = process.env.BOOTSTRAP_FOUNDER_PASSWORD;
+    const name = process.env.BOOTSTRAP_FOUNDER_NAME || "System Founder";
+    
+    if (!repId || !password) {
+      console.log("BOOTSTRAP_FOUNDER_REPID and BOOTSTRAP_FOUNDER_PASSWORD env vars not set, skipping founder bootstrap");
+      return;
+    }
+    
+    // Create FOUNDER user
+    const hashedPassword = await hashPassword(password);
+    await storage.createUser({
+      name,
+      repId,
+      role: "FOUNDER",
+      status: "ACTIVE",
+      passwordHash: hashedPassword,
+    });
+    
+    console.log(`FOUNDER user '${name}' created with repId '${repId}'`);
+    
+    // Log the bootstrap event
+    await storage.createAuditLog({
+      action: "FOUNDER_BOOTSTRAP",
+      tableName: "users",
+      afterJson: JSON.stringify({ repId, name, role: "FOUNDER" }),
+      userId: null,
+    });
+  } catch (error) {
+    console.error("Error bootstrapping founder:", error);
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   const auth = authMiddleware(db);
+  
+  // Bootstrap FOUNDER on first run (empty users table)
+  await bootstrapFounder();
 
   // Auth routes
   app.post("/api/auth/login", async (req, res) => {
@@ -129,11 +236,112 @@ export async function registerRoutes(
       if (!valid) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
+      
+      // Check if temporary password has expired
+      if (user.tempPasswordExpiresAt && new Date() > new Date(user.tempPasswordExpiresAt)) {
+        return res.status(401).json({ 
+          message: "Temporary password expired. Contact your supervisor, manager, or admin.",
+          code: "TEMP_PASSWORD_EXPIRED"
+        });
+      }
+      
       const token = generateToken(user);
       await storage.createAuditLog({ action: "login", tableName: "users", recordId: user.id, userId: user.id });
-      res.json({ token, user: { ...user, passwordHash: undefined } });
+      res.json({ 
+        token, 
+        user: { ...user, passwordHash: undefined },
+        mustChangePassword: user.mustChangePassword
+      });
     } catch (error) {
       res.status(500).json({ message: "Login failed" });
+    }
+  });
+  
+  // Self-service password change
+  app.put("/api/users/me/password", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { currentPassword, newPassword } = req.body;
+      
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ message: "Current password and new password are required" });
+      }
+      
+      if (newPassword.length < 8) {
+        return res.status(400).json({ message: "New password must be at least 8 characters" });
+      }
+      
+      // Verify current password
+      const valid = await comparePassword(currentPassword, user.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ message: "Current password is incorrect" });
+      }
+      
+      // Hash and update password
+      const newHash = await hashPassword(newPassword);
+      await storage.updateUserPassword(user.id, newHash);
+      
+      // Log the password change
+      await storage.createAuditLog({
+        action: "PASSWORD_CHANGED",
+        tableName: "users",
+        recordId: user.id,
+        userId: user.id,
+      });
+      
+      res.json({ message: "Password changed successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to change password" });
+    }
+  });
+  
+  // Admin/Manager/Supervisor password reset for target user
+  app.post("/api/users/:id/password-reset", auth, async (req: AuthRequest, res) => {
+    try {
+      const actor = req.user!;
+      const targetId = req.params.id;
+      const target = await storage.getUserById(targetId);
+      
+      if (!target) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Check password authority
+      const authorized = await checkPasswordAuthority(actor, target);
+      if (!authorized) {
+        return res.status(403).json({ message: "You do not have permission to reset this user's password" });
+      }
+      
+      // Generate temporary password
+      const tempPassword = generateTempPassword();
+      const hashedPassword = await hashPassword(tempPassword);
+      
+      // Calculate expiry (default 24 hours, configurable via RESET_TTL_HOURS)
+      const ttlHours = parseInt(process.env.RESET_TTL_HOURS || "24", 10);
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + ttlHours);
+      
+      // Update user with temp password
+      await storage.setTempPassword(targetId, hashedPassword, expiresAt);
+      
+      // Log the reset
+      await storage.createAuditLog({
+        action: "PASSWORD_RESET_TEMP",
+        tableName: "users",
+        recordId: targetId,
+        afterJson: JSON.stringify({ expiresAt: expiresAt.toISOString() }),
+        userId: actor.id,
+      });
+      
+      res.json({ 
+        message: "Temporary password generated",
+        tempPassword,
+        expiresAt: expiresAt.toISOString(),
+        expiresInHours: ttlHours
+      });
+    } catch (error) {
+      console.error("Password reset error:", error);
+      res.status(500).json({ message: "Failed to reset password" });
     }
   });
 

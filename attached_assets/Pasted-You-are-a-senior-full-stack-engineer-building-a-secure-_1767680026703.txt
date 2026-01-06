@@ -1,0 +1,130 @@
+You are a senior full-stack engineer building a secure Sales Ops + commissions + QuickBooks reconciliation app. Implement strict role hierarchy and password governance with expiring temporary passwords.
+
+ROLES (Authoritative):
+- REP
+- SUPERVISOR
+- MANAGER
+- EXECUTIVE
+- ADMIN
+- FOUNDER
+
+ROLE HIERARCHY (Authority):
+FOUNDER > ADMIN > EXECUTIVE > MANAGER > SUPERVISOR > REP
+
+BOOTSTRAP (FOUNDER FIRST USER):
+1) On first run (empty Users table), auto-create exactly one FOUNDER user using env vars:
+   - BOOTSTRAP_FOUNDER_REPID
+   - BOOTSTRAP_FOUNDER_PASSWORD
+   - BOOTSTRAP_FOUNDER_NAME
+2) If any FOUNDER exists already, do NOT create another automatically.
+3) Only a FOUNDER can grant or revoke the FOUNDER role.
+
+UNIVERSAL REP ID RULE:
+- Every user MUST have a unique Rep ID (repId required, unique, immutable).
+- Rep ID identifies commission credit, not selling permission.
+
+USER STATUS:
+- ACTIVE
+- DEACTIVATED
+FOUNDER can set any status. ADMIN can set status unless restricted by Founder policy.
+
+PASSWORD AUTHORITY (WHO CAN CHANGE WHOSE PASSWORD):
+1) FOUNDER:
+   - Can reset/change ANY user’s password (including Admins and other Founders).
+2) ADMIN:
+   - Can reset/change ANY user’s password EXCEPT Founders.
+3) MANAGER:
+   - Can reset/change passwords ONLY for:
+       - Supervisors assigned to them
+       - Reps in their org tree (direct or indirect)
+   - Cannot change passwords for Executives, Admins, Founders, or other Managers.
+4) SUPERVISOR:
+   - Can reset/change passwords ONLY for Reps assigned directly to them.
+   - Cannot change passwords for Managers/Executives/Admins/Founders/other Supervisors.
+5) REP:
+   - Can change ONLY their own password.
+
+PASSWORD RULES (SECURITY):
+- All passwords stored hashed (bcrypt).
+- Password changes/reset must invalidate existing sessions/tokens.
+- No password plaintext is stored or logged.
+- All password events must create AuditLog entries (without storing any password).
+
+TEMPORARY PASSWORD EXPIRY (NEW – MUST IMPLEMENT):
+Implement temporary password resets that expire in X hours, forcing a change on first login.
+
+DB changes:
+Add to User:
+- mustChangePassword boolean default false
+- tempPasswordExpiresAt DateTime nullable
+- passwordUpdatedAt DateTime nullable (optional but recommended)
+
+Config:
+- RESET_TTL_HOURS env var (default 24)
+
+Password reset behavior (when authorized actor resets someone’s password):
+- Generate random temporary password
+- Hash with bcrypt -> set user.passwordHash
+- Set user.mustChangePassword = true
+- Set user.tempPasswordExpiresAt = now + RESET_TTL_HOURS
+- Invalidate all active sessions/tokens for that user
+- Return/display the temporary password ONCE (never store plaintext)
+- AuditLog:
+   action = PASSWORD_RESET_TEMP
+   targetUserId
+   changedByUserId
+   expiresAt
+   timestamp
+
+Login behavior:
+- On successful password match:
+   - If user.tempPasswordExpiresAt exists AND now > tempPasswordExpiresAt:
+       reject login with: "Temporary password expired. Contact your supervisor/manager/admin."
+   - If user.mustChangePassword == true:
+       allow login but require password change before accessing app (force redirect to /change-password)
+
+Change password endpoint (self-service):
+- PUT /api/users/me/password
+   - Verify current password
+   - Set new passwordHash
+   - Clear mustChangePassword and tempPasswordExpiresAt
+   - Set passwordUpdatedAt = now
+   - Invalidate existing sessions/tokens
+   - AuditLog:
+       action = PASSWORD_CHANGED
+       targetUserId = current user
+       changedByUserId = current user
+       timestamp
+
+Admin/Founder/Manager/Supervisor password reset endpoint:
+- POST /api/users/:id/password-reset
+   - Enforce PASSWORD AUTHORITY rules above
+   - Generates temp password expiring in RESET_TTL_HOURS
+   - Returns temp password once
+   - Logs PASSWORD_RESET_TEMP
+
+UI requirements:
+- Add "Change Password" screen.
+- If mustChangePassword is true, block access to all pages except Change Password + Logout.
+- Show clear message if temp password expired.
+- Add UI controls:
+   - Admin/Founder: reset password button on User Management for allowed targets
+   - Manager: reset password on subordinate users (supervisors + reps in tree)
+   - Supervisor: reset password on assigned reps only
+   - Rep: change own password
+
+AUDIT LOG (NON-NEGOTIABLE):
+Implement AuditLog table:
+- action, tableName(optional), recordId(optional), beforeJson(optional), afterJson(optional), userId, createdAt
+Log all:
+- role/status changes
+- org assignments
+- password reset/change events
+- order create/edit/approve/reject
+- invoice generation
+- overrides, adjustments, exports/imports
+
+NOTES:
+- Never log or store password plaintext.
+- Ensure tokens/sessions are revoked on password change/reset.
+- Ensure access control is enforced in BOTH API and UI.

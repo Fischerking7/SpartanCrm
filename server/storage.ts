@@ -34,6 +34,25 @@ export const storage = {
     const [user] = await db.update(users).set({ ...data, updatedAt: new Date() }).where(eq(users.id, id)).returning();
     return user;
   },
+  async updateUserPassword(id: string, passwordHash: string) {
+    const [user] = await db.update(users).set({ 
+      passwordHash, 
+      mustChangePassword: false, 
+      tempPasswordExpiresAt: null, 
+      passwordUpdatedAt: new Date(),
+      updatedAt: new Date() 
+    }).where(eq(users.id, id)).returning();
+    return user;
+  },
+  async setTempPassword(id: string, passwordHash: string, expiresAt: Date) {
+    const [user] = await db.update(users).set({ 
+      passwordHash, 
+      mustChangePassword: true, 
+      tempPasswordExpiresAt: expiresAt, 
+      updatedAt: new Date() 
+    }).where(eq(users.id, id)).returning();
+    return user;
+  },
   async getTeamMembers(managerId: string) {
     return db.query.users.findMany({ where: and(eq(users.assignedManagerId, managerId), eq(users.status, "ACTIVE")) });
   },
@@ -405,8 +424,8 @@ export const storage = {
     }
     
     // Combine and dedupe
-    const allRepIds = [...new Set([...directRepIds, ...indirectRepIds])];
-    const allRepRepIds = [...new Set([...directRepRepIds, ...indirectRepRepIds])];
+    const allRepIds = Array.from(new Set([...directRepIds, ...indirectRepIds]));
+    const allRepRepIds = Array.from(new Set([...directRepRepIds, ...indirectRepRepIds]));
     
     return {
       directRepIds,
@@ -459,7 +478,7 @@ export const storage = {
     
     return {
       managerIds,
-      allRepRepIds: [...new Set(allRepRepIds)],
+      allRepRepIds: Array.from(new Set(allRepRepIds)),
     };
   },
   
