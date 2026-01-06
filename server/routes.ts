@@ -1288,10 +1288,6 @@ export async function registerRoutes(
       if (!targetUser) {
         return res.status(404).json({ message: "User not found" });
       }
-      // Prevent deleting founders unless you are a founder
-      if (targetUser.role === "FOUNDER" && req.user!.role !== "FOUNDER") {
-        return res.status(403).json({ message: "Only a Founder can remove another Founder" });
-      }
       const user = await storage.softDeleteUser(id, req.user!.id);
       await storage.createAuditLog({ 
         action: "USER_REMOVED", 
