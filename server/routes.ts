@@ -868,6 +868,32 @@ export async function registerRoutes(
       res.status(500).json({ message: "Failed to deactivate user" });
     }
   });
+  
+  app.delete("/api/admin/users/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const targetUser = await storage.getUserById(id);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      // Prevent deleting founders unless you are a founder
+      if (targetUser.role === "FOUNDER" && req.user!.role !== "FOUNDER") {
+        return res.status(403).json({ message: "Only a Founder can remove another Founder" });
+      }
+      const user = await storage.softDeleteUser(id, req.user!.id);
+      await storage.createAuditLog({ 
+        action: "USER_REMOVED", 
+        tableName: "users", 
+        recordId: id, 
+        beforeJson: JSON.stringify({ ...targetUser, passwordHash: undefined }),
+        afterJson: JSON.stringify({ ...user, passwordHash: undefined }),
+        userId: req.user!.id 
+      });
+      res.json({ success: true, archived: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to remove user" });
+    }
+  });
 
   // Providers - public read for order creation dropdowns, admin for full CRUD
   app.get("/api/admin/providers", auth, adminOnly, async (req, res) => {
@@ -892,6 +918,20 @@ export async function registerRoutes(
       await storage.createAuditLog({ action: "update_provider", tableName: "providers", recordId: req.params.id, afterJson: JSON.stringify(provider), userId: req.user!.id });
       res.json(provider);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.delete("/api/admin/providers/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const depCount = await storage.getProviderDependencyCount(req.params.id);
+      const provider = await storage.softDeleteProvider(req.params.id, req.user!.id);
+      await storage.createAuditLog({ 
+        action: "PROVIDER_REMOVED", 
+        tableName: "providers", 
+        recordId: req.params.id, 
+        afterJson: JSON.stringify({ ...provider, dependenciesArchived: depCount }),
+        userId: req.user!.id 
+      });
+      res.json({ success: true, archived: true, dependencyCount: depCount });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to remove provider" }); }
   });
 
   // Clients - public read for order creation dropdowns, admin for full CRUD
@@ -918,6 +958,20 @@ export async function registerRoutes(
       res.json(client);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
+  app.delete("/api/admin/clients/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const depCount = await storage.getClientDependencyCount(req.params.id);
+      const client = await storage.softDeleteClient(req.params.id, req.user!.id);
+      await storage.createAuditLog({ 
+        action: "CLIENT_REMOVED", 
+        tableName: "clients", 
+        recordId: req.params.id, 
+        afterJson: JSON.stringify({ ...client, dependenciesArchived: depCount }),
+        userId: req.user!.id 
+      });
+      res.json({ success: true, archived: true, dependencyCount: depCount });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to remove client" }); }
+  });
 
   // Services - public read for order creation dropdowns, admin for full CRUD
   app.get("/api/admin/services", auth, adminOnly, async (req, res) => {
@@ -943,6 +997,20 @@ export async function registerRoutes(
       res.json(service);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
+  app.delete("/api/admin/services/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const depCount = await storage.getServiceDependencyCount(req.params.id);
+      const service = await storage.softDeleteService(req.params.id, req.user!.id);
+      await storage.createAuditLog({ 
+        action: "SERVICE_REMOVED", 
+        tableName: "services", 
+        recordId: req.params.id, 
+        afterJson: JSON.stringify({ ...service, dependenciesArchived: depCount }),
+        userId: req.user!.id 
+      });
+      res.json({ success: true, archived: true, dependencyCount: depCount });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to remove service" }); }
+  });
 
   // Rate Cards
   app.get("/api/admin/rate-cards", auth, adminOnly, async (req, res) => {
@@ -961,6 +1029,20 @@ export async function registerRoutes(
       await storage.createAuditLog({ action: "update_rate_card", tableName: "rate_cards", recordId: req.params.id, afterJson: JSON.stringify(rateCard), userId: req.user!.id });
       res.json(rateCard);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.delete("/api/admin/rate-cards/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const depCount = await storage.getRateCardDependencyCount(req.params.id);
+      const rateCard = await storage.softDeleteRateCard(req.params.id, req.user!.id);
+      await storage.createAuditLog({ 
+        action: "RATECARD_REMOVED", 
+        tableName: "rate_cards", 
+        recordId: req.params.id, 
+        afterJson: JSON.stringify({ ...rateCard, dependenciesArchived: depCount }),
+        userId: req.user!.id 
+      });
+      res.json({ success: true, archived: true, dependencyCount: depCount });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to remove rate card" }); }
   });
 
   // Incentives

@@ -56,6 +56,21 @@ export const storage = {
   async getTeamMembers(managerId: string) {
     return db.query.users.findMany({ where: and(eq(users.assignedManagerId, managerId), eq(users.status, "ACTIVE")) });
   },
+  async softDeleteUser(id: string, deletedByUserId: string) {
+    const [user] = await db.update(users).set({ 
+      status: "DEACTIVATED",
+      deletedAt: new Date(), 
+      deletedByUserId,
+      updatedAt: new Date() 
+    }).where(eq(users.id, id)).returning();
+    return user;
+  },
+  async getActiveUsers() {
+    return db.query.users.findMany({ 
+      where: and(eq(users.status, "ACTIVE"), isNull(users.deletedAt)),
+      orderBy: [desc(users.createdAt)] 
+    });
+  },
 
   // Providers
   async getProviders() {
@@ -68,6 +83,25 @@ export const storage = {
   async updateProvider(id: string, data: Partial<InsertProvider>) {
     const [provider] = await db.update(providers).set({ ...data, updatedAt: new Date() }).where(eq(providers.id, id)).returning();
     return provider;
+  },
+  async softDeleteProvider(id: string, deletedByUserId: string) {
+    const [provider] = await db.update(providers).set({ 
+      active: false,
+      deletedAt: new Date(), 
+      deletedByUserId,
+      updatedAt: new Date() 
+    }).where(eq(providers.id, id)).returning();
+    return provider;
+  },
+  async getActiveProviders() {
+    return db.query.providers.findMany({ 
+      where: and(eq(providers.active, true), isNull(providers.deletedAt)),
+      orderBy: [desc(providers.createdAt)] 
+    });
+  },
+  async getProviderDependencyCount(id: string): Promise<number> {
+    const orders = await db.select({ count: sql<number>`count(*)` }).from(salesOrders).where(eq(salesOrders.providerId, id));
+    return Number(orders[0]?.count || 0);
   },
 
   // Clients
@@ -82,6 +116,25 @@ export const storage = {
     const [client] = await db.update(clients).set({ ...data, updatedAt: new Date() }).where(eq(clients.id, id)).returning();
     return client;
   },
+  async softDeleteClient(id: string, deletedByUserId: string) {
+    const [client] = await db.update(clients).set({ 
+      active: false,
+      deletedAt: new Date(), 
+      deletedByUserId,
+      updatedAt: new Date() 
+    }).where(eq(clients.id, id)).returning();
+    return client;
+  },
+  async getActiveClients() {
+    return db.query.clients.findMany({ 
+      where: and(eq(clients.active, true), isNull(clients.deletedAt)),
+      orderBy: [desc(clients.createdAt)] 
+    });
+  },
+  async getClientDependencyCount(id: string): Promise<number> {
+    const orders = await db.select({ count: sql<number>`count(*)` }).from(salesOrders).where(eq(salesOrders.clientId, id));
+    return Number(orders[0]?.count || 0);
+  },
 
   // Services
   async getServices() {
@@ -94,6 +147,25 @@ export const storage = {
   async updateService(id: string, data: Partial<InsertService>) {
     const [service] = await db.update(services).set({ ...data, updatedAt: new Date() }).where(eq(services.id, id)).returning();
     return service;
+  },
+  async softDeleteService(id: string, deletedByUserId: string) {
+    const [service] = await db.update(services).set({ 
+      active: false,
+      deletedAt: new Date(), 
+      deletedByUserId,
+      updatedAt: new Date() 
+    }).where(eq(services.id, id)).returning();
+    return service;
+  },
+  async getActiveServices() {
+    return db.query.services.findMany({ 
+      where: and(eq(services.active, true), isNull(services.deletedAt)),
+      orderBy: [desc(services.createdAt)] 
+    });
+  },
+  async getServiceDependencyCount(id: string): Promise<number> {
+    const orders = await db.select({ count: sql<number>`count(*)` }).from(salesOrders).where(eq(salesOrders.serviceId, id));
+    return Number(orders[0]?.count || 0);
   },
 
   // Rate Cards
@@ -108,27 +180,56 @@ export const storage = {
     const [rateCard] = await db.update(rateCards).set({ ...data, updatedAt: new Date() }).where(eq(rateCards.id, id)).returning();
     return rateCard;
   },
+  async softDeleteRateCard(id: string, deletedByUserId: string) {
+    const [rateCard] = await db.update(rateCards).set({ 
+      active: false,
+      deletedAt: new Date(), 
+      deletedByUserId,
+      updatedAt: new Date() 
+    }).where(eq(rateCards.id, id)).returning();
+    return rateCard;
+  },
+  async getActiveRateCards() {
+    return db.query.rateCards.findMany({ 
+      where: and(eq(rateCards.active, true), isNull(rateCards.deletedAt)),
+      orderBy: [desc(rateCards.createdAt)] 
+    });
+  },
+  async getRateCardDependencyCount(id: string): Promise<number> {
+    const orders = await db.select({ count: sql<number>`count(*)` }).from(salesOrders).where(eq(salesOrders.appliedRateCardId, id));
+    return Number(orders[0]?.count || 0);
+  },
   async findMatchingRateCard(order: SalesOrder, date: string) {
     const cards = await db.query.rateCards.findMany({
       where: and(
         eq(rateCards.providerId, order.providerId),
         eq(rateCards.serviceId, order.serviceId),
         eq(rateCards.active, true),
+        isNull(rateCards.deletedAt),
         lte(rateCards.effectiveStart, date),
         or(isNull(rateCards.effectiveEnd), gte(rateCards.effectiveEnd, date))
       ),
     });
-    // Filter by conditions
-    return cards.find(card => {
-      if (card.clientId && card.clientId !== order.clientId) return false;
-      if (card.tvCondition === "YES" && !order.tvSold) return false;
-      if (card.tvCondition === "NO" && order.tvSold) return false;
-      if (card.mobileCondition === "YES" && !order.mobileSold) return false;
-      if (card.mobileCondition === "NO" && order.mobileSold) return false;
-      if (card.linesMin && order.mobileLinesQty < card.linesMin) return false;
-      if (card.linesMax && order.mobileLinesQty > card.linesMax) return false;
-      return true;
-    }) || cards[0];
+    // Find best match: client-specific first, then any client
+    const clientSpecific = cards.find(card => card.clientId === order.clientId);
+    const anyClient = cards.find(card => !card.clientId);
+    return clientSpecific || anyClient || cards[0];
+  },
+  
+  // Calculate commission using rate card with new payout structure
+  calculateCommission(rateCard: RateCard, order: SalesOrder): number {
+    const baseAmount = parseFloat(rateCard.baseAmount || "0");
+    const tvAddonAmount = parseFloat(rateCard.tvAddonAmount || "0");
+    const mobilePerLineAmount = parseFloat(rateCard.mobilePerLineAmount || "0");
+    
+    let total = baseAmount;
+    if (order.tvSold) {
+      total += tvAddonAmount;
+    }
+    if (order.mobileSold && order.mobileLinesQty > 0) {
+      total += mobilePerLineAmount * order.mobileLinesQty;
+    }
+    return total;
   },
 
   // Sales Orders
