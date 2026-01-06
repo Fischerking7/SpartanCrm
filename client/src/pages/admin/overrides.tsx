@@ -7,11 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Search, Users, Plus, Trash2, ChevronRight, DollarSign } from "lucide-react";
+import { Search, Users, Plus, Trash2, ChevronRight, DollarSign, ChevronLeft, Check, Settings2, Edit } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { OverrideAgreement, User, Provider, Client, Service } from "@shared/schema";
 
 const MOBILE_PRODUCT_TYPES = [
@@ -23,13 +24,15 @@ const MOBILE_PRODUCT_TYPES = [
   { value: "OTHER", label: "Other" },
 ];
 
-type OverrideEntry = {
-  id?: string;
+type ScopeType = "ALL" | "PROVIDER" | "PROVIDER_CLIENT" | "SERVICE";
+
+type WizardData = {
   recipientUserId: string;
-  amountFlat: string;
+  scope: ScopeType;
   providerId: string;
   clientId: string;
   serviceId: string;
+  amountFlat: string;
   mobileProductType: string;
   tvSoldFilter: string;
   effectiveStart: string;
@@ -38,12 +41,31 @@ type OverrideEntry = {
   notes: string;
 };
 
+const initialWizardData: WizardData = {
+  recipientUserId: "",
+  scope: "ALL",
+  providerId: "",
+  clientId: "",
+  serviceId: "",
+  amountFlat: "",
+  mobileProductType: "",
+  tvSoldFilter: "",
+  effectiveStart: new Date().toISOString().split("T")[0],
+  effectiveEnd: "",
+  active: true,
+  notes: "",
+};
+
 export default function AdminOverrides() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [overrides, setOverrides] = useState<OverrideEntry[]>([]);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardStep, setWizardStep] = useState(1);
+  const [wizardData, setWizardData] = useState<WizardData>(initialWizardData);
+  const [editingOverride, setEditingOverride] = useState<OverrideAgreement | null>(null);
   const [saving, setSaving] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const { data: allOverrides, isLoading: overridesLoading } = useQuery<OverrideAgreement[]>({
     queryKey: ["/api/admin/overrides"],
@@ -97,6 +119,9 @@ export default function AdminOverrides() {
 
   const getUserName = (userId: string) => users?.find((u) => u.id === userId)?.name || userId;
   const getUserRole = (userId: string) => users?.find((u) => u.id === userId)?.role || "";
+  const getProviderName = (id: string) => providers?.find((p) => p.id === id)?.name || "";
+  const getClientName = (id: string) => clients?.find((c) => c.id === id)?.name || "";
+  const getServiceName = (id: string) => services?.find((s) => s.id === id)?.name || "";
 
   const getOverridesForUser = (userId: string) => {
     return allOverrides?.filter((o) => o.sourceUserId === userId) || [];
@@ -109,112 +134,106 @@ export default function AdminOverrides() {
 
   const openUserOverrides = (user: User) => {
     setSelectedUser(user);
-    const existing = getOverridesForUser(user.id);
-    if (existing.length > 0) {
-      setOverrides(existing.map((o) => ({
-        id: o.id,
-        recipientUserId: o.recipientUserId,
-        amountFlat: o.amountFlat,
-        providerId: o.providerId || "",
-        clientId: o.clientId || "",
-        serviceId: o.serviceId || "",
-        mobileProductType: o.mobileProductType || "",
-        tvSoldFilter: o.tvSoldFilter === null ? "" : o.tvSoldFilter ? "true" : "false",
-        effectiveStart: o.effectiveStart,
-        effectiveEnd: o.effectiveEnd || "",
-        active: o.active,
-        notes: o.notes || "",
-      })));
-    } else {
-      setOverrides([]);
-    }
   };
 
   const closeDialog = () => {
     setSelectedUser(null);
-    setOverrides([]);
   };
 
-  const addOverrideRow = () => {
-    const today = new Date().toISOString().split("T")[0];
-    setOverrides([...overrides, {
-      recipientUserId: "",
-      amountFlat: "",
-      providerId: "",
-      clientId: "",
-      serviceId: "",
-      mobileProductType: "",
-      tvSoldFilter: "",
-      effectiveStart: today,
-      effectiveEnd: "",
-      active: true,
-      notes: "",
-    }]);
+  const startWizard = (existingOverride?: OverrideAgreement) => {
+    if (existingOverride) {
+      setEditingOverride(existingOverride);
+      const scope: ScopeType = existingOverride.serviceId ? "SERVICE" :
+        (existingOverride.clientId ? "PROVIDER_CLIENT" : 
+        (existingOverride.providerId ? "PROVIDER" : "ALL"));
+      setWizardData({
+        recipientUserId: existingOverride.recipientUserId,
+        scope,
+        providerId: existingOverride.providerId || "",
+        clientId: existingOverride.clientId || "",
+        serviceId: existingOverride.serviceId || "",
+        amountFlat: existingOverride.amountFlat,
+        mobileProductType: existingOverride.mobileProductType || "",
+        tvSoldFilter: existingOverride.tvSoldFilter === null ? "" : existingOverride.tvSoldFilter ? "true" : "false",
+        effectiveStart: existingOverride.effectiveStart,
+        effectiveEnd: existingOverride.effectiveEnd || "",
+        active: existingOverride.active,
+        notes: existingOverride.notes || "",
+      });
+    } else {
+      setEditingOverride(null);
+      setWizardData(initialWizardData);
+    }
+    setWizardStep(1);
+    setAdvancedOpen(false);
+    setWizardOpen(true);
   };
 
-  const updateOverrideRow = (index: number, field: keyof OverrideEntry, value: any) => {
-    const updated = [...overrides];
-    updated[index] = { ...updated[index], [field]: value };
-    setOverrides(updated);
+  const closeWizard = () => {
+    setWizardOpen(false);
+    setEditingOverride(null);
+    setWizardData(initialWizardData);
+    setWizardStep(1);
   };
 
-  const removeOverrideRow = (index: number) => {
-    setOverrides(overrides.filter((_, i) => i !== index));
+  const updateWizard = (field: keyof WizardData, value: any) => {
+    setWizardData({ ...wizardData, [field]: value });
   };
 
-  const saveOverrides = async () => {
+  const canProceed = () => {
+    switch (wizardStep) {
+      case 1: return !!wizardData.recipientUserId;
+      case 2: {
+        if (wizardData.scope === "ALL") return true;
+        if (wizardData.scope === "PROVIDER") return !!wizardData.providerId;
+        if (wizardData.scope === "PROVIDER_CLIENT") return !!wizardData.providerId && !!wizardData.clientId;
+        if (wizardData.scope === "SERVICE") return !!wizardData.serviceId;
+        return false;
+      }
+      case 3: return !!wizardData.amountFlat && parseFloat(wizardData.amountFlat) > 0;
+      case 4: return true;
+      default: return false;
+    }
+  };
+
+  const saveOverride = async () => {
     if (!selectedUser) return;
     setSaving(true);
 
     try {
-      const existingIds = getOverridesForUser(selectedUser.id).map((o) => o.id);
-      const newOverrideIds = overrides.filter((o) => o.id).map((o) => o.id);
-      const toDelete = existingIds.filter((id) => !newOverrideIds.includes(id));
+      const data = {
+        sourceUserId: selectedUser.id,
+        recipientUserId: wizardData.recipientUserId,
+        sourceLevel: selectedUser.role,
+        amountFlat: wizardData.amountFlat,
+        providerId: wizardData.scope !== "ALL" ? wizardData.providerId || null : null,
+        clientId: ["PROVIDER_CLIENT", "SERVICE"].includes(wizardData.scope) ? wizardData.clientId || null : null,
+        serviceId: wizardData.scope === "SERVICE" ? wizardData.serviceId || null : null,
+        mobileProductType: wizardData.mobileProductType || null,
+        tvSoldFilter: wizardData.tvSoldFilter === "" ? null : wizardData.tvSoldFilter === "true",
+        effectiveStart: wizardData.effectiveStart,
+        effectiveEnd: wizardData.effectiveEnd || null,
+        active: wizardData.active,
+        notes: wizardData.notes || null,
+      };
 
-      for (const id of toDelete) {
-        await fetch(`/api/admin/overrides/${id}`, {
-          method: "DELETE",
-          headers: getAuthHeaders(),
+      if (editingOverride) {
+        await fetch(`/api/admin/overrides/${editingOverride.id}`, {
+          method: "PATCH",
+          headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+      } else {
+        await fetch("/api/admin/overrides", {
+          method: "POST",
+          headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify(data),
         });
       }
 
-      for (const override of overrides) {
-        if (!override.recipientUserId || !override.amountFlat || !override.effectiveStart) continue;
-
-        const data = {
-          sourceUserId: selectedUser.id,
-          recipientUserId: override.recipientUserId,
-          sourceLevel: selectedUser.role,
-          amountFlat: override.amountFlat,
-          providerId: override.providerId || null,
-          clientId: override.clientId || null,
-          serviceId: override.serviceId || null,
-          mobileProductType: override.mobileProductType || null,
-          tvSoldFilter: override.tvSoldFilter === "" ? null : override.tvSoldFilter === "true",
-          effectiveStart: override.effectiveStart,
-          effectiveEnd: override.effectiveEnd || null,
-          active: override.active,
-          notes: override.notes || null,
-        };
-
-        if (override.id) {
-          await fetch(`/api/admin/overrides/${override.id}`, {
-            method: "PATCH",
-            headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-            body: JSON.stringify(data),
-          });
-        } else {
-          await fetch("/api/admin/overrides", {
-            method: "POST",
-            headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-            body: JSON.stringify(data),
-          });
-        }
-      }
-
       queryClient.invalidateQueries({ queryKey: ["/api/admin/overrides"] });
-      toast({ title: "Overrides saved successfully" });
-      closeDialog();
+      toast({ title: editingOverride ? "Override updated" : "Override created" });
+      closeWizard();
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "Failed to save", variant: "destructive" });
     } finally {
@@ -222,7 +241,35 @@ export default function AdminOverrides() {
     }
   };
 
+  const deleteOverride = async (id: string) => {
+    try {
+      await fetch(`/api/admin/overrides/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/overrides"] });
+      toast({ title: "Override deleted" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Failed to delete", variant: "destructive" });
+    }
+  };
+
   const isLoading = overridesLoading || usersLoading;
+
+  const getScopeDescription = (override: OverrideAgreement) => {
+    if (override.serviceId) {
+      return `${getServiceName(override.serviceId)}${override.clientId ? ` (${getClientName(override.clientId)})` : ""}`;
+    }
+    if (override.clientId) {
+      return `${getProviderName(override.providerId || "")} + ${getClientName(override.clientId)}`;
+    }
+    if (override.providerId) {
+      return getProviderName(override.providerId);
+    }
+    return "All Orders";
+  };
+
+  const stepTitles = ["Select Recipient", "Choose Scope", "Set Rate", "Review & Save"];
 
   return (
     <div className="p-6 space-y-6">
@@ -248,7 +295,7 @@ export default function AdminOverrides() {
               />
             </div>
             <span className="text-sm text-muted-foreground">
-              Showing {filteredUsers.length} of {salesUsers.length} users (Total: {users?.length || 0})
+              Showing {filteredUsers.length} of {salesUsers.length} sales users
             </span>
           </div>
         </CardHeader>
@@ -296,213 +343,404 @@ export default function AdminOverrides() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedUser} onOpenChange={() => closeDialog()}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <Dialog open={!!selectedUser && !wizardOpen} onOpenChange={() => closeDialog()}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              Override Recipients for {selectedUser?.name}
+              Overrides for {selectedUser?.name}
               <Badge variant="outline">{selectedUser?.role}</Badge>
             </DialogTitle>
+            <DialogDescription>
+              People who earn commission when {selectedUser?.name} makes a sale
+            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Configure who earns commission overrides when {selectedUser?.name} makes a sale. Each recipient will earn their specified amount per qualifying order.
-            </p>
-
-            {overrides.length === 0 ? (
+            {getOverridesForUser(selectedUser?.id || "").length === 0 ? (
               <div className="text-center py-8 border rounded-md bg-muted/20">
                 <DollarSign className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                 <p className="text-muted-foreground">No override recipients configured</p>
-                <Button variant="outline" className="mt-4" onClick={addOverrideRow} data-testid="button-add-first-override">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Override Recipient
-                </Button>
               </div>
             ) : (
-              <div className="space-y-4">
-                {overrides.map((override, index) => (
-                  <Card key={index} className="p-4">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex-1 grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Recipient ({eligibleRecipients.length} available)</Label>
-                            <Select 
-                              value={override.recipientUserId || "__none__"} 
-                              onValueChange={(v) => updateOverrideRow(index, "recipientUserId", v === "__none__" ? "" : v)}
-                            >
-                              <SelectTrigger data-testid={`select-recipient-${index}`}>
-                                <SelectValue placeholder="Select recipient" />
-                              </SelectTrigger>
-                              <SelectContent position="popper" sideOffset={4}>
-                                <SelectItem value="__none__">Select recipient</SelectItem>
-                                {eligibleRecipients.map((u) => (
-                                  <SelectItem key={u.id} value={u.id}>
-                                    {u.name} ({u.role})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Amount ($)</Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={override.amountFlat}
-                              onChange={(e) => updateOverrideRow(index, "amountFlat", e.target.value)}
-                              placeholder="0.00"
-                              data-testid={`input-amount-${index}`}
-                            />
-                          </div>
-                        </div>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="mt-6"
-                          onClick={() => removeOverrideRow(index)}
-                          data-testid={`button-remove-override-${index}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+              <div className="space-y-2">
+                {getOverridesForUser(selectedUser?.id || "").map((override) => (
+                  <div
+                    key={override.id}
+                    className="flex items-center justify-between p-3 rounded-md border"
+                  >
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{getUserName(override.recipientUserId)}</span>
+                        <Badge variant="secondary" className="text-xs">{getUserRole(override.recipientUserId)}</Badge>
+                        {!override.active && <Badge variant="outline" className="text-xs">Inactive</Badge>}
                       </div>
-
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                          <Label className="text-xs text-muted-foreground">Provider Filter</Label>
-                          <Select 
-                            value={override.providerId || "__all__"} 
-                            onValueChange={(v) => updateOverrideRow(index, "providerId", v === "__all__" ? "" : v)}
-                          >
-                            <SelectTrigger data-testid={`select-provider-${index}`}>
-                              <SelectValue placeholder="All" />
-                            </SelectTrigger>
-                            <SelectContent position="popper" sideOffset={4}>
-                              <SelectItem value="__all__">All Providers</SelectItem>
-                              {providers?.map((p) => (
-                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-xs text-muted-foreground">Client Filter</Label>
-                          <Select 
-                            value={override.clientId || "__all__"} 
-                            onValueChange={(v) => updateOverrideRow(index, "clientId", v === "__all__" ? "" : v)}
-                          >
-                            <SelectTrigger data-testid={`select-client-${index}`}>
-                              <SelectValue placeholder="All" />
-                            </SelectTrigger>
-                            <SelectContent position="popper" sideOffset={4}>
-                              <SelectItem value="__all__">All Clients</SelectItem>
-                              {clients?.map((c) => (
-                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-xs text-muted-foreground">Service Filter</Label>
-                          <Select 
-                            value={override.serviceId || "__all__"} 
-                            onValueChange={(v) => updateOverrideRow(index, "serviceId", v === "__all__" ? "" : v)}
-                          >
-                            <SelectTrigger data-testid={`select-service-${index}`}>
-                              <SelectValue placeholder="All" />
-                            </SelectTrigger>
-                            <SelectContent position="popper" sideOffset={4}>
-                              <SelectItem value="__all__">All Services</SelectItem>
-                              {services?.map((s) => (
-                                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label className="text-xs text-muted-foreground">Mobile Product Filter</Label>
-                          <Select 
-                            value={override.mobileProductType || "__all__"} 
-                            onValueChange={(v) => updateOverrideRow(index, "mobileProductType", v === "__all__" ? "" : v)}
-                          >
-                            <SelectTrigger data-testid={`select-mobile-product-${index}`}>
-                              <SelectValue placeholder="All" />
-                            </SelectTrigger>
-                            <SelectContent position="popper" sideOffset={4}>
-                              <SelectItem value="__all__">All Mobile Products</SelectItem>
-                              {MOBILE_PRODUCT_TYPES.map((t) => (
-                                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-xs text-muted-foreground">TV/Video Filter</Label>
-                          <Select 
-                            value={override.tvSoldFilter || "__all__"} 
-                            onValueChange={(v) => updateOverrideRow(index, "tvSoldFilter", v === "__all__" ? "" : v)}
-                          >
-                            <SelectTrigger data-testid={`select-tv-filter-${index}`}>
-                              <SelectValue placeholder="All" />
-                            </SelectTrigger>
-                            <SelectContent position="popper" sideOffset={4}>
-                              <SelectItem value="__all__">Any (TV or not)</SelectItem>
-                              <SelectItem value="true">TV Sold</SelectItem>
-                              <SelectItem value="false">No TV</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                          <Label className="text-xs text-muted-foreground">Start Date</Label>
-                          <Input
-                            type="date"
-                            value={override.effectiveStart}
-                            onChange={(e) => updateOverrideRow(index, "effectiveStart", e.target.value)}
-                            data-testid={`input-start-${index}`}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-xs text-muted-foreground">End Date (Optional)</Label>
-                          <Input
-                            type="date"
-                            value={override.effectiveEnd}
-                            onChange={(e) => updateOverrideRow(index, "effectiveEnd", e.target.value)}
-                            data-testid={`input-end-${index}`}
-                          />
-                        </div>
-                        <div className="flex items-end gap-2 pb-1">
-                          <Switch 
-                            checked={override.active} 
-                            onCheckedChange={(c) => updateOverrideRow(index, "active", c)} 
-                            data-testid={`switch-active-${index}`}
-                          />
-                          <Label className="text-xs">Active</Label>
-                        </div>
+                      <div className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-medium text-foreground">${override.amountFlat}</span>
+                        <span>per sale</span>
+                        <span className="text-muted-foreground/50">|</span>
+                        <span>{getScopeDescription(override)}</span>
+                        {override.mobileProductType && (
+                          <>
+                            <span className="text-muted-foreground/50">|</span>
+                            <span>{MOBILE_PRODUCT_TYPES.find(t => t.value === override.mobileProductType)?.label}</span>
+                          </>
+                        )}
                       </div>
                     </div>
-                  </Card>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => startWizard(override)}
+                        data-testid={`button-edit-override-${override.id}`}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => deleteOverride(override.id)}
+                        data-testid={`button-delete-override-${override.id}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
                 ))}
-
-                <Button variant="outline" onClick={addOverrideRow} data-testid="button-add-override">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Another Recipient
-                </Button>
               </div>
             )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog}>Cancel</Button>
-            <Button onClick={saveOverrides} disabled={saving} data-testid="button-save-overrides">
-              {saving ? "Saving..." : "Save All"}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={closeDialog}>Close</Button>
+            <Button onClick={() => startWizard()} data-testid="button-add-override">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Override
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={wizardOpen} onOpenChange={() => closeWizard()}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {editingOverride ? "Edit Override" : "Create Override"} - Step {wizardStep} of 4
+            </DialogTitle>
+            <DialogDescription>{stepTitles[wizardStep - 1]}</DialogDescription>
+          </DialogHeader>
+
+          <div className="flex gap-1 mb-4">
+            {[1, 2, 3, 4].map((step) => (
+              <div
+                key={step}
+                className={`h-1 flex-1 rounded-full ${
+                  step <= wizardStep ? "bg-primary" : "bg-muted"
+                }`}
+              />
+            ))}
+          </div>
+
+          {wizardStep === 1 && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Who should receive commission when {selectedUser?.name} makes a sale?
+              </p>
+              <div className="space-y-2">
+                <Label>Override Recipient</Label>
+                <Select 
+                  value={wizardData.recipientUserId || "__none__"} 
+                  onValueChange={(v) => updateWizard("recipientUserId", v === "__none__" ? "" : v)}
+                >
+                  <SelectTrigger data-testid="select-wizard-recipient">
+                    <SelectValue placeholder="Select recipient" />
+                  </SelectTrigger>
+                  <SelectContent position="popper" sideOffset={4}>
+                    <SelectItem value="__none__">Select recipient</SelectItem>
+                    {eligibleRecipients.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.name} ({u.role})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {wizardStep === 2 && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Which sales should trigger this override?
+              </p>
+              <div className="space-y-3">
+                {[
+                  { value: "ALL", label: "All Orders", desc: "Override applies to all sales" },
+                  { value: "PROVIDER", label: "By Provider", desc: "Only sales from a specific provider" },
+                  { value: "PROVIDER_CLIENT", label: "Provider + Client", desc: "Provider and client combination" },
+                  { value: "SERVICE", label: "Specific Service", desc: "Only a particular service type" },
+                ].map((option) => (
+                  <div
+                    key={option.value}
+                    className={`p-3 rounded-md border cursor-pointer hover-elevate ${
+                      wizardData.scope === option.value ? "border-primary bg-primary/5" : ""
+                    }`}
+                    onClick={() => updateWizard("scope", option.value as ScopeType)}
+                    data-testid={`scope-option-${option.value}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                        wizardData.scope === option.value ? "border-primary" : "border-muted-foreground"
+                      }`}>
+                        {wizardData.scope === option.value && <div className="h-2 w-2 rounded-full bg-primary" />}
+                      </div>
+                      <span className="font-medium">{option.label}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground ml-6">{option.desc}</p>
+                  </div>
+                ))}
+              </div>
+
+              {wizardData.scope === "PROVIDER" && (
+                <div className="space-y-2 mt-4">
+                  <Label>Select Provider</Label>
+                  <Select 
+                    value={wizardData.providerId || "__none__"} 
+                    onValueChange={(v) => updateWizard("providerId", v === "__none__" ? "" : v)}
+                  >
+                    <SelectTrigger data-testid="select-wizard-provider">
+                      <SelectValue placeholder="Select provider" />
+                    </SelectTrigger>
+                    <SelectContent position="popper" sideOffset={4}>
+                      <SelectItem value="__none__">Select provider</SelectItem>
+                      {providers?.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {wizardData.scope === "PROVIDER_CLIENT" && (
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div className="space-y-2">
+                    <Label>Provider</Label>
+                    <Select 
+                      value={wizardData.providerId || "__none__"} 
+                      onValueChange={(v) => updateWizard("providerId", v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger data-testid="select-wizard-provider-2">
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                      <SelectContent position="popper" sideOffset={4}>
+                        <SelectItem value="__none__">Select provider</SelectItem>
+                        {providers?.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Client</Label>
+                    <Select 
+                      value={wizardData.clientId || "__none__"} 
+                      onValueChange={(v) => updateWizard("clientId", v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger data-testid="select-wizard-client">
+                        <SelectValue placeholder="Select client" />
+                      </SelectTrigger>
+                      <SelectContent position="popper" sideOffset={4}>
+                        <SelectItem value="__none__">Select client</SelectItem>
+                        {clients?.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              {wizardData.scope === "SERVICE" && (
+                <div className="space-y-2 mt-4">
+                  <Label>Select Service</Label>
+                  <Select 
+                    value={wizardData.serviceId || "__none__"} 
+                    onValueChange={(v) => updateWizard("serviceId", v === "__none__" ? "" : v)}
+                  >
+                    <SelectTrigger data-testid="select-wizard-service">
+                      <SelectValue placeholder="Select service" />
+                    </SelectTrigger>
+                    <SelectContent position="popper" sideOffset={4}>
+                      <SelectItem value="__none__">Select service</SelectItem>
+                      {services?.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          )}
+
+          {wizardStep === 3 && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                How much should {getUserName(wizardData.recipientUserId)} earn per qualifying sale?
+              </p>
+              <div className="space-y-2">
+                <Label>Amount per Sale ($)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={wizardData.amountFlat}
+                  onChange={(e) => updateWizard("amountFlat", e.target.value)}
+                  placeholder="0.00"
+                  className="text-lg"
+                  data-testid="input-wizard-amount"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Start Date</Label>
+                <Input
+                  type="date"
+                  value={wizardData.effectiveStart}
+                  onChange={(e) => updateWizard("effectiveStart", e.target.value)}
+                  data-testid="input-wizard-start"
+                />
+              </div>
+            </div>
+          )}
+
+          {wizardStep === 4 && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-md bg-muted/30 space-y-2">
+                <h4 className="font-medium">Summary</h4>
+                <div className="text-sm space-y-1">
+                  <p><span className="text-muted-foreground">Recipient:</span> {getUserName(wizardData.recipientUserId)}</p>
+                  <p><span className="text-muted-foreground">Amount:</span> ${wizardData.amountFlat} per sale</p>
+                  <p><span className="text-muted-foreground">Scope:</span> {
+                    wizardData.scope === "ALL" ? "All Orders" :
+                    wizardData.scope === "PROVIDER" ? getProviderName(wizardData.providerId) :
+                    wizardData.scope === "PROVIDER_CLIENT" ? `${getProviderName(wizardData.providerId)} + ${getClientName(wizardData.clientId)}` :
+                    getServiceName(wizardData.serviceId)
+                  }</p>
+                  <p><span className="text-muted-foreground">Start:</span> {wizardData.effectiveStart}</p>
+                </div>
+              </div>
+
+              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-between" data-testid="button-advanced-options">
+                    <span className="flex items-center gap-2">
+                      <Settings2 className="h-4 w-4" />
+                      Advanced Options
+                    </span>
+                    <ChevronRight className={`h-4 w-4 transition-transform ${advancedOpen ? "rotate-90" : ""}`} />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-4 pt-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Mobile Filter</Label>
+                      <Select 
+                        value={wizardData.mobileProductType || "__all__"} 
+                        onValueChange={(v) => updateWizard("mobileProductType", v === "__all__" ? "" : v)}
+                      >
+                        <SelectTrigger data-testid="select-wizard-mobile">
+                          <SelectValue placeholder="Any" />
+                        </SelectTrigger>
+                        <SelectContent position="popper" sideOffset={4}>
+                          <SelectItem value="__all__">Any</SelectItem>
+                          {MOBILE_PRODUCT_TYPES.map((t) => (
+                            <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">TV Filter</Label>
+                      <Select 
+                        value={wizardData.tvSoldFilter || "__all__"} 
+                        onValueChange={(v) => updateWizard("tvSoldFilter", v === "__all__" ? "" : v)}
+                      >
+                        <SelectTrigger data-testid="select-wizard-tv">
+                          <SelectValue placeholder="Any" />
+                        </SelectTrigger>
+                        <SelectContent position="popper" sideOffset={4}>
+                          <SelectItem value="__all__">Any</SelectItem>
+                          <SelectItem value="true">TV Sold</SelectItem>
+                          <SelectItem value="false">No TV</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">End Date (Optional)</Label>
+                    <Input
+                      type="date"
+                      value={wizardData.effectiveEnd}
+                      onChange={(e) => updateWizard("effectiveEnd", e.target.value)}
+                      data-testid="input-wizard-end"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Switch 
+                      checked={wizardData.active} 
+                      onCheckedChange={(c) => updateWizard("active", c)} 
+                      data-testid="switch-wizard-active"
+                    />
+                    <Label>Active</Label>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Notes (Optional)</Label>
+                    <Input
+                      value={wizardData.notes}
+                      onChange={(e) => updateWizard("notes", e.target.value)}
+                      placeholder="Internal notes about this override..."
+                      data-testid="input-wizard-notes"
+                    />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            {wizardStep > 1 && (
+              <Button variant="outline" onClick={() => setWizardStep(wizardStep - 1)}>
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+            )}
+            <Button variant="outline" onClick={closeWizard}>Cancel</Button>
+            {wizardStep < 4 ? (
+              <Button 
+                onClick={() => setWizardStep(wizardStep + 1)} 
+                disabled={!canProceed()}
+                data-testid="button-wizard-next"
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            ) : (
+              <Button 
+                onClick={saveOverride} 
+                disabled={saving || !canProceed()}
+                data-testid="button-wizard-save"
+              >
+                {saving ? "Saving..." : (
+                  <>
+                    <Check className="h-4 w-4 mr-1" />
+                    {editingOverride ? "Update" : "Create"}
+                  </>
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
