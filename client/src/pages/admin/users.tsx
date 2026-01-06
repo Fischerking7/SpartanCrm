@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Users, Edit, UserX, AlertTriangle, KeyRound } from "lucide-react";
+import { Plus, Search, Users, Edit, UserX, AlertTriangle, KeyRound, Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { User } from "@shared/schema";
 
@@ -26,6 +26,7 @@ export default function AdminUsers() {
   const [skipValidation, setSkipValidation] = useState(false);
   const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
   const [tempPasswordResult, setTempPasswordResult] = useState<{ tempPassword: string; expiresInHours: number } | null>(null);
+  const [deleteUser, setDeleteUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     repId: "",
@@ -136,6 +137,28 @@ export default function AdminUsers() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to remove user");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      setDeleteUser(null);
+      toast({ title: "User archived", description: "User has been removed from the system." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to remove user", description: error.message, variant: "destructive" });
+    },
+  });
+
   const resetForm = () => {
     setFormData({ name: "", repId: "", password: "", role: "REP", assignedSupervisorId: __NONE__, assignedManagerId: __NONE__, assignedExecutiveId: __NONE__ });
     setSkipValidation(false);
@@ -183,8 +206,9 @@ export default function AdminUsers() {
   };
 
   const filteredUsers = users?.filter((user) =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.repId.toLowerCase().includes(searchTerm.toLowerCase())
+    !user.deletedAt &&
+    (user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.repId.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const supervisors = users?.filter((u) => u.role === "SUPERVISOR" && u.status === "ACTIVE") || [];
@@ -303,10 +327,20 @@ export default function AdminUsers() {
               variant="ghost"
               onClick={() => deactivateMutation.mutate(row.id)}
               data-testid={`button-deactivate-${row.id}`}
+              title="Deactivate"
             >
-              <UserX className="h-4 w-4 text-red-600" />
+              <UserX className="h-4 w-4 text-amber-600" />
             </Button>
           )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setDeleteUser(row)}
+            data-testid={`button-delete-${row.id}`}
+            title="Remove User"
+          >
+            <Trash2 className="h-4 w-4 text-red-600" />
+          </Button>
         </div>
       ),
     },
@@ -594,6 +628,30 @@ export default function AdminUsers() {
               </DialogFooter>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteUser} onOpenChange={() => setDeleteUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove User</DialogTitle>
+            <DialogDescription>
+              This will archive the user "{deleteUser?.name}" ({deleteUser?.repId}). 
+              Their historical data will be preserved, but they will no longer have access to the system.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteUser(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteUser && deleteMutation.mutate(deleteUser.id)}
+              disabled={deleteMutation.isPending}
+              data-testid="button-confirm-delete-user"
+            >
+              {deleteMutation.isPending ? "Removing..." : "Remove User"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
