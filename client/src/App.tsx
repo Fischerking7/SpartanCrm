@@ -62,7 +62,7 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
     return <Redirect to="/login" />;
   }
   
-  if (adminOnly && user.role !== "ADMIN") {
+  if (adminOnly && user.role !== "ADMIN" && user.role !== "FOUNDER") {
     return <Redirect to="/" />;
   }
   
