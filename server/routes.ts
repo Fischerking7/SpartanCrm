@@ -1769,6 +1769,94 @@ export async function registerRoutes(
     }
   });
 
+  // Import leads from Excel (admin/manager+)
+  app.post("/api/admin/leads/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet) as Record<string, any>[];
+
+      if (rows.length === 0) {
+        return res.status(400).json({ message: "Excel file is empty" });
+      }
+
+      const errors: string[] = [];
+      let success = 0;
+      let failed = 0;
+
+      // Get users for validation
+      const users = await storage.getUsers();
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 2;
+
+        try {
+          const repId = row.repId?.toString().trim();
+          const customerName = row.customerName?.toString().trim();
+
+          if (!repId) {
+            errors.push(`Row ${rowNum}: Missing repId`);
+            failed++;
+            continue;
+          }
+          if (!customerName) {
+            errors.push(`Row ${rowNum}: Missing customerName`);
+            failed++;
+            continue;
+          }
+
+          // Verify rep exists
+          const rep = users.find(u => u.repId === repId);
+          if (!rep) {
+            errors.push(`Row ${rowNum}: Rep '${repId}' not found`);
+            failed++;
+            continue;
+          }
+
+          // Create the lead
+          await storage.createLead({
+            repId,
+            customerName,
+            customerAddress: row.customerAddress?.toString().trim() || null,
+            customerPhone: row.customerPhone?.toString().trim() || null,
+            customerEmail: row.customerEmail?.toString().trim() || null,
+            street: row.street?.toString().trim() || null,
+            city: row.city?.toString().trim() || null,
+            state: row.state?.toString().trim() || null,
+            zipCode: row.zipCode?.toString().trim() || null,
+            notes: row.notes?.toString().trim() || null,
+            importedBy: req.user!.id,
+            status: "NEW",
+          });
+
+          success++;
+        } catch (rowError: any) {
+          errors.push(`Row ${rowNum}: ${rowError.message}`);
+          failed++;
+        }
+      }
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "leads_import",
+        tableName: "leads",
+        afterJson: JSON.stringify({ success, failed, totalRows: rows.length }),
+      });
+
+      res.json({ success, failed, errors: errors.slice(0, 20) });
+    } catch (error: any) {
+      console.error("Lead import error:", error);
+      res.status(500).json({ message: error.message || "Failed to import leads" });
+    }
+  });
+
   // Commissions - role-based view
   app.get("/api/commissions", auth, async (req: AuthRequest, res) => {
     try {

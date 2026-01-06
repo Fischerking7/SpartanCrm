@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle } from "lucide-react";
 import type { Lead } from "@shared/schema";
 
 export default function Leads() {
@@ -25,6 +26,13 @@ export default function Leads() {
   
   const [editingNotes, setEditingNotes] = useState<string | null>(null);
   const [notesValue, setNotesValue] = useState("");
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
 
   const buildQueryUrl = () => {
     const params = new URLSearchParams();
@@ -92,6 +100,65 @@ export default function Leads() {
 
   const hasActiveFilters = filters.zipCode || filters.street || filters.city || filters.dateFrom || filters.dateTo;
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImportFile(file);
+      setImportResult(null);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    
+    setIsImporting(true);
+    setImportResult(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append("file", importFile);
+      
+      const authHeaders = getAuthHeaders() as { Authorization: string };
+      const res = await fetch("/api/admin/leads/import", {
+        method: "POST",
+        headers: {
+          Authorization: authHeaders.Authorization,
+        },
+        body: formData,
+      });
+      
+      const result = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(result.message || "Import failed");
+      }
+      
+      setImportResult(result);
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      
+      if (result.success > 0) {
+        toast({
+          title: "Import completed",
+          description: `Successfully imported ${result.success} leads${result.failed > 0 ? `, ${result.failed} failed` : ""}`,
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Import failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const closeImportDialog = () => {
+    setShowImportDialog(false);
+    setImportFile(null);
+    setImportResult(null);
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -99,11 +166,19 @@ export default function Leads() {
           <h1 className="text-2xl font-semibold" data-testid="text-page-title">My Leads</h1>
           <p className="text-muted-foreground">View and manage your imported leads</p>
         </div>
-        <div className="flex items-center gap-2">
-          <UserPlus className="h-5 w-5 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground" data-testid="text-lead-count">
-            {leads?.length || 0} leads
-          </span>
+        <div className="flex items-center gap-4">
+          {isAdmin && (
+            <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-leads">
+              <Upload className="h-4 w-4 mr-2" />
+              Import Leads
+            </Button>
+          )}
+          <div className="flex items-center gap-2">
+            <UserPlus className="h-5 w-5 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground" data-testid="text-lead-count">
+              {leads?.length || 0} leads
+            </span>
+          </div>
         </div>
       </div>
 
@@ -294,6 +369,98 @@ export default function Leads() {
           </Card>
         )}
       </div>
+
+      <Dialog open={showImportDialog} onOpenChange={(open) => { if (!open) closeImportDialog(); else setShowImportDialog(true); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5" />
+              Import Leads from Excel
+            </DialogTitle>
+            <DialogDescription>
+              Upload an Excel file (.xlsx) with lead data. Required columns: repId, customerName. Optional: customerAddress, customerPhone, customerEmail, street, city, state, zipCode, notes.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="border-2 border-dashed rounded-lg p-6 text-center">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileSelect}
+                className="hidden"
+                data-testid="input-import-file"
+              />
+              {importFile ? (
+                <div className="flex items-center justify-center gap-2">
+                  <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
+                  <span className="font-medium">{importFile.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => { setImportFile(null); setImportResult(null); }}
+                    data-testid="button-clear-file"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div>
+                  <Button variant="outline" onClick={() => fileInputRef.current?.click()} data-testid="button-select-file">
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select Excel File
+                  </Button>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Supports .xlsx and .xls files
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {importResult && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-4">
+                  {importResult.success > 0 && (
+                    <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                      <CheckCircle className="h-4 w-4" />
+                      <span>{importResult.success} imported</span>
+                    </div>
+                  )}
+                  {importResult.failed > 0 && (
+                    <div className="flex items-center gap-1 text-red-600 dark:text-red-400">
+                      <XCircle className="h-4 w-4" />
+                      <span>{importResult.failed} failed</span>
+                    </div>
+                  )}
+                </div>
+                {importResult.errors.length > 0 && (
+                  <div className="max-h-32 overflow-y-auto text-sm text-muted-foreground border rounded p-2 space-y-1">
+                    {importResult.errors.map((error, i) => (
+                      <div key={i}>{error}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={closeImportDialog}>
+              {importResult ? "Close" : "Cancel"}
+            </Button>
+            {!importResult && (
+              <Button
+                onClick={handleImport}
+                disabled={!importFile || isImporting}
+                data-testid="button-start-import"
+              >
+                {isImporting ? "Importing..." : "Import"}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
