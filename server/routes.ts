@@ -777,8 +777,8 @@ export async function registerRoutes(
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       let orders;
 
-      if (user.role === "ADMIN") {
-        // Admin sees all orders
+      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+        // Admin/Founder sees all orders
         orders = await storage.getOrders({ limit });
       } else if (user.role === "EXECUTIVE") {
         // Executive sees orders from their org tree (managers and their reps)
@@ -791,7 +791,7 @@ export async function registerRoutes(
         const teamRepIds = [...scope.allRepRepIds, user.repId]; // Include manager's own orders
         orders = await storage.getOrders({ teamRepIds, limit });
       } else if (user.role === "SUPERVISOR") {
-        // Supervisor sees their assigned reps
+        // Supervisor sees their assigned reps + own orders
         const supervisedReps = await storage.getSupervisedReps(user.id);
         const teamRepIds = [...supervisedReps.map(r => r.repId), user.repId];
         orders = await storage.getOrders({ teamRepIds, limit });
@@ -802,6 +802,7 @@ export async function registerRoutes(
 
       res.json(orders);
     } catch (error) {
+      console.error("Get orders error:", error);
       res.status(500).json({ message: "Failed to get orders" });
     }
   });

@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, sql, lte, gte, or, isNull, ilike } from "drizzle-orm";
+import { eq, and, desc, sql, lte, gte, or, isNull, ilike, inArray } from "drizzle-orm";
 import {
   users, providers, clients, services, rateCards, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
@@ -234,10 +234,6 @@ export const storage = {
 
   // Sales Orders
   async getOrders(filter?: { repId?: string; teamRepIds?: string[]; limit?: number }) {
-    let query = db.query.salesOrders.findMany({
-      orderBy: [desc(salesOrders.createdAt)],
-      limit: filter?.limit,
-    });
     if (filter?.repId) {
       return db.query.salesOrders.findMany({
         where: eq(salesOrders.repId, filter.repId),
@@ -246,10 +242,11 @@ export const storage = {
       });
     }
     if (filter?.teamRepIds?.length) {
-      return db.select().from(salesOrders)
-        .where(sql`${salesOrders.repId} = ANY(${filter.teamRepIds})`)
-        .orderBy(desc(salesOrders.createdAt))
-        .limit(filter.limit || 1000);
+      return db.query.salesOrders.findMany({
+        where: inArray(salesOrders.repId, filter.teamRepIds),
+        orderBy: [desc(salesOrders.createdAt)],
+        limit: filter.limit || 1000,
+      });
     }
     return db.query.salesOrders.findMany({ orderBy: [desc(salesOrders.createdAt)], limit: filter?.limit });
   },
