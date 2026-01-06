@@ -830,13 +830,37 @@ export async function registerRoutes(
         }
       }
       
+      // Calculate commission from rate card
+      let baseCommission = "0";
+      let appliedRateCardId: string | null = null;
+      let commissionSource: "CALCULATED" | "MANUAL" | "IMPORTED" = "CALCULATED";
+      
+      // Build a temporary order object to find matching rate card
+      const tempOrder = {
+        providerId,
+        serviceId,
+        clientId,
+        tvSold: orderData.tvSold || false,
+        mobileSold: orderData.mobileSold || false,
+        mobileLinesQty: orderData.mobileLinesQty || 0,
+      };
+      
+      const rateCard = await storage.findMatchingRateCard(tempOrder as any, dateSold);
+      if (rateCard) {
+        baseCommission = storage.calculateCommission(rateCard, tempOrder as any).toString();
+        appliedRateCardId = rateCard.id;
+      }
+      
       // System-controlled fields - cannot be set by user
       const data = { 
         ...orderData,
         repId: user.repId,
         jobStatus: "PENDING" as const,
         approvalStatus: "UNAPPROVED" as const,
-        baseCommissionEarned: "0",
+        baseCommissionEarned: baseCommission,
+        appliedRateCardId,
+        commissionSource,
+        calcAt: rateCard ? new Date() : null,
         incentiveEarned: "0",
         commissionPaid: "0",
         paymentStatus: "UNPAID" as const,
@@ -907,6 +931,31 @@ export async function registerRoutes(
       
       if (Object.keys(updateData).length === 0) {
         return res.status(400).json({ message: "No valid fields to update" });
+      }
+      
+      // Check if commission-affecting fields changed and recalculate if needed
+      const commissionFields = ["providerId", "serviceId", "clientId", "dateSold", "tvSold", "mobileSold", "mobileLinesQty"];
+      const needsRecalc = commissionFields.some(f => updateData[f] !== undefined);
+      
+      if (needsRecalc && order.approvalStatus !== "APPROVED") {
+        // Build merged order for recalculation
+        const mergedOrder = {
+          providerId: updateData.providerId ?? order.providerId,
+          serviceId: updateData.serviceId ?? order.serviceId,
+          clientId: updateData.clientId ?? order.clientId,
+          tvSold: updateData.tvSold ?? order.tvSold,
+          mobileSold: updateData.mobileSold ?? order.mobileSold,
+          mobileLinesQty: updateData.mobileLinesQty ?? order.mobileLinesQty,
+        };
+        const dateSold = updateData.dateSold ?? order.dateSold;
+        
+        const rateCard = await storage.findMatchingRateCard(mergedOrder as any, dateSold);
+        if (rateCard) {
+          updateData.baseCommissionEarned = storage.calculateCommission(rateCard, mergedOrder as any).toString();
+          updateData.appliedRateCardId = rateCard.id;
+          updateData.commissionSource = "CALCULATED";
+          updateData.calcAt = new Date();
+        }
       }
       
       const updated = await storage.updateOrder(id, updateData);
