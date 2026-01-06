@@ -44,6 +44,8 @@ export default function AdminUsers() {
       if (!res.ok) throw new Error("Failed to fetch users");
       return res.json();
     },
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const createMutation = useMutation({

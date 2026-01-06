@@ -58,6 +58,8 @@ export default function AdminOverrides() {
       const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
       return res.json();
     },
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const { data: providers } = useQuery<Provider[]>({
