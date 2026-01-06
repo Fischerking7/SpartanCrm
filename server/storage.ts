@@ -1201,11 +1201,17 @@ export const storage = {
   },
 
   // Leads
-  async getLeadsByRepId(repId: string, filters?: { zipCode?: string; street?: string; city?: string; dateFrom?: string; dateTo?: string }) {
+  async getLeadsByRepId(repId: string, filters?: { zipCode?: string; street?: string; city?: string; dateFrom?: string; dateTo?: string; houseNumber?: string; streetName?: string }) {
     const conditions = [eq(leads.repId, repId)];
     
     if (filters?.zipCode) {
       conditions.push(ilike(leads.zipCode, `%${filters.zipCode}%`));
+    }
+    if (filters?.houseNumber) {
+      conditions.push(ilike(leads.houseNumber, `%${filters.houseNumber}%`));
+    }
+    if (filters?.streetName) {
+      conditions.push(ilike(leads.streetName, `%${filters.streetName}%`));
     }
     if (filters?.street) {
       conditions.push(ilike(leads.street, `%${filters.street}%`));

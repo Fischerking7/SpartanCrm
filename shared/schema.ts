@@ -389,10 +389,12 @@ export type Counter = typeof counters.$inferSelect;
 export const leads = pgTable("leads", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   repId: text("rep_id").notNull(),
-  customerName: text("customer_name").notNull(),
+  customerName: text("customer_name"),
   customerAddress: text("customer_address"),
   customerPhone: text("customer_phone"),
   customerEmail: text("customer_email"),
+  houseNumber: text("house_number"),
+  streetName: text("street_name"),
   street: text("street"),
   city: text("city"),
   state: text("state"),

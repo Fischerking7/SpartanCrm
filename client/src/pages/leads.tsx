@@ -17,9 +17,10 @@ export default function Leads() {
   const { toast } = useToast();
   
   const [filters, setFilters] = useState({
-    zipCode: "",
-    street: "",
+    houseNumber: "",
+    streetName: "",
     city: "",
+    zipCode: "",
     dateFrom: "",
     dateTo: "",
   });
@@ -36,9 +37,10 @@ export default function Leads() {
 
   const buildQueryUrl = () => {
     const params = new URLSearchParams();
-    if (filters.zipCode) params.append("zipCode", filters.zipCode);
-    if (filters.street) params.append("street", filters.street);
+    if (filters.houseNumber) params.append("houseNumber", filters.houseNumber);
+    if (filters.streetName) params.append("streetName", filters.streetName);
     if (filters.city) params.append("city", filters.city);
+    if (filters.zipCode) params.append("zipCode", filters.zipCode);
     if (filters.dateFrom) params.append("dateFrom", filters.dateFrom);
     if (filters.dateTo) params.append("dateTo", filters.dateTo);
     const qs = params.toString();
@@ -90,15 +92,16 @@ export default function Leads() {
 
   const clearFilters = () => {
     setFilters({
-      zipCode: "",
-      street: "",
+      houseNumber: "",
+      streetName: "",
       city: "",
+      zipCode: "",
       dateFrom: "",
       dateTo: "",
     });
   };
 
-  const hasActiveFilters = filters.zipCode || filters.street || filters.city || filters.dateFrom || filters.dateTo;
+  const hasActiveFilters = filters.houseNumber || filters.streetName || filters.city || filters.zipCode || filters.dateFrom || filters.dateTo;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -190,23 +193,23 @@ export default function Leads() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
             <div className="space-y-1">
-              <Label className="text-xs">Zip Code</Label>
+              <Label className="text-xs">House #</Label>
               <Input
-                placeholder="Filter by zip code"
-                value={filters.zipCode}
-                onChange={(e) => setFilters(f => ({ ...f, zipCode: e.target.value }))}
-                data-testid="input-filter-zipcode"
+                placeholder="e.g. 123"
+                value={filters.houseNumber}
+                onChange={(e) => setFilters(f => ({ ...f, houseNumber: e.target.value }))}
+                data-testid="input-filter-house-number"
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Street</Label>
+              <Label className="text-xs">Street Name</Label>
               <Input
-                placeholder="Filter by street"
-                value={filters.street}
-                onChange={(e) => setFilters(f => ({ ...f, street: e.target.value }))}
-                data-testid="input-filter-street"
+                placeholder="e.g. Main St"
+                value={filters.streetName}
+                onChange={(e) => setFilters(f => ({ ...f, streetName: e.target.value }))}
+                data-testid="input-filter-street-name"
               />
             </div>
             <div className="space-y-1">
@@ -216,6 +219,15 @@ export default function Leads() {
                 value={filters.city}
                 onChange={(e) => setFilters(f => ({ ...f, city: e.target.value }))}
                 data-testid="input-filter-city"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Zip Code</Label>
+              <Input
+                placeholder="Filter by zip"
+                value={filters.zipCode}
+                onChange={(e) => setFilters(f => ({ ...f, zipCode: e.target.value }))}
+                data-testid="input-filter-zipcode"
               />
             </div>
             <div className="space-y-1">
@@ -268,11 +280,14 @@ export default function Leads() {
                     <h3 className="font-medium" data-testid={`text-lead-name-${lead.id}`}>
                       {lead.customerName}
                     </h3>
-                    {(lead.street || lead.city || lead.state || lead.zipCode) && (
+                    {(lead.houseNumber || lead.streetName || lead.street || lead.city || lead.state || lead.zipCode) && (
                       <div className="flex items-start gap-2 text-sm text-muted-foreground">
                         <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
                         <div>
-                          {lead.street && <div>{lead.street}</div>}
+                          {(lead.houseNumber || lead.streetName) && (
+                            <div>{[lead.houseNumber, lead.streetName].filter(Boolean).join(" ")}</div>
+                          )}
+                          {lead.street && !lead.houseNumber && !lead.streetName && <div>{lead.street}</div>}
                           {(lead.city || lead.state || lead.zipCode) && (
                             <div>
                               {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
@@ -281,7 +296,7 @@ export default function Leads() {
                         </div>
                       </div>
                     )}
-                    {lead.customerAddress && !lead.street && (
+                    {lead.customerAddress && !lead.street && !lead.houseNumber && !lead.streetName && (
                       <div className="flex items-start gap-2 text-sm text-muted-foreground">
                         <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
                         <span>{lead.customerAddress}</span>
@@ -378,7 +393,7 @@ export default function Leads() {
               Import Leads from Excel
             </DialogTitle>
             <DialogDescription>
-              Upload an Excel file (.xlsx) with lead data. Required: address (or street). Optional: customerName, customerPhone, customerEmail, city, state, zipCode, notes.
+              Upload an Excel file (.xlsx) with lead data. Required: houseNumber + streetName (or address). Optional: customerName, customerPhone, customerEmail, city, state, zipCode, notes.
             </DialogDescription>
           </DialogHeader>
           

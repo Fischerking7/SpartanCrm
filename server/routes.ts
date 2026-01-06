@@ -1734,14 +1734,16 @@ export async function registerRoutes(
   // Leads - accessible by all authenticated users for their own leads
   app.get("/api/leads", auth, async (req: AuthRequest, res) => {
     try {
-      const { zipCode, street, city, dateFrom, dateTo } = req.query as {
+      const { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName } = req.query as {
         zipCode?: string;
         street?: string;
         city?: string;
         dateFrom?: string;
         dateTo?: string;
+        houseNumber?: string;
+        streetName?: string;
       };
-      const leads = await storage.getLeadsByRepId(req.user!.repId, { zipCode, street, city, dateFrom, dateTo });
+      const leads = await storage.getLeadsByRepId(req.user!.repId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
       res.json(leads);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch leads" });
@@ -1810,12 +1812,26 @@ export async function registerRoutes(
             repId = currentUser.repId;
           }
 
-          // Address is required - can be customerAddress or street
-          const customerAddress = row.customerAddress?.toString().trim() || row.address?.toString().trim();
-          const street = row.street?.toString().trim();
+          // Address fields - houseNumber and streetName, or combined address/street
+          let houseNumber = row.houseNumber?.toString().trim() || row.house_number?.toString().trim() || "";
+          let streetName = row.streetName?.toString().trim() || row.street_name?.toString().trim() || "";
+          const customerAddress = row.customerAddress?.toString().trim() || row.address?.toString().trim() || "";
+          const street = row.street?.toString().trim() || "";
           
-          if (!customerAddress && !street) {
-            errors.push(`Row ${rowNum}: Missing address (customerAddress or street required)`);
+          // If no separate fields, try to parse from combined address
+          if (!houseNumber && !streetName && (customerAddress || street)) {
+            const fullAddr = customerAddress || street;
+            const match = fullAddr.match(/^(\d+[A-Za-z]?)\s+(.+)$/);
+            if (match) {
+              houseNumber = match[1];
+              streetName = match[2];
+            } else {
+              streetName = fullAddr;
+            }
+          }
+          
+          if (!houseNumber && !streetName && !customerAddress && !street) {
+            errors.push(`Row ${rowNum}: Missing address (houseNumber/streetName or address required)`);
             failed++;
             continue;
           }
@@ -1833,11 +1849,13 @@ export async function registerRoutes(
           // Create the lead
           await storage.createLead({
             repId,
-            customerName,
-            customerAddress: row.customerAddress?.toString().trim() || null,
+            customerName: customerName || null,
+            customerAddress: customerAddress || null,
             customerPhone: row.customerPhone?.toString().trim() || null,
             customerEmail: row.customerEmail?.toString().trim() || null,
-            street: row.street?.toString().trim() || null,
+            houseNumber: houseNumber || null,
+            streetName: streetName || null,
+            street: street || null,
             city: row.city?.toString().trim() || null,
             state: row.state?.toString().trim() || null,
             zipCode: row.zipCode?.toString().trim() || null,
