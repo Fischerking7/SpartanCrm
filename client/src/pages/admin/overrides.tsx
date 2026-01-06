@@ -357,12 +357,12 @@ export default function AdminOverrides() {
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Provider (Optional)</Label>
-                <Select value={formData.providerId} onValueChange={(v) => setFormData({ ...formData, providerId: v })}>
+                <Select value={formData.providerId || "__all__"} onValueChange={(v) => setFormData({ ...formData, providerId: v === "__all__" ? "" : v })}>
                   <SelectTrigger data-testid="select-provider">
                     <SelectValue placeholder="All" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Providers</SelectItem>
+                    <SelectItem value="__all__">All Providers</SelectItem>
                     {providers?.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                     ))}
@@ -371,12 +371,12 @@ export default function AdminOverrides() {
               </div>
               <div className="space-y-2">
                 <Label>Client (Optional)</Label>
-                <Select value={formData.clientId} onValueChange={(v) => setFormData({ ...formData, clientId: v })}>
+                <Select value={formData.clientId || "__all__"} onValueChange={(v) => setFormData({ ...formData, clientId: v === "__all__" ? "" : v })}>
                   <SelectTrigger data-testid="select-client">
                     <SelectValue placeholder="All" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Clients</SelectItem>
+                    <SelectItem value="__all__">All Clients</SelectItem>
                     {clients?.map((c) => (
                       <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                     ))}
@@ -385,12 +385,12 @@ export default function AdminOverrides() {
               </div>
               <div className="space-y-2">
                 <Label>Service (Optional)</Label>
-                <Select value={formData.serviceId} onValueChange={(v) => setFormData({ ...formData, serviceId: v })}>
+                <Select value={formData.serviceId || "__all__"} onValueChange={(v) => setFormData({ ...formData, serviceId: v === "__all__" ? "" : v })}>
                   <SelectTrigger data-testid="select-service">
                     <SelectValue placeholder="All" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Services</SelectItem>
+                    <SelectItem value="__all__">All Services</SelectItem>
                     {services?.map((s) => (
                       <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                     ))}
