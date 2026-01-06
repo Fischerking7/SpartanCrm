@@ -15,6 +15,8 @@ import { queryClient } from "@/lib/queryClient";
 import { Plus, Search, Users, Edit, UserX } from "lucide-react";
 import type { User } from "@shared/schema";
 
+const __NONE__ = "__NONE__";
+
 export default function AdminUsers() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
@@ -25,7 +27,7 @@ export default function AdminUsers() {
     repId: "",
     password: "",
     role: "REP",
-    assignedManagerId: "",
+    assignedManagerId: __NONE__,
   });
 
   const { data: users, isLoading } = useQuery<User[]>({
@@ -107,7 +109,7 @@ export default function AdminUsers() {
   });
 
   const resetForm = () => {
-    setFormData({ name: "", repId: "", password: "", role: "REP", assignedManagerId: "" });
+    setFormData({ name: "", repId: "", password: "", role: "REP", assignedManagerId: __NONE__ });
   };
 
   const openEditDialog = (user: User) => {
@@ -117,7 +119,7 @@ export default function AdminUsers() {
       repId: user.repId,
       password: "",
       role: user.role,
-      assignedManagerId: user.assignedManagerId || "",
+      assignedManagerId: user.assignedManagerId || __NONE__,
     });
   };
 
@@ -318,8 +320,8 @@ export default function AdminUsers() {
                       <SelectValue placeholder="Select manager" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
-                      {managers.map((m) => (
+                      <SelectItem value={__NONE__}>None</SelectItem>
+                      {managers.filter(m => m?.id).map((m) => (
                         <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -335,11 +337,12 @@ export default function AdminUsers() {
             <Button
               onClick={() => {
                 if (editingUser) {
-                  const updateData: Partial<typeof formData> = { name: formData.name, role: formData.role, assignedManagerId: formData.assignedManagerId || undefined };
+                  const updateData: Partial<typeof formData> = { name: formData.name, role: formData.role, assignedManagerId: formData.assignedManagerId === __NONE__ ? undefined : formData.assignedManagerId };
                   if (formData.password) updateData.password = formData.password;
                   updateMutation.mutate({ id: editingUser.id, data: updateData });
                 } else {
-                  createMutation.mutate(formData);
+                  const submitData = { ...formData, assignedManagerId: formData.assignedManagerId === __NONE__ ? undefined : formData.assignedManagerId };
+                  createMutation.mutate(submitData as typeof formData);
                 }
               }}
               disabled={!formData.name || !formData.repId || (!editingUser && !formData.password) || createMutation.isPending || updateMutation.isPending}

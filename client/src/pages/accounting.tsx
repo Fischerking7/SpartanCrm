@@ -143,13 +143,13 @@ export default function Accounting() {
 
       <div className="space-y-2">
         <Label>Select Pay Run (Optional)</Label>
-        <Select value={selectedPayRunId} onValueChange={setSelectedPayRunId}>
+        <Select value={selectedPayRunId || "__NONE__"} onValueChange={(v) => setSelectedPayRunId(v === "__NONE__" ? "" : v)}>
           <SelectTrigger className="w-[300px]" data-testid="select-payrun">
             <SelectValue placeholder="Select a pay run for imports" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">No Pay Run</SelectItem>
-            {payRuns?.filter(pr => pr.status === "DRAFT").map((payRun) => (
+            <SelectItem value="__NONE__">No Pay Run</SelectItem>
+            {payRuns?.filter(pr => pr.status === "DRAFT" && pr.id).map((payRun) => (
               <SelectItem key={payRun.id} value={payRun.id}>
                 Week ending {new Date(payRun.weekEndingDate).toLocaleDateString()}
               </SelectItem>

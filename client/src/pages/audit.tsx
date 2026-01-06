@@ -32,7 +32,7 @@ export default function Audit() {
     return matchesSearch && matchesTable;
   });
 
-  const tableNames = [...new Set(logs?.map((log) => log.tableName) || [])];
+  const tableNames = Array.from(new Set(logs?.map((log) => log.tableName) || [])).filter(Boolean);
 
   const getActionBadgeVariant = (action: string) => {
     if (action.includes("create") || action.includes("approve")) return "default";

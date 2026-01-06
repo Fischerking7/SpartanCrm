@@ -267,7 +267,7 @@ export default function Adjustments() {
                     <SelectValue placeholder="Select user" />
                   </SelectTrigger>
                   <SelectContent>
-                    {users?.filter(u => u.status === "ACTIVE").map((u) => (
+                    {users?.filter(u => u.status === "ACTIVE" && u.id).map((u) => (
                       <SelectItem key={u.id} value={u.id}>{u.name} ({u.repId})</SelectItem>
                     ))}
                   </SelectContent>

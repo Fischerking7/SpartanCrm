@@ -15,13 +15,15 @@ import { queryClient } from "@/lib/queryClient";
 import { Plus, Search, DollarSign, Edit } from "lucide-react";
 import type { RateCard, Provider, Client, Service } from "@shared/schema";
 
+const __ANY_CLIENT__ = "__ANY_CLIENT__";
+
 export default function AdminRateCards() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [showDialog, setShowDialog] = useState(false);
   const [editingItem, setEditingItem] = useState<RateCard | null>(null);
   const [formData, setFormData] = useState({
-    providerId: "", clientId: "", serviceId: "", tvCondition: "ANY", mobileCondition: "ANY",
+    providerId: "", clientId: __ANY_CLIENT__, serviceId: "", tvCondition: "ANY", mobileCondition: "ANY",
     linesMin: "", linesMax: "", commissionType: "FLAT", amount: "", effectiveStart: "", effectiveEnd: "", active: true, requiresReview: false,
   });
 
@@ -50,7 +52,7 @@ export default function AdminRateCards() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const closeDialog = () => { setShowDialog(false); setEditingItem(null); setFormData({ providerId: "", clientId: "", serviceId: "", tvCondition: "ANY", mobileCondition: "ANY", linesMin: "", linesMax: "", commissionType: "FLAT", amount: "", effectiveStart: "", effectiveEnd: "", active: true, requiresReview: false }); };
+  const closeDialog = () => { setShowDialog(false); setEditingItem(null); setFormData({ providerId: "", clientId: __ANY_CLIENT__, serviceId: "", tvCondition: "ANY", mobileCondition: "ANY", linesMin: "", linesMax: "", commissionType: "FLAT", amount: "", effectiveStart: "", effectiveEnd: "", active: true, requiresReview: false }); };
   const getProviderName = (id: string) => providers?.find(p => p.id === id)?.name || id;
   const getClientName = (id: string | null) => id ? clients?.find(c => c.id === id)?.name || id : "Any";
   const getServiceName = (id: string) => services?.find(s => s.id === id)?.name || id;
@@ -63,11 +65,11 @@ export default function AdminRateCards() {
     { key: "type", header: "Type", cell: (r: RateCard) => <Badge variant="outline">{r.commissionType}</Badge> },
     { key: "amount", header: "Amount", cell: (r: RateCard) => <span className="font-mono">${parseFloat(r.amount).toFixed(2)}</span>, className: "text-right" },
     { key: "active", header: "Status", cell: (r: RateCard) => <Badge variant={r.active ? "default" : "secondary"}>{r.active ? "Active" : "Inactive"}</Badge> },
-    { key: "actions", header: "", cell: (r: RateCard) => <Button size="sm" variant="ghost" onClick={() => { setEditingItem(r); setFormData({ providerId: r.providerId, clientId: r.clientId || "", serviceId: r.serviceId, tvCondition: r.tvCondition, mobileCondition: r.mobileCondition, linesMin: r.linesMin?.toString() || "", linesMax: r.linesMax?.toString() || "", commissionType: r.commissionType, amount: r.amount, effectiveStart: r.effectiveStart, effectiveEnd: r.effectiveEnd || "", active: r.active, requiresReview: r.requiresReview }); setShowDialog(true); }}><Edit className="h-4 w-4" /></Button> },
+    { key: "actions", header: "", cell: (r: RateCard) => <Button size="sm" variant="ghost" onClick={() => { setEditingItem(r); setFormData({ providerId: r.providerId, clientId: r.clientId || __ANY_CLIENT__, serviceId: r.serviceId, tvCondition: r.tvCondition, mobileCondition: r.mobileCondition, linesMin: r.linesMin?.toString() || "", linesMax: r.linesMax?.toString() || "", commissionType: r.commissionType, amount: r.amount, effectiveStart: r.effectiveStart, effectiveEnd: r.effectiveEnd || "", active: r.active, requiresReview: r.requiresReview }); setShowDialog(true); }}><Edit className="h-4 w-4" /></Button> },
   ];
 
   const submitData = () => {
-    const data = { ...formData, amount: formData.amount, linesMin: formData.linesMin ? parseInt(formData.linesMin) : null, linesMax: formData.linesMax ? parseInt(formData.linesMax) : null, clientId: formData.clientId || null, effectiveEnd: formData.effectiveEnd || null };
+    const data = { ...formData, amount: formData.amount, linesMin: formData.linesMin ? parseInt(formData.linesMin) : null, linesMax: formData.linesMax ? parseInt(formData.linesMax) : null, clientId: formData.clientId === __ANY_CLIENT__ ? null : formData.clientId, effectiveEnd: formData.effectiveEnd || null };
     if (editingItem) updateMutation.mutate({ id: editingItem.id, data }); else createMutation.mutate(data);
   };
 
@@ -86,9 +88,9 @@ export default function AdminRateCards() {
           <DialogHeader><DialogTitle>{editingItem ? "Edit" : "Create"} Rate Card</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2"><Label>Provider</Label><Select value={formData.providerId} onValueChange={(v) => setFormData({ ...formData, providerId: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{providers?.filter(p => p.active).map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select></div>
-              <div className="space-y-2"><Label>Client (Any)</Label><Select value={formData.clientId} onValueChange={(v) => setFormData({ ...formData, clientId: v })}><SelectTrigger><SelectValue placeholder="Any client" /></SelectTrigger><SelectContent><SelectItem value="">Any</SelectItem>{clients?.filter(c => c.active).map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
-              <div className="space-y-2"><Label>Service</Label><Select value={formData.serviceId} onValueChange={(v) => setFormData({ ...formData, serviceId: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{services?.filter(s => s.active).map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2"><Label>Provider</Label><Select value={formData.providerId} onValueChange={(v) => setFormData({ ...formData, providerId: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{providers?.filter(p => p.active && p.id).map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2"><Label>Client (Any)</Label><Select value={formData.clientId} onValueChange={(v) => setFormData({ ...formData, clientId: v })}><SelectTrigger><SelectValue placeholder="Any client" /></SelectTrigger><SelectContent><SelectItem value={__ANY_CLIENT__}>Any</SelectItem>{clients?.filter(c => c.active && c.id).map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2"><Label>Service</Label><Select value={formData.serviceId} onValueChange={(v) => setFormData({ ...formData, serviceId: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{services?.filter(s => s.active && s.id).map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
             </div>
             <div className="grid grid-cols-4 gap-4">
               <div className="space-y-2"><Label>TV Condition</Label><Select value={formData.tvCondition} onValueChange={(v) => setFormData({ ...formData, tvCondition: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ANY">Any</SelectItem><SelectItem value="YES">Yes</SelectItem><SelectItem value="NO">No</SelectItem></SelectContent></Select></div>
