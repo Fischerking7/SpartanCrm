@@ -374,7 +374,7 @@ export default function Orders() {
                     <SelectValue placeholder="Select client" />
                   </SelectTrigger>
                   <SelectContent>
-                    {clients?.filter(c => c.active && c.id).map((client) => (
+                    {clients?.filter(c => c.active !== false && c.id).map((client) => (
                       <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -387,7 +387,7 @@ export default function Orders() {
                     <SelectValue placeholder="Select provider" />
                   </SelectTrigger>
                   <SelectContent>
-                    {providers?.filter(p => p.active && p.id).map((provider) => (
+                    {providers?.filter(p => p.active !== false && p.id).map((provider) => (
                       <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -400,7 +400,7 @@ export default function Orders() {
                     <SelectValue placeholder="Select service" />
                   </SelectTrigger>
                   <SelectContent>
-                    {services?.filter(s => s.active && s.id).map((service) => (
+                    {services?.filter(s => s.active !== false && s.id).map((service) => (
                       <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
                     ))}
                   </SelectContent>
