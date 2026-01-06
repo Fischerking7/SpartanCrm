@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { ProductionMetricsModule } from "@/components/production-metrics-card";
+import { NextDayInstallsCard } from "@/components/next-day-installs";
 import { DataTable } from "@/components/data-table";
 import { JobStatusBadge, ApprovalStatusBadge, PaymentStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -149,12 +150,15 @@ export default function RepDashboard() {
           ))}
         </div>
       ) : summary ? (
-        <ProductionMetricsModule
-          personalWeekly={summary.weekly.personal}
-          personalMtd={summary.mtd.personal}
-          teamWeekly={null}
-          teamMtd={null}
-        />
+        <>
+          <ProductionMetricsModule
+            personalWeekly={summary.weekly.personal}
+            personalMtd={summary.mtd.personal}
+            teamWeekly={null}
+            teamMtd={null}
+          />
+          <NextDayInstallsCard />
+        </>
       ) : null}
 
       <Card>

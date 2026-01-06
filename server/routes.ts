@@ -656,6 +656,63 @@ export async function registerRoutes(
     }
   });
 
+  // Next-day installations endpoint
+  app.get("/api/dashboard/next-day-installs", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const role = user.role;
+      
+      // Calculate tomorrow's date in America/New_York timezone
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const tomorrow = new Date(nyNow);
+      tomorrow.setDate(nyNow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+      
+      // Get repIds based on role scope
+      let repIds: string[] = [];
+      
+      if (role === "REP") {
+        repIds = [user.repId];
+      } else if (role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+      } else if (role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        repIds = [user.repId, ...scope.allRepRepIds];
+      } else if (role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        repIds = [user.repId, ...scope.allRepRepIds];
+      } else {
+        // ADMIN/FOUNDER see all
+        const allUsers = await storage.getUsers();
+        repIds = allUsers.filter(u => u.role === "REP" && u.status === "ACTIVE" && !u.deletedAt).map(u => u.repId);
+      }
+      
+      // Get orders with installDate = tomorrow
+      const allOrders = await storage.getOrders({});
+      const nextDayInstalls = allOrders.filter(order => {
+        if (!order.installDate) return false;
+        const installDateStr = new Date(order.installDate).toISOString().split('T')[0];
+        return installDateStr === tomorrowStr && repIds.includes(order.repId);
+      }).map(order => ({
+        id: order.id,
+        invoiceNumber: order.invoiceNumber,
+        customerName: order.customerName,
+        customerPhone: order.customerPhone,
+        customerAddress: order.customerAddress,
+        installDate: order.installDate,
+        repId: order.repId,
+        jobStatus: order.jobStatus,
+      }));
+      
+      res.json({ date: tomorrowStr, installs: nextDayInstalls });
+    } catch (error) {
+      console.error("Next-day installs error:", error);
+      res.status(500).json({ message: "Failed to get next-day installations" });
+    }
+  });
+
   // Team routes
   app.get("/api/team/members", auth, managerOrAdmin, async (req: AuthRequest, res) => {
     try {

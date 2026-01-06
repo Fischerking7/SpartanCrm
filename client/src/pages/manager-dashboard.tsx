@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { ProductionMetricsModule } from "@/components/production-metrics-card";
+import { NextDayInstallsCard } from "@/components/next-day-installs";
 import { TeamBreakdownByRepTable } from "@/components/team-breakdown-table";
 import { DataTable } from "@/components/data-table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -230,12 +231,15 @@ export default function ManagerDashboard() {
           </div>
         </div>
       ) : summary ? (
-        <ProductionMetricsModule
-          personalWeekly={summary.weekly.personal}
-          personalMtd={summary.mtd.personal}
-          teamWeekly={summary.weekly.team}
-          teamMtd={summary.mtd.team}
-        />
+        <>
+          <ProductionMetricsModule
+            personalWeekly={summary.weekly.personal}
+            personalMtd={summary.mtd.personal}
+            teamWeekly={summary.weekly.team}
+            teamMtd={summary.mtd.team}
+          />
+          <NextDayInstallsCard />
+        </>
       ) : null}
 
       {summary?.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && (
