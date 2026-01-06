@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums
-export const userRoleEnum = pgEnum("user_role", ["REP", "MANAGER", "ADMIN"]);
+export const userRoleEnum = pgEnum("user_role", ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"]);
 export const userStatusEnum = pgEnum("user_status", ["ACTIVE", "DEACTIVATED"]);
 export const jobStatusEnum = pgEnum("job_status", ["PENDING", "COMPLETED", "CANCELED"]);
 export const approvalStatusEnum = pgEnum("approval_status", ["UNAPPROVED", "APPROVED", "REJECTED"]);
@@ -17,11 +17,12 @@ export const incentiveTypeEnum = pgEnum("incentive_type", ["FLAT", "PERCENT", "P
 export const overrideTypeEnum = pgEnum("override_type", ["PERCENT", "FLAT_PER_JOB", "PER_LINE", "TIERED"]);
 export const chargebackReasonEnum = pgEnum("chargeback_reason", ["CANCELLATION", "NON_PAYMENT", "SERVICE_ISSUE", "DUPLICATE", "OTHER"]);
 export const adjustmentTypeEnum = pgEnum("adjustment_type", ["BONUS", "CORRECTION", "PENALTY", "ADVANCE", "CLAWBACK", "OTHER"]);
-export const payeeTypeEnum = pgEnum("payee_type", ["REP", "MANAGER", "ADMIN"]);
+export const payeeTypeEnum = pgEnum("payee_type", ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"]);
 export const payRunStatusEnum = pgEnum("payrun_status", ["DRAFT", "FINALIZED"]);
 export const rateIssueTypeEnum = pgEnum("rate_issue_type", ["MISSING_RATE", "CONFLICT_RATE"]);
+export const sourceLevelEnum = pgEnum("source_level", ["REP", "SUPERVISOR", "MANAGER"]);
 
-// Users table
+// Users table with expanded hierarchy
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
@@ -29,14 +30,20 @@ export const users = pgTable("users", {
   role: userRoleEnum("role").notNull().default("REP"),
   status: userStatusEnum("status").notNull().default("ACTIVE"),
   passwordHash: text("password_hash").notNull(),
+  assignedSupervisorId: varchar("assigned_supervisor_id"),
   assignedManagerId: varchar("assigned_manager_id"),
+  assignedExecutiveId: varchar("assigned_executive_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const usersRelations = relations(users, ({ one, many }) => ({
+  supervisor: one(users, { fields: [users.assignedSupervisorId], references: [users.id], relationName: "supervisorTeam" }),
   manager: one(users, { fields: [users.assignedManagerId], references: [users.id], relationName: "managerTeam" }),
-  teamMembers: many(users, { relationName: "managerTeam" }),
+  executive: one(users, { fields: [users.assignedExecutiveId], references: [users.id], relationName: "executiveTeam" }),
+  supervisedReps: many(users, { relationName: "supervisorTeam" }),
+  managedUsers: many(users, { relationName: "managerTeam" }),
+  executiveUsers: many(users, { relationName: "executiveTeam" }),
   salesOrders: many(salesOrders),
 }));
 
@@ -157,7 +164,7 @@ export const salesOrders = pgTable("sales_orders", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const salesOrdersRelations = relations(salesOrders, ({ one }) => ({
+export const salesOrdersRelations = relations(salesOrders, ({ one, many }) => ({
   client: one(clients, { fields: [salesOrders.clientId], references: [clients.id] }),
   provider: one(providers, { fields: [salesOrders.providerId], references: [providers.id] }),
   service: one(services, { fields: [salesOrders.serviceId], references: [services.id] }),
@@ -165,6 +172,7 @@ export const salesOrdersRelations = relations(salesOrders, ({ one }) => ({
   exportBatch: one(exportBatches, { fields: [salesOrders.exportBatchId], references: [exportBatches.id] }),
   appliedRateCard: one(rateCards, { fields: [salesOrders.appliedRateCardId], references: [rateCards.id] }),
   payRun: one(payRuns, { fields: [salesOrders.payRunId], references: [payRuns.id] }),
+  overrideEarnings: many(overrideEarnings),
 }));
 
 // Incentives table
@@ -187,13 +195,12 @@ export const incentives = pgTable("incentives", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// Override Agreements table
+// Override Agreements table - Flat rate overrides for hierarchy
 export const overrideAgreements = pgTable("override_agreements", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  sourceRepId: text("source_rep_id").notNull(),
   recipientUserId: varchar("recipient_user_id").notNull().references(() => users.id),
-  type: overrideTypeEnum("type").notNull(),
-  rateOrAmount: decimal("rate_or_amount", { precision: 10, scale: 4 }).notNull(),
+  sourceLevel: sourceLevelEnum("source_level").notNull(),
+  amountFlat: decimal("amount_flat", { precision: 10, scale: 2 }).notNull(),
   providerId: varchar("provider_id").references(() => providers.id),
   clientId: varchar("client_id").references(() => clients.id),
   serviceId: varchar("service_id").references(() => services.id),
@@ -204,6 +211,33 @@ export const overrideAgreements = pgTable("override_agreements", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+export const overrideAgreementsRelations = relations(overrideAgreements, ({ one }) => ({
+  recipient: one(users, { fields: [overrideAgreements.recipientUserId], references: [users.id] }),
+  provider: one(providers, { fields: [overrideAgreements.providerId], references: [providers.id] }),
+  client: one(clients, { fields: [overrideAgreements.clientId], references: [clients.id] }),
+  service: one(services, { fields: [overrideAgreements.serviceId], references: [services.id] }),
+}));
+
+// Override Earnings table - Computed overrides per approved order
+export const overrideEarnings = pgTable("override_earnings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  salesOrderId: varchar("sales_order_id").notNull().references(() => salesOrders.id),
+  recipientUserId: varchar("recipient_user_id").notNull().references(() => users.id),
+  sourceRepId: text("source_rep_id").notNull(),
+  sourceLevelUsed: sourceLevelEnum("source_level_used").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  overrideAgreementId: varchar("override_agreement_id").references(() => overrideAgreements.id),
+  payRunId: varchar("pay_run_id").references(() => payRuns.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const overrideEarningsRelations = relations(overrideEarnings, ({ one }) => ({
+  salesOrder: one(salesOrders, { fields: [overrideEarnings.salesOrderId], references: [salesOrders.id] }),
+  recipient: one(users, { fields: [overrideEarnings.recipientUserId], references: [users.id] }),
+  overrideAgreement: one(overrideAgreements, { fields: [overrideEarnings.overrideAgreementId], references: [overrideAgreements.id] }),
+  payRun: one(payRuns, { fields: [overrideEarnings.payRunId], references: [payRuns.id] }),
+}));
 
 // Chargebacks table
 export const chargebacks = pgTable("chargebacks", {
@@ -302,6 +336,7 @@ export const insertRateCardSchema = createInsertSchema(rateCards).omit({ id: tru
 export const insertSalesOrderSchema = createInsertSchema(salesOrders).omit({ id: true, createdAt: true, updatedAt: true, invoiceNumber: true, approvedAt: true, approvedByUserId: true, exportedAt: true, exportBatchId: true, exportedToAccounting: true });
 export const insertIncentiveSchema = createInsertSchema(incentives).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertOverrideAgreementSchema = createInsertSchema(overrideAgreements).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertOverrideEarningSchema = createInsertSchema(overrideEarnings).omit({ id: true, createdAt: true });
 export const insertChargebackSchema = createInsertSchema(chargebacks).omit({ id: true, createdAt: true });
 export const insertAdjustmentSchema = createInsertSchema(adjustments).omit({ id: true, createdAt: true, approvedAt: true, approvedByUserId: true });
 export const insertPayRunSchema = createInsertSchema(payRuns).omit({ id: true, createdAt: true, finalizedAt: true });
@@ -324,6 +359,8 @@ export type Incentive = typeof incentives.$inferSelect;
 export type InsertIncentive = z.infer<typeof insertIncentiveSchema>;
 export type OverrideAgreement = typeof overrideAgreements.$inferSelect;
 export type InsertOverrideAgreement = z.infer<typeof insertOverrideAgreementSchema>;
+export type OverrideEarning = typeof overrideEarnings.$inferSelect;
+export type InsertOverrideEarning = z.infer<typeof insertOverrideEarningSchema>;
 export type Chargeback = typeof chargebacks.$inferSelect;
 export type InsertChargeback = z.infer<typeof insertChargebackSchema>;
 export type Adjustment = typeof adjustments.$inferSelect;

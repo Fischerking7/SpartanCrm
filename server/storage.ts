@@ -4,11 +4,12 @@ import {
   users, providers, clients, services, rateCards, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues,
-  auditLogs, exportBatches, counters,
+  auditLogs, exportBatches, counters, overrideEarnings,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
-  type Incentive, type InsertIncentive, type OverrideAgreement,
+  type Incentive, type InsertIncentive, type OverrideAgreement, type InsertOverrideAgreement,
+  type OverrideEarning, type InsertOverrideEarning,
   type Chargeback, type InsertChargeback, type Adjustment, type InsertAdjustment,
   type PayRun, type InsertPayRun, type UnmatchedPayment, type UnmatchedChargeback,
   type RateIssue, type AuditLog, type InsertAuditLog,
@@ -297,5 +298,79 @@ export const storage = {
       fileName,
     }).returning();
     return batch;
+  },
+
+  // Override Agreements
+  async getOverrideAgreements() {
+    return db.query.overrideAgreements.findMany({ orderBy: [desc(overrideAgreements.createdAt)] });
+  },
+  async createOverrideAgreement(data: InsertOverrideAgreement) {
+    const [agreement] = await db.insert(overrideAgreements).values(data).returning();
+    return agreement;
+  },
+  async updateOverrideAgreement(id: string, data: Partial<InsertOverrideAgreement>) {
+    const [agreement] = await db.update(overrideAgreements).set({ ...data, updatedAt: new Date() }).where(eq(overrideAgreements.id, id)).returning();
+    return agreement;
+  },
+  async getActiveOverrideAgreements(recipientUserId: string, sourceLevel: string, date: string, filter?: { providerId?: string; clientId?: string; serviceId?: string }) {
+    const agreements = await db.query.overrideAgreements.findMany({
+      where: and(
+        eq(overrideAgreements.recipientUserId, recipientUserId),
+        eq(overrideAgreements.sourceLevel, sourceLevel as any),
+        eq(overrideAgreements.active, true),
+        lte(overrideAgreements.effectiveStart, date),
+        or(isNull(overrideAgreements.effectiveEnd), gte(overrideAgreements.effectiveEnd, date))
+      ),
+    });
+    return agreements.filter(a => {
+      if (a.providerId && filter?.providerId && a.providerId !== filter.providerId) return false;
+      if (a.clientId && filter?.clientId && a.clientId !== filter.clientId) return false;
+      if (a.serviceId && filter?.serviceId && a.serviceId !== filter.serviceId) return false;
+      return true;
+    });
+  },
+
+  // Override Earnings
+  async getOverrideEarnings() {
+    return db.query.overrideEarnings.findMany({ orderBy: [desc(overrideEarnings.createdAt)] });
+  },
+  async getOverrideEarningsByOrder(salesOrderId: string) {
+    return db.query.overrideEarnings.findMany({ where: eq(overrideEarnings.salesOrderId, salesOrderId) });
+  },
+  async getOverrideEarningsByRecipient(recipientUserId: string) {
+    return db.query.overrideEarnings.findMany({ where: eq(overrideEarnings.recipientUserId, recipientUserId), orderBy: [desc(overrideEarnings.createdAt)] });
+  },
+  async createOverrideEarning(data: InsertOverrideEarning) {
+    const [earning] = await db.insert(overrideEarnings).values(data).returning();
+    return earning;
+  },
+
+  // Hierarchy helpers
+  async getUsersByRole(role: string) {
+    return db.query.users.findMany({ where: and(eq(users.role, role as any), eq(users.status, "ACTIVE")) });
+  },
+  async getRepHierarchy(repId: string): Promise<{ supervisor?: User; manager?: User; executive?: User }> {
+    const rep = await db.query.users.findFirst({ where: eq(users.repId, repId) });
+    if (!rep) return {};
+    const result: { supervisor?: User; manager?: User; executive?: User } = {};
+    if (rep.assignedSupervisorId) {
+      result.supervisor = await db.query.users.findFirst({ where: eq(users.id, rep.assignedSupervisorId) }) || undefined;
+    }
+    if (rep.assignedManagerId) {
+      result.manager = await db.query.users.findFirst({ where: eq(users.id, rep.assignedManagerId) }) || undefined;
+    } else if (result.supervisor?.assignedManagerId) {
+      result.manager = await db.query.users.findFirst({ where: eq(users.id, result.supervisor.assignedManagerId) }) || undefined;
+    }
+    if (rep.assignedExecutiveId) {
+      result.executive = await db.query.users.findFirst({ where: eq(users.id, rep.assignedExecutiveId) }) || undefined;
+    } else if (result.manager?.assignedExecutiveId) {
+      result.executive = await db.query.users.findFirst({ where: eq(users.id, result.manager.assignedExecutiveId) }) || undefined;
+    } else if (result.supervisor?.assignedExecutiveId) {
+      result.executive = await db.query.users.findFirst({ where: eq(users.id, result.supervisor.assignedExecutiveId) }) || undefined;
+    }
+    return result;
+  },
+  async getSupervisedReps(supervisorId: string) {
+    return db.query.users.findMany({ where: and(eq(users.assignedSupervisorId, supervisorId), eq(users.status, "ACTIVE")) });
   },
 };

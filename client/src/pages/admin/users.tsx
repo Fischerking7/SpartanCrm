@@ -27,7 +27,9 @@ export default function AdminUsers() {
     repId: "",
     password: "",
     role: "REP",
+    assignedSupervisorId: __NONE__,
     assignedManagerId: __NONE__,
+    assignedExecutiveId: __NONE__,
   });
 
   const { data: users, isLoading } = useQuery<User[]>({
@@ -109,7 +111,7 @@ export default function AdminUsers() {
   });
 
   const resetForm = () => {
-    setFormData({ name: "", repId: "", password: "", role: "REP", assignedManagerId: __NONE__ });
+    setFormData({ name: "", repId: "", password: "", role: "REP", assignedSupervisorId: __NONE__, assignedManagerId: __NONE__, assignedExecutiveId: __NONE__ });
   };
 
   const openEditDialog = (user: User) => {
@@ -119,7 +121,9 @@ export default function AdminUsers() {
       repId: user.repId,
       password: "",
       role: user.role,
+      assignedSupervisorId: user.assignedSupervisorId || __NONE__,
       assignedManagerId: user.assignedManagerId || __NONE__,
+      assignedExecutiveId: user.assignedExecutiveId || __NONE__,
     });
   };
 
@@ -128,7 +132,9 @@ export default function AdminUsers() {
     user.repId.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const supervisors = users?.filter((u) => u.role === "SUPERVISOR" && u.status === "ACTIVE") || [];
   const managers = users?.filter((u) => u.role === "MANAGER" && u.status === "ACTIVE") || [];
+  const executives = users?.filter((u) => u.role === "EXECUTIVE" && u.status === "ACTIVE") || [];
 
   const getInitials = (name: string) => {
     return name
@@ -137,6 +143,16 @@ export default function AdminUsers() {
       .join("")
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  const getRoleBadgeVariant = (role: string) => {
+    switch (role) {
+      case "ADMIN": return "default";
+      case "EXECUTIVE": return "default";
+      case "MANAGER": return "secondary";
+      case "SUPERVISOR": return "secondary";
+      default: return "outline";
+    }
   };
 
   const columns = [
@@ -161,10 +177,30 @@ export default function AdminUsers() {
       key: "role",
       header: "Role",
       cell: (row: User) => (
-        <Badge variant={row.role === "ADMIN" ? "default" : row.role === "MANAGER" ? "secondary" : "outline"}>
+        <Badge variant={getRoleBadgeVariant(row.role)}>
           {row.role}
         </Badge>
       ),
+    },
+    {
+      key: "hierarchy",
+      header: "Reports To",
+      cell: (row: User) => {
+        const parts: string[] = [];
+        if (row.assignedSupervisorId) {
+          const sup = users?.find(u => u.id === row.assignedSupervisorId);
+          if (sup) parts.push(`Sup: ${sup.name}`);
+        }
+        if (row.assignedManagerId) {
+          const mgr = users?.find(u => u.id === row.assignedManagerId);
+          if (mgr) parts.push(`Mgr: ${mgr.name}`);
+        }
+        if (row.assignedExecutiveId) {
+          const exec = users?.find(u => u.id === row.assignedExecutiveId);
+          if (exec) parts.push(`Exec: ${exec.name}`);
+        }
+        return <span className="text-xs text-muted-foreground">{parts.join(", ") || "-"}</span>;
+      },
     },
     {
       key: "status",
@@ -212,6 +248,10 @@ export default function AdminUsers() {
     },
   ];
 
+  const showSupervisorField = formData.role === "REP";
+  const showManagerField = formData.role === "REP" || formData.role === "SUPERVISOR";
+  const showExecutiveField = formData.role === "REP" || formData.role === "SUPERVISOR" || formData.role === "MANAGER";
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -253,7 +293,7 @@ export default function AdminUsers() {
       </Card>
 
       <Dialog open={showCreateDialog || !!editingUser} onOpenChange={() => { setShowCreateDialog(false); setEditingUser(null); resetForm(); }}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingUser ? "Edit User" : "Create User"}</DialogTitle>
             <DialogDescription>
@@ -292,43 +332,84 @@ export default function AdminUsers() {
                 data-testid="input-password"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select
+                value={formData.role}
+                onValueChange={(v) => setFormData({ ...formData, role: v, assignedSupervisorId: __NONE__, assignedManagerId: __NONE__, assignedExecutiveId: __NONE__ })}
+              >
+                <SelectTrigger data-testid="select-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="REP">Rep</SelectItem>
+                  <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
+                  <SelectItem value="MANAGER">Manager</SelectItem>
+                  <SelectItem value="EXECUTIVE">Executive</SelectItem>
+                  <SelectItem value="ADMIN">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {showSupervisorField && (
               <div className="space-y-2">
-                <Label>Role</Label>
+                <Label>Assigned Supervisor</Label>
                 <Select
-                  value={formData.role}
-                  onValueChange={(v) => setFormData({ ...formData, role: v })}
+                  value={formData.assignedSupervisorId}
+                  onValueChange={(v) => setFormData({ ...formData, assignedSupervisorId: v })}
                 >
-                  <SelectTrigger data-testid="select-role">
-                    <SelectValue />
+                  <SelectTrigger data-testid="select-supervisor">
+                    <SelectValue placeholder="Select supervisor" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="REP">Rep</SelectItem>
-                    <SelectItem value="MANAGER">Manager</SelectItem>
-                    <SelectItem value="ADMIN">Admin</SelectItem>
+                    <SelectItem value={__NONE__}>None</SelectItem>
+                    {supervisors.filter(s => s?.id).map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-              {formData.role === "REP" && (
-                <div className="space-y-2">
-                  <Label>Assigned Manager</Label>
-                  <Select
-                    value={formData.assignedManagerId}
-                    onValueChange={(v) => setFormData({ ...formData, assignedManagerId: v })}
-                  >
-                    <SelectTrigger data-testid="select-manager">
-                      <SelectValue placeholder="Select manager" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={__NONE__}>None</SelectItem>
-                      {managers.filter(m => m?.id).map((m) => (
-                        <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
+            )}
+            
+            {showManagerField && (
+              <div className="space-y-2">
+                <Label>Assigned Manager</Label>
+                <Select
+                  value={formData.assignedManagerId}
+                  onValueChange={(v) => setFormData({ ...formData, assignedManagerId: v })}
+                >
+                  <SelectTrigger data-testid="select-manager">
+                    <SelectValue placeholder="Select manager" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={__NONE__}>None</SelectItem>
+                    {managers.filter(m => m?.id).map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            {showExecutiveField && (
+              <div className="space-y-2">
+                <Label>Assigned Executive</Label>
+                <Select
+                  value={formData.assignedExecutiveId}
+                  onValueChange={(v) => setFormData({ ...formData, assignedExecutiveId: v })}
+                >
+                  <SelectTrigger data-testid="select-executive">
+                    <SelectValue placeholder="Select executive" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={__NONE__}>None</SelectItem>
+                    {executives.filter(e => e?.id).map((e) => (
+                      <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowCreateDialog(false); setEditingUser(null); resetForm(); }}>
@@ -336,12 +417,23 @@ export default function AdminUsers() {
             </Button>
             <Button
               onClick={() => {
+                const submitData = {
+                  ...formData,
+                  assignedSupervisorId: formData.assignedSupervisorId === __NONE__ ? undefined : formData.assignedSupervisorId,
+                  assignedManagerId: formData.assignedManagerId === __NONE__ ? undefined : formData.assignedManagerId,
+                  assignedExecutiveId: formData.assignedExecutiveId === __NONE__ ? undefined : formData.assignedExecutiveId,
+                };
                 if (editingUser) {
-                  const updateData: Partial<typeof formData> = { name: formData.name, role: formData.role, assignedManagerId: formData.assignedManagerId === __NONE__ ? undefined : formData.assignedManagerId };
+                  const updateData: any = { 
+                    name: submitData.name, 
+                    role: submitData.role, 
+                    assignedSupervisorId: submitData.assignedSupervisorId,
+                    assignedManagerId: submitData.assignedManagerId,
+                    assignedExecutiveId: submitData.assignedExecutiveId,
+                  };
                   if (formData.password) updateData.password = formData.password;
                   updateMutation.mutate({ id: editingUser.id, data: updateData });
                 } else {
-                  const submitData = { ...formData, assignedManagerId: formData.assignedManagerId === __NONE__ ? undefined : formData.assignedManagerId };
                   createMutation.mutate(submitData as typeof formData);
                 }
               }}

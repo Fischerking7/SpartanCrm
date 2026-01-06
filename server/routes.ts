@@ -3,9 +3,94 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, managerOrAdmin, type AuthRequest } from "./auth";
-import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema } from "@shared/schema";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, type SalesOrder, type OverrideEarning } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
+
+async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder: SalesOrder): Promise<OverrideEarning[]> {
+  // Check if override earnings already exist for this order to prevent duplicates
+  const existingEarnings = await storage.getOverrideEarningsByOrder(approvedOrder.id);
+  if (existingEarnings.length > 0) {
+    return existingEarnings; // Already generated, return existing
+  }
+  
+  const earnings: OverrideEarning[] = [];
+  const orderFilter = { providerId: approvedOrder.providerId, clientId: approvedOrder.clientId, serviceId: approvedOrder.serviceId };
+  
+  // Get hierarchy for the rep
+  const hierarchy = await storage.getRepHierarchy(approvedOrder.repId);
+  
+  // Get all admins - they get overrides on every approved order globally
+  const admins = await storage.getUsersByRole("ADMIN");
+  for (const admin of admins) {
+    const agreements = await storage.getActiveOverrideAgreements(admin.id, "REP", approvedOrder.dateSold, orderFilter);
+    for (const agreement of agreements) {
+      const earning = await storage.createOverrideEarning({
+        salesOrderId: approvedOrder.id,
+        recipientUserId: admin.id,
+        sourceRepId: approvedOrder.repId,
+        sourceLevelUsed: "REP",
+        amount: agreement.amountFlat,
+        overrideAgreementId: agreement.id,
+      });
+      earnings.push(earning);
+    }
+  }
+
+  // Executive overrides (MANAGER, SUPERVISOR, REP levels)
+  if (hierarchy.executive) {
+    for (const sourceLevel of ["REP", "SUPERVISOR", "MANAGER"] as const) {
+      const agreements = await storage.getActiveOverrideAgreements(hierarchy.executive.id, sourceLevel, approvedOrder.dateSold, orderFilter);
+      for (const agreement of agreements) {
+        const earning = await storage.createOverrideEarning({
+          salesOrderId: approvedOrder.id,
+          recipientUserId: hierarchy.executive.id,
+          sourceRepId: approvedOrder.repId,
+          sourceLevelUsed: sourceLevel,
+          amount: agreement.amountFlat,
+          overrideAgreementId: agreement.id,
+        });
+        earnings.push(earning);
+      }
+    }
+  }
+
+  // Manager overrides (SUPERVISOR, REP levels)
+  if (hierarchy.manager) {
+    for (const sourceLevel of ["REP", "SUPERVISOR"] as const) {
+      const agreements = await storage.getActiveOverrideAgreements(hierarchy.manager.id, sourceLevel, approvedOrder.dateSold, orderFilter);
+      for (const agreement of agreements) {
+        const earning = await storage.createOverrideEarning({
+          salesOrderId: approvedOrder.id,
+          recipientUserId: hierarchy.manager.id,
+          sourceRepId: approvedOrder.repId,
+          sourceLevelUsed: sourceLevel,
+          amount: agreement.amountFlat,
+          overrideAgreementId: agreement.id,
+        });
+        earnings.push(earning);
+      }
+    }
+  }
+
+  // Supervisor overrides (REP level only)
+  if (hierarchy.supervisor) {
+    const agreements = await storage.getActiveOverrideAgreements(hierarchy.supervisor.id, "REP", approvedOrder.dateSold, orderFilter);
+    for (const agreement of agreements) {
+      const earning = await storage.createOverrideEarning({
+        salesOrderId: approvedOrder.id,
+        recipientUserId: hierarchy.supervisor.id,
+        sourceRepId: approvedOrder.repId,
+        sourceLevelUsed: "REP",
+        amount: agreement.amountFlat,
+        overrideAgreementId: agreement.id,
+      });
+      earnings.push(earning);
+    }
+  }
+
+  return earnings;
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -186,16 +271,16 @@ export async function registerRoutes(
       const data = { 
         ...orderData,
         repId: user.repId,
-        jobStatus: "PENDING",
-        approvalStatus: "UNAPPROVED",
+        jobStatus: "PENDING" as const,
+        approvalStatus: "UNAPPROVED" as const,
         baseCommissionEarned: "0",
         incentiveEarned: "0",
         commissionPaid: "0",
-        paymentStatus: "UNPAID",
+        paymentStatus: "UNPAID" as const,
         exportedToAccounting: false,
       };
       
-      const order = await storage.createOrder(data);
+      const order = await storage.createOrder(data as any);
       await storage.createAuditLog({ action: "create_order", tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(order), userId: user.id });
       res.json(order);
     } catch (error: any) {
@@ -318,6 +403,12 @@ export async function registerRoutes(
         commissionSource: "CALCULATED",
       });
 
+      // Generate override earnings
+      const overrideEarnings = await generateOverrideEarnings(order, updated);
+      for (const earning of overrideEarnings) {
+        await storage.createAuditLog({ action: "create_override_earning", tableName: "override_earnings", recordId: earning.id, afterJson: JSON.stringify(earning), userId: user.id });
+      }
+
       await storage.createAuditLog({ action: "approve_order", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
       res.json(updated);
     } catch (error) {
@@ -366,7 +457,7 @@ export async function registerRoutes(
           } else if (rateCard.commissionType === "PER_LINE") {
             baseCommission = (parseFloat(rateCard.amount) * order.mobileLinesQty).toString();
           }
-          await storage.updateOrder(id, {
+          const updated = await storage.updateOrder(id, {
             approvalStatus: "APPROVED",
             approvedByUserId: user.id,
             approvedAt: new Date(),
@@ -375,6 +466,9 @@ export async function registerRoutes(
             calcAt: new Date(),
             commissionSource: "CALCULATED",
           });
+          
+          // Generate override earnings
+          await generateOverrideEarnings(order, updated);
           approved++;
         } else {
           await storage.createRateIssue({ salesOrderId: id, type: "MISSING_RATE", details: "No matching rate card found" });
@@ -410,9 +504,21 @@ export async function registerRoutes(
 
   app.post("/api/admin/users", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const { password, ...data } = req.body;
+      const { password, name, repId, role, assignedSupervisorId, assignedManagerId, assignedExecutiveId } = req.body;
+      if (!password || !name || !repId) {
+        return res.status(400).json({ message: "Missing required fields: name, repId, password" });
+      }
       const passwordHash = await hashPassword(password);
-      const user = await storage.createUser({ ...data, passwordHash });
+      const userData = {
+        name,
+        repId,
+        role: role || "REP",
+        passwordHash,
+        assignedSupervisorId: assignedSupervisorId || null,
+        assignedManagerId: assignedManagerId || null,
+        assignedExecutiveId: assignedExecutiveId || null,
+      };
+      const user = await storage.createUser(userData);
       await storage.createAuditLog({ action: "create_user", tableName: "users", recordId: user.id, afterJson: JSON.stringify({ ...user, passwordHash: undefined }), userId: req.user!.id });
       res.json({ ...user, passwordHash: undefined });
     } catch (error: any) {
@@ -423,8 +529,13 @@ export async function registerRoutes(
   app.patch("/api/admin/users/:id", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const { password, ...data } = req.body;
-      const updateData: any = data;
+      const { password, name, role, assignedSupervisorId, assignedManagerId, assignedExecutiveId } = req.body;
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name;
+      if (role !== undefined) updateData.role = role;
+      if (assignedSupervisorId !== undefined) updateData.assignedSupervisorId = assignedSupervisorId || null;
+      if (assignedManagerId !== undefined) updateData.assignedManagerId = assignedManagerId || null;
+      if (assignedExecutiveId !== undefined) updateData.assignedExecutiveId = assignedExecutiveId || null;
       if (password) {
         updateData.passwordHash = await hashPassword(password);
       }
