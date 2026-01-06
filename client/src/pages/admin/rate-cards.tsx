@@ -349,19 +349,20 @@ export default function AdminRateCards() {
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                     </div>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[200px] p-0" align="start">
+                  <PopoverContent className="w-[200px] p-0" align="start" onOpenAutoFocus={(e) => e.preventDefault()}>
                     <div className="max-h-[200px] overflow-y-auto">
                       {filteredServices.length > 0 ? (
                         filteredServices.map((s) => (
-                          <div
+                          <button
                             key={s.id}
-                            className="flex items-center gap-2 px-3 py-2 cursor-pointer hover-elevate"
+                            type="button"
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
                             onClick={() => selectService(s)}
                             data-testid={`option-service-${s.id}`}
                           >
                             {formData.serviceId === s.id && <Check className="h-4 w-4 text-primary" />}
                             <span className={formData.serviceId === s.id ? "font-medium" : ""}>{s.name}</span>
-                          </div>
+                          </button>
                         ))
                       ) : formData.serviceName ? (
                         <div className="px-3 py-2 text-sm text-muted-foreground">
