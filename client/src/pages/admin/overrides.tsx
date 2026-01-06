@@ -85,11 +85,11 @@ export default function AdminOverrides() {
   });
 
   const salesUsers = users?.filter((u) => 
-    ["REP", "SUPERVISOR", "MANAGER"].includes(u.role) && u.status === "ACTIVE"
+    ["REP", "SUPERVISOR", "MANAGER"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt
   ) || [];
 
   const eligibleRecipients = users?.filter((u) =>
-    ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"].includes(u.role) && u.status === "ACTIVE"
+    ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt
   ) || [];
 
   const getUserName = (userId: string) => users?.find((u) => u.id === userId)?.name || userId;
