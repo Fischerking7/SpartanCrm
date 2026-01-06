@@ -1,0 +1,252 @@
+You are a senior full-stack engineer building a secure Sales Ops + commissions + QuickBooks reconciliation app designed to scale from 5 reps to 50–200 reps quickly.
+
+Build a Replit-ready monorepo with:
+- apps/server (Node.js + Express + Prisma + Postgres)
+- apps/web (React + Vite)
+TypeScript end-to-end.
+
+Auth:
+- RepID + password (bcrypt hash)
+- JWT sessions
+Roles: REP, MANAGER, ADMIN
+Strict access control (enforce on ALL endpoints, exports, imports):
+- REP: only records where repId = their repId
+- MANAGER: only records for reps assigned to their team
+- ADMIN: full access
+
+Core definitions (must be consistent everywhere):
+- Earned = jobStatus=COMPLETED AND approvalStatus=APPROVED
+- Paid = imported from QuickBooks (paidDate exists)
+- Chargebacks = negative entries tied to invoiceNumber; never modify original order
+- Incentives and upline overrides are separate from base commission; do not rewrite history
+
+=== SCALE ADDITIONS (NEW) ===
+1) Add AuditLog table: records who changed what and when (action, tableName, recordId, beforeJson, afterJson, userId, createdAt).
+Log critical actions: login (optional), order create/update, approval/reject, invoice creation, export batch, payment import, chargeback import/manual, adjustment create/approve/reject, rate card changes, user deactivation.
+
+2) Add PayRun table (weekly payouts, no forecasting):
+- PayRun: id, weekEndingDate, status(DRAFT/FINALIZED), createdByUserId, createdAt, finalizedAt
+- Imported payments and chargebacks must link to a PayRun when possible (payRunId nullable).
+Provide Admin UI to create/select current PayRun and import payment CSV into that pay run.
+Rep/Manager dashboards should show "Paid this week" based on PayRun or derived from paidDate.
+
+3) Add Exception Queues (tables + endpoints + UI):
+- UnmatchedPayment: id, payRunId(optional), rawRowJson, reason, createdAt, resolvedByUserId(optional), resolvedAt(optional), resolutionNote(optional)
+- UnmatchedChargeback: same structure
+- RateIssue: id, salesOrderId, type(MISSING_RATE/CONFLICT_RATE), details, createdAt, resolvedAt(optional), resolvedByUserId(optional)
+- ApprovalAging view/query (not necessarily table): show completed+unapproved older than 24h/48h.
+
+4) Bulk Admin Actions:
+- Bulk approve orders from approvals queue (with guardrails: skip if missing rate or conflicts)
+- Bulk export approved jobs (creates ExportBatch)
+- Bulk mark exported (only via export action)
+- Bulk resolve unmatched rows after manual mapping
+
+5) Immutability rules:
+- After approvalStatus=APPROVED, lock key order fields (client/provider/service/installDate/commission values/invoice number).
+- Corrections must be done via Adjustments (manual inputs) or via explicit Admin "Correction" action that logs in AuditLog and creates an Adjustment automatically.
+No silent edits on approved orders.
+
+6) Reference data governance:
+Provider/Client/Service must be lookup tables only (no free text).
+Support deactivate instead of delete. Prevent using inactive items in new orders.
+
+=== DATA MODEL (PRISMA TABLES) ===
+Implement these tables:
+
+User:
+- id, name, repId(unique), role(REP/MANAGER/ADMIN), status(ACTIVE/DEACTIVATED), passwordHash,
+  assignedManagerId(nullable), createdAt, updatedAt
+
+Provider:
+- id, name, active, createdAt, updatedAt
+
+Client:
+- id, name, active, createdAt, updatedAt
+
+Service:
+- id, code(unique immutable), name, category, unitType, active, notes, createdAt, updatedAt
+
+RateCard:
+- id, providerId, clientId(nullable for ANY), serviceId,
+  tvCondition(YES/NO/ANY), mobileCondition(YES/NO/ANY),
+  linesMin(nullable), linesMax(nullable),
+  commissionType(FLAT/PER_LINE/TIERED), amount,
+  effectiveStart, effectiveEnd(nullable), active, requiresReview, createdAt, updatedAt
+
+SalesOrder:
+- id (uuid, internalOrderId primary)
+- repId (string; relates to User.repId)
+- clientId, providerId, serviceId
+- dateSold, installDate
+- accountNumber
+- tvSold(boolean), mobileSold(boolean), mobileLinesQty(int)
+- customerName, customerAddress, customerPhone, customerEmail
+- jobStatus(PENDING/COMPLETED/CANCELED)
+- approvalStatus(UNAPPROVED/APPROVED/REJECTED) admin-only changes
+- rejectionNote
+- approvedByUserId(nullable), approvedAt(nullable)
+- invoiceNumber(unique nullable) generated ONLY on approve; immutable
+- exportedToAccounting(boolean), exportBatchId(nullable), exportedAt(nullable)
+- baseCommissionEarned(decimal), incentiveEarned(decimal),
+  commissionSource(CALCULATED/MANUAL_OVERRIDE),
+  appliedRateCardId(nullable), calcAt(nullable)
+- commissionPaid(decimal), paymentStatus(UNPAID/PARTIALLY_PAID/PAID), paidDate(nullable), quickbooksRefId(nullable)
+- createdAt, updatedAt
+
+Incentive:
+- id, name,
+  appliesTo(REP/TEAM/GLOBAL/PROVIDER/CLIENT/SERVICE),
+  repId(nullable), managerId(nullable),
+  providerId(nullable), clientId(nullable), serviceId(nullable),
+  type(FLAT/PERCENT/PER_LINE), amount,
+  startDate, endDate(nullable), active, notes, createdAt, updatedAt
+
+OverrideAgreement:
+- id, sourceRepId(string), recipientUserId,
+  type(PERCENT/FLAT_PER_JOB/PER_LINE/TIERED),
+  rateOrAmount, providerId(nullable), clientId(nullable), serviceId(nullable),
+  effectiveStart, effectiveEnd(nullable), active, notes, createdAt, updatedAt
+
+Chargeback:
+- id, invoiceNumber(required), salesOrderId(nullable), repId(derived), amount(negative required),
+  reason enum, chargebackDate, quickbooksRefId(nullable),
+  payRunId(nullable),
+  notes, createdByUserId, createdAt
+
+Adjustment:
+- id, payeeType(REP/MANAGER/ADMIN), payeeUserId,
+  sourceRepId(nullable), invoiceNumber(nullable),
+  type enum, amount(+/-), reason required, adjustmentDate,
+  createdByUserId,
+  approvalStatus(UNAPPROVED/APPROVED/REJECTED),
+  approvedByUserId(nullable), approvedAt(nullable),
+  createdAt
+
+PayRun:
+- id, weekEndingDate(date unique), status(DRAFT/FINALIZED),
+  createdByUserId, createdAt, finalizedAt(nullable)
+
+UnmatchedPayment:
+- id, payRunId(nullable), rawRowJson, reason, createdAt, resolvedByUserId(nullable), resolvedAt(nullable), resolutionNote(nullable)
+
+UnmatchedChargeback:
+- same as above
+
+RateIssue:
+- id, salesOrderId, type(MISSING_RATE/CONFLICT_RATE), details, createdAt, resolvedByUserId(nullable), resolvedAt(nullable), resolutionNote(nullable)
+
+AuditLog:
+- id, action, tableName, recordId, beforeJson, afterJson, userId, createdAt
+
+ExportBatch:
+- id, createdByUserId, createdAt, recordCount, fileName(optional), notes(optional)
+
+=== BUSINESS SERVICES ===
+1) Invoice sequencing:
+Use Counter table or transaction-safe mechanism:
+- Counter { key: "invoice", value int }
+On approval, in a DB transaction:
+- increment counter
+- set invoiceNumber like INV-YYYY-000001
+
+2) Commission calculation service:
+Deterministic rate card selection priority:
+- Match provider + service + conditions + effective date + active
+- Prefer client-specific rule over client=ANY
+- Validate lines range if present
+If no match -> create RateIssue(MISSING_RATE)
+If multiple matches -> create RateIssue(CONFLICT_RATE)
+Only calculate baseCommissionEarned when there is a single valid match.
+Calculate incentives separately.
+Allow admin manual override before approval.
+
+3) Locking after approval:
+If approved, block updates to locked fields (except admin correction flow that logs and creates adjustment).
+
+4) Net totals:
+Paid totals are driven by imported payments + chargebacks (negative).
+Adjustments add/subtract from earned totals when approved.
+
+=== API ENDPOINTS (REST) ===
+Auth:
+- POST /api/auth/login
+- GET /api/auth/me
+
+Orders:
+- GET /api/orders (scoped by role)
+- POST /api/orders
+- PATCH /api/orders/:id (scoped; enforce locks)
+
+Approvals (Admin):
+- GET /api/admin/approvals/queue
+- POST /api/admin/orders/bulk-approve (skips orders with rate issues)
+- POST /api/admin/orders/:id/approve
+- POST /api/admin/orders/:id/reject
+
+Reference CRUD (Admin):
+- /api/admin/users
+- /api/admin/providers
+- /api/admin/clients
+- /api/admin/services
+- /api/admin/rate-cards
+- /api/admin/incentives
+- /api/admin/override-agreements
+
+Accounting (Admin):
+- POST /api/admin/payruns (create/select payrun)
+- GET /api/admin/payruns
+- POST /api/admin/accounting/export-approved (creates ExportBatch; returns CSV; marks orders exported with batch id)
+- POST /api/admin/accounting/import-payments (CSV upload; associates with payRunId; match by invoiceNumber then internalOrderId; update paid fields; unmatched -> UnmatchedPayment)
+
+Chargebacks (Admin):
+- POST /api/admin/chargebacks/import (CSV; payRunId optional; unmatched -> UnmatchedChargeback)
+- POST /api/admin/chargebacks (manual entry)
+- GET /api/chargebacks (scoped)
+
+Adjustments:
+- POST /api/adjustments (manager for team; admin for anyone)
+- GET /api/adjustments (scoped)
+Admin:
+- POST /api/admin/adjustments/:id/approve
+- POST /api/admin/adjustments/:id/reject
+
+Queues/Admin views:
+- GET /api/admin/queues/unmatched-payments
+- GET /api/admin/queues/unmatched-chargebacks
+- GET /api/admin/queues/rate-issues
+- POST /api/admin/queues/unmatched-payments/:id/resolve
+- POST /api/admin/queues/unmatched-chargebacks/:id/resolve
+- POST /api/admin/queues/rate-issues/:id/resolve
+- GET /api/admin/approvals/aging?hours=24
+
+Audit:
+- GET /api/admin/audit (filter by user, table, date range)
+
+=== FRONTEND PAGES ===
+Login.
+Rep Dashboard:
+- Orders table + status + approval + invoice
+- Today installs
+- Commission summary: connected month, earned month, paid week/month, chargebacks week/month, net paid, outstanding
+- Export my orders CSV, import leads/orders CSV (validated)
+Manager Dashboard:
+- Team list + team orders
+- Submit adjustments
+- Manager override earned summary (optional v1 display)
+Admin Dashboard:
+- Approvals queue + bulk approve
+- Master orders
+- PayRuns page (create/select)
+- Accounting export + payment import tied to pay run
+- Chargebacks import/manual tied to pay run
+- Queues: unmatched payments/chargebacks, rate issues
+- Adjustments approval queue
+- Reference data CRUD
+- Audit log viewer
+
+Include:
+- .env.example (DATABASE_URL, JWT_SECRET)
+- Prisma migrations + seed script creating ADMIN user repId=ADMIN1 password=ChangeMe123!
+- README with Replit run steps.
+Focus on correctness, access control, and audit safety above all.

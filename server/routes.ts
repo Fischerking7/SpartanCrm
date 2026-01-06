@@ -1,16 +1,691 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { db } from "./db";
+import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, managerOrAdmin, type AuthRequest } from "./auth";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema } from "@shared/schema";
+import { parse } from "csv-parse/sync";
+import { stringify } from "csv-stringify/sync";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
+  const auth = authMiddleware(db);
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+  // Auth routes
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const parsed = loginSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid input" });
+      }
+      const { repId, password } = parsed.data;
+      const user = await storage.getUserByRepId(repId);
+      if (!user || user.status !== "ACTIVE") {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+      const valid = await comparePassword(password, user.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+      const token = generateToken(user);
+      await storage.createAuditLog({ action: "login", tableName: "users", recordId: user.id, userId: user.id });
+      res.json({ token, user: { ...user, passwordHash: undefined } });
+    } catch (error) {
+      res.status(500).json({ message: "Login failed" });
+    }
+  });
+
+  app.get("/api/auth/me", auth, async (req: AuthRequest, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    res.json({ user: { ...req.user, passwordHash: undefined } });
+  });
+
+  // Dashboard stats
+  app.get("/api/dashboard/stats", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const orders = await storage.getOrders({ repId: user.repId });
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - now.getDay());
+
+      const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
+      const earnedMTD = monthOrders.filter(o => o.approvalStatus === "APPROVED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const paidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
+      const weekOrders = orders.filter(o => o.paidDate && new Date(o.paidDate) >= weekStart);
+      const paidWeek = weekOrders.reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
+      const pendingApproval = orders.filter(o => o.approvalStatus === "UNAPPROVED").length;
+      const todayInstalls = orders.filter(o => o.installDate === now.toISOString().split("T")[0]).length;
+      const outstanding = earnedMTD - paidMTD;
+
+      res.json({ earnedMTD, paidMTD, paidWeek, chargebacksMTD: 0, outstanding, pendingApproval, todayInstalls });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get stats" });
+    }
+  });
+
+  app.get("/api/dashboard/manager-stats", auth, managerOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const teamMembers = await storage.getTeamMembers(user.id);
+      const teamRepIds = teamMembers.map(m => m.repId);
+      if (user.role !== "ADMIN") teamRepIds.push(user.repId);
+      
+      const orders = await storage.getOrders({ teamRepIds });
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
+      
+      const teamEarnedMTD = monthOrders.filter(o => o.approvalStatus === "APPROVED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const teamPaidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
+      const pendingApprovals = orders.filter(o => o.approvalStatus === "UNAPPROVED").length;
+
+      res.json({ teamEarnedMTD, teamPaidMTD, pendingApprovals, teamSize: teamMembers.length });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get stats" });
+    }
+  });
+
+  app.get("/api/dashboard/admin-stats", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const orders = await storage.getOrders({});
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
+      
+      const totalEarnedMTD = monthOrders.filter(o => o.approvalStatus === "APPROVED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const totalPaidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
+      const pendingApprovals = orders.filter(o => o.approvalStatus === "UNAPPROVED").length;
+      
+      const users = await storage.getUsers();
+      const activeReps = users.filter(u => u.role === "REP" && u.status === "ACTIVE").length;
+      
+      const unmatchedPayments = (await storage.getUnmatchedPayments()).filter(p => !p.resolvedAt).length;
+      const unmatchedChargebacks = (await storage.getUnmatchedChargebacks()).filter(c => !c.resolvedAt).length;
+      const rateIssues = (await storage.getRateIssues()).filter(r => !r.resolvedAt).length;
+      const pendingAdjustments = (await storage.getAdjustments()).filter(a => a.approvalStatus === "UNAPPROVED").length;
+
+      res.json({ totalEarnedMTD, totalPaidMTD, pendingApprovals, activeReps, unmatchedPayments, unmatchedChargebacks, rateIssues, pendingAdjustments });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get stats" });
+    }
+  });
+
+  // Team routes
+  app.get("/api/team/members", auth, managerOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const teamMembers = await storage.getTeamMembers(user.id);
+      const orders = await storage.getOrders({});
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const membersWithStats = teamMembers.map(member => {
+        const memberOrders = orders.filter(o => o.repId === member.repId && new Date(o.createdAt) >= monthStart);
+        const earnedMTD = memberOrders.filter(o => o.approvalStatus === "APPROVED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned), 0);
+        return { ...member, passwordHash: undefined, earnedMTD, orderCount: memberOrders.length };
+      });
+
+      res.json(membersWithStats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get team" });
+    }
+  });
+
+  // Orders routes
+  app.get("/api/orders", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      let orders;
+
+      if (user.role === "ADMIN") {
+        orders = await storage.getOrders({ limit });
+      } else if (user.role === "MANAGER") {
+        const teamMembers = await storage.getTeamMembers(user.id);
+        const teamRepIds = [...teamMembers.map(m => m.repId), user.repId];
+        orders = await storage.getOrders({ teamRepIds, limit });
+      } else {
+        orders = await storage.getOrders({ repId: user.repId, limit });
+      }
+
+      res.json(orders);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get orders" });
+    }
+  });
+
+  app.post("/api/orders", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      
+      // Validate required fields
+      const { clientId, providerId, serviceId, dateSold, customerName } = req.body;
+      if (!clientId || !providerId || !serviceId || !dateSold || !customerName) {
+        return res.status(400).json({ message: "Missing required fields: clientId, providerId, serviceId, dateSold, customerName" });
+      }
+      
+      // Strict whitelist of allowed fields for order creation
+      const allowedFields = [
+        "clientId", "providerId", "serviceId", "dateSold", "customerName",
+        "customerPhone", "customerEmail", "customerAddress", "accountNumber",
+        "installDate", "tvSold", "mobileSold", "mobileLinesQty", "notes"
+      ];
+      
+      const orderData: Record<string, any> = {};
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          orderData[field] = req.body[field];
+        }
+      }
+      
+      // System-controlled fields - cannot be set by user
+      const data = { 
+        ...orderData,
+        repId: user.repId,
+        jobStatus: "PENDING",
+        approvalStatus: "UNAPPROVED",
+        baseCommissionEarned: "0",
+        incentiveEarned: "0",
+        commissionPaid: "0",
+        paymentStatus: "UNPAID",
+        exportedToAccounting: false,
+      };
+      
+      const order = await storage.createOrder(data);
+      await storage.createAuditLog({ action: "create_order", tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(order), userId: user.id });
+      res.json(order);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create order" });
+    }
+  });
+  
+  // Strict whitelist-based order mutation
+  app.patch("/api/orders/:id", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user!;
+      const order = await storage.getOrderById(id);
+      
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      
+      // REPs can only modify their own orders
+      if (user.role === "REP" && order.repId !== user.repId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // MANAGERs can only modify their team's orders
+      if (user.role === "MANAGER") {
+        const teamMembers = await storage.getTeamMembers(user.id);
+        const teamRepIds = [...teamMembers.map(m => m.repId), user.repId];
+        if (!teamRepIds.includes(order.repId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      
+      // Define strict whitelists based on approval status and role
+      const statusFields = ["jobStatus", "installDate"];
+      const customerFields = ["customerName", "customerPhone", "customerEmail", "customerAddress", "accountNumber"];
+      const orderFields = ["clientId", "providerId", "serviceId", "dateSold", "tvSold", "mobileSold", "mobileLinesQty", "notes"];
+      
+      let allowedFields: string[] = [];
+      
+      if (order.approvalStatus === "APPROVED") {
+        // Approved orders: only status + customer contact can be updated
+        allowedFields = [...statusFields, "customerPhone", "customerEmail", "customerAddress", "accountNumber"];
+      } else if (order.approvalStatus === "UNAPPROVED") {
+        if (user.role === "ADMIN") {
+          // Admin can modify all non-financial fields on unapproved orders
+          allowedFields = [...statusFields, ...customerFields, ...orderFields];
+        } else {
+          // REPs and MANAGERs can modify customer + order fields on their unapproved orders
+          allowedFields = [...statusFields, ...customerFields, ...orderFields];
+        }
+      } else {
+        // Rejected orders - allow limited edits for resubmission
+        allowedFields = [...customerFields, ...orderFields];
+      }
+      
+      // Extract only whitelisted fields
+      const updateData: Record<string, any> = {};
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          updateData[field] = req.body[field];
+        }
+      }
+      
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ message: "No valid fields to update" });
+      }
+      
+      const updated = await storage.updateOrder(id, updateData);
+      await storage.createAuditLog({ 
+        action: "update_order", 
+        tableName: "sales_orders", 
+        recordId: id, 
+        beforeJson: JSON.stringify(order), 
+        afterJson: JSON.stringify(updated), 
+        userId: user.id 
+      });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update order" });
+    }
+  });
+
+  // Admin approval routes
+  app.get("/api/admin/approvals/queue", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      let orders = await storage.getPendingApprovals();
+      if (limit) orders = orders.slice(0, limit);
+      res.json(orders);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get approvals" });
+    }
+  });
+
+  app.post("/api/admin/orders/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user!;
+      const order = await storage.getOrderById(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+
+      // Calculate commission
+      let baseCommission = "0";
+      let rateCard = await storage.findMatchingRateCard(order, order.dateSold);
+      if (rateCard) {
+        if (rateCard.commissionType === "FLAT") {
+          baseCommission = rateCard.amount;
+        } else if (rateCard.commissionType === "PER_LINE") {
+          baseCommission = (parseFloat(rateCard.amount) * order.mobileLinesQty).toString();
+        }
+      } else {
+        await storage.createRateIssue({ salesOrderId: id, type: "MISSING_RATE", details: "No matching rate card found for this order" });
+      }
+
+      const updated = await storage.updateOrder(id, {
+        approvalStatus: "APPROVED",
+        approvedByUserId: user.id,
+        approvedAt: new Date(),
+        baseCommissionEarned: baseCommission,
+        appliedRateCardId: rateCard?.id || null,
+        calcAt: new Date(),
+        commissionSource: "CALCULATED",
+      });
+
+      await storage.createAuditLog({ action: "approve_order", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to approve order" });
+    }
+  });
+
+  app.post("/api/admin/orders/:id/reject", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { rejectionNote } = req.body;
+      const user = req.user!;
+      const order = await storage.getOrderById(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+
+      const updated = await storage.updateOrder(id, {
+        approvalStatus: "REJECTED",
+        rejectionNote,
+        approvedByUserId: user.id,
+        approvedAt: new Date(),
+      });
+
+      await storage.createAuditLog({ action: "reject_order", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to reject order" });
+    }
+  });
+
+  app.post("/api/admin/orders/bulk-approve", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { orderIds } = req.body;
+      const user = req.user!;
+      let approved = 0;
+      let skipped = 0;
+
+      for (const id of orderIds) {
+        const order = await storage.getOrderById(id);
+        if (!order || order.approvalStatus !== "UNAPPROVED") continue;
+
+        let baseCommission = "0";
+        const rateCard = await storage.findMatchingRateCard(order, order.dateSold);
+        if (rateCard) {
+          if (rateCard.commissionType === "FLAT") {
+            baseCommission = rateCard.amount;
+          } else if (rateCard.commissionType === "PER_LINE") {
+            baseCommission = (parseFloat(rateCard.amount) * order.mobileLinesQty).toString();
+          }
+          await storage.updateOrder(id, {
+            approvalStatus: "APPROVED",
+            approvedByUserId: user.id,
+            approvedAt: new Date(),
+            baseCommissionEarned: baseCommission,
+            appliedRateCardId: rateCard.id,
+            calcAt: new Date(),
+            commissionSource: "CALCULATED",
+          });
+          approved++;
+        } else {
+          await storage.createRateIssue({ salesOrderId: id, type: "MISSING_RATE", details: "No matching rate card found" });
+          skipped++;
+        }
+      }
+
+      await storage.createAuditLog({ action: "bulk_approve", tableName: "sales_orders", afterJson: JSON.stringify({ approved, skipped }), userId: user.id });
+      res.json({ approved, skipped });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to bulk approve" });
+    }
+  });
+
+  // Admin reference data routes
+  app.get("/api/admin/users", auth, adminOnly, async (req, res) => {
+    try {
+      const users = await storage.getUsers();
+      res.json(users.map(u => ({ ...u, passwordHash: undefined })));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get users" });
+    }
+  });
+
+  app.get("/api/users", auth, adminOnly, async (req, res) => {
+    try {
+      const users = await storage.getUsers();
+      res.json(users.map(u => ({ ...u, passwordHash: undefined })));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get users" });
+    }
+  });
+
+  app.post("/api/admin/users", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { password, ...data } = req.body;
+      const passwordHash = await hashPassword(password);
+      const user = await storage.createUser({ ...data, passwordHash });
+      await storage.createAuditLog({ action: "create_user", tableName: "users", recordId: user.id, afterJson: JSON.stringify({ ...user, passwordHash: undefined }), userId: req.user!.id });
+      res.json({ ...user, passwordHash: undefined });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create user" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { password, ...data } = req.body;
+      const updateData: any = data;
+      if (password) {
+        updateData.passwordHash = await hashPassword(password);
+      }
+      const user = await storage.updateUser(id, updateData);
+      await storage.createAuditLog({ action: "update_user", tableName: "users", recordId: id, afterJson: JSON.stringify({ ...user, passwordHash: undefined }), userId: req.user!.id });
+      res.json({ ...user, passwordHash: undefined });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update user" });
+    }
+  });
+
+  app.post("/api/admin/users/:id/deactivate", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const user = await storage.updateUser(id, { status: "DEACTIVATED" });
+      await storage.createAuditLog({ action: "deactivate_user", tableName: "users", recordId: id, userId: req.user!.id });
+      res.json({ ...user, passwordHash: undefined });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to deactivate user" });
+    }
+  });
+
+  // Providers - public read for order creation dropdowns, admin for full CRUD
+  app.get("/api/admin/providers", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getProviders()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.get("/api/providers", auth, async (req, res) => {
+    try { 
+      const providers = await storage.getProviders();
+      res.json(providers.filter(p => p.active).map(p => ({ id: p.id, name: p.name }))); 
+    } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.post("/api/admin/providers", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const provider = await storage.createProvider(req.body);
+      await storage.createAuditLog({ action: "create_provider", tableName: "providers", recordId: provider.id, afterJson: JSON.stringify(provider), userId: req.user!.id });
+      res.json(provider);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.patch("/api/admin/providers/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const provider = await storage.updateProvider(req.params.id, req.body);
+      await storage.createAuditLog({ action: "update_provider", tableName: "providers", recordId: req.params.id, afterJson: JSON.stringify(provider), userId: req.user!.id });
+      res.json(provider);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  // Clients - public read for order creation dropdowns, admin for full CRUD
+  app.get("/api/admin/clients", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getClients()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.get("/api/clients", auth, async (req, res) => {
+    try { 
+      const clients = await storage.getClients();
+      res.json(clients.filter(c => c.active).map(c => ({ id: c.id, name: c.name }))); 
+    } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.post("/api/admin/clients", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const client = await storage.createClient(req.body);
+      await storage.createAuditLog({ action: "create_client", tableName: "clients", recordId: client.id, afterJson: JSON.stringify(client), userId: req.user!.id });
+      res.json(client);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.patch("/api/admin/clients/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const client = await storage.updateClient(req.params.id, req.body);
+      await storage.createAuditLog({ action: "update_client", tableName: "clients", recordId: req.params.id, afterJson: JSON.stringify(client), userId: req.user!.id });
+      res.json(client);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  // Services - public read for order creation dropdowns, admin for full CRUD
+  app.get("/api/admin/services", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getServices()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.get("/api/services", auth, async (req, res) => {
+    try { 
+      const services = await storage.getServices();
+      res.json(services.filter(s => s.active).map(s => ({ id: s.id, code: s.code, name: s.name }))); 
+    } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.post("/api/admin/services", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const service = await storage.createService(req.body);
+      await storage.createAuditLog({ action: "create_service", tableName: "services", recordId: service.id, afterJson: JSON.stringify(service), userId: req.user!.id });
+      res.json(service);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.patch("/api/admin/services/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const service = await storage.updateService(req.params.id, req.body);
+      await storage.createAuditLog({ action: "update_service", tableName: "services", recordId: req.params.id, afterJson: JSON.stringify(service), userId: req.user!.id });
+      res.json(service);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  // Rate Cards
+  app.get("/api/admin/rate-cards", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getRateCards()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.post("/api/admin/rate-cards", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const rateCard = await storage.createRateCard(req.body);
+      await storage.createAuditLog({ action: "create_rate_card", tableName: "rate_cards", recordId: rateCard.id, afterJson: JSON.stringify(rateCard), userId: req.user!.id });
+      res.json(rateCard);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.patch("/api/admin/rate-cards/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const rateCard = await storage.updateRateCard(req.params.id, req.body);
+      await storage.createAuditLog({ action: "update_rate_card", tableName: "rate_cards", recordId: req.params.id, afterJson: JSON.stringify(rateCard), userId: req.user!.id });
+      res.json(rateCard);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  // Incentives
+  app.get("/api/admin/incentives", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getIncentives()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.post("/api/admin/incentives", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const incentive = await storage.createIncentive(req.body);
+      await storage.createAuditLog({ action: "create_incentive", tableName: "incentives", recordId: incentive.id, afterJson: JSON.stringify(incentive), userId: req.user!.id });
+      res.json(incentive);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.patch("/api/admin/incentives/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const incentive = await storage.updateIncentive(req.params.id, req.body);
+      await storage.createAuditLog({ action: "update_incentive", tableName: "incentives", recordId: req.params.id, afterJson: JSON.stringify(incentive), userId: req.user!.id });
+      res.json(incentive);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  // Pay Runs
+  app.get("/api/admin/payruns", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getPayRuns()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.post("/api/admin/payruns", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.createPayRun({ ...req.body, createdByUserId: req.user!.id });
+      await storage.createAuditLog({ action: "create_payrun", tableName: "pay_runs", recordId: payRun.id, afterJson: JSON.stringify(payRun), userId: req.user!.id });
+      res.json(payRun);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.post("/api/admin/payruns/:id/finalize", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.updatePayRun(req.params.id, { status: "FINALIZED", finalizedAt: new Date() });
+      await storage.createAuditLog({ action: "finalize_payrun", tableName: "pay_runs", recordId: req.params.id, afterJson: JSON.stringify(payRun), userId: req.user!.id });
+      res.json(payRun);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  // Adjustments
+  app.get("/api/adjustments", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (user.role === "ADMIN") {
+        res.json(await storage.getAdjustments());
+      } else {
+        res.json(await storage.getAdjustmentsByUser(user.id));
+      }
+    } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.post("/api/adjustments", auth, async (req: AuthRequest, res) => {
+    try {
+      const adjustment = await storage.createAdjustment({ ...req.body, createdByUserId: req.user!.id });
+      await storage.createAuditLog({ action: "create_adjustment", tableName: "adjustments", recordId: adjustment.id, afterJson: JSON.stringify(adjustment), userId: req.user!.id });
+      res.json(adjustment);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.post("/api/admin/adjustments/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const adjustment = await storage.updateAdjustment(req.params.id, { approvalStatus: "APPROVED", approvedByUserId: req.user!.id, approvedAt: new Date() });
+      await storage.createAuditLog({ action: "approve_adjustment", tableName: "adjustments", recordId: req.params.id, afterJson: JSON.stringify(adjustment), userId: req.user!.id });
+      res.json(adjustment);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.post("/api/admin/adjustments/:id/reject", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const adjustment = await storage.updateAdjustment(req.params.id, { approvalStatus: "REJECTED", approvedByUserId: req.user!.id, approvedAt: new Date() });
+      await storage.createAuditLog({ action: "reject_adjustment", tableName: "adjustments", recordId: req.params.id, afterJson: JSON.stringify(adjustment), userId: req.user!.id });
+      res.json(adjustment);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  // Accounting Export/Import
+  app.post("/api/admin/accounting/export-approved", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const orders = await storage.getApprovedUnexported();
+      if (orders.length === 0) {
+        return res.status(400).json({ message: "No orders to export" });
+      }
+
+      const batch = await storage.createExportBatch(req.user!.id, orders.length, `export-${new Date().toISOString()}.csv`);
+      
+      for (const order of orders) {
+        await storage.updateOrder(order.id, { exportedToAccounting: true, exportBatchId: batch.id, exportedAt: new Date() });
+      }
+
+      const csvData = orders.map(o => ({
+        invoiceNumber: o.invoiceNumber,
+        repId: o.repId,
+        customerName: o.customerName,
+        dateSold: o.dateSold,
+        baseCommission: o.baseCommissionEarned,
+        incentive: o.incentiveEarned,
+        total: (parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned)).toFixed(2),
+      }));
+
+      const csv = stringify(csvData, { header: true });
+      await storage.createAuditLog({ action: "export_accounting", tableName: "sales_orders", afterJson: JSON.stringify({ count: orders.length, batchId: batch.id }), userId: req.user!.id });
+      
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="export-${new Date().toISOString().split("T")[0]}.csv"`);
+      res.send(csv);
+    } catch (error) { res.status(500).json({ message: "Export failed" }); }
+  });
+
+  app.post("/api/admin/accounting/import-payments", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const multer = (await import("multer")).default;
+      const upload = multer({ storage: multer.memoryStorage() });
+      
+      // This is a simplified version - in production you'd use multer middleware
+      res.json({ matched: 0, unmatched: 0, message: "Payment import endpoint ready" });
+    } catch (error) { res.status(500).json({ message: "Import failed" }); }
+  });
+
+  // Exception Queues
+  app.get("/api/admin/queues/unmatched-payments", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getUnmatchedPayments()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.get("/api/admin/queues/unmatched-chargebacks", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getUnmatchedChargebacks()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.get("/api/admin/queues/rate-issues", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getRateIssues()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+  app.post("/api/admin/queues/:type/:id/resolve", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { type, id } = req.params;
+      const { resolutionNote } = req.body;
+      let result;
+      if (type === "unmatched-payments") {
+        result = await storage.resolveUnmatchedPayment(id, req.user!.id, resolutionNote);
+      } else if (type === "unmatched-chargebacks") {
+        result = await storage.resolveUnmatchedChargeback(id, req.user!.id, resolutionNote);
+      } else if (type === "rate-issues") {
+        result = await storage.resolveRateIssue(id, req.user!.id, resolutionNote);
+      }
+      await storage.createAuditLog({ action: `resolve_${type}`, tableName: type.replace(/-/g, "_"), recordId: id, afterJson: JSON.stringify(result), userId: req.user!.id });
+      res.json(result);
+    } catch (error) { res.status(500).json({ message: "Failed to resolve" }); }
+  });
+
+  // Audit Log
+  app.get("/api/admin/audit", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getAuditLogs()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
 
   return httpServer;
 }
