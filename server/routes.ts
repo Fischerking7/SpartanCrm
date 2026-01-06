@@ -1962,15 +1962,53 @@ export async function registerRoutes(
         o.approvalStatus === "APPROVED"
       );
       
-      const ownSoldCommissions = myOrders.map((o: SalesOrder) => ({
-        id: o.id,
-        dateSold: o.dateSold,
-        customerName: o.customerName,
-        accountNumber: o.accountNumber,
-        baseCommission: parseFloat(o.baseCommissionEarned),
-        incentive: parseFloat(o.incentiveEarned),
-        total: parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned),
-      }));
+      // Get commission line items for service breakdown
+      const allLineItems = await Promise.all(
+        myOrders.map(async (o: SalesOrder) => {
+          const lineItems = await storage.getCommissionLineItemsByOrderId(o.id);
+          return { orderId: o.id, lineItems };
+        })
+      );
+      
+      // Map line items by order for quick lookup
+      const lineItemsByOrder: Record<string, any[]> = {};
+      for (const { orderId, lineItems } of allLineItems) {
+        lineItemsByOrder[orderId] = lineItems;
+      }
+      
+      const ownSoldCommissions = myOrders.map((o: SalesOrder) => {
+        const lines = lineItemsByOrder[o.id] || [];
+        return {
+          id: o.id,
+          dateSold: o.dateSold,
+          customerName: o.customerName,
+          accountNumber: o.accountNumber,
+          baseCommission: parseFloat(o.baseCommissionEarned),
+          incentive: parseFloat(o.incentiveEarned),
+          total: parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned),
+          serviceBreakdown: {
+            internet: lines.filter((l: any) => l.serviceCategory === "INTERNET").reduce((sum: number, l: any) => sum + parseFloat(l.totalAmount), 0),
+            mobile: lines.filter((l: any) => l.serviceCategory === "MOBILE").reduce((sum: number, l: any) => sum + parseFloat(l.totalAmount), 0),
+            video: lines.filter((l: any) => l.serviceCategory === "VIDEO").reduce((sum: number, l: any) => sum + parseFloat(l.totalAmount), 0),
+          },
+        };
+      });
+      
+      // Calculate service totals
+      const serviceTotals = {
+        internet: myOrders.reduce((sum: number, o: SalesOrder) => {
+          const lines = lineItemsByOrder[o.id] || [];
+          return sum + lines.filter((l: any) => l.serviceCategory === "INTERNET").reduce((s: number, l: any) => s + parseFloat(l.totalAmount), 0);
+        }, 0),
+        mobile: myOrders.reduce((sum: number, o: SalesOrder) => {
+          const lines = lineItemsByOrder[o.id] || [];
+          return sum + lines.filter((l: any) => l.serviceCategory === "MOBILE").reduce((s: number, l: any) => s + parseFloat(l.totalAmount), 0);
+        }, 0),
+        video: myOrders.reduce((sum: number, o: SalesOrder) => {
+          const lines = lineItemsByOrder[o.id] || [];
+          return sum + lines.filter((l: any) => l.serviceCategory === "VIDEO").reduce((s: number, l: any) => s + parseFloat(l.totalAmount), 0);
+        }, 0),
+      };
       
       const ownTotalConnected = myOrders.length;
       const ownTotalEarned = myOrders.reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
@@ -2052,6 +2090,7 @@ export async function registerRoutes(
         ownSoldCommissions,
         ownTotalConnected,
         ownTotalEarned,
+        serviceTotals,
         weeklyEarned,
         mtdEarned,
         weeklyChartData,

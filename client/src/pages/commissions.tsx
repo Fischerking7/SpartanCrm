@@ -3,8 +3,14 @@ import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DollarSign, TrendingUp, Users, FileText, Calendar, CalendarDays } from "lucide-react";
+import { DollarSign, TrendingUp, Users, FileText, Calendar, CalendarDays, Wifi, Smartphone, Tv } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+
+interface ServiceBreakdown {
+  internet: number;
+  mobile: number;
+  video: number;
+}
 
 interface OwnCommission {
   id: string;
@@ -14,6 +20,7 @@ interface OwnCommission {
   baseCommission: number;
   incentive: number;
   total: number;
+  serviceBreakdown: ServiceBreakdown;
 }
 
 interface OverrideEarning {
@@ -36,6 +43,7 @@ interface CommissionsData {
   ownSoldCommissions: OwnCommission[];
   ownTotalConnected: number;
   ownTotalEarned: number;
+  serviceTotals: ServiceBreakdown;
   weeklyEarned: number;
   mtdEarned: number;
   weeklyChartData: ChartDataPoint[];
@@ -171,6 +179,49 @@ export default function Commissions() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Earnings by Service Type</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex items-center gap-3 p-4 rounded-md bg-muted/50">
+              <div className="p-2 rounded-md bg-blue-500/10">
+                <Wifi className="h-5 w-5 text-blue-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Internet</p>
+                <p className="text-xl font-bold" data-testid="text-service-internet">
+                  {formatCurrency(data?.serviceTotals?.internet || 0)}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-4 rounded-md bg-muted/50">
+              <div className="p-2 rounded-md bg-green-500/10">
+                <Smartphone className="h-5 w-5 text-green-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Mobile</p>
+                <p className="text-xl font-bold" data-testid="text-service-mobile">
+                  {formatCurrency(data?.serviceTotals?.mobile || 0)}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-4 rounded-md bg-muted/50">
+              <div className="p-2 rounded-md bg-purple-500/10">
+                <Tv className="h-5 w-5 text-purple-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Video</p>
+                <p className="text-xl font-bold" data-testid="text-service-video">
+                  {formatCurrency(data?.serviceTotals?.video || 0)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
