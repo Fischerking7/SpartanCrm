@@ -55,16 +55,31 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
     }
   }
 
-  // Manager overrides (SUPERVISOR, REP levels)
+  // Manager overrides (REP level always, SUPERVISOR level only if supervisor exists)
   if (hierarchy.manager) {
-    for (const sourceLevel of ["REP", "SUPERVISOR"] as const) {
-      const agreements = await storage.getActiveOverrideAgreements(hierarchy.manager.id, sourceLevel, approvedOrder.dateSold, orderFilter);
-      for (const agreement of agreements) {
+    // Manager always gets REP-level overrides (whether direct or indirect)
+    const repAgreements = await storage.getActiveOverrideAgreements(hierarchy.manager.id, "REP", approvedOrder.dateSold, orderFilter);
+    for (const agreement of repAgreements) {
+      const earning = await storage.createOverrideEarning({
+        salesOrderId: approvedOrder.id,
+        recipientUserId: hierarchy.manager.id,
+        sourceRepId: approvedOrder.repId,
+        sourceLevelUsed: "REP",
+        amount: agreement.amountFlat,
+        overrideAgreementId: agreement.id,
+      });
+      earnings.push(earning);
+    }
+    
+    // Manager gets SUPERVISOR-level overrides ONLY if rep has a supervisor
+    if (hierarchy.supervisor) {
+      const supervisorAgreements = await storage.getActiveOverrideAgreements(hierarchy.manager.id, "SUPERVISOR", approvedOrder.dateSold, orderFilter);
+      for (const agreement of supervisorAgreements) {
         const earning = await storage.createOverrideEarning({
           salesOrderId: approvedOrder.id,
           recipientUserId: hierarchy.manager.id,
           sourceRepId: approvedOrder.repId,
-          sourceLevelUsed: sourceLevel,
+          sourceLevelUsed: "SUPERVISOR",
           amount: agreement.amountFlat,
           overrideAgreementId: agreement.id,
         });
@@ -228,12 +243,25 @@ export async function registerRoutes(
       let orders;
 
       if (user.role === "ADMIN") {
+        // Admin sees all orders
         orders = await storage.getOrders({ limit });
+      } else if (user.role === "EXECUTIVE") {
+        // Executive sees orders from their org tree (managers and their reps)
+        const scope = await storage.getExecutiveScope(user.id);
+        const teamRepIds = [...scope.allRepRepIds, user.repId]; // Include executive's own orders
+        orders = await storage.getOrders({ teamRepIds, limit });
       } else if (user.role === "MANAGER") {
-        const teamMembers = await storage.getTeamMembers(user.id);
-        const teamRepIds = [...teamMembers.map(m => m.repId), user.repId];
+        // Manager sees direct reps + reps under their supervisors
+        const scope = await storage.getManagerScope(user.id);
+        const teamRepIds = [...scope.allRepRepIds, user.repId]; // Include manager's own orders
+        orders = await storage.getOrders({ teamRepIds, limit });
+      } else if (user.role === "SUPERVISOR") {
+        // Supervisor sees their assigned reps
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        const teamRepIds = [...supervisedReps.map(r => r.repId), user.repId];
         orders = await storage.getOrders({ teamRepIds, limit });
       } else {
+        // REP sees only their own orders
         orders = await storage.getOrders({ repId: user.repId, limit });
       }
 
@@ -504,22 +532,48 @@ export async function registerRoutes(
 
   app.post("/api/admin/users", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const { password, name, repId, role, assignedSupervisorId, assignedManagerId, assignedExecutiveId } = req.body;
+      const { password, name, repId, role, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
       if (!password || !name || !repId) {
         return res.status(400).json({ message: "Missing required fields: name, repId, password" });
       }
-      const passwordHash = await hashPassword(password);
+      
+      const userRole = role || "REP";
       const userData = {
         name,
         repId,
-        role: role || "REP",
-        passwordHash,
+        role: userRole,
         assignedSupervisorId: assignedSupervisorId || null,
         assignedManagerId: assignedManagerId || null,
         assignedExecutiveId: assignedExecutiveId || null,
       };
-      const user = await storage.createUser(userData);
-      await storage.createAuditLog({ action: "create_user", tableName: "users", recordId: user.id, afterJson: JSON.stringify({ ...user, passwordHash: undefined }), userId: req.user!.id });
+      
+      // Validate org hierarchy unless admin explicitly skips
+      if (!skipValidation) {
+        const validation = await storage.validateOrgHierarchy(userData);
+        if (!validation.valid) {
+          return res.status(400).json({ message: validation.error, validationError: true });
+        }
+      }
+      
+      const passwordHash = await hashPassword(password);
+      const user = await storage.createUser({ ...userData, passwordHash });
+      
+      // Detailed audit log for hierarchy
+      await storage.createAuditLog({ 
+        action: "create_user", 
+        tableName: "users", 
+        recordId: user.id, 
+        afterJson: JSON.stringify({ 
+          ...user, 
+          passwordHash: undefined,
+          hierarchyAssignments: { 
+            supervisorId: user.assignedSupervisorId,
+            managerId: user.assignedManagerId,
+            executiveId: user.assignedExecutiveId
+          }
+        }), 
+        userId: req.user!.id 
+      });
       res.json({ ...user, passwordHash: undefined });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to create user" });
@@ -529,7 +583,14 @@ export async function registerRoutes(
   app.patch("/api/admin/users/:id", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const { password, name, role, assignedSupervisorId, assignedManagerId, assignedExecutiveId } = req.body;
+      const { password, name, role, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
+      
+      // Get existing user for before snapshot
+      const existingUser = await storage.getUserById(id);
+      if (!existingUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
       const updateData: any = {};
       if (name !== undefined) updateData.name = name;
       if (role !== undefined) updateData.role = role;
@@ -539,8 +600,50 @@ export async function registerRoutes(
       if (password) {
         updateData.passwordHash = await hashPassword(password);
       }
+      
+      // Validate org hierarchy unless admin explicitly skips
+      const effectiveRole = updateData.role ?? existingUser.role;
+      const effectiveData = {
+        role: effectiveRole,
+        assignedSupervisorId: updateData.assignedSupervisorId ?? existingUser.assignedSupervisorId,
+        assignedManagerId: updateData.assignedManagerId ?? existingUser.assignedManagerId,
+      };
+      
+      if (!skipValidation) {
+        const validation = await storage.validateOrgHierarchy(effectiveData);
+        if (!validation.valid) {
+          return res.status(400).json({ message: validation.error, validationError: true });
+        }
+      }
+      
       const user = await storage.updateUser(id, updateData);
-      await storage.createAuditLog({ action: "update_user", tableName: "users", recordId: id, afterJson: JSON.stringify({ ...user, passwordHash: undefined }), userId: req.user!.id });
+      
+      // Detailed audit log for hierarchy changes
+      const hierarchyChanged = 
+        existingUser.assignedSupervisorId !== user.assignedSupervisorId ||
+        existingUser.assignedManagerId !== user.assignedManagerId ||
+        existingUser.assignedExecutiveId !== user.assignedExecutiveId;
+      
+      await storage.createAuditLog({ 
+        action: hierarchyChanged ? "update_user_hierarchy" : "update_user", 
+        tableName: "users", 
+        recordId: id, 
+        beforeJson: hierarchyChanged ? JSON.stringify({
+          assignedSupervisorId: existingUser.assignedSupervisorId,
+          assignedManagerId: existingUser.assignedManagerId,
+          assignedExecutiveId: existingUser.assignedExecutiveId
+        }) : undefined,
+        afterJson: JSON.stringify({ 
+          ...user, 
+          passwordHash: undefined,
+          hierarchyAssignments: hierarchyChanged ? { 
+            supervisorId: user.assignedSupervisorId,
+            managerId: user.assignedManagerId,
+            executiveId: user.assignedExecutiveId
+          } : undefined
+        }), 
+        userId: req.user!.id 
+      });
       res.json({ ...user, passwordHash: undefined });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to update user" });

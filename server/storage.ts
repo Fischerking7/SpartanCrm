@@ -373,4 +373,123 @@ export const storage = {
   async getSupervisedReps(supervisorId: string) {
     return db.query.users.findMany({ where: and(eq(users.assignedSupervisorId, supervisorId), eq(users.status, "ACTIVE")) });
   },
+  
+  // Manager scope: returns all rep IDs a manager can see (direct + indirect via supervisors)
+  async getManagerScope(managerId: string): Promise<{ directRepIds: string[]; indirectRepIds: string[]; supervisorIds: string[]; allRepIds: string[]; allRepRepIds: string[] }> {
+    // Get supervisors assigned to this manager
+    const supervisors = await db.query.users.findMany({
+      where: and(eq(users.assignedManagerId, managerId), eq(users.role, "SUPERVISOR"), eq(users.status, "ACTIVE"))
+    });
+    const supervisorIds = supervisors.map(s => s.id);
+    
+    // Get ALL reps directly assigned to manager (regardless of supervisor)
+    const directReps = await db.query.users.findMany({
+      where: and(
+        eq(users.assignedManagerId, managerId),
+        eq(users.role, "REP"),
+        eq(users.status, "ACTIVE")
+      )
+    });
+    const directRepIds = directReps.map(r => r.id);
+    const directRepRepIds = directReps.map(r => r.repId);
+    
+    // Get reps indirectly assigned (via supervisors) - these may also be in directReps
+    const indirectRepIds: string[] = [];
+    const indirectRepRepIds: string[] = [];
+    for (const supervisorId of supervisorIds) {
+      const supervisedReps = await db.query.users.findMany({
+        where: and(eq(users.assignedSupervisorId, supervisorId), eq(users.role, "REP"), eq(users.status, "ACTIVE"))
+      });
+      indirectRepIds.push(...supervisedReps.map(r => r.id));
+      indirectRepRepIds.push(...supervisedReps.map(r => r.repId));
+    }
+    
+    // Combine and dedupe
+    const allRepIds = [...new Set([...directRepIds, ...indirectRepIds])];
+    const allRepRepIds = [...new Set([...directRepRepIds, ...indirectRepRepIds])];
+    
+    return {
+      directRepIds,
+      indirectRepIds,
+      supervisorIds,
+      allRepIds,
+      allRepRepIds, // repId strings for order filtering
+    };
+  },
+  
+  // Get supervisors assigned to a manager
+  async getSupervisorsByManager(managerId: string) {
+    return db.query.users.findMany({
+      where: and(eq(users.assignedManagerId, managerId), eq(users.role, "SUPERVISOR"), eq(users.status, "ACTIVE"))
+    });
+  },
+  
+  // Executive scope: returns all rep repIds an executive can see (their entire org tree)
+  async getExecutiveScope(executiveId: string): Promise<{ managerIds: string[]; allRepRepIds: string[] }> {
+    const allRepRepIds: string[] = [];
+    
+    // Get managers assigned to this executive
+    const managers = await db.query.users.findMany({
+      where: and(eq(users.assignedExecutiveId, executiveId), eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"))
+    });
+    const managerIds = managers.map(m => m.id);
+    
+    // For each manager, get their scope
+    for (const manager of managers) {
+      allRepRepIds.push(manager.repId); // Include manager's own repId
+      const scope = await this.getManagerScope(manager.id);
+      allRepRepIds.push(...scope.allRepRepIds);
+    }
+    
+    // Get supervisors directly assigned to this executive (if any)
+    const supervisors = await db.query.users.findMany({
+      where: and(eq(users.assignedExecutiveId, executiveId), eq(users.role, "SUPERVISOR"), eq(users.status, "ACTIVE"))
+    });
+    for (const supervisor of supervisors) {
+      allRepRepIds.push(supervisor.repId);
+      const supervisedReps = await this.getSupervisedReps(supervisor.id);
+      allRepRepIds.push(...supervisedReps.map(r => r.repId));
+    }
+    
+    // Get reps directly assigned to this executive (if any)
+    const directReps = await db.query.users.findMany({
+      where: and(eq(users.assignedExecutiveId, executiveId), eq(users.role, "REP"), eq(users.status, "ACTIVE"))
+    });
+    allRepRepIds.push(...directReps.map(r => r.repId));
+    
+    return {
+      managerIds,
+      allRepRepIds: [...new Set(allRepRepIds)],
+    };
+  },
+  
+  // Validate org hierarchy rules
+  async validateOrgHierarchy(userData: { role?: string; assignedSupervisorId?: string | null; assignedManagerId?: string | null }): Promise<{ valid: boolean; error?: string }> {
+    const { role, assignedSupervisorId, assignedManagerId } = userData;
+    
+    // REP rules
+    if (role === "REP") {
+      // REP must have either supervisor or direct manager
+      if (!assignedSupervisorId && !assignedManagerId) {
+        return { valid: false, error: "Rep must be assigned to either a Supervisor or a Manager" };
+      }
+      
+      // If supervisor is set, check for manager mismatch
+      if (assignedSupervisorId && assignedManagerId) {
+        const supervisor = await db.query.users.findFirst({ where: eq(users.id, assignedSupervisorId) });
+        if (supervisor && supervisor.assignedManagerId && supervisor.assignedManagerId !== assignedManagerId) {
+          return { valid: false, error: "Org conflict: Rep's assigned manager differs from supervisor's manager" };
+        }
+      }
+    }
+    
+    // SUPERVISOR rules
+    if (role === "SUPERVISOR") {
+      if (!assignedManagerId) {
+        return { valid: false, error: "Supervisor must be assigned to a Manager" };
+      }
+    }
+    
+    return { valid: true };
+  },
 };

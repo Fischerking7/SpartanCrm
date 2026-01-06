@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Users, Edit, UserX } from "lucide-react";
+import { Plus, Search, Users, Edit, UserX, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { User } from "@shared/schema";
 
 const __NONE__ = "__NONE__";
@@ -22,6 +23,7 @@ export default function AdminUsers() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [skipValidation, setSkipValidation] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     repId: "",
@@ -112,7 +114,36 @@ export default function AdminUsers() {
 
   const resetForm = () => {
     setFormData({ name: "", repId: "", password: "", role: "REP", assignedSupervisorId: __NONE__, assignedManagerId: __NONE__, assignedExecutiveId: __NONE__ });
+    setSkipValidation(false);
   };
+  
+  // Compute validation warnings
+  const getValidationWarnings = (): string[] => {
+    const warnings: string[] = [];
+    const role = formData.role;
+    const hasSupervisor = formData.assignedSupervisorId !== __NONE__;
+    const hasManager = formData.assignedManagerId !== __NONE__;
+    
+    if (role === "REP") {
+      if (!hasSupervisor && !hasManager) {
+        warnings.push("Rep must be assigned to either a Supervisor or a Manager");
+      }
+      if (hasSupervisor && hasManager) {
+        const supervisor = supervisors.find(s => s.id === formData.assignedSupervisorId);
+        if (supervisor?.assignedManagerId && supervisor.assignedManagerId !== formData.assignedManagerId) {
+          warnings.push("Org conflict: Selected manager differs from the supervisor's manager");
+        }
+      }
+    }
+    
+    if (role === "SUPERVISOR" && !hasManager) {
+      warnings.push("Supervisor must be assigned to a Manager");
+    }
+    
+    return warnings;
+  };
+  
+  const validationWarnings = getValidationWarnings();
 
   const openEditDialog = (user: User) => {
     setEditingUser(user);
@@ -410,6 +441,29 @@ export default function AdminUsers() {
                 </Select>
               </div>
             )}
+            
+            {validationWarnings.length > 0 && (
+              <Alert variant="destructive" className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+                <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                  <div className="space-y-1">
+                    {validationWarnings.map((warning, i) => (
+                      <p key={i}>{warning}</p>
+                    ))}
+                  </div>
+                  <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={skipValidation}
+                      onChange={(e) => setSkipValidation(e.target.checked)}
+                      className="rounded border-yellow-600"
+                      data-testid="checkbox-skip-validation"
+                    />
+                    <span className="text-sm">Override and save anyway (Admin only)</span>
+                  </label>
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowCreateDialog(false); setEditingUser(null); resetForm(); }}>
@@ -422,6 +476,7 @@ export default function AdminUsers() {
                   assignedSupervisorId: formData.assignedSupervisorId === __NONE__ ? undefined : formData.assignedSupervisorId,
                   assignedManagerId: formData.assignedManagerId === __NONE__ ? undefined : formData.assignedManagerId,
                   assignedExecutiveId: formData.assignedExecutiveId === __NONE__ ? undefined : formData.assignedExecutiveId,
+                  skipValidation: skipValidation,
                 };
                 if (editingUser) {
                   const updateData: any = { 
@@ -430,6 +485,7 @@ export default function AdminUsers() {
                     assignedSupervisorId: submitData.assignedSupervisorId,
                     assignedManagerId: submitData.assignedManagerId,
                     assignedExecutiveId: submitData.assignedExecutiveId,
+                    skipValidation: submitData.skipValidation,
                   };
                   if (formData.password) updateData.password = formData.password;
                   updateMutation.mutate({ id: editingUser.id, data: updateData });
@@ -437,7 +493,7 @@ export default function AdminUsers() {
                   createMutation.mutate(submitData as typeof formData);
                 }
               }}
-              disabled={!formData.name || !formData.repId || (!editingUser && !formData.password) || createMutation.isPending || updateMutation.isPending}
+              disabled={!formData.name || !formData.repId || (!editingUser && !formData.password) || (validationWarnings.length > 0 && !skipValidation) || createMutation.isPending || updateMutation.isPending}
               data-testid="button-submit-user"
             >
               {editingUser ? "Update User" : "Create User"}

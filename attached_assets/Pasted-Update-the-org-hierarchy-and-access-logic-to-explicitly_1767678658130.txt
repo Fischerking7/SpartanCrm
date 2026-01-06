@@ -1,0 +1,66 @@
+Update the org hierarchy and access logic to explicitly support direct Manager → Rep oversight.
+
+ORG ASSIGNMENT RULES (Authoritative):
+1) A REP user may be assigned in either of these valid ways:
+   a) REP → SUPERVISOR → MANAGER
+      - rep.assignedSupervisorId = supervisor.id
+      - supervisor.assignedManagerId = manager.id
+   b) REP → MANAGER (direct oversight)
+      - rep.assignedSupervisorId = null
+      - rep.assignedManagerId = manager.id
+
+2) A REP may NOT be assigned to two different managers.
+   - If rep.assignedSupervisorId is set, then the supervisor’s assignedManagerId must match rep.assignedManagerId.
+   - If there is a mismatch, flag as an org conflict for Admin review.
+
+3) SUPERVISOR users:
+   - must have assignedManagerId (unless explicitly unassigned by Admin)
+
+4) MANAGER users:
+   - may have assignedExecutiveId
+   - may oversee:
+     - reps directly
+     - reps indirectly via supervisors
+     - supervisors themselves
+
+ACCESS CONTROL (CRITICAL):
+When determining Manager visibility:
+- A Manager can see a Rep if ANY of the following are true:
+  1) rep.assignedManagerId === manager.id  (direct)
+  2) rep.assignedSupervisorId exists AND
+     supervisor.assignedManagerId === manager.id (indirect)
+
+Implement this logic consistently across:
+- GET /api/orders
+- GET /api/reps
+- GET /api/teams
+- Dashboards
+- Exports
+- Override calculations
+
+OVERRIDES LOGIC (Flat-rate overrides):
+- Supervisor overrides apply ONLY if rep.assignedSupervisorId exists.
+- Manager overrides from REP apply whether rep is direct OR indirect.
+- Manager overrides from SUPERVISOR apply only when supervisor exists.
+- Do NOT generate supervisor override earnings if rep has no supervisor.
+
+ADMIN UI REQUIREMENTS:
+- In User Management:
+  - Allow Admin to assign:
+    - Supervisor (optional) to Rep
+    - Manager (required if no Supervisor)
+  - Show warning if both are set but mismatch.
+- Prevent saving invalid org states unless Admin explicitly overrides with confirmation.
+
+AUDIT:
+- Log all changes to assignedSupervisorId and assignedManagerId in AuditLog
+  (before/after, changedBy, timestamp).
+
+TEST CASES (must pass):
+- Manager with direct reps sees their orders and generates manager-from-rep overrides.
+- Manager with supervisors sees:
+  - supervisors
+  - supervisors’ reps
+  - correct overrides from both levels.
+- Rep without supervisor does NOT generate supervisor override.
+- Rep reassignment updates visibility immediately.
