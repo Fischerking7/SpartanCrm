@@ -468,6 +468,14 @@ export default function Orders() {
                   <p className="font-mono">{selectedOrder.repId}</p>
                 </div>
                 <div>
+                  <Label className="text-muted-foreground">Account Number</Label>
+                  <p className="font-mono">{selectedOrder.accountNumber || "-"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Service</Label>
+                  <p className="font-medium">{services?.find(s => s.id === selectedOrder.serviceId)?.name || "-"}</p>
+                </div>
+                <div>
                   <Label className="text-muted-foreground">Date Sold</Label>
                   <p>{new Date(selectedOrder.dateSold).toLocaleDateString()}</p>
                 </div>
@@ -500,17 +508,38 @@ export default function Orders() {
                 </div>
               </div>
               <div className="border-t pt-4">
+                <Label className="text-muted-foreground">Service Breakdown</Label>
+                <div className="mt-2 space-y-2">
+                  <div className="flex justify-between gap-2">
+                    <span>{services?.find(s => s.id === selectedOrder.serviceId)?.name || "Internet Service"}</span>
+                    <span className="font-mono text-muted-foreground">Included</span>
+                  </div>
+                  {selectedOrder.tvSold && (
+                    <div className="flex justify-between gap-2">
+                      <span>TV Addon</span>
+                      <span className="font-mono text-muted-foreground">Included</span>
+                    </div>
+                  )}
+                  {selectedOrder.mobileSold && selectedOrder.mobileLinesQty > 0 && (
+                    <div className="flex justify-between gap-2">
+                      <span>Mobile Lines ({selectedOrder.mobileLinesQty})</span>
+                      <span className="font-mono text-muted-foreground">Included</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="border-t pt-4">
                 <Label className="text-muted-foreground">Commission Breakdown</Label>
                 <div className="mt-2 space-y-2">
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-2">
                     <span>Base Commission</span>
                     <span className="font-mono">${parseFloat(selectedOrder.baseCommissionEarned).toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-2">
                     <span>Incentives</span>
                     <span className="font-mono">${parseFloat(selectedOrder.incentiveEarned).toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between border-t pt-2 font-semibold">
+                  <div className="flex justify-between gap-2 border-t pt-2 font-semibold">
                     <span>Total Earned</span>
                     <span className="font-mono">
                       ${(parseFloat(selectedOrder.baseCommissionEarned) + parseFloat(selectedOrder.incentiveEarned)).toFixed(2)}
