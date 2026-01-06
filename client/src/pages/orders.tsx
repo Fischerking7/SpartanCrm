@@ -67,10 +67,11 @@ export default function Orders() {
       const formData = new FormData();
       formData.append("file", importFile);
       
+      const authHeaders = getAuthHeaders() as { Authorization: string };
       const res = await fetch("/api/admin/orders/import", {
         method: "POST",
         headers: {
-          Authorization: getAuthHeaders().Authorization,
+          Authorization: authHeaders.Authorization,
         },
         body: formData,
       });
@@ -214,6 +215,29 @@ export default function Orders() {
       mobileLinesSold: 0,
     });
   };
+
+  const updateJobStatusMutation = useMutation({
+    mutationFn: async ({ orderId, jobStatus }: { orderId: string; jobStatus: string }) => {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ jobStatus }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to update job status");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setSelectedOrder(data);
+      toast({ title: "Job status updated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update status", description: error.message, variant: "destructive" });
+    },
+  });
 
   const handleCreateOrder = () => {
     if (!newOrderForm.customerName || !newOrderForm.dateSold) {
@@ -453,7 +477,22 @@ export default function Orders() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Job Status</Label>
-                  <div className="mt-1"><JobStatusBadge status={selectedOrder.jobStatus} /></div>
+                  <div className="mt-1">
+                    <Select
+                      value={selectedOrder.jobStatus}
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, jobStatus: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[140px]" data-testid="select-job-status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PENDING">Pending</SelectItem>
+                        <SelectItem value="COMPLETED">Completed</SelectItem>
+                        <SelectItem value="CANCELED">Canceled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Approval Status</Label>

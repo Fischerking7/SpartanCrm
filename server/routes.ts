@@ -189,6 +189,13 @@ async function bootstrapFounder(): Promise<void> {
       return;
     }
     
+    // Check if repId already exists (from a previous partial bootstrap)
+    const existingUser = await storage.getUserByRepId(repId);
+    if (existingUser) {
+      console.log(`User with repId '${repId}' already exists, skipping founder bootstrap`);
+      return;
+    }
+    
     // Create FOUNDER user
     const hashedPassword = await hashPassword(password);
     await storage.createUser({
