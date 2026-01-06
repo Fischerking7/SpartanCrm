@@ -531,7 +531,7 @@ export const storage = {
     const [agreement] = await db.update(overrideAgreements).set({ ...data, updatedAt: new Date() }).where(eq(overrideAgreements.id, id)).returning();
     return agreement;
   },
-  async getActiveOverrideAgreements(recipientUserId: string, sourceLevel: string, date: string, filter?: { providerId?: string; clientId?: string; serviceId?: string }) {
+  async getActiveOverrideAgreements(recipientUserId: string, sourceLevel: string, date: string, filter?: { providerId?: string; clientId?: string; serviceId?: string; mobileProductType?: string | null; tvSold?: boolean }) {
     const agreements = await db.query.overrideAgreements.findMany({
       where: and(
         eq(overrideAgreements.recipientUserId, recipientUserId),
@@ -545,6 +545,8 @@ export const storage = {
       if (a.providerId && filter?.providerId && a.providerId !== filter.providerId) return false;
       if (a.clientId && filter?.clientId && a.clientId !== filter.clientId) return false;
       if (a.serviceId && filter?.serviceId && a.serviceId !== filter.serviceId) return false;
+      if (a.mobileProductType && filter?.mobileProductType && a.mobileProductType !== filter.mobileProductType) return false;
+      if (a.tvSoldFilter !== null && a.tvSoldFilter !== undefined && a.tvSoldFilter !== filter?.tvSold) return false;
       return true;
     });
   },

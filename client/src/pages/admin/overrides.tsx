@@ -14,6 +14,14 @@ import { queryClient } from "@/lib/queryClient";
 import { Search, Users, Plus, Trash2, ChevronRight, DollarSign } from "lucide-react";
 import type { OverrideAgreement, User, Provider, Client, Service } from "@shared/schema";
 
+const MOBILE_PRODUCT_TYPES = [
+  { value: "UNLIMITED", label: "Unlimited" },
+  { value: "3_GIG", label: "3 Gig" },
+  { value: "1_GIG", label: "1 Gig" },
+  { value: "BYOD", label: "BYOD" },
+  { value: "OTHER", label: "Other" },
+];
+
 type OverrideEntry = {
   id?: string;
   recipientUserId: string;
@@ -21,6 +29,8 @@ type OverrideEntry = {
   providerId: string;
   clientId: string;
   serviceId: string;
+  mobileProductType: string;
+  tvSoldFilter: string;
   effectiveStart: string;
   effectiveEnd: string;
   active: boolean;
@@ -105,6 +115,8 @@ export default function AdminOverrides() {
         providerId: o.providerId || "",
         clientId: o.clientId || "",
         serviceId: o.serviceId || "",
+        mobileProductType: o.mobileProductType || "",
+        tvSoldFilter: o.tvSoldFilter === null ? "" : o.tvSoldFilter ? "true" : "false",
         effectiveStart: o.effectiveStart,
         effectiveEnd: o.effectiveEnd || "",
         active: o.active,
@@ -128,6 +140,8 @@ export default function AdminOverrides() {
       providerId: "",
       clientId: "",
       serviceId: "",
+      mobileProductType: "",
+      tvSoldFilter: "",
       effectiveStart: today,
       effectiveEnd: "",
       active: true,
@@ -172,6 +186,8 @@ export default function AdminOverrides() {
           providerId: override.providerId || null,
           clientId: override.clientId || null,
           serviceId: override.serviceId || null,
+          mobileProductType: override.mobileProductType || null,
+          tvSoldFilter: override.tvSoldFilter === "" ? null : override.tvSoldFilter === "true",
           effectiveStart: override.effectiveStart,
           effectiveEnd: override.effectiveEnd || null,
           active: override.active,
@@ -393,6 +409,42 @@ export default function AdminOverrides() {
                               {services?.map((s) => (
                                 <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                               ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Mobile Product Filter</Label>
+                          <Select 
+                            value={override.mobileProductType || "__all__"} 
+                            onValueChange={(v) => updateOverrideRow(index, "mobileProductType", v === "__all__" ? "" : v)}
+                          >
+                            <SelectTrigger data-testid={`select-mobile-product-${index}`}>
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__all__">All Mobile Products</SelectItem>
+                              {MOBILE_PRODUCT_TYPES.map((t) => (
+                                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">TV/Video Filter</Label>
+                          <Select 
+                            value={override.tvSoldFilter || "__all__"} 
+                            onValueChange={(v) => updateOverrideRow(index, "tvSoldFilter", v === "__all__" ? "" : v)}
+                          >
+                            <SelectTrigger data-testid={`select-tv-filter-${index}`}>
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__all__">Any (TV or not)</SelectItem>
+                              <SelectItem value="true">TV Sold</SelectItem>
+                              <SelectItem value="false">No TV</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>

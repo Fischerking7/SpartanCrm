@@ -77,7 +77,13 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   }
   
   const earnings: OverrideEarning[] = [];
-  const orderFilter = { providerId: approvedOrder.providerId, clientId: approvedOrder.clientId, serviceId: approvedOrder.serviceId };
+  const orderFilter = { 
+    providerId: approvedOrder.providerId, 
+    clientId: approvedOrder.clientId, 
+    serviceId: approvedOrder.serviceId,
+    mobileProductType: approvedOrder.mobileProductType,
+    tvSold: approvedOrder.tvSold
+  };
   
   // Get hierarchy for the rep
   const hierarchy = await storage.getRepHierarchy(approvedOrder.repId);
