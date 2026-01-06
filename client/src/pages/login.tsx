@@ -27,7 +27,7 @@ export default function Login() {
     setIsLoading(true);
     try {
       await login(values.repId, values.password);
-      setLocation("/");
+      setLocation("/dashboard");
     } catch (error) {
       toast({
         title: "Login Failed",

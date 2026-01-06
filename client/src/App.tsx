@@ -144,9 +144,6 @@ function Router() {
   return (
     <AuthenticatedLayout>
       <Switch>
-        <Route path="/">
-          <Redirect to="/dashboard" />
-        </Route>
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/orders" component={Orders} />
         <Route path="/adjustments" component={Adjustments} />
@@ -168,7 +165,9 @@ function Router() {
           </>
         )}
         
-        <Route component={NotFound} />
+        <Route>
+          <Redirect to="/dashboard" />
+        </Route>
       </Switch>
     </AuthenticatedLayout>
   );
