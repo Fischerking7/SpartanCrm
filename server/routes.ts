@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, managerOrAdmin, type AuthRequest } from "./auth";
-import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, type SalesOrder, type OverrideEarning, type User } from "@shared/schema";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, type SalesOrder, type OverrideEarning, type User } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 import crypto from "crypto";
@@ -1605,6 +1605,40 @@ export async function registerRoutes(
       await storage.createAuditLog({ action: "update_incentive", tableName: "incentives", recordId: req.params.id, afterJson: JSON.stringify(incentive), userId: req.user!.id });
       res.json(incentive);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  // Override Agreements
+  app.get("/api/admin/overrides", auth, adminOnly, async (req, res) => {
+    try { res.json(await storage.getOverrideAgreements()); } catch (error) { res.status(500).json({ message: "Failed to fetch override agreements" }); }
+  });
+  app.post("/api/admin/overrides", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const validated = insertOverrideAgreementSchema.parse(req.body);
+      const override = await storage.createOverrideAgreement(validated);
+      await storage.createAuditLog({ action: "create_override_agreement", tableName: "override_agreements", recordId: override.id, afterJson: JSON.stringify(override), userId: req.user!.id });
+      res.json(override);
+    } catch (error: any) { 
+      if (error.name === "ZodError") return res.status(400).json({ message: "Validation failed", errors: error.errors });
+      res.status(500).json({ message: error.message || "Failed to create override agreement" }); 
+    }
+  });
+  app.patch("/api/admin/overrides/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const validated = insertOverrideAgreementSchema.partial().parse(req.body);
+      const override = await storage.updateOverrideAgreement(req.params.id, validated);
+      await storage.createAuditLog({ action: "update_override_agreement", tableName: "override_agreements", recordId: req.params.id, afterJson: JSON.stringify(override), userId: req.user!.id });
+      res.json(override);
+    } catch (error: any) { 
+      if (error.name === "ZodError") return res.status(400).json({ message: "Validation failed", errors: error.errors });
+      res.status(500).json({ message: error.message || "Failed to update override agreement" }); 
+    }
+  });
+  app.delete("/api/admin/overrides/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const override = await storage.updateOverrideAgreement(req.params.id, { active: false });
+      await storage.createAuditLog({ action: "soft_delete_override_agreement", tableName: "override_agreements", recordId: req.params.id, afterJson: JSON.stringify(override), userId: req.user!.id });
+      res.json({ success: true });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to delete override agreement" }); }
   });
 
   // Pay Runs

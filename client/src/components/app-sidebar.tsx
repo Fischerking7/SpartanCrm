@@ -63,6 +63,7 @@ const adminReferenceItems = [
   { title: "Services", url: "/admin/services", icon: Settings },
   { title: "Rate Cards", url: "/admin/rate-cards", icon: DollarSign },
   { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
+  { title: "Overrides", url: "/admin/overrides", icon: Users },
 ];
 
 export function AppSidebar() {

@@ -29,6 +29,7 @@ import AdminClients from "@/pages/admin/clients";
 import AdminServices from "@/pages/admin/services";
 import AdminRateCards from "@/pages/admin/rate-cards";
 import AdminIncentives from "@/pages/admin/incentives";
+import AdminOverrides from "@/pages/admin/overrides";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -157,6 +158,7 @@ function Router() {
             <Route path="/admin/services" component={AdminServices} />
             <Route path="/admin/rate-cards" component={AdminRateCards} />
             <Route path="/admin/incentives" component={AdminIncentives} />
+            <Route path="/admin/overrides" component={AdminOverrides} />
           </>
         )}
         
