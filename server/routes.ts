@@ -7,6 +7,8 @@ import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 import crypto from "crypto";
+import multer from "multer";
+import * as XLSX from "xlsx";
 
 // Role hierarchy for authority comparisons (higher number = more authority)
 const ROLE_HIERARCHY: Record<string, number> = {
@@ -979,6 +981,156 @@ export async function registerRoutes(
     }
   });
 
+  // Excel Import for Orders
+  const upload = multer({ storage: multer.memoryStorage() });
+  
+  app.post("/api/admin/orders/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet) as Record<string, any>[];
+
+      if (rows.length === 0) {
+        return res.status(400).json({ message: "Excel file is empty" });
+      }
+
+      const errors: string[] = [];
+      let success = 0;
+      let failed = 0;
+
+      // Get reference data for lookups
+      const users = await storage.getUsers();
+      const providers = await storage.getProviders();
+      const clients = await storage.getClients();
+      const services = await storage.getServices();
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 2; // Excel row number (1-indexed + header row)
+
+        try {
+          // Required fields
+          const repId = row.repId?.toString().trim();
+          const customerName = row.customerName?.toString().trim();
+          const dateSoldRaw = row.dateSold;
+
+          if (!repId) {
+            errors.push(`Row ${rowNum}: Missing repId`);
+            failed++;
+            continue;
+          }
+          if (!customerName) {
+            errors.push(`Row ${rowNum}: Missing customerName`);
+            failed++;
+            continue;
+          }
+          if (!dateSoldRaw) {
+            errors.push(`Row ${rowNum}: Missing dateSold`);
+            failed++;
+            continue;
+          }
+
+          // Validate rep exists
+          const user = users.find(u => u.repId === repId);
+          if (!user) {
+            errors.push(`Row ${rowNum}: Rep ID "${repId}" not found`);
+            failed++;
+            continue;
+          }
+
+          // Parse dates (Excel serial or string)
+          let dateSold: Date;
+          if (typeof dateSoldRaw === "number") {
+            dateSold = new Date((dateSoldRaw - 25569) * 86400 * 1000);
+          } else {
+            dateSold = new Date(dateSoldRaw);
+          }
+          if (isNaN(dateSold.getTime())) {
+            errors.push(`Row ${rowNum}: Invalid dateSold format`);
+            failed++;
+            continue;
+          }
+
+          let installDate: Date | undefined;
+          if (row.installDate) {
+            if (typeof row.installDate === "number") {
+              installDate = new Date((row.installDate - 25569) * 86400 * 1000);
+            } else {
+              installDate = new Date(row.installDate);
+            }
+            if (isNaN(installDate.getTime())) {
+              installDate = undefined;
+            }
+          }
+
+          // Lookup IDs by name or use provided IDs
+          let providerId = row.providerId?.toString().trim();
+          if (!providerId && row.provider) {
+            const provider = providers.find(p => p.name.toLowerCase() === row.provider.toString().toLowerCase().trim());
+            providerId = provider?.id;
+          }
+
+          let clientId = row.clientId?.toString().trim();
+          if (!clientId && row.client) {
+            const client = clients.find(c => c.name.toLowerCase() === row.client.toString().toLowerCase().trim());
+            clientId = client?.id;
+          }
+
+          let serviceId = row.serviceId?.toString().trim();
+          if (!serviceId && row.service) {
+            const service = services.find(s => s.name.toLowerCase() === row.service.toString().toLowerCase().trim());
+            serviceId = service?.id;
+          }
+
+          // Build order data (dates as ISO strings)
+          const orderData = {
+            repId,
+            customerName,
+            customerAddress: row.customerAddress?.toString().trim() || "",
+            accountNumber: row.accountNumber?.toString().trim() || null,
+            dateSold: dateSold.toISOString(),
+            installDate: installDate ? installDate.toISOString() : null,
+            providerId: providerId || "default-provider",
+            clientId: clientId || "default-client",
+            serviceId: serviceId || "default-service",
+            invoiceNumber: row.invoiceNumber?.toString().trim() || null,
+            tvSold: row.tvSold === true || row.tvSold === "true" || row.tvSold === 1 || row.tvSold === "1" || row.tvSold?.toString().toLowerCase() === "yes",
+            mobileSold: row.mobileSold === true || row.mobileSold === "true" || row.mobileSold === 1 || row.mobileSold === "1" || row.mobileSold?.toString().toLowerCase() === "yes",
+            mobileLinesQty: parseInt(row.mobileLinesQty) || 0,
+            jobStatus: "PENDING" as const,
+            approvalStatus: "UNAPPROVED" as const,
+            paymentStatus: "UNPAID" as const,
+            baseCommissionEarned: "0",
+            incentiveEarned: "0",
+          };
+
+          await storage.createOrder(orderData);
+          success++;
+        } catch (err: any) {
+          errors.push(`Row ${rowNum}: ${err.message || "Unknown error"}`);
+          failed++;
+        }
+      }
+
+      await storage.createAuditLog({
+        action: "import_orders",
+        tableName: "sales_orders",
+        afterJson: JSON.stringify({ success, failed, errorCount: errors.length }),
+        userId: req.user!.id,
+      });
+
+      res.json({ success, failed, errors });
+    } catch (error: any) {
+      console.error("Import error:", error);
+      res.status(500).json({ message: error.message || "Import failed" });
+    }
+  });
+
   // Admin reference data routes
   app.get("/api/admin/users", auth, adminOnly, async (req, res) => {
     try {
@@ -1430,12 +1582,9 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Export failed" }); }
   });
 
-  app.post("/api/admin/accounting/import-payments", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/accounting/import-payments", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
     try {
-      const multer = (await import("multer")).default;
-      const upload = multer({ storage: multer.memoryStorage() });
-      
-      // This is a simplified version - in production you'd use multer middleware
+      // This is a placeholder - full payment import would parse CSV and match to orders
       res.json({ matched: 0, unmatched: 0, message: "Payment import endpoint ready" });
     } catch (error) { res.status(500).json({ message: "Import failed" }); }
   });

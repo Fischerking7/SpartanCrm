@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Filter, Download, Eye } from "lucide-react";
+import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle } from "lucide-react";
 import type { SalesOrder, Client, Provider, Service } from "@shared/schema";
 
 export default function Orders() {
@@ -22,6 +22,74 @@ export default function Orders() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImportFile(file);
+      setImportResult(null);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    
+    setIsImporting(true);
+    setImportResult(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append("file", importFile);
+      
+      const res = await fetch("/api/admin/orders/import", {
+        method: "POST",
+        headers: {
+          Authorization: getAuthHeaders().Authorization,
+        },
+        body: formData,
+      });
+      
+      const result = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(result.message || "Import failed");
+      }
+      
+      setImportResult(result);
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      
+      if (result.success > 0) {
+        toast({
+          title: "Import completed",
+          description: `Successfully imported ${result.success} orders${result.failed > 0 ? `, ${result.failed} failed` : ""}`,
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Import failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const closeImportDialog = () => {
+    setShowImportDialog(false);
+    setImportFile(null);
+    setImportResult(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
 
   const { data: orders, isLoading } = useQuery<SalesOrder[]>({
     queryKey: ["/api/orders"],
@@ -163,6 +231,12 @@ export default function Orders() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {isAdmin && (
+            <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-orders">
+              <Upload className="h-4 w-4 mr-2" />
+              Import Excel
+            </Button>
+          )}
           <Button variant="outline" data-testid="button-export-orders">
             <Download className="h-4 w-4 mr-2" />
             Export
@@ -347,6 +421,90 @@ export default function Orders() {
               Cancel
             </Button>
             <Button data-testid="button-submit-order">Create Order</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showImportDialog} onOpenChange={closeImportDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5" />
+              Import Orders from Excel
+            </DialogTitle>
+            <DialogDescription>
+              Upload an Excel file (.xlsx, .xls) with order data. Required columns: repId, customerName, dateSold.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="border-2 border-dashed rounded-lg p-6 text-center">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileSelect}
+                className="hidden"
+                id="excel-file-input"
+                data-testid="input-import-file"
+              />
+              <label
+                htmlFor="excel-file-input"
+                className="cursor-pointer flex flex-col items-center gap-2"
+              >
+                <Upload className="h-8 w-8 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">
+                  {importFile ? importFile.name : "Click to select Excel file"}
+                </span>
+              </label>
+            </div>
+            
+            {importResult && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-4">
+                  {importResult.success > 0 && (
+                    <div className="flex items-center gap-2 text-green-600">
+                      <CheckCircle className="h-4 w-4" />
+                      <span>{importResult.success} imported</span>
+                    </div>
+                  )}
+                  {importResult.failed > 0 && (
+                    <div className="flex items-center gap-2 text-red-600">
+                      <AlertCircle className="h-4 w-4" />
+                      <span>{importResult.failed} failed</span>
+                    </div>
+                  )}
+                </div>
+                {importResult.errors.length > 0 && (
+                  <div className="max-h-32 overflow-y-auto bg-muted p-2 rounded text-xs space-y-1">
+                    {importResult.errors.slice(0, 10).map((err, i) => (
+                      <div key={i} className="text-red-600">{err}</div>
+                    ))}
+                    {importResult.errors.length > 10 && (
+                      <div className="text-muted-foreground">...and {importResult.errors.length - 10} more errors</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            <div className="text-xs text-muted-foreground space-y-1">
+              <p className="font-medium">Expected columns:</p>
+              <p>repId, customerName, customerAddress, accountNumber, dateSold, installDate, providerId, clientId, serviceId, invoiceNumber, tvSold, mobileSold, mobileLinesQty</p>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={closeImportDialog}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleImport}
+              disabled={!importFile || isImporting}
+              data-testid="button-confirm-import"
+            >
+              {isImporting ? "Importing..." : "Import"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
