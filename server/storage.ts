@@ -1,10 +1,10 @@
 import { db } from "./db";
-import { eq, and, desc, sql, lte, gte, or, isNull } from "drizzle-orm";
+import { eq, and, desc, sql, lte, gte, or, isNull, ilike } from "drizzle-orm";
 import {
   users, providers, clients, services, rateCards, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues,
-  auditLogs, exportBatches, counters, overrideEarnings,
+  auditLogs, exportBatches, counters, overrideEarnings, leads,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -12,7 +12,7 @@ import {
   type OverrideEarning, type InsertOverrideEarning,
   type Chargeback, type InsertChargeback, type Adjustment, type InsertAdjustment,
   type PayRun, type InsertPayRun, type UnmatchedPayment, type UnmatchedChargeback,
-  type RateIssue, type AuditLog, type InsertAuditLog,
+  type RateIssue, type AuditLog, type InsertAuditLog, type Lead, type InsertLead,
 } from "@shared/schema";
 
 export const storage = {
@@ -1201,5 +1201,55 @@ export const storage = {
 
     breakdown.sort((a, b) => b.earnedDollars - a.earnedDollars);
     return breakdown;
+  },
+
+  // Leads
+  async getLeadsByRepId(repId: string, filters?: { zipCode?: string; street?: string; city?: string; dateFrom?: string; dateTo?: string }) {
+    const conditions = [eq(leads.repId, repId)];
+    
+    if (filters?.zipCode) {
+      conditions.push(ilike(leads.zipCode, `%${filters.zipCode}%`));
+    }
+    if (filters?.street) {
+      conditions.push(ilike(leads.street, `%${filters.street}%`));
+    }
+    if (filters?.city) {
+      conditions.push(ilike(leads.city, `%${filters.city}%`));
+    }
+    if (filters?.dateFrom) {
+      conditions.push(gte(leads.importedAt, new Date(filters.dateFrom)));
+    }
+    if (filters?.dateTo) {
+      conditions.push(lte(leads.importedAt, new Date(filters.dateTo + 'T23:59:59')));
+    }
+    
+    return db.query.leads.findMany({
+      where: and(...conditions),
+      orderBy: [desc(leads.importedAt)]
+    });
+  },
+  
+  async getLeadById(id: string) {
+    return db.query.leads.findFirst({ where: eq(leads.id, id) });
+  },
+  
+  async createLead(data: InsertLead) {
+    const [lead] = await db.insert(leads).values(data).returning();
+    return lead;
+  },
+  
+  async createLeads(data: InsertLead[]) {
+    if (data.length === 0) return [];
+    const result = await db.insert(leads).values(data).returning();
+    return result;
+  },
+  
+  async updateLeadNotes(id: string, notes: string) {
+    const [lead] = await db.update(leads).set({ notes, updatedAt: new Date() }).where(eq(leads.id, id)).returning();
+    return lead;
+  },
+  
+  async deleteLead(id: string) {
+    await db.delete(leads).where(eq(leads.id, id));
   },
 };

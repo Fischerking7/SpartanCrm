@@ -1674,5 +1674,43 @@ export async function registerRoutes(
     try { res.json(await storage.getAuditLogs()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
 
+  // Leads - accessible by all authenticated users for their own leads
+  app.get("/api/leads", auth, async (req: AuthRequest, res) => {
+    try {
+      const { zipCode, street, city, dateFrom, dateTo } = req.query as {
+        zipCode?: string;
+        street?: string;
+        city?: string;
+        dateFrom?: string;
+        dateTo?: string;
+      };
+      const leads = await storage.getLeadsByRepId(req.user!.repId, { zipCode, street, city, dateFrom, dateTo });
+      res.json(leads);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch leads" });
+    }
+  });
+
+  app.patch("/api/leads/:id/notes", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { notes } = req.body;
+      
+      // Verify the lead belongs to this user
+      const lead = await storage.getLeadById(id);
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      if (lead.repId !== req.user!.repId) {
+        return res.status(403).json({ message: "Not authorized to update this lead" });
+      }
+      
+      const updated = await storage.updateLeadNotes(id, notes || "");
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update lead notes" });
+    }
+  });
+
   return httpServer;
 }
