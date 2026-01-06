@@ -1,14 +1,79 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, useAuth } from "@/lib/auth";
+import { ProductionMetricsModule } from "@/components/production-metrics-card";
+import { TeamBreakdownByRepTable } from "@/components/team-breakdown-table";
 import { DataTable } from "@/components/data-table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Target, CheckCircle, TrendingUp, Filter } from "lucide-react";
+import { Filter } from "lucide-react";
 
 type Cadence = "DAY" | "WEEK" | "MONTH";
+
+interface DashboardSummary {
+  weekly: {
+    personal: {
+      soldCount: number;
+      connectedCount: number;
+      earnedDollars: number;
+      deltas: {
+        soldCount: { value: number; percent: number | null };
+        connectedCount: { value: number; percent: number | null };
+        earnedDollars: { value: number; percent: number | null };
+      };
+      sparklineSeries: Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }>;
+    };
+    team: {
+      soldCount: number;
+      connectedCount: number;
+      earnedDollars: number;
+      deltas: {
+        soldCount: { value: number; percent: number | null };
+        connectedCount: { value: number; percent: number | null };
+        earnedDollars: { value: number; percent: number | null };
+      };
+      sparklineSeries: Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }>;
+    } | null;
+  };
+  mtd: {
+    personal: {
+      soldCount: number;
+      connectedCount: number;
+      earnedDollars: number;
+      deltas: {
+        soldCount: { value: number; percent: number | null };
+        connectedCount: { value: number; percent: number | null };
+        earnedDollars: { value: number; percent: number | null };
+      };
+      sparklineSeries: Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }>;
+    };
+    team: {
+      soldCount: number;
+      connectedCount: number;
+      earnedDollars: number;
+      deltas: {
+        soldCount: { value: number; percent: number | null };
+        connectedCount: { value: number; percent: number | null };
+        earnedDollars: { value: number; percent: number | null };
+      };
+      sparklineSeries: Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }>;
+    } | null;
+  };
+  breakdowns: {
+    teamByRep: Array<{
+      id: string;
+      name: string;
+      repId: string;
+      soldCount: number;
+      connectedCount: number;
+      approvedCount: number;
+      earnedDollars: number;
+    }> | null;
+    teamByManager: null;
+  };
+}
 
 interface ProductionData {
   summary: {
@@ -37,6 +102,7 @@ interface FilterOptions {
 const __ALL__ = "__ALL__";
 
 export default function ManagerDashboard() {
+  const { user } = useAuth();
   const [cadence, setCadence] = useState<Cadence>("WEEK");
   const [supervisorFilter, setSupervisorFilter] = useState<string>(__ALL__);
   const [repFilter, setRepFilter] = useState<string>(__ALL__);
@@ -51,7 +117,16 @@ export default function ManagerDashboard() {
     return params.toString();
   };
 
-  const { data, isLoading } = useQuery<ProductionData>({
+  const { data: summary, isLoading: summaryLoading } = useQuery<DashboardSummary>({
+    queryKey: ["/api/dashboard/summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/dashboard/summary", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch summary");
+      return res.json();
+    },
+  });
+
+  const { data: filteredData, isLoading: filteredLoading } = useQuery<ProductionData>({
     queryKey: ["/api/dashboard/production/filtered", cadence, supervisorFilter, repFilter, providerFilter],
     queryFn: async () => {
       const res = await fetch(`/api/dashboard/production/filtered?${buildQueryParams()}`, {
@@ -132,141 +207,114 @@ export default function ManagerDashboard() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold">Team Production</h1>
-          <p className="text-muted-foreground">Monitor your team's sales performance</p>
-        </div>
-        <div className="flex gap-1 bg-muted p-1 rounded-md">
-          {(["DAY", "WEEK", "MONTH"] as Cadence[]).map((c) => (
-            <Button
-              key={c}
-              variant={cadence === c ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setCadence(c)}
-              data-testid={`button-cadence-${c.toLowerCase()}`}
-            >
-              {cadenceLabels[c]}
-            </Button>
-          ))}
-        </div>
+      <div>
+        <h1 className="text-2xl font-semibold">Team Dashboard</h1>
+        <p className="text-muted-foreground">
+          Welcome back, {user?.name}
+        </p>
       </div>
 
-      {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
-              <CardContent className="p-6">
-                <Skeleton className="h-4 w-20 mb-2" />
-                <Skeleton className="h-8 w-16" />
-              </CardContent>
-            </Card>
-          ))}
+      {summaryLoading ? (
+        <div className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            {[1, 2, 3, 4].map((i) => (
+              <Card key={i}>
+                <CardContent className="p-6">
+                  <Skeleton className="h-4 w-24 mb-4" />
+                  <Skeleton className="h-8 w-32 mb-2" />
+                  <Skeleton className="h-8 w-32 mb-2" />
+                  <Skeleton className="h-8 w-32" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <Target className="h-4 w-4" />
-                <span className="text-sm font-medium">Sold</span>
-              </div>
-              <div className="text-3xl font-bold" data-testid="text-sold">
-                {data?.summary.sold || 0}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <Users className="h-4 w-4" />
-                <span className="text-sm font-medium">Connected</span>
-              </div>
-              <div className="text-3xl font-bold" data-testid="text-connected">
-                {data?.summary.connected || 0}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <span className="text-sm font-medium">Approved</span>
-              </div>
-              <div className="text-3xl font-bold text-green-600 dark:text-green-400" data-testid="text-approved">
-                {data?.summary.approved || 0}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <TrendingUp className="h-4 w-4" />
-                <span className="text-sm font-medium">Conversion</span>
-              </div>
-              <div className="text-3xl font-bold" data-testid="text-conversion">
-                {data?.summary.conversionPercent || 0}%
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+      ) : summary ? (
+        <ProductionMetricsModule
+          personalWeekly={summary.weekly.personal}
+          personalMtd={summary.mtd.personal}
+          teamWeekly={summary.weekly.team}
+          teamMtd={summary.mtd.team}
+        />
+      ) : null}
+
+      {summary?.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && (
+        <TeamBreakdownByRepTable
+          data={summary.breakdowns.teamByRep}
+          title="Team Breakdown (MTD)"
+        />
       )}
 
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <CardTitle>Team Production</CardTitle>
-              <CardDescription>Production by rep for {cadenceLabels[cadence].toLowerCase()}</CardDescription>
+              <CardTitle>Filtered Production</CardTitle>
+              <CardDescription>Production by rep with filters</CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <Select value={supervisorFilter} onValueChange={setSupervisorFilter}>
-                <SelectTrigger className="w-40" data-testid="select-supervisor-filter">
-                  <SelectValue placeholder="Supervisor" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={__ALL__}>All Supervisors</SelectItem>
-                  {filterOptions?.supervisors.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={repFilter} onValueChange={setRepFilter}>
-                <SelectTrigger className="w-40" data-testid="select-rep-filter">
-                  <SelectValue placeholder="Rep" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={__ALL__}>All Reps</SelectItem>
-                  {filterOptions?.reps.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={providerFilter} onValueChange={setProviderFilter}>
-                <SelectTrigger className="w-40" data-testid="select-provider-filter">
-                  <SelectValue placeholder="Provider" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={__ALL__}>All Providers</SelectItem>
-                  {filterOptions?.providers.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {hasFilters && (
-                <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="button-clear-filters">
-                  Clear
-                </Button>
-              )}
+              <div className="flex gap-1 bg-muted p-1 rounded-md">
+                {(["DAY", "WEEK", "MONTH"] as Cadence[]).map((c) => (
+                  <Button
+                    key={c}
+                    variant={cadence === c ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setCadence(c)}
+                    data-testid={`button-cadence-${c.toLowerCase()}`}
+                  >
+                    {cadenceLabels[c]}
+                  </Button>
+                ))}
+              </div>
             </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap pt-4">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={supervisorFilter} onValueChange={setSupervisorFilter}>
+              <SelectTrigger className="w-40" data-testid="select-supervisor-filter">
+                <SelectValue placeholder="Supervisor" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={__ALL__}>All Supervisors</SelectItem>
+                {filterOptions?.supervisors.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={repFilter} onValueChange={setRepFilter}>
+              <SelectTrigger className="w-40" data-testid="select-rep-filter">
+                <SelectValue placeholder="Rep" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={__ALL__}>All Reps</SelectItem>
+                {filterOptions?.reps.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={providerFilter} onValueChange={setProviderFilter}>
+              <SelectTrigger className="w-40" data-testid="select-provider-filter">
+                <SelectValue placeholder="Provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={__ALL__}>All Providers</SelectItem>
+                {filterOptions?.providers.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {hasFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="button-clear-filters">
+                Clear
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
           <DataTable
             columns={columns}
-            data={data?.breakdown || []}
-            isLoading={isLoading}
+            data={filteredData?.breakdown || []}
+            isLoading={filteredLoading}
             emptyMessage="No production data available"
             testId="table-team-production"
           />

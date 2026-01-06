@@ -1,0 +1,147 @@
+Implement a standardized “Production & Earnings” dashboard module for EXECUTIVE, MANAGER, SUPERVISOR, and REP views, showing BOTH team production and personal production (except REP who sees only personal).
+
+====================================================
+COMMON METRIC DEFINITIONS (AUTHORITATIVE)
+====================================================
+Timezone:
+- America/New_York
+
+Time windows:
+- Weekly = current week (Mon–Sun)
+- MTD = Month-to-date (1st of month through today)
+
+Metrics:
+1) Sales (Sold Count):
+   - count of SalesOrders where dateSold falls within the window
+
+2) Connects (Connected Count):
+   - count of SalesOrders where jobStatus = COMPLETED
+     AND completionDate falls within the window
+
+3) Dollars Made (Earned $):
+   - sum of commissionEarned for orders where
+     jobStatus = COMPLETED AND approvalStatus = APPROVED
+     AND approvalDate falls within the window
+
+Trend requirements:
+- For each metric, compute:
+   - current window value
+   - prior comparable window value
+     (prior week for Weekly, prior month-to-date range for MTD)
+   - delta value and delta percent
+- Display a sparkline for each metric:
+   - Weekly trend: daily values for last 7 days
+   - MTD trend: daily values from 1st of month to today
+Daily points must use the SAME definitions above.
+
+====================================================
+ROLE-BASED SCOPING (TEAM SCOPE VS PERSONAL SCOPE)
+====================================================
+
+PERSONAL SCOPE (for any user):
+- Orders credited to user.repId only
+
+TEAM SCOPE (depends on role):
+
+REP TEAM SCOPE:
+- None (reps see only personal)
+
+SUPERVISOR TEAM SCOPE:
+- Orders credited to reps where rep.assignedSupervisorId = supervisor.id
+(does NOT include supervisor’s own repId unless explicitly requested; personal scope already covers it)
+
+MANAGER TEAM SCOPE:
+- Orders credited to:
+   - direct reps: rep.assignedManagerId = manager.id
+   - indirect reps: rep.assignedSupervisorId exists AND supervisor.assignedManagerId = manager.id
+
+EXECUTIVE TEAM SCOPE:
+- Support two modes (configurable):
+   A) GLOBAL: all rep orders company-wide
+   B) ASSIGNED_TREE: orders within managers where manager.assignedExecutiveId = executive.id and all downstream
+Config flag:
+- EXECUTIVE_DASH_SCOPE = "GLOBAL" | "ASSIGNED_TREE"
+Default: GLOBAL
+
+====================================================
+DASHBOARD UI REQUIREMENTS (ALL ROLES)
+====================================================
+
+For REP:
+- Show ONLY “My Production” module (Weekly + MTD):
+   - Sales, Connects, Earned $
+   - deltas vs prior period
+   - sparkline trends
+
+For SUPERVISOR, MANAGER, EXECUTIVE:
+Dashboard must show TWO modules:
+
+MODULE 1: “My Production” (personal scope)
+- Weekly: Sales, Connects, Earned $ + deltas + sparkline
+- MTD: Sales, Connects, Earned $ + deltas + sparkline
+
+MODULE 2: “Team Production” (team scope)
+- Weekly: Sales, Connects, Earned $ + deltas + sparkline
+- MTD: Sales, Connects, Earned $ + deltas + sparkline
+
+Additionally:
+- Supervisors and Managers should have a “Team Breakdown” table:
+   - Supervisor: rows by Rep
+   - Manager: rows by Rep (with optional filter by Supervisor)
+   Columns: Sold, Connected, Approved, Earned $
+- Executive should have a “Manager Breakdown” table:
+   - rows by Manager
+   Columns: Sold, Connected, Approved, Earned $
+
+====================================================
+API DESIGN (PERFORMANCE + CONSISTENCY)
+====================================================
+Create a single endpoint:
+GET /api/dashboard/summary
+
+Response for authenticated user must include both personal and team metrics (where applicable):
+{
+  "weekly": {
+    "personal": {...metrics, deltas, sparklineSeries},
+    "team": {...metrics, deltas, sparklineSeries} | null
+  },
+  "mtd": {
+    "personal": {...},
+    "team": {...} | null
+  },
+  "breakdowns": {
+    "teamByRep": [...] | null,
+    "teamByManager": [...] | null
+  }
+}
+
+Sparkline series formats:
+- weekly series: [{ date, soldCount, connectedCount, earnedDollars }]
+- mtd series:    [{ date, soldCount, connectedCount, earnedDollars }]
+
+Implement ONE shared aggregation service:
+- Inputs:
+   - userId
+   - role
+   - scopeType ("personal" | "team")
+   - window ("weekly" | "mtd")
+- Service responsibilities:
+   1) Resolve the correct set of repIds included in scope (personal vs team) based on role hierarchy.
+   2) Compute totals, deltas, and daily sparkline series using shared definitions.
+
+====================================================
+SAFETY / CONSISTENCY RULES
+====================================================
+- Earned $ must be based on Approved+Completed orders only, anchored to approvalDate.
+- Do not include unapproved jobs in Earned $.
+- If prior period is zero, delta% should be null/“—” to avoid divide-by-zero confusion.
+
+====================================================
+TEST CASES
+====================================================
+- Rep sees only their personal metrics; team module is null.
+- Supervisor sees personal + team metrics; team includes only assigned reps.
+- Manager sees personal + team metrics; team includes direct + indirect reps.
+- Executive sees personal + team metrics; team respects EXECUTIVE_DASH_SCOPE.
+- Weekly deltas compare to prior week; MTD compares to prior MTD cutoff.
+- Sparkline daily points match totals and use same metric definitions.

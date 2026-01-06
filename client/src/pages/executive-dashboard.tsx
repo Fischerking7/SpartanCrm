@@ -1,14 +1,86 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, useAuth } from "@/lib/auth";
+import { ProductionMetricsModule } from "@/components/production-metrics-card";
+import { TeamBreakdownByManagerTable, TeamBreakdownByRepTable } from "@/components/team-breakdown-table";
 import { DataTable } from "@/components/data-table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Target, CheckCircle, TrendingUp, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 type Cadence = "WEEK" | "MONTH";
+
+interface DashboardSummary {
+  weekly: {
+    personal: {
+      soldCount: number;
+      connectedCount: number;
+      earnedDollars: number;
+      deltas: {
+        soldCount: { value: number; percent: number | null };
+        connectedCount: { value: number; percent: number | null };
+        earnedDollars: { value: number; percent: number | null };
+      };
+      sparklineSeries: Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }>;
+    };
+    team: {
+      soldCount: number;
+      connectedCount: number;
+      earnedDollars: number;
+      deltas: {
+        soldCount: { value: number; percent: number | null };
+        connectedCount: { value: number; percent: number | null };
+        earnedDollars: { value: number; percent: number | null };
+      };
+      sparklineSeries: Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }>;
+    } | null;
+  };
+  mtd: {
+    personal: {
+      soldCount: number;
+      connectedCount: number;
+      earnedDollars: number;
+      deltas: {
+        soldCount: { value: number; percent: number | null };
+        connectedCount: { value: number; percent: number | null };
+        earnedDollars: { value: number; percent: number | null };
+      };
+      sparklineSeries: Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }>;
+    };
+    team: {
+      soldCount: number;
+      connectedCount: number;
+      earnedDollars: number;
+      deltas: {
+        soldCount: { value: number; percent: number | null };
+        connectedCount: { value: number; percent: number | null };
+        earnedDollars: { value: number; percent: number | null };
+      };
+      sparklineSeries: Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }>;
+    } | null;
+  };
+  breakdowns: {
+    teamByRep: Array<{
+      id: string;
+      name: string;
+      repId: string;
+      soldCount: number;
+      connectedCount: number;
+      approvedCount: number;
+      earnedDollars: number;
+    }> | null;
+    teamByManager: Array<{
+      id: string;
+      name: string;
+      soldCount: number;
+      connectedCount: number;
+      approvedCount: number;
+      earnedDollars: number;
+    }> | null;
+  };
+}
 
 interface ProductionData {
   summary: {
@@ -29,16 +101,15 @@ interface ProductionData {
 }
 
 export default function ExecutiveDashboard() {
+  const { user } = useAuth();
   const [cadence, setCadence] = useState<Cadence>("WEEK");
   const [drillDownManager, setDrillDownManager] = useState<{ id: string; name: string } | null>(null);
 
-  const { data, isLoading } = useQuery<ProductionData>({
-    queryKey: ["/api/dashboard/production", cadence],
+  const { data: summary, isLoading: summaryLoading } = useQuery<DashboardSummary>({
+    queryKey: ["/api/dashboard/summary"],
     queryFn: async () => {
-      const res = await fetch(`/api/dashboard/production?cadence=${cadence}`, {
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) throw new Error("Failed to fetch production data");
+      const res = await fetch("/api/dashboard/summary", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch summary");
       return res.json();
     },
   });
@@ -61,7 +132,7 @@ export default function ExecutiveDashboard() {
     MONTH: "This Month",
   };
 
-  const columns = [
+  const managerColumns = [
     {
       key: "name",
       header: "Manager",
@@ -160,8 +231,10 @@ export default function ExecutiveDashboard() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">Organization Production</h1>
-          <p className="text-muted-foreground">Monitor performance across your organization</p>
+          <h1 className="text-2xl font-semibold">Organization Dashboard</h1>
+          <p className="text-muted-foreground">
+            Welcome back, {user?.name}
+          </p>
         </div>
         <div className="flex gap-1 bg-muted p-1 rounded-md">
           {(["WEEK", "MONTH"] as Cadence[]).map((c) => (
@@ -178,81 +251,43 @@ export default function ExecutiveDashboard() {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
-              <CardContent className="p-6">
-                <Skeleton className="h-4 w-20 mb-2" />
-                <Skeleton className="h-8 w-16" />
-              </CardContent>
-            </Card>
-          ))}
+      {summaryLoading ? (
+        <div className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            {[1, 2, 3, 4].map((i) => (
+              <Card key={i}>
+                <CardContent className="p-6">
+                  <Skeleton className="h-4 w-24 mb-4" />
+                  <Skeleton className="h-8 w-32 mb-2" />
+                  <Skeleton className="h-8 w-32 mb-2" />
+                  <Skeleton className="h-8 w-32" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <Target className="h-4 w-4" />
-                <span className="text-sm font-medium">Sold</span>
-              </div>
-              <div className="text-3xl font-bold" data-testid="text-sold">
-                {data?.summary.sold || 0}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <Users className="h-4 w-4" />
-                <span className="text-sm font-medium">Connected</span>
-              </div>
-              <div className="text-3xl font-bold" data-testid="text-connected">
-                {data?.summary.connected || 0}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <span className="text-sm font-medium">Approved</span>
-              </div>
-              <div className="text-3xl font-bold text-green-600 dark:text-green-400" data-testid="text-approved">
-                {data?.summary.approved || 0}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <TrendingUp className="h-4 w-4" />
-                <span className="text-sm font-medium">Conversion</span>
-              </div>
-              <div className="text-3xl font-bold" data-testid="text-conversion">
-                {data?.summary.conversionPercent || 0}%
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+      ) : summary ? (
+        <ProductionMetricsModule
+          personalWeekly={summary.weekly.personal}
+          personalMtd={summary.mtd.personal}
+          teamWeekly={summary.weekly.team}
+          teamMtd={summary.mtd.team}
+        />
+      ) : null}
+
+      {summary?.breakdowns.teamByManager && summary.breakdowns.teamByManager.length > 0 && (
+        <TeamBreakdownByManagerTable
+          data={summary.breakdowns.teamByManager}
+          title="Manager Breakdown (MTD)"
+        />
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Manager Production</CardTitle>
-          <CardDescription>Production by manager for {cadenceLabels[cadence].toLowerCase()}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable
-            columns={columns}
-            data={data?.breakdown || []}
-            isLoading={isLoading}
-            emptyMessage="No production data available"
-            testId="table-manager-production"
-          />
-        </CardContent>
-      </Card>
+      {summary?.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && (
+        <TeamBreakdownByRepTable
+          data={summary.breakdowns.teamByRep}
+          title="All Reps Breakdown (MTD)"
+        />
+      )}
 
       <Dialog open={!!drillDownManager} onOpenChange={() => setDrillDownManager(null)}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">

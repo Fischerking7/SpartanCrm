@@ -537,6 +537,123 @@ export async function registerRoutes(
     }
   });
 
+  // Production & Earnings Summary endpoint
+  app.get("/api/dashboard/summary", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const role = user.role;
+      
+      // America/New_York timezone calculations
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      
+      // Weekly: Monday-Sunday (current week)
+      const dayOfWeek = nyNow.getDay();
+      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const weekStart = new Date(nyNow);
+      weekStart.setDate(nyNow.getDate() + mondayOffset);
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      
+      // Prior week
+      const priorWeekStart = new Date(weekStart);
+      priorWeekStart.setDate(weekStart.getDate() - 7);
+      const priorWeekEnd = new Date(weekEnd);
+      priorWeekEnd.setDate(weekEnd.getDate() - 7);
+      
+      // MTD: 1st of month through today
+      const mtdStart = new Date(nyNow.getFullYear(), nyNow.getMonth(), 1);
+      const mtdEnd = new Date(nyNow);
+      
+      // Prior MTD: same day range in prior month
+      const priorMtdStart = new Date(nyNow.getFullYear(), nyNow.getMonth() - 1, 1);
+      const priorMtdEnd = new Date(nyNow.getFullYear(), nyNow.getMonth() - 1, Math.min(nyNow.getDate(), new Date(nyNow.getFullYear(), nyNow.getMonth(), 0).getDate()));
+      
+      const formatDate = (d: Date) => d.toISOString().split('T')[0];
+      
+      // Get rep IDs for personal and team scopes
+      const personalRepIds = await storage.getRepIdsForScope(user.id, role, "personal");
+      const teamRepIds = role !== "REP" ? await storage.getRepIdsForScope(user.id, role, "team") : [];
+      
+      // Personal metrics
+      const personalWeekly = await storage.getProductionMetrics(personalRepIds, formatDate(weekStart), formatDate(weekEnd));
+      const personalWeeklyPrior = await storage.getProductionMetrics(personalRepIds, formatDate(priorWeekStart), formatDate(priorWeekEnd));
+      const personalWeeklySeries = await storage.getDailyProductionSeries(personalRepIds, formatDate(weekStart), formatDate(weekEnd));
+      
+      const personalMtd = await storage.getProductionMetrics(personalRepIds, formatDate(mtdStart), formatDate(mtdEnd));
+      const personalMtdPrior = await storage.getProductionMetrics(personalRepIds, formatDate(priorMtdStart), formatDate(priorMtdEnd));
+      const personalMtdSeries = await storage.getDailyProductionSeries(personalRepIds, formatDate(mtdStart), formatDate(mtdEnd));
+      
+      // Team metrics (null for REP)
+      let teamWeekly = null;
+      let teamWeeklyPrior = null;
+      let teamWeeklySeries: any[] = [];
+      let teamMtd = null;
+      let teamMtdPrior = null;
+      let teamMtdSeries: any[] = [];
+      
+      if (teamRepIds.length > 0) {
+        teamWeekly = await storage.getProductionMetrics(teamRepIds, formatDate(weekStart), formatDate(weekEnd));
+        teamWeeklyPrior = await storage.getProductionMetrics(teamRepIds, formatDate(priorWeekStart), formatDate(priorWeekEnd));
+        teamWeeklySeries = await storage.getDailyProductionSeries(teamRepIds, formatDate(weekStart), formatDate(weekEnd));
+        
+        teamMtd = await storage.getProductionMetrics(teamRepIds, formatDate(mtdStart), formatDate(mtdEnd));
+        teamMtdPrior = await storage.getProductionMetrics(teamRepIds, formatDate(priorMtdStart), formatDate(priorMtdEnd));
+        teamMtdSeries = await storage.getDailyProductionSeries(teamRepIds, formatDate(mtdStart), formatDate(mtdEnd));
+      }
+      
+      // Calculate deltas
+      const calcDelta = (current: number, prior: number) => ({
+        value: current - prior,
+        percent: prior === 0 ? null : Math.round(((current - prior) / prior) * 100)
+      });
+      
+      const buildMetrics = (current: typeof personalWeekly, prior: typeof personalWeeklyPrior, series: any[]) => ({
+        soldCount: current.soldCount,
+        connectedCount: current.connectedCount,
+        earnedDollars: current.earnedDollars,
+        deltas: {
+          soldCount: calcDelta(current.soldCount, prior.soldCount),
+          connectedCount: calcDelta(current.connectedCount, prior.connectedCount),
+          earnedDollars: calcDelta(current.earnedDollars, prior.earnedDollars),
+        },
+        sparklineSeries: series,
+      });
+      
+      // Breakdowns
+      let teamByRep = null;
+      let teamByManager = null;
+      
+      if (["SUPERVISOR", "MANAGER"].includes(role)) {
+        teamByRep = await storage.getTeamBreakdownByRep(user.id, role, formatDate(mtdStart), formatDate(mtdEnd));
+      }
+      
+      if (["EXECUTIVE", "ADMIN", "FOUNDER"].includes(role)) {
+        teamByManager = await storage.getTeamBreakdownByManager(formatDate(mtdStart), formatDate(mtdEnd));
+        teamByRep = await storage.getTeamBreakdownByRep(user.id, role, formatDate(mtdStart), formatDate(mtdEnd));
+      }
+      
+      res.json({
+        weekly: {
+          personal: buildMetrics(personalWeekly, personalWeeklyPrior, personalWeeklySeries),
+          team: teamWeekly ? buildMetrics(teamWeekly, teamWeeklyPrior!, teamWeeklySeries) : null,
+        },
+        mtd: {
+          personal: buildMetrics(personalMtd, personalMtdPrior, personalMtdSeries),
+          team: teamMtd ? buildMetrics(teamMtd, teamMtdPrior!, teamMtdSeries) : null,
+        },
+        breakdowns: {
+          teamByRep,
+          teamByManager,
+        },
+      });
+    } catch (error) {
+      console.error("Dashboard summary error:", error);
+      res.status(500).json({ message: "Failed to get dashboard summary" });
+    }
+  });
+
   // Team routes
   app.get("/api/team/members", auth, managerOrAdmin, async (req: AuthRequest, res) => {
     try {

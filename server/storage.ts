@@ -926,4 +926,280 @@ export const storage = {
       breakdown,
     };
   },
+
+  // Production & Earnings Dashboard Aggregation
+  async getProductionMetrics(
+    repIds: string[],
+    startDate: string,
+    endDate: string
+  ): Promise<{ soldCount: number; connectedCount: number; earnedDollars: number }> {
+    if (repIds.length === 0) {
+      return { soldCount: 0, connectedCount: 0, earnedDollars: 0 };
+    }
+
+    const orders = await db.query.salesOrders.findMany({
+      where: sql`${salesOrders.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
+    });
+
+    // Sales: dateSold within window
+    const soldCount = orders.filter(o => o.dateSold >= startDate && o.dateSold <= endDate).length;
+
+    // Connects: jobStatus=COMPLETED AND completionDate within window
+    const connectedCount = orders.filter(o =>
+      o.jobStatus === "COMPLETED" &&
+      o.completionDate &&
+      o.completionDate >= startDate &&
+      o.completionDate <= endDate
+    ).length;
+
+    // Earned $: jobStatus=COMPLETED AND approvalStatus=APPROVED AND approvedAt within window
+    const earnedDollars = orders
+      .filter(o =>
+        o.jobStatus === "COMPLETED" &&
+        o.approvalStatus === "APPROVED" &&
+        o.approvedAt
+      )
+      .filter(o => {
+        const approvedDate = this.formatDateForSql(new Date(o.approvedAt!));
+        return approvedDate >= startDate && approvedDate <= endDate;
+      })
+      .reduce((sum, o) => sum + Number(o.baseCommissionEarned) + Number(o.incentiveEarned), 0);
+
+    return { soldCount, connectedCount, earnedDollars };
+  },
+
+  async getDailyProductionSeries(
+    repIds: string[],
+    startDate: string,
+    endDate: string
+  ): Promise<Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }>> {
+    if (repIds.length === 0) {
+      return [];
+    }
+
+    const orders = await db.query.salesOrders.findMany({
+      where: sql`${salesOrders.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
+    });
+
+    const series: Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }> = [];
+    
+    // Generate each day in range
+    const current = new Date(startDate + "T00:00:00");
+    const end = new Date(endDate + "T00:00:00");
+    
+    while (current <= end) {
+      const dateStr = this.formatDateForSql(current);
+      
+      const soldCount = orders.filter(o => o.dateSold === dateStr).length;
+      
+      const connectedCount = orders.filter(o =>
+        o.jobStatus === "COMPLETED" &&
+        o.completionDate === dateStr
+      ).length;
+      
+      const earnedDollars = orders
+        .filter(o =>
+          o.jobStatus === "COMPLETED" &&
+          o.approvalStatus === "APPROVED" &&
+          o.approvedAt &&
+          this.formatDateForSql(new Date(o.approvedAt)) === dateStr
+        )
+        .reduce((sum, o) => sum + Number(o.baseCommissionEarned) + Number(o.incentiveEarned), 0);
+
+      series.push({ date: dateStr, soldCount, connectedCount, earnedDollars });
+      
+      current.setDate(current.getDate() + 1);
+    }
+    
+    return series;
+  },
+
+  async getRepIdsForScope(userId: string, role: string, scopeType: "personal" | "team"): Promise<string[]> {
+    if (scopeType === "personal") {
+      const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+      return user ? [user.repId] : [];
+    }
+
+    // Team scope based on role
+    switch (role) {
+      case "REP":
+        return []; // REPs have no team scope
+
+      case "SUPERVISOR": {
+        const reps = await db.query.users.findMany({
+          where: and(
+            eq(users.assignedSupervisorId, userId),
+            eq(users.role, "REP"),
+            eq(users.status, "ACTIVE")
+          )
+        });
+        return reps.map(r => r.repId);
+      }
+
+      case "MANAGER": {
+        // Direct reps + indirect reps via supervisors
+        const directReps = await db.query.users.findMany({
+          where: and(
+            eq(users.assignedManagerId, userId),
+            eq(users.role, "REP"),
+            eq(users.status, "ACTIVE")
+          )
+        });
+        
+        const supervisors = await db.query.users.findMany({
+          where: and(
+            eq(users.assignedManagerId, userId),
+            eq(users.role, "SUPERVISOR"),
+            eq(users.status, "ACTIVE")
+          )
+        });
+        
+        const indirectReps: User[] = [];
+        for (const sup of supervisors) {
+          const supReps = await db.query.users.findMany({
+            where: and(
+              eq(users.assignedSupervisorId, sup.id),
+              eq(users.role, "REP"),
+              eq(users.status, "ACTIVE")
+            )
+          });
+          indirectReps.push(...supReps);
+        }
+        
+        const allReps = [...directReps, ...indirectReps];
+        return Array.from(new Set(allReps.map(r => r.repId)));
+      }
+
+      case "EXECUTIVE":
+      case "ADMIN":
+      case "FOUNDER": {
+        // All active reps company-wide
+        const allReps = await db.query.users.findMany({
+          where: and(eq(users.role, "REP"), eq(users.status, "ACTIVE"))
+        });
+        return allReps.map(r => r.repId);
+      }
+
+      default:
+        return [];
+    }
+  },
+
+  async getTeamBreakdownByRep(
+    userId: string,
+    role: string,
+    startDate: string,
+    endDate: string
+  ): Promise<Array<{ id: string; name: string; repId: string; soldCount: number; connectedCount: number; approvedCount: number; earnedDollars: number }>> {
+    const repIds = await this.getRepIdsForScope(userId, role, "team");
+    if (repIds.length === 0) return [];
+
+    const usersList = await db.query.users.findMany({
+      where: sql`${users.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
+    });
+
+    const orders = await db.query.salesOrders.findMany({
+      where: sql`${salesOrders.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
+    });
+
+    const breakdown = usersList.map(u => {
+      const repOrders = orders.filter(o => o.repId === u.repId);
+      
+      const soldCount = repOrders.filter(o => o.dateSold >= startDate && o.dateSold <= endDate).length;
+      
+      const connectedCount = repOrders.filter(o =>
+        o.jobStatus === "COMPLETED" &&
+        o.completionDate &&
+        o.completionDate >= startDate &&
+        o.completionDate <= endDate
+      ).length;
+      
+      const approvedOrders = repOrders.filter(o =>
+        o.jobStatus === "COMPLETED" &&
+        o.approvalStatus === "APPROVED" &&
+        o.approvedAt &&
+        this.formatDateForSql(new Date(o.approvedAt)) >= startDate &&
+        this.formatDateForSql(new Date(o.approvedAt)) <= endDate
+      );
+      
+      const approvedCount = approvedOrders.length;
+      const earnedDollars = approvedOrders.reduce((sum, o) => sum + Number(o.baseCommissionEarned) + Number(o.incentiveEarned), 0);
+
+      return {
+        id: u.id,
+        name: u.name,
+        repId: u.repId,
+        soldCount,
+        connectedCount,
+        approvedCount,
+        earnedDollars,
+      };
+    });
+
+    // Sort by earned descending
+    breakdown.sort((a, b) => b.earnedDollars - a.earnedDollars);
+    return breakdown;
+  },
+
+  async getTeamBreakdownByManager(
+    startDate: string,
+    endDate: string
+  ): Promise<Array<{ id: string; name: string; soldCount: number; connectedCount: number; approvedCount: number; earnedDollars: number }>> {
+    const managers = await db.query.users.findMany({
+      where: and(eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"))
+    });
+
+    const breakdown = [];
+
+    for (const manager of managers) {
+      const repIds = await this.getRepIdsForScope(manager.id, "MANAGER", "team");
+      if (repIds.length === 0) {
+        breakdown.push({
+          id: manager.id,
+          name: manager.name,
+          soldCount: 0,
+          connectedCount: 0,
+          approvedCount: 0,
+          earnedDollars: 0,
+        });
+        continue;
+      }
+
+      const orders = await db.query.salesOrders.findMany({
+        where: sql`${salesOrders.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
+      });
+
+      const soldCount = orders.filter(o => o.dateSold >= startDate && o.dateSold <= endDate).length;
+      
+      const connectedCount = orders.filter(o =>
+        o.jobStatus === "COMPLETED" &&
+        o.completionDate &&
+        o.completionDate >= startDate &&
+        o.completionDate <= endDate
+      ).length;
+      
+      const approvedOrders = orders.filter(o =>
+        o.jobStatus === "COMPLETED" &&
+        o.approvalStatus === "APPROVED" &&
+        o.approvedAt &&
+        this.formatDateForSql(new Date(o.approvedAt)) >= startDate &&
+        this.formatDateForSql(new Date(o.approvedAt)) <= endDate
+      );
+      
+      const approvedCount = approvedOrders.length;
+      const earnedDollars = approvedOrders.reduce((sum, o) => sum + Number(o.baseCommissionEarned) + Number(o.incentiveEarned), 0);
+
+      breakdown.push({
+        id: manager.id,
+        name: manager.name,
+        soldCount,
+        connectedCount,
+        approvedCount,
+        earnedDollars,
+      });
+    }
+
+    breakdown.sort((a, b) => b.earnedDollars - a.earnedDollars);
+    return breakdown;
+  },
 };
