@@ -200,7 +200,8 @@ export const storage = {
     return Number(orders[0]?.count || 0);
   },
   async findMatchingRateCard(order: SalesOrder, date: string) {
-    const cards = await db.query.rateCards.findMany({
+    // First try to find service-specific rate cards
+    const serviceCards = order.serviceId ? await db.query.rateCards.findMany({
       where: and(
         eq(rateCards.providerId, order.providerId),
         eq(rateCards.serviceId, order.serviceId),
@@ -209,35 +210,62 @@ export const storage = {
         lte(rateCards.effectiveStart, date),
         or(isNull(rateCards.effectiveEnd), gte(rateCards.effectiveEnd, date))
       ),
-    });
+    }) : [];
     
-    // Priority for matching:
-    // 1. Client-specific + mobile product type match
-    // 2. Client-specific + no mobile product type (general)
-    // 3. Any client + mobile product type match
-    // 4. Any client + no mobile product type (general)
+    // Also fetch mobile-only rate cards (no service) for mobile product matching
+    const mobileOnlyCards = order.mobileProductType ? await db.query.rateCards.findMany({
+      where: and(
+        eq(rateCards.providerId, order.providerId),
+        isNull(rateCards.serviceId),
+        eq(rateCards.active, true),
+        isNull(rateCards.deletedAt),
+        lte(rateCards.effectiveStart, date),
+        or(isNull(rateCards.effectiveEnd), gte(rateCards.effectiveEnd, date))
+      ),
+    }) : [];
     
     const orderMobileType = order.mobileProductType;
     
-    // Client + mobile product type specific
-    if (orderMobileType) {
-      const clientAndMobile = cards.find(card => card.clientId === order.clientId && card.mobileProductType === orderMobileType);
-      if (clientAndMobile) return clientAndMobile;
+    // Priority for matching:
+    // 1. Service + Client + mobile product type match
+    // 2. Service + Client + no mobile product type (general)
+    // 3. Service + Any client + mobile product type
+    // 4. Service + Any client + no mobile product type
+    // 5. Mobile-only (no service) + Client + mobile product type
+    // 6. Mobile-only (no service) + Any client + mobile product type
+    
+    // Service-specific cards first
+    if (serviceCards.length > 0) {
+      if (orderMobileType) {
+        const clientAndMobile = serviceCards.find(card => card.clientId === order.clientId && card.mobileProductType === orderMobileType);
+        if (clientAndMobile) return clientAndMobile;
+      }
+      
+      const clientNoMobile = serviceCards.find(card => card.clientId === order.clientId && !card.mobileProductType);
+      if (clientNoMobile) return clientNoMobile;
+      
+      if (orderMobileType) {
+        const anyClientMobile = serviceCards.find(card => !card.clientId && card.mobileProductType === orderMobileType);
+        if (anyClientMobile) return anyClientMobile;
+      }
+      
+      const anyClientNoMobile = serviceCards.find(card => !card.clientId && !card.mobileProductType);
+      if (anyClientNoMobile) return anyClientNoMobile;
+      
+      // Fall back to any service card
+      if (serviceCards[0]) return serviceCards[0];
     }
     
-    // Client-specific, no mobile product type
-    const clientNoMobile = cards.find(card => card.clientId === order.clientId && !card.mobileProductType);
-    if (clientNoMobile) return clientNoMobile;
-    
-    // Any client + mobile product type
-    if (orderMobileType) {
-      const anyClientMobile = cards.find(card => !card.clientId && card.mobileProductType === orderMobileType);
+    // Mobile-only rate cards (no service requirement) - used for per-product mobile rates
+    if (mobileOnlyCards.length > 0 && orderMobileType) {
+      const clientAndMobile = mobileOnlyCards.find(card => card.clientId === order.clientId && card.mobileProductType === orderMobileType);
+      if (clientAndMobile) return clientAndMobile;
+      
+      const anyClientMobile = mobileOnlyCards.find(card => !card.clientId && card.mobileProductType === orderMobileType);
       if (anyClientMobile) return anyClientMobile;
     }
     
-    // Any client, no mobile product type (fallback)
-    const anyClientNoMobile = cards.find(card => !card.clientId && !card.mobileProductType);
-    return anyClientNoMobile || cards[0];
+    return serviceCards[0] || mobileOnlyCards[0];
   },
   
   // Calculate commission using rate card with new payout structure

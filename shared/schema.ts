@@ -95,7 +95,7 @@ export const rateCards = pgTable("rate_cards", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   providerId: varchar("provider_id").notNull().references(() => providers.id),
   clientId: varchar("client_id").references(() => clients.id),
-  serviceId: varchar("service_id").notNull().references(() => services.id),
+  serviceId: varchar("service_id").references(() => services.id),
   mobileProductType: mobileProductTypeEnum("mobile_product_type"),
   baseAmount: decimal("base_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   tvAddonAmount: decimal("tv_addon_amount", { precision: 10, scale: 2 }).notNull().default("0"),

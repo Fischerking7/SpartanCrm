@@ -156,11 +156,11 @@ export default function AdminRateCards() {
 
   const openEdit = (r: RateCard) => {
     setEditingItem(r);
-    const existingService = services?.find(s => s.id === r.serviceId);
+    const existingService = r.serviceId ? services?.find(s => s.id === r.serviceId) : null;
     setFormData({
       providerId: r.providerId,
       clientId: r.clientId || __ANY_CLIENT__,
-      serviceId: r.serviceId,
+      serviceId: r.serviceId || "",
       serviceName: existingService?.name || "",
       mobileProductType: r.mobileProductType || __NO_MOBILE__,
       baseAmount: r.baseAmount || "0",
@@ -188,7 +188,7 @@ export default function AdminRateCards() {
 
   const getProviderName = (id: string) => providers?.find((p) => p.id === id)?.name || id;
   const getClientName = (id: string | null) => (id ? clients?.find((c) => c.id === id)?.name || id : "Any");
-  const getServiceName = (id: string) => services?.find((s) => s.id === id)?.name || id;
+  const getServiceName = (id: string | null) => (id ? services?.find((s) => s.id === id)?.name || id : "-");
 
   const filtered = items?.filter(
     (i) =>
@@ -273,10 +273,13 @@ export default function AdminRateCards() {
       effectiveEnd: formData.effectiveEnd || null,
       active: formData.active,
     };
+    // Service is optional - can be blank for mobile-only rate cards
     if (formData.serviceId) {
       data.serviceId = formData.serviceId;
     } else if (formData.serviceName.trim()) {
       data.customServiceName = formData.serviceName.trim();
+    } else {
+      data.serviceId = null;
     }
     if (editingItem) {
       updateMutation.mutate({ id: editingItem.id, data });
@@ -285,7 +288,8 @@ export default function AdminRateCards() {
     }
   };
 
-  const isServiceValid = formData.serviceId || formData.serviceName.trim();
+  // Service is now optional - rate cards can be mobile-product-only
+  const isServiceValid = true;
 
   return (
     <div className="p-6 space-y-6">
