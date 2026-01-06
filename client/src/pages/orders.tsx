@@ -21,6 +21,7 @@ export default function Orders() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("dateSold_desc");
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -233,6 +234,27 @@ export default function Orders() {
       order.repId.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || order.jobStatus === statusFilter;
     return matchesSearch && matchesStatus;
+  }).sort((a, b) => {
+    const [field, direction] = sortBy.split("_");
+    const multiplier = direction === "asc" ? 1 : -1;
+    
+    switch (field) {
+      case "dateSold":
+        return multiplier * (new Date(a.dateSold).getTime() - new Date(b.dateSold).getTime());
+      case "customerName":
+        return multiplier * a.customerName.localeCompare(b.customerName);
+      case "commission":
+        return multiplier * (parseFloat(a.baseCommissionEarned) - parseFloat(b.baseCommissionEarned));
+      case "createdAt":
+        return multiplier * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      case "installDate":
+        if (!a.installDate && !b.installDate) return 0;
+        if (!a.installDate) return 1;
+        if (!b.installDate) return -1;
+        return multiplier * (new Date(a.installDate).getTime() - new Date(b.installDate).getTime());
+      default:
+        return 0;
+    }
   });
 
   const columns = [
@@ -370,6 +392,23 @@ export default function Orders() {
                 <SelectItem value="PENDING">Pending</SelectItem>
                 <SelectItem value="COMPLETED">Completed</SelectItem>
                 <SelectItem value="CANCELED">Canceled</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-[180px]" data-testid="select-sort-orders">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="dateSold_desc">Date Sold (Newest)</SelectItem>
+                <SelectItem value="dateSold_asc">Date Sold (Oldest)</SelectItem>
+                <SelectItem value="customerName_asc">Customer (A-Z)</SelectItem>
+                <SelectItem value="customerName_desc">Customer (Z-A)</SelectItem>
+                <SelectItem value="commission_desc">Commission (High-Low)</SelectItem>
+                <SelectItem value="commission_asc">Commission (Low-High)</SelectItem>
+                <SelectItem value="installDate_desc">Install Date (Newest)</SelectItem>
+                <SelectItem value="installDate_asc">Install Date (Oldest)</SelectItem>
+                <SelectItem value="createdAt_desc">Created (Newest)</SelectItem>
+                <SelectItem value="createdAt_asc">Created (Oldest)</SelectItem>
               </SelectContent>
             </Select>
           </div>
