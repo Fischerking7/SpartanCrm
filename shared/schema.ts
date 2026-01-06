@@ -23,6 +23,7 @@ export const rateIssueTypeEnum = pgEnum("rate_issue_type", ["MISSING_RATE", "CON
 export const sourceLevelEnum = pgEnum("source_level", ["REP", "SUPERVISOR", "MANAGER"]);
 export const mobileProductTypeEnum = pgEnum("mobile_product_type", ["UNLIMITED", "3_GIG", "1_GIG", "BYOD", "OTHER"]);
 export const mobilePortedStatusEnum = pgEnum("mobile_ported_status", ["PORTED", "NON_PORTED"]);
+export const serviceCategoryEnum = pgEnum("service_category", ["INTERNET", "MOBILE", "VIDEO"]);
 
 // Users table with expanded hierarchy
 export const users = pgTable("users", {
@@ -259,6 +260,30 @@ export const overrideEarningsRelations = relations(overrideEarnings, ({ one }) =
   payRun: one(payRuns, { fields: [overrideEarnings.payRunId], references: [payRuns.id] }),
 }));
 
+// Commission Line Items - Separate earnings per service category (Internet, Mobile, Video)
+export const commissionLineItems = pgTable("commission_line_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  salesOrderId: varchar("sales_order_id").notNull().references(() => salesOrders.id),
+  serviceCategory: serviceCategoryEnum("service_category").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitAmount: decimal("unit_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  mobileProductType: mobileProductTypeEnum("mobile_product_type"),
+  mobilePortedStatus: mobilePortedStatusEnum("mobile_ported_status"),
+  appliedRateCardId: varchar("applied_rate_card_id").references(() => rateCards.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const commissionLineItemsRelations = relations(commissionLineItems, ({ one }) => ({
+  salesOrder: one(salesOrders, { fields: [commissionLineItems.salesOrderId], references: [salesOrders.id] }),
+  appliedRateCard: one(rateCards, { fields: [commissionLineItems.appliedRateCardId], references: [rateCards.id] }),
+}));
+
+export const insertCommissionLineItemSchema = createInsertSchema(commissionLineItems).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Chargebacks table
 export const chargebacks = pgTable("chargebacks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -394,6 +419,8 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type ExportBatch = typeof exportBatches.$inferSelect;
 export type Counter = typeof counters.$inferSelect;
+export type CommissionLineItem = typeof commissionLineItems.$inferSelect;
+export type InsertCommissionLineItem = z.infer<typeof insertCommissionLineItemSchema>;
 
 // Leads table - for imported lead data
 export const leads = pgTable("leads", {
