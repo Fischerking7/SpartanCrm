@@ -542,10 +542,14 @@ export const storage = {
       ),
     });
     return agreements.filter(a => {
-      if (a.providerId && filter?.providerId && a.providerId !== filter.providerId) return false;
-      if (a.clientId && filter?.clientId && a.clientId !== filter.clientId) return false;
-      if (a.serviceId && filter?.serviceId && a.serviceId !== filter.serviceId) return false;
-      if (a.mobileProductType && filter?.mobileProductType && a.mobileProductType !== filter.mobileProductType) return false;
+      // If override specifies provider/client/service, order must match
+      if (a.providerId && a.providerId !== filter?.providerId) return false;
+      if (a.clientId && a.clientId !== filter?.clientId) return false;
+      if (a.serviceId && a.serviceId !== filter?.serviceId) return false;
+      // If override specifies mobile product type, order must have matching mobile type
+      // (won't match orders without mobile products)
+      if (a.mobileProductType && a.mobileProductType !== filter?.mobileProductType) return false;
+      // If override specifies TV sold filter, order must match
       if (a.tvSoldFilter !== null && a.tvSoldFilter !== undefined && a.tvSoldFilter !== filter?.tvSold) return false;
       return true;
     });
