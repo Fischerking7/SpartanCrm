@@ -327,7 +327,7 @@ export default function AdminOverrides() {
                               <SelectTrigger data-testid={`select-recipient-${index}`}>
                                 <SelectValue placeholder="Select recipient" />
                               </SelectTrigger>
-                              <SelectContent>
+                              <SelectContent position="popper" sideOffset={4}>
                                 <SelectItem value="__none__">Select recipient</SelectItem>
                                 {eligibleRecipients.map((u) => (
                                   <SelectItem key={u.id} value={u.id}>
@@ -370,7 +370,7 @@ export default function AdminOverrides() {
                             <SelectTrigger data-testid={`select-provider-${index}`}>
                               <SelectValue placeholder="All" />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent position="popper" sideOffset={4}>
                               <SelectItem value="__all__">All Providers</SelectItem>
                               {providers?.map((p) => (
                                 <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -387,7 +387,7 @@ export default function AdminOverrides() {
                             <SelectTrigger data-testid={`select-client-${index}`}>
                               <SelectValue placeholder="All" />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent position="popper" sideOffset={4}>
                               <SelectItem value="__all__">All Clients</SelectItem>
                               {clients?.map((c) => (
                                 <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
@@ -404,7 +404,7 @@ export default function AdminOverrides() {
                             <SelectTrigger data-testid={`select-service-${index}`}>
                               <SelectValue placeholder="All" />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent position="popper" sideOffset={4}>
                               <SelectItem value="__all__">All Services</SelectItem>
                               {services?.map((s) => (
                                 <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
@@ -424,7 +424,7 @@ export default function AdminOverrides() {
                             <SelectTrigger data-testid={`select-mobile-product-${index}`}>
                               <SelectValue placeholder="All" />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent position="popper" sideOffset={4}>
                               <SelectItem value="__all__">All Mobile Products</SelectItem>
                               {MOBILE_PRODUCT_TYPES.map((t) => (
                                 <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
@@ -441,7 +441,7 @@ export default function AdminOverrides() {
                             <SelectTrigger data-testid={`select-tv-filter-${index}`}>
                               <SelectValue placeholder="All" />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent position="popper" sideOffset={4}>
                               <SelectItem value="__all__">Any (TV or not)</SelectItem>
                               <SelectItem value="true">TV Sold</SelectItem>
                               <SelectItem value="false">No TV</SelectItem>
