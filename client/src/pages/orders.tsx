@@ -10,10 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle } from "lucide-react";
-import type { SalesOrder, Client, Provider, Service } from "@shared/schema";
+import type { SalesOrder, Client, Provider, Service, User } from "@shared/schema";
 
 export default function Orders() {
   const { user } = useAuth();
@@ -27,6 +28,23 @@ export default function Orders() {
   const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [newOrderForm, setNewOrderForm] = useState({
+    repId: "",
+    clientId: "",
+    providerId: "",
+    serviceId: "",
+    dateSold: "",
+    installDate: "",
+    accountNumber: "",
+    customerName: "",
+    customerAddress: "",
+    customerPhone: "",
+    customerEmail: "",
+    hasTv: false,
+    hasMobile: false,
+    mobileLinesSold: 0,
+  });
 
   const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
 
@@ -126,6 +144,87 @@ export default function Orders() {
       return res.json();
     },
   });
+
+  const { data: reps } = useQuery<User[]>({
+    queryKey: ["/api/admin/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      const users = await res.json();
+      return users.filter((u: User) => u.role === "REP" && u.status === "ACTIVE" && !u.deletedAt);
+    },
+    enabled: isAdmin,
+  });
+
+  const createOrderMutation = useMutation({
+    mutationFn: async (orderData: typeof newOrderForm) => {
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repId: isAdmin ? orderData.repId : user?.repId,
+          clientId: orderData.clientId || null,
+          providerId: orderData.providerId || null,
+          serviceId: orderData.serviceId || null,
+          dateSold: orderData.dateSold,
+          installDate: orderData.installDate || null,
+          accountNumber: orderData.accountNumber || null,
+          customerName: orderData.customerName,
+          customerAddress: orderData.customerAddress || null,
+          customerPhone: orderData.customerPhone || null,
+          customerEmail: orderData.customerEmail || null,
+          hasTv: orderData.hasTv,
+          hasMobile: orderData.hasMobile,
+          mobileLinesSold: orderData.hasMobile ? orderData.mobileLinesSold : 0,
+        }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create order");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setShowNewOrderDialog(false);
+      resetNewOrderForm();
+      toast({ title: "Order created successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const resetNewOrderForm = () => {
+    setNewOrderForm({
+      repId: "",
+      clientId: "",
+      providerId: "",
+      serviceId: "",
+      dateSold: "",
+      installDate: "",
+      accountNumber: "",
+      customerName: "",
+      customerAddress: "",
+      customerPhone: "",
+      customerEmail: "",
+      hasTv: false,
+      hasMobile: false,
+      mobileLinesSold: 0,
+    });
+  };
+
+  const handleCreateOrder = () => {
+    if (!newOrderForm.customerName || !newOrderForm.dateSold) {
+      toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
+      return;
+    }
+    if (isAdmin && !newOrderForm.repId) {
+      toast({ title: "Missing required fields", description: "Rep ID is required", variant: "destructive" });
+      return;
+    }
+    createOrderMutation.mutate(newOrderForm);
+  };
 
   const filteredOrders = orders?.filter((order) => {
     const matchesSearch =
@@ -351,25 +450,32 @@ export default function Orders() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showNewOrderDialog} onOpenChange={setShowNewOrderDialog}>
-        <DialogContent className="max-w-2xl">
+      <Dialog open={showNewOrderDialog} onOpenChange={(open) => { setShowNewOrderDialog(open); if (!open) resetNewOrderForm(); }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Order</DialogTitle>
             <DialogDescription>Enter the order details below</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Customer Name</Label>
-                <Input placeholder="Enter customer name" data-testid="input-customer-name" />
-              </div>
-              <div className="space-y-2">
-                <Label>Account Number</Label>
-                <Input placeholder="Enter account number" data-testid="input-account-number" />
-              </div>
+              {isAdmin && (
+                <div className="space-y-2">
+                  <Label>Rep ID *</Label>
+                  <Select value={newOrderForm.repId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}>
+                    <SelectTrigger data-testid="select-rep">
+                      <SelectValue placeholder="Select rep" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {reps?.map((rep) => (
+                        <SelectItem key={rep.id} value={rep.repId}>{rep.name} ({rep.repId})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Client</Label>
-                <Select>
+                <Select value={newOrderForm.clientId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v }))}>
                   <SelectTrigger data-testid="select-client">
                     <SelectValue placeholder="Select client" />
                   </SelectTrigger>
@@ -382,7 +488,7 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label>Provider</Label>
-                <Select>
+                <Select value={newOrderForm.providerId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v }))}>
                   <SelectTrigger data-testid="select-provider">
                     <SelectValue placeholder="Select provider" />
                   </SelectTrigger>
@@ -394,8 +500,35 @@ export default function Orders() {
                 </Select>
               </div>
               <div className="space-y-2">
+                <Label>Date Sold *</Label>
+                <Input 
+                  type="date" 
+                  value={newOrderForm.dateSold}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, dateSold: e.target.value }))}
+                  data-testid="input-date-sold" 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Install Date</Label>
+                <Input 
+                  type="date" 
+                  value={newOrderForm.installDate}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, installDate: e.target.value }))}
+                  data-testid="input-install-date" 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Account Number</Label>
+                <Input 
+                  placeholder="Enter account number" 
+                  value={newOrderForm.accountNumber}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, accountNumber: e.target.value }))}
+                  data-testid="input-account-number" 
+                />
+              </div>
+              <div className="space-y-2">
                 <Label>Service</Label>
-                <Select>
+                <Select value={newOrderForm.serviceId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}>
                   <SelectTrigger data-testid="select-service">
                     <SelectValue placeholder="Select service" />
                   </SelectTrigger>
@@ -407,20 +540,87 @@ export default function Orders() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Date Sold</Label>
-                <Input type="date" data-testid="input-date-sold" />
+                <Label>Customer Name *</Label>
+                <Input 
+                  placeholder="Enter customer name" 
+                  value={newOrderForm.customerName}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, customerName: e.target.value }))}
+                  data-testid="input-customer-name" 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Customer Phone</Label>
+                <Input 
+                  placeholder="Enter phone number" 
+                  value={newOrderForm.customerPhone}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, customerPhone: e.target.value }))}
+                  data-testid="input-customer-phone" 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Customer Email</Label>
+                <Input 
+                  placeholder="Enter email address" 
+                  value={newOrderForm.customerEmail}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, customerEmail: e.target.value }))}
+                  data-testid="input-customer-email" 
+                />
               </div>
             </div>
             <div className="space-y-2">
               <Label>Customer Address</Label>
-              <Textarea placeholder="Enter customer address" data-testid="input-customer-address" />
+              <Textarea 
+                placeholder="Enter customer address" 
+                value={newOrderForm.customerAddress}
+                onChange={(e) => setNewOrderForm(f => ({ ...f, customerAddress: e.target.value }))}
+                data-testid="input-customer-address" 
+              />
+            </div>
+            <div className="flex items-center gap-6 pt-2">
+              <div className="flex items-center gap-2">
+                <Checkbox 
+                  id="hasTv" 
+                  checked={newOrderForm.hasTv}
+                  onCheckedChange={(checked) => setNewOrderForm(f => ({ ...f, hasTv: !!checked }))}
+                  data-testid="checkbox-has-tv"
+                />
+                <Label htmlFor="hasTv" className="cursor-pointer">Video (TV)</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox 
+                  id="hasMobile" 
+                  checked={newOrderForm.hasMobile}
+                  onCheckedChange={(checked) => setNewOrderForm(f => ({ ...f, hasMobile: !!checked, mobileLinesSold: checked ? f.mobileLinesSold : 0 }))}
+                  data-testid="checkbox-has-mobile"
+                />
+                <Label htmlFor="hasMobile" className="cursor-pointer">Mobile</Label>
+              </div>
+              {newOrderForm.hasMobile && (
+                <div className="flex items-center gap-2">
+                  <Label>Lines Sold:</Label>
+                  <Input 
+                    type="number" 
+                    min="0"
+                    className="w-20"
+                    value={newOrderForm.mobileLinesSold}
+                    onChange={(e) => setNewOrderForm(f => ({ ...f, mobileLinesSold: parseInt(e.target.value) || 0 }))}
+                    data-testid="input-mobile-lines"
+                  />
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNewOrderDialog(false)}>
+            <Button variant="outline" onClick={() => { setShowNewOrderDialog(false); resetNewOrderForm(); }}>
               Cancel
             </Button>
-            <Button data-testid="button-submit-order">Create Order</Button>
+            <Button 
+              onClick={handleCreateOrder} 
+              disabled={createOrderMutation.isPending}
+              data-testid="button-submit-order"
+            >
+              {createOrderMutation.isPending ? "Creating..." : "Create Order"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
