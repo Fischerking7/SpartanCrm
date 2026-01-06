@@ -233,15 +233,20 @@ export default function AdminOverrides() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by name or role..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-              data-testid="input-search-users"
-            />
+          <div className="flex items-center gap-4">
+            <div className="relative max-w-md flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name or role..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+                data-testid="input-search-users"
+              />
+            </div>
+            <span className="text-sm text-muted-foreground">
+              Showing {filteredUsers.length} of {salesUsers.length} users (Total: {users?.length || 0})
+            </span>
           </div>
         </CardHeader>
         <CardContent>
