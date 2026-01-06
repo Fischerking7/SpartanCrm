@@ -102,7 +102,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center">
-          <img src={logoImage} alt="Iron Crest Solutions" className="h-12 w-auto" />
+          <img src={logoImage} alt="Iron Crest Solutions" className="h-16 w-auto" />
         </div>
       </SidebarHeader>
       
