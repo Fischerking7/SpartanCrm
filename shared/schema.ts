@@ -151,6 +151,7 @@ export const salesOrders = pgTable("sales_orders", {
   customerPhone: text("customer_phone"),
   customerEmail: text("customer_email"),
   jobStatus: jobStatusEnum("job_status").notNull().default("PENDING"),
+  completionDate: date("completion_date"),
   approvalStatus: approvalStatusEnum("approval_status").notNull().default("UNAPPROVED"),
   rejectionNote: text("rejection_note"),
   approvedByUserId: varchar("approved_by_user_id").references(() => users.id),

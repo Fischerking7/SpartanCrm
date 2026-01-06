@@ -612,4 +612,309 @@ export const storage = {
     
     return { valid: true };
   },
+
+  // =====================================================
+  // PRODUCTION AGGREGATION SERVICE
+  // =====================================================
+  
+  // Get date range for cadence
+  getCadenceDateRange(cadence: "DAY" | "WEEK" | "MONTH"): { startDate: Date; endDate: Date } {
+    const now = new Date();
+    const endDate = new Date(now);
+    endDate.setHours(23, 59, 59, 999);
+    
+    let startDate: Date;
+    switch (cadence) {
+      case "DAY":
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "WEEK":
+        startDate = new Date(now);
+        const dayOfWeek = startDate.getDay();
+        startDate.setDate(startDate.getDate() - dayOfWeek); // Start of week (Sunday)
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "MONTH":
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+    }
+    return { startDate, endDate };
+  },
+
+  // Format date for SQL comparison (YYYY-MM-DD)
+  formatDateForSql(date: Date): string {
+    return date.toISOString().split('T')[0];
+  },
+
+  // Get production aggregation for any role
+  async getProductionAggregation(
+    userId: string,
+    role: "SUPERVISOR" | "MANAGER" | "EXECUTIVE",
+    cadence: "DAY" | "WEEK" | "MONTH"
+  ): Promise<{
+    summary: { sold: number; connected: number; approved: number; conversionPercent: number };
+    breakdown: Array<{ id: string; name: string; repId?: string; sold: number; connected: number; approved: number; conversionPercent: number }>;
+  }> {
+    const { startDate, endDate } = this.getCadenceDateRange(cadence);
+    const startStr = this.formatDateForSql(startDate);
+    const endStr = this.formatDateForSql(endDate);
+    
+    // Get the user
+    const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+    if (!user) throw new Error("User not found");
+    
+    // Resolve scope based on role
+    let repRepIds: string[] = [];
+    let groupByField: "rep" | "manager" = "rep";
+    
+    switch (role) {
+      case "SUPERVISOR": {
+        const supervisedReps = await this.getSupervisedReps(userId);
+        repRepIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+        groupByField = "rep";
+        break;
+      }
+      case "MANAGER": {
+        const scope = await this.getManagerScope(userId);
+        repRepIds = [user.repId, ...scope.allRepRepIds];
+        groupByField = "rep";
+        break;
+      }
+      case "EXECUTIVE": {
+        const scope = await this.getExecutiveScope(userId);
+        repRepIds = [user.repId, ...scope.allRepRepIds];
+        groupByField = "manager";
+        break;
+      }
+    }
+    
+    if (repRepIds.length === 0) {
+      return {
+        summary: { sold: 0, connected: 0, approved: 0, conversionPercent: 0 },
+        breakdown: [],
+      };
+    }
+    
+    // Get all relevant orders in scope
+    const orders = await db.select().from(salesOrders).where(
+      sql`${salesOrders.repId} IN (${sql.raw(repRepIds.map(r => `'${r}'`).join(','))})`
+    );
+    
+    // Calculate summary metrics
+    const sold = orders.filter(o => o.dateSold >= startStr && o.dateSold <= endStr).length;
+    const connected = orders.filter(o => 
+      o.jobStatus === "COMPLETED" && 
+      o.completionDate && 
+      o.completionDate >= startStr && 
+      o.completionDate <= endStr
+    ).length;
+    const approved = orders.filter(o => 
+      o.jobStatus === "COMPLETED" && 
+      o.approvalStatus === "APPROVED" && 
+      o.approvedAt && 
+      this.formatDateForSql(new Date(o.approvedAt)) >= startStr && 
+      this.formatDateForSql(new Date(o.approvedAt)) <= endStr
+    ).length;
+    const conversionPercent = sold > 0 ? Math.round((connected / sold) * 100) : 0;
+    
+    // Calculate breakdown
+    let breakdown: Array<{ id: string; name: string; repId?: string; sold: number; connected: number; approved: number; conversionPercent: number }> = [];
+    
+    if (groupByField === "rep") {
+      // Group by rep for SUPERVISOR and MANAGER
+      const allUsers = await db.query.users.findMany({
+        where: sql`${users.repId} IN (${sql.raw(repRepIds.map(r => `'${r}'`).join(','))})`
+      });
+      
+      for (const u of allUsers) {
+        const repOrders = orders.filter(o => o.repId === u.repId);
+        const repSold = repOrders.filter(o => o.dateSold >= startStr && o.dateSold <= endStr).length;
+        const repConnected = repOrders.filter(o => 
+          o.jobStatus === "COMPLETED" && 
+          o.completionDate && 
+          o.completionDate >= startStr && 
+          o.completionDate <= endStr
+        ).length;
+        const repApproved = repOrders.filter(o => 
+          o.jobStatus === "COMPLETED" && 
+          o.approvalStatus === "APPROVED" && 
+          o.approvedAt && 
+          this.formatDateForSql(new Date(o.approvedAt)) >= startStr && 
+          this.formatDateForSql(new Date(o.approvedAt)) <= endStr
+        ).length;
+        const repConversion = repSold > 0 ? Math.round((repConnected / repSold) * 100) : 0;
+        
+        breakdown.push({
+          id: u.id,
+          name: u.name,
+          repId: u.repId,
+          sold: repSold,
+          connected: repConnected,
+          approved: repApproved,
+          conversionPercent: repConversion,
+        });
+      }
+    } else {
+      // Group by manager for EXECUTIVE
+      const scope = await this.getExecutiveScope(userId);
+      const managers = await db.query.users.findMany({
+        where: sql`${users.id} IN (${sql.raw(scope.managerIds.map(id => `'${id}'`).join(',') || "''")})`
+      });
+      
+      for (const manager of managers) {
+        const managerScope = await this.getManagerScope(manager.id);
+        const managerRepIds = [manager.repId, ...managerScope.allRepRepIds];
+        const managerOrders = orders.filter(o => managerRepIds.includes(o.repId));
+        
+        const mgrSold = managerOrders.filter(o => o.dateSold >= startStr && o.dateSold <= endStr).length;
+        const mgrConnected = managerOrders.filter(o => 
+          o.jobStatus === "COMPLETED" && 
+          o.completionDate && 
+          o.completionDate >= startStr && 
+          o.completionDate <= endStr
+        ).length;
+        const mgrApproved = managerOrders.filter(o => 
+          o.jobStatus === "COMPLETED" && 
+          o.approvalStatus === "APPROVED" && 
+          o.approvedAt && 
+          this.formatDateForSql(new Date(o.approvedAt)) >= startStr && 
+          this.formatDateForSql(new Date(o.approvedAt)) <= endStr
+        ).length;
+        const mgrConversion = mgrSold > 0 ? Math.round((mgrConnected / mgrSold) * 100) : 0;
+        
+        breakdown.push({
+          id: manager.id,
+          name: manager.name,
+          sold: mgrSold,
+          connected: mgrConnected,
+          approved: mgrApproved,
+          conversionPercent: mgrConversion,
+        });
+      }
+    }
+    
+    // Sort by connected descending
+    breakdown.sort((a, b) => b.connected - a.connected);
+    
+    return {
+      summary: { sold, connected, approved, conversionPercent },
+      breakdown,
+    };
+  },
+  
+  // Get filtered production aggregation for Manager dashboard
+  async getFilteredProductionAggregation(
+    userId: string,
+    cadence: "DAY" | "WEEK" | "MONTH",
+    filters: { supervisorId?: string; repId?: string; providerId?: string }
+  ): Promise<{
+    summary: { sold: number; connected: number; approved: number; conversionPercent: number };
+    breakdown: Array<{ id: string; name: string; repId?: string; sold: number; connected: number; approved: number; conversionPercent: number }>;
+  }> {
+    const { startDate, endDate } = this.getCadenceDateRange(cadence);
+    const startStr = this.formatDateForSql(startDate);
+    const endStr = this.formatDateForSql(endDate);
+    
+    // Get the user (manager)
+    const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+    if (!user) throw new Error("User not found");
+    
+    // Get manager's scope
+    const scope = await this.getManagerScope(userId);
+    let repRepIds = [user.repId, ...scope.allRepRepIds];
+    
+    // Apply filters
+    if (filters.supervisorId) {
+      const supervisedReps = await this.getSupervisedReps(filters.supervisorId);
+      const supervisorRepIds = supervisedReps.map(r => r.repId);
+      repRepIds = repRepIds.filter(r => supervisorRepIds.includes(r));
+    }
+    if (filters.repId) {
+      const filterUser = await this.getUserById(filters.repId);
+      if (filterUser) {
+        repRepIds = repRepIds.filter(r => r === filterUser.repId);
+      }
+    }
+    
+    if (repRepIds.length === 0) {
+      return {
+        summary: { sold: 0, connected: 0, approved: 0, conversionPercent: 0 },
+        breakdown: [],
+      };
+    }
+    
+    // Get orders with optional provider filter
+    let ordersQuery = db.select().from(salesOrders).where(
+      sql`${salesOrders.repId} IN (${sql.raw(repRepIds.map(r => `'${r}'`).join(','))})`
+    );
+    
+    let orders = await ordersQuery;
+    
+    if (filters.providerId) {
+      orders = orders.filter(o => o.providerId === filters.providerId);
+    }
+    
+    // Calculate summary metrics
+    const sold = orders.filter(o => o.dateSold >= startStr && o.dateSold <= endStr).length;
+    const connected = orders.filter(o => 
+      o.jobStatus === "COMPLETED" && 
+      o.completionDate && 
+      o.completionDate >= startStr && 
+      o.completionDate <= endStr
+    ).length;
+    const approved = orders.filter(o => 
+      o.jobStatus === "COMPLETED" && 
+      o.approvalStatus === "APPROVED" && 
+      o.approvedAt && 
+      this.formatDateForSql(new Date(o.approvedAt)) >= startStr && 
+      this.formatDateForSql(new Date(o.approvedAt)) <= endStr
+    ).length;
+    const conversionPercent = sold > 0 ? Math.round((connected / sold) * 100) : 0;
+    
+    // Group by rep
+    const allUsers = await db.query.users.findMany({
+      where: sql`${users.repId} IN (${sql.raw(repRepIds.map(r => `'${r}'`).join(','))})`
+    });
+    
+    const breakdown: Array<{ id: string; name: string; repId?: string; sold: number; connected: number; approved: number; conversionPercent: number }> = [];
+    
+    for (const u of allUsers) {
+      const repOrders = orders.filter(o => o.repId === u.repId);
+      const repSold = repOrders.filter(o => o.dateSold >= startStr && o.dateSold <= endStr).length;
+      const repConnected = repOrders.filter(o => 
+        o.jobStatus === "COMPLETED" && 
+        o.completionDate && 
+        o.completionDate >= startStr && 
+        o.completionDate <= endStr
+      ).length;
+      const repApproved = repOrders.filter(o => 
+        o.jobStatus === "COMPLETED" && 
+        o.approvalStatus === "APPROVED" && 
+        o.approvedAt && 
+        this.formatDateForSql(new Date(o.approvedAt)) >= startStr && 
+        this.formatDateForSql(new Date(o.approvedAt)) <= endStr
+      ).length;
+      const repConversion = repSold > 0 ? Math.round((repConnected / repSold) * 100) : 0;
+      
+      breakdown.push({
+        id: u.id,
+        name: u.name,
+        repId: u.repId,
+        sold: repSold,
+        connected: repConnected,
+        approved: repApproved,
+        conversionPercent: repConversion,
+      });
+    }
+    
+    // Sort by connected descending
+    breakdown.sort((a, b) => b.connected - a.connected);
+    
+    return {
+      summary: { sold, connected, approved, conversionPercent },
+      breakdown,
+    };
+  },
 };

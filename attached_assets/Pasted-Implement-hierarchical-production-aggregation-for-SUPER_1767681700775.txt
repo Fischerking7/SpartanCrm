@@ -1,0 +1,125 @@
+Implement hierarchical production aggregation for SUPERVISOR, MANAGER, and EXECUTIVE roles using ONE shared aggregation engine and identical metric definitions.
+
+====================================================
+COMMON DEFINITIONS (AUTHORITATIVE — USE EVERYWHERE)
+====================================================
+- Sold:
+    SalesOrders where dateSold falls within the selected period
+- Connected:
+    SalesOrders where jobStatus = COMPLETED
+    AND completionDate falls within the selected period
+- Approved (Earned):
+    SalesOrders where jobStatus = COMPLETED
+    AND approvalStatus = APPROVED
+    AND approvalDate falls within the selected period
+- Conversion %:
+    Connected / Sold
+
+Cadence options:
+- DAY (Today)
+- WEEK (This Week)
+- MONTH (This Month)
+
+====================================================
+HIERARCHY SCOPING RULES
+====================================================
+
+SUPERVISOR SCOPE:
+- Reps where rep.assignedSupervisorId = supervisor.id
+- Orders credited to supervisor.repId
+
+MANAGER SCOPE:
+- Direct reps: rep.assignedManagerId = manager.id
+- Indirect reps:
+    rep.assignedSupervisorId exists
+    AND supervisor.assignedManagerId = manager.id
+- Orders credited to manager.repId
+
+EXECUTIVE SCOPE:
+- Managers where manager.assignedExecutiveId = executive.id
+- All supervisors and reps under those managers
+- Orders credited to executive.repId (if executive selling enabled)
+
+====================================================
+DASHBOARD REQUIREMENTS BY ROLE
+====================================================
+
+SUPERVISOR DASHBOARD:
+- Production Summary (above the fold)
+    - Cadence toggle: Today | This Week | This Month
+    - Metrics: Sold | Connected | Approved | Conversion %
+- Rep-level table:
+    - Rep Name
+    - Sold
+    - Connected
+    - Approved
+    - Conversion %
+- Scope strictly limited to supervisor’s reps + self
+
+----------------------------------------------------
+
+MANAGER DASHBOARD (FIRST RECOMMENDATION — REQUIRED):
+- Production Summary (above the fold)
+    - Cadence toggle: Today | This Week | This Month
+    - Metrics: Sold | Connected | Approved | Conversion %
+- Team Production Table:
+    - Rows by Rep
+    - Columns: Sold | Connected | Approved | Conversion %
+    - Includes direct + indirect reps + manager self
+- Default sort: Connected (descending)
+- Filters:
+    - Supervisor
+    - Rep
+    - Provider
+
+----------------------------------------------------
+
+EXECUTIVE DASHBOARD:
+- Production Summary (above the fold)
+    - Cadence toggle: This Week | This Month
+    - Metrics: Sold | Connected | Approved | Conversion %
+- Manager-level table:
+    - Manager Name
+    - Sold
+    - Connected
+    - Approved
+    - Conversion %
+- Clicking a manager drills into Manager dashboard (read-only)
+
+====================================================
+API / SERVICE DESIGN (CRITICAL)
+====================================================
+
+Implement ONE shared aggregation service with signature:
+- userId
+- role (SUPERVISOR | MANAGER | EXECUTIVE)
+- cadence (DAY | WEEK | MONTH)
+
+Service responsibilities:
+1) Resolve scope based on role + org hierarchy
+2) Apply shared metric definitions
+3) Return:
+   - summary metrics (sold, connected, approved, conversion)
+   - grouped breakdown:
+       - SUPERVISOR → group by Rep
+       - MANAGER → group by Rep
+       - EXECUTIVE → group by Manager
+
+====================================================
+PERFORMANCE REQUIREMENTS
+====================================================
+- Use indexed date fields:
+    - dateSold
+    - completionDate
+    - approvalDate
+- Avoid duplicate queries per role
+- Prefer pre-aggregation or windowed queries where possible
+
+====================================================
+TEST CASES (MUST PASS)
+====================================================
+- Supervisor sees only their reps + self
+- Manager sees direct + indirect reps + self
+- Executive sees only assigned managers and downstream
+- Changing cadence recalculates metrics correctly
+- Sold / Connected / Approved numbers match across drill-downs
