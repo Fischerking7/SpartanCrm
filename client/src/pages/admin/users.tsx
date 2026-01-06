@@ -163,6 +163,10 @@ export default function AdminUsers() {
     setFormData({ name: "", repId: "", password: "", role: "REP", assignedSupervisorId: __NONE__, assignedManagerId: __NONE__, assignedExecutiveId: __NONE__ });
     setSkipValidation(false);
   };
+
+  const supervisors = users?.filter((u) => u.role === "SUPERVISOR" && u.status === "ACTIVE") || [];
+  const managers = users?.filter((u) => u.role === "MANAGER" && u.status === "ACTIVE") || [];
+  const executives = users?.filter((u) => u.role === "EXECUTIVE" && u.status === "ACTIVE") || [];
   
   // Compute validation warnings
   const getValidationWarnings = (): string[] => {
@@ -210,10 +214,6 @@ export default function AdminUsers() {
     (user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.repId.toLowerCase().includes(searchTerm.toLowerCase()))
   );
-
-  const supervisors = users?.filter((u) => u.role === "SUPERVISOR" && u.status === "ACTIVE") || [];
-  const managers = users?.filter((u) => u.role === "MANAGER" && u.status === "ACTIVE") || [];
-  const executives = users?.filter((u) => u.role === "EXECUTIVE" && u.status === "ACTIVE") || [];
 
   const getInitials = (name: string) => {
     return name
