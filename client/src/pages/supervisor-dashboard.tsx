@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { ProductionMetricsModule } from "@/components/production-metrics-card";
+import { DashboardChartsModule } from "@/components/dashboard-charts";
 import { NextDayInstallsCard } from "@/components/next-day-installs";
 import { TeamBreakdownByRepTable } from "@/components/team-breakdown-table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -112,6 +113,13 @@ export default function SupervisorDashboard() {
             personalMtd={summary.mtd.personal}
             teamWeekly={summary.weekly.team}
             teamMtd={summary.mtd.team}
+          />
+
+          <DashboardChartsModule
+            personalWeekly={summary.weekly.personal.sparklineSeries}
+            personalMtd={summary.mtd.personal.sparklineSeries}
+            teamWeekly={summary.weekly.team?.sparklineSeries || null}
+            teamMtd={summary.mtd.team?.sparklineSeries || null}
           />
 
           <NextDayInstallsCard />

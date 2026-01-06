@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { ProductionMetricsModule } from "@/components/production-metrics-card";
+import { DashboardChartsModule } from "@/components/dashboard-charts";
 import { NextDayInstallsCard } from "@/components/next-day-installs";
 import { DataTable } from "@/components/data-table";
 import { JobStatusBadge, ApprovalStatusBadge, PaymentStatusBadge } from "@/components/status-badge";
@@ -154,6 +155,12 @@ export default function RepDashboard() {
           <ProductionMetricsModule
             personalWeekly={summary.weekly.personal}
             personalMtd={summary.mtd.personal}
+            teamWeekly={null}
+            teamMtd={null}
+          />
+          <DashboardChartsModule
+            personalWeekly={summary.weekly.personal.sparklineSeries}
+            personalMtd={summary.mtd.personal.sparklineSeries}
             teamWeekly={null}
             teamMtd={null}
           />
