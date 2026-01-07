@@ -2675,6 +2675,49 @@ export async function registerRoutes(
 
   // ==================== REPORTS ====================
   
+  // Helper to apply role-based filtering to orders
+  async function applyRoleBasedOrderFilter(orders: SalesOrder[], user: User): Promise<{ filteredOrders: SalesOrder[]; scopeInfo: { role: string; scopeDescription: string; repCount: number } }> {
+    let filteredOrders = orders;
+    let scopeDescription = "All data";
+    let repCount = 0;
+    
+    if (user.role === "REP") {
+      filteredOrders = orders.filter(o => o.repId === user.repId);
+      scopeDescription = "Your personal data";
+      repCount = 1;
+    } else if (user.role === "SUPERVISOR") {
+      const supervisedReps = await storage.getSupervisedReps(user.id);
+      const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+      filteredOrders = orders.filter(o => repIds.includes(o.repId));
+      scopeDescription = `Your team (${supervisedReps.length} direct reports)`;
+      repCount = repIds.length;
+    } else if (user.role === "MANAGER") {
+      const scope = await storage.getManagerScope(user.id);
+      filteredOrders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      scopeDescription = `Your organization (${scope.supervisorIds.length} supervisors, ${scope.allRepRepIds.length} total reps)`;
+      repCount = scope.allRepRepIds.length;
+    } else if (user.role === "EXECUTIVE") {
+      const scope = await storage.getExecutiveScope(user.id);
+      filteredOrders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      scopeDescription = `Your division (${scope.managerIds.length} managers, ${scope.allRepRepIds.length} total reps)`;
+      repCount = scope.allRepRepIds.length;
+    } else if (user.role === "ADMIN" || user.role === "FOUNDER") {
+      const allUsers = await storage.getUsers();
+      const salesReps = allUsers.filter(u => ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && !u.deletedAt);
+      scopeDescription = `Company-wide (${salesReps.length} total sales reps)`;
+      repCount = salesReps.length;
+    }
+    
+    return {
+      filteredOrders,
+      scopeInfo: {
+        role: user.role,
+        scopeDescription,
+        repCount,
+      }
+    };
+  }
+  
   // Helper to get date ranges
   function getDateRange(period: string, customStart?: string, customEnd?: string) {
     const now = new Date();
@@ -2752,22 +2795,8 @@ export async function registerRoutes(
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      let orders = await storage.getOrders({});
-      
-      // Role-based filtering
-      if (user.role === "REP") {
-        orders = orders.filter(o => o.repId === user.repId);
-      } else if (user.role === "SUPERVISOR") {
-        const supervisedReps = await storage.getSupervisedReps(user.id);
-        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
-        orders = orders.filter(o => repIds.includes(o.repId));
-      } else if (user.role === "MANAGER") {
-        const scope = await storage.getManagerScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      } else if (user.role === "EXECUTIVE") {
-        const scope = await storage.getExecutiveScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      }
+      const allOrders = await storage.getOrders({});
+      const { filteredOrders: orders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user);
       
       // Filter by date range (using dateSold)
       const periodOrders = orders.filter(o => {
@@ -2819,6 +2848,7 @@ export async function registerRoutes(
       
       res.json({
         period: { start: start.toISOString(), end: end.toISOString() },
+        scopeInfo,
         totalOrders,
         completedOrders,
         approvedOrders,
@@ -2849,23 +2879,9 @@ export async function registerRoutes(
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      let orders = await storage.getOrders({});
+      const allOrders = await storage.getOrders({});
       const users = await storage.getUsers();
-      
-      // Role-based filtering
-      if (user.role === "REP") {
-        orders = orders.filter(o => o.repId === user.repId);
-      } else if (user.role === "SUPERVISOR") {
-        const supervisedReps = await storage.getSupervisedReps(user.id);
-        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
-        orders = orders.filter(o => repIds.includes(o.repId));
-      } else if (user.role === "MANAGER") {
-        const scope = await storage.getManagerScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      } else if (user.role === "EXECUTIVE") {
-        const scope = await storage.getExecutiveScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      }
+      const { filteredOrders: orders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);
@@ -2904,23 +2920,9 @@ export async function registerRoutes(
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      let orders = await storage.getOrders({});
+      const allOrders = await storage.getOrders({});
       const providers = await storage.getProviders();
-      
-      // Role-based filtering
-      if (user.role === "REP") {
-        orders = orders.filter(o => o.repId === user.repId);
-      } else if (user.role === "SUPERVISOR") {
-        const supervisedReps = await storage.getSupervisedReps(user.id);
-        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
-        orders = orders.filter(o => repIds.includes(o.repId));
-      } else if (user.role === "MANAGER") {
-        const scope = await storage.getManagerScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      } else if (user.role === "EXECUTIVE") {
-        const scope = await storage.getExecutiveScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      }
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);
@@ -2959,23 +2961,9 @@ export async function registerRoutes(
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      let orders = await storage.getOrders({});
+      const allOrders = await storage.getOrders({});
       const services = await storage.getServices();
-      
-      // Role-based filtering
-      if (user.role === "REP") {
-        orders = orders.filter(o => o.repId === user.repId);
-      } else if (user.role === "SUPERVISOR") {
-        const supervisedReps = await storage.getSupervisedReps(user.id);
-        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
-        orders = orders.filter(o => repIds.includes(o.repId));
-      } else if (user.role === "MANAGER") {
-        const scope = await storage.getManagerScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      } else if (user.role === "EXECUTIVE") {
-        const scope = await storage.getExecutiveScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      }
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);
@@ -3014,22 +3002,8 @@ export async function registerRoutes(
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      let orders = await storage.getOrders({});
-      
-      // Role-based filtering
-      if (user.role === "REP") {
-        orders = orders.filter(o => o.repId === user.repId);
-      } else if (user.role === "SUPERVISOR") {
-        const supervisedReps = await storage.getSupervisedReps(user.id);
-        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
-        orders = orders.filter(o => repIds.includes(o.repId));
-      } else if (user.role === "MANAGER") {
-        const scope = await storage.getManagerScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      } else if (user.role === "EXECUTIVE") {
-        const scope = await storage.getExecutiveScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      }
+      const allOrders = await storage.getOrders({});
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);
@@ -3084,23 +3058,9 @@ export async function registerRoutes(
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      let orders = await storage.getOrders({});
+      const allOrders = await storage.getOrders({});
       const users = await storage.getUsers();
-      
-      // Role-based filtering
-      if (user.role === "REP") {
-        orders = orders.filter(o => o.repId === user.repId);
-      } else if (user.role === "SUPERVISOR") {
-        const supervisedReps = await storage.getSupervisedReps(user.id);
-        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
-        orders = orders.filter(o => repIds.includes(o.repId));
-      } else if (user.role === "MANAGER") {
-        const scope = await storage.getManagerScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      } else if (user.role === "EXECUTIVE") {
-        const scope = await storage.getExecutiveScope(user.id);
-        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      }
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);

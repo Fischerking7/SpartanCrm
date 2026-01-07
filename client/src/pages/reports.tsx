@@ -34,7 +34,9 @@ import {
   Download,
   Calendar,
   Percent,
+  Users,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 const PERIOD_OPTIONS = [
   { value: "today", label: "Today" },
@@ -54,6 +56,11 @@ const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"
 
 interface ReportSummary {
   period: { start: string; end: string };
+  scopeInfo: {
+    role: string;
+    scopeDescription: string;
+    repCount: number;
+  };
   totalOrders: number;
   completedOrders: number;
   approvedOrders: number;
@@ -231,7 +238,15 @@ export default function Reports() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">Reports</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl font-semibold">Reports</h1>
+            {summary?.scopeInfo && (
+              <Badge variant="secondary" className="flex items-center gap-1" data-testid="badge-scope">
+                <Users className="h-3 w-3" />
+                {summary.scopeInfo.scopeDescription}
+              </Badge>
+            )}
+          </div>
           <p className="text-muted-foreground">
             Comprehensive analytics and performance metrics
           </p>
