@@ -103,9 +103,9 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center">
-          <img src={logoImage} alt="Iron Crest Solutions" className="h-16 w-auto" />
+      <SidebarHeader className="p-2 border-b border-sidebar-border">
+        <div className="flex items-center justify-center w-full">
+          <img src={logoImage} alt="Iron Crest Solutions" className="w-full h-auto object-contain" />
         </div>
       </SidebarHeader>
       
