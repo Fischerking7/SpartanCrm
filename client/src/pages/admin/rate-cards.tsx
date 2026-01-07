@@ -266,7 +266,7 @@ export default function AdminRateCards() {
     },
     {
       key: "overrideDeduction",
-      header: "Mobile Override",
+      header: "Base Override",
       cell: (r: RateCard) => <span className="font-mono text-orange-600">${parseFloat(r.overrideDeduction || "0").toFixed(2)}</span>,
       className: "text-right",
     },
@@ -516,7 +516,7 @@ export default function AdminRateCards() {
                 <p className="text-xs text-muted-foreground">Per mobile line sold</p>
               </div>
               <div className="space-y-2">
-                <Label>Mobile Override Deduction ($)</Label>
+                <Label>Base Override Deduction ($)</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -525,7 +525,7 @@ export default function AdminRateCards() {
                   onChange={(e) => setFormData({ ...formData, overrideDeduction: e.target.value })}
                   data-testid="input-override-deduction"
                 />
-                <p className="text-xs text-muted-foreground">Pooled for mobile sales</p>
+                <p className="text-xs text-muted-foreground">Pooled for internet sales (always)</p>
               </div>
               <div className="space-y-2">
                 <Label>TV Override Deduction ($)</Label>

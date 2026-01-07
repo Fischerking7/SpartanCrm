@@ -370,7 +370,7 @@ export const unmatchedChargebacks = pgTable("unmatched_chargebacks", {
 
 // Override Deduction Pool - Pending rate card deductions awaiting distribution during export
 export const overrideDeductionPoolStatusEnum = pgEnum("override_deduction_pool_status", ["PENDING", "DISTRIBUTED"]);
-export const overrideDeductionTypeEnum = pgEnum("override_deduction_type", ["MOBILE", "TV"]);
+export const overrideDeductionTypeEnum = pgEnum("override_deduction_type", ["MOBILE", "TV", "BASE"]);
 
 export const overrideDeductionPool = pgTable("override_deduction_pool", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

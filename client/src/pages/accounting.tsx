@@ -33,7 +33,7 @@ export default function Accounting() {
     salesOrderId: string;
     rateCardId: string;
     amount: string;
-    deductionType: "MOBILE" | "TV";
+    deductionType: "MOBILE" | "TV" | "BASE";
     status: "PENDING" | "DISTRIBUTED";
     exportBatchId: string | null;
     distributedAt: string | null;
@@ -338,7 +338,11 @@ export default function Accounting() {
                         <TableCell>{entry.dateSold}</TableCell>
                         <TableCell>{entry.rateCardName}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={entry.deductionType === "TV" ? "border-purple-500 text-purple-600" : "border-orange-500 text-orange-600"}>
+                          <Badge variant="outline" className={
+                            entry.deductionType === "TV" ? "border-purple-500 text-purple-600" : 
+                            entry.deductionType === "BASE" ? "border-blue-500 text-blue-600" : 
+                            "border-orange-500 text-orange-600"
+                          }>
                             {entry.deductionType}
                           </Badge>
                         </TableCell>

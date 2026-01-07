@@ -78,7 +78,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   
   const earnings: OverrideEarning[] = [];
   
-  // --- RATE CARD OVERRIDE DEDUCTIONS (MOBILE & TV) ---
+  // --- RATE CARD OVERRIDE DEDUCTIONS (BASE/INTERNET & TV) ---
   // Pool override deductions from rate cards (distributed later during export)
   // Check if pool entries already exist for this order to prevent duplicates
   const existingPoolEntries = await storage.getOverrideDeductionPoolByOrderId(approvedOrder.id);
@@ -91,15 +91,15 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
     if (lineItem.appliedRateCardId && !usedRateCardIds.has(lineItem.appliedRateCardId)) {
       const rateCard = await storage.getRateCardById(lineItem.appliedRateCardId);
       if (rateCard) {
-        // Pool mobile override deduction
-        const mobileDeduction = parseFloat(rateCard.overrideDeduction || "0");
-        const mobileKey = `${rateCard.id}-MOBILE`;
-        if (mobileDeduction > 0 && !existingPoolKeys.has(mobileKey)) {
+        // Pool base/internet override deduction (always applies)
+        const baseDeduction = parseFloat(rateCard.overrideDeduction || "0");
+        const baseKey = `${rateCard.id}-BASE`;
+        if (baseDeduction > 0 && !existingPoolKeys.has(baseKey)) {
           await storage.createOverrideDeductionPoolEntry({
             salesOrderId: approvedOrder.id,
             rateCardId: rateCard.id,
-            amount: mobileDeduction.toFixed(2),
-            deductionType: "MOBILE",
+            amount: baseDeduction.toFixed(2),
+            deductionType: "BASE",
             status: "PENDING",
           });
         }
