@@ -25,7 +25,6 @@ export default function AdminIncentives() {
   const [editingItem, setEditingItem] = useState<Incentive | null>(null);
   const [formData, setFormData] = useState({
     name: "",
-    appliesTo: "GLOBAL",
     repId: __NONE__,
     providerId: __NONE__,
     clientId: __NONE__,
@@ -121,7 +120,6 @@ export default function AdminIncentives() {
     setEditingItem(null);
     setFormData({
       name: "",
-      appliesTo: "GLOBAL",
       repId: __NONE__,
       providerId: __NONE__,
       clientId: __NONE__,
@@ -139,7 +137,6 @@ export default function AdminIncentives() {
     setEditingItem(r);
     setFormData({
       name: r.name,
-      appliesTo: r.appliesTo,
       repId: r.repId || __NONE__,
       providerId: r.providerId || __NONE__,
       clientId: r.clientId || __NONE__,
@@ -155,13 +152,25 @@ export default function AdminIncentives() {
   };
 
   const handleSave = () => {
+    const appliesTo = formData.serviceId !== __NONE__ ? "SERVICE"
+      : formData.clientId !== __NONE__ ? "CLIENT"
+      : formData.providerId !== __NONE__ ? "PROVIDER"
+      : formData.repId !== __NONE__ ? "REP"
+      : "GLOBAL";
+    
     const data = {
-      ...formData,
+      name: formData.name,
+      appliesTo,
+      type: formData.type,
+      amount: formData.amount,
+      startDate: formData.startDate,
+      endDate: formData.endDate || null,
+      active: formData.active,
+      notes: formData.notes,
       repId: formData.repId === __NONE__ ? null : formData.repId,
       providerId: formData.providerId === __NONE__ ? null : formData.providerId,
       clientId: formData.clientId === __NONE__ ? null : formData.clientId,
       serviceId: formData.serviceId === __NONE__ ? null : formData.serviceId,
-      endDate: formData.endDate || null,
     };
     if (editingItem) {
       updateMutation.mutate({ id: editingItem.id, data });
@@ -253,11 +262,6 @@ export default function AdminIncentives() {
     },
   ];
 
-  const showRepField = formData.appliesTo === "REP";
-  const showProviderField = ["PROVIDER", "SERVICE", "CLIENT"].includes(formData.appliesTo);
-  const showClientField = ["CLIENT", "SERVICE"].includes(formData.appliesTo);
-  const showServiceField = formData.appliesTo === "SERVICE";
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -313,35 +317,7 @@ export default function AdminIncentives() {
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Applies To</Label>
-                <Select
-                  value={formData.appliesTo}
-                  onValueChange={(v) =>
-                    setFormData({
-                      ...formData,
-                      appliesTo: v,
-                      repId: __NONE__,
-                      providerId: __NONE__,
-                      clientId: __NONE__,
-                      serviceId: __NONE__,
-                    })
-                  }
-                >
-                  <SelectTrigger data-testid="select-applies-to">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="GLOBAL">Global</SelectItem>
-                    <SelectItem value="REP">Rep</SelectItem>
-                    <SelectItem value="TEAM">Team</SelectItem>
-                    <SelectItem value="PROVIDER">Provider</SelectItem>
-                    <SelectItem value="CLIENT">Client</SelectItem>
-                    <SelectItem value="SERVICE">Service</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Type</Label>
                 <Select
@@ -370,95 +346,87 @@ export default function AdminIncentives() {
               </div>
             </div>
 
-            {showRepField && (
-              <div className="space-y-2">
-                <Label>Rep</Label>
-                <Select
-                  value={formData.repId}
-                  onValueChange={(v) => setFormData({ ...formData, repId: v })}
-                >
-                  <SelectTrigger data-testid="select-rep">
-                    <SelectValue placeholder="Select Rep" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={__NONE__}>All Reps</SelectItem>
-                    {reps.map((u) => (
-                      <SelectItem key={u.repId} value={u.repId}>
-                        {u.name} ({u.repId})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="space-y-4 p-4 rounded-md bg-muted/50">
+              <p className="text-sm font-medium">Target (leave blank for all)</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Provider</Label>
+                  <Select
+                    value={formData.providerId}
+                    onValueChange={(v) => setFormData({ ...formData, providerId: v })}
+                  >
+                    <SelectTrigger data-testid="select-provider">
+                      <SelectValue placeholder="All Providers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={__NONE__}>All Providers</SelectItem>
+                      {providers?.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Client</Label>
+                  <Select
+                    value={formData.clientId}
+                    onValueChange={(v) => setFormData({ ...formData, clientId: v })}
+                  >
+                    <SelectTrigger data-testid="select-client">
+                      <SelectValue placeholder="All Clients" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={__NONE__}>All Clients</SelectItem>
+                      {clients?.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Service</Label>
+                  <Select
+                    value={formData.serviceId}
+                    onValueChange={(v) => setFormData({ ...formData, serviceId: v })}
+                  >
+                    <SelectTrigger data-testid="select-service">
+                      <SelectValue placeholder="All Services" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={__NONE__}>All Services</SelectItem>
+                      {services?.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Rep</Label>
+                  <Select
+                    value={formData.repId}
+                    onValueChange={(v) => setFormData({ ...formData, repId: v })}
+                  >
+                    <SelectTrigger data-testid="select-rep">
+                      <SelectValue placeholder="All Reps" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={__NONE__}>All Reps</SelectItem>
+                      {reps.map((u) => (
+                        <SelectItem key={u.repId} value={u.repId}>
+                          {u.name} ({u.repId})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            )}
-
-            {showProviderField && (
-              <div className="space-y-2">
-                <Label>Provider</Label>
-                <Select
-                  value={formData.providerId}
-                  onValueChange={(v) =>
-                    setFormData({ ...formData, providerId: v, clientId: __NONE__, serviceId: __NONE__ })
-                  }
-                >
-                  <SelectTrigger data-testid="select-provider">
-                    <SelectValue placeholder="Select Provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={__NONE__}>All Providers</SelectItem>
-                    {providers?.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {showClientField && (
-              <div className="space-y-2">
-                <Label>Client</Label>
-                <Select
-                  value={formData.clientId}
-                  onValueChange={(v) => setFormData({ ...formData, clientId: v })}
-                >
-                  <SelectTrigger data-testid="select-client">
-                    <SelectValue placeholder="Select Client" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={__NONE__}>All Clients</SelectItem>
-                    {clients?.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {showServiceField && (
-              <div className="space-y-2">
-                <Label>Service</Label>
-                <Select
-                  value={formData.serviceId}
-                  onValueChange={(v) => setFormData({ ...formData, serviceId: v })}
-                >
-                  <SelectTrigger data-testid="select-service">
-                    <SelectValue placeholder="Select Service" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={__NONE__}>All Services</SelectItem>
-                    {services?.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
