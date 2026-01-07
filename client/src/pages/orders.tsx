@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2 } from "lucide-react";
-import type { SalesOrder, Client, Provider, Service, User } from "@shared/schema";
+import type { SalesOrder, Client, Provider, Service, User, CommissionLineItem } from "@shared/schema";
 
 interface MobileLineEntry {
   mobileProductType: string;
@@ -199,6 +199,18 @@ export default function Orders() {
       return res.json();
     },
     enabled: showNewOrderDialog && !!newOrderForm.providerId,
+  });
+
+  // Fetch commission line items when viewing order details
+  const { data: commissionLines } = useQuery<CommissionLineItem[]>({
+    queryKey: ["/api/orders", selectedOrder?.id, "commission-lines"],
+    queryFn: async () => {
+      if (!selectedOrder?.id) return [];
+      const res = await fetch(`/api/orders/${selectedOrder.id}/commission-lines`, { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!selectedOrder?.id,
   });
 
   const createOrderMutation = useMutation({
@@ -578,14 +590,40 @@ export default function Orders() {
               <div className="border-t pt-4">
                 <Label className="text-muted-foreground">Commission Breakdown</Label>
                 <div className="mt-2 space-y-2">
-                  <div className="flex justify-between gap-2">
-                    <span>Base Commission</span>
-                    <span className="font-mono">${parseFloat(selectedOrder.baseCommissionEarned).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <span>Incentives</span>
-                    <span className="font-mono">${parseFloat(selectedOrder.incentiveEarned).toFixed(2)}</span>
-                  </div>
+                  {commissionLines && commissionLines.length > 0 ? (
+                    <>
+                      {commissionLines.map((line, idx) => {
+                        const categoryLabels: Record<string, string> = {
+                          "INTERNET": "Internet",
+                          "MOBILE": "Mobile",
+                          "VIDEO": "Video (TV)"
+                        };
+                        const label = categoryLabels[line.serviceCategory] || line.serviceCategory;
+                        const detail = line.serviceCategory === "MOBILE" && line.quantity > 1 
+                          ? ` (${line.quantity} lines)` 
+                          : line.serviceCategory === "MOBILE" && line.mobileProductType
+                            ? ` (${line.mobileProductType.replace("_", " ")})`
+                            : "";
+                        return (
+                          <div key={idx} className="flex justify-between gap-2">
+                            <span>{label}{detail}</span>
+                            <span className="font-mono">${parseFloat(line.totalAmount).toFixed(2)}</span>
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : (
+                    <div className="flex justify-between gap-2">
+                      <span>Base Commission</span>
+                      <span className="font-mono">${parseFloat(selectedOrder.baseCommissionEarned).toFixed(2)}</span>
+                    </div>
+                  )}
+                  {parseFloat(selectedOrder.incentiveEarned) > 0 && (
+                    <div className="flex justify-between gap-2">
+                      <span>Incentives</span>
+                      <span className="font-mono">${parseFloat(selectedOrder.incentiveEarned).toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between gap-2 border-t pt-2 font-semibold">
                     <span>Total Earned</span>
                     <span className="font-mono">
