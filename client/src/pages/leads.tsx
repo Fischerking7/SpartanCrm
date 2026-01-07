@@ -9,12 +9,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle } from "lucide-react";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart } from "lucide-react";
+import { useLocation } from "wouter";
 import type { Lead } from "@shared/schema";
 
 export default function Leads() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   
   const [filters, setFilters] = useState({
     houseNumber: "",
@@ -102,6 +104,25 @@ export default function Leads() {
   };
 
   const hasActiveFilters = filters.houseNumber || filters.streetName || filters.city || filters.zipCode || filters.dateFrom || filters.dateTo;
+
+  const createOrderFromLead = (lead: Lead) => {
+    const address = [
+      lead.houseNumber,
+      lead.streetName || lead.street,
+      lead.city,
+      lead.state,
+      lead.zipCode
+    ].filter(Boolean).join(", ") || lead.customerAddress || "";
+    
+    const params = new URLSearchParams();
+    if (lead.customerName) params.set("customerName", lead.customerName);
+    if (address) params.set("customerAddress", address);
+    if (lead.customerPhone) params.set("customerPhone", lead.customerPhone);
+    if (lead.customerEmail) params.set("customerEmail", lead.customerEmail);
+    params.set("fromLead", lead.id);
+    
+    setLocation(`/orders?${params.toString()}`);
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -365,6 +386,15 @@ export default function Leads() {
                         {lead.notes || <span className="text-muted-foreground italic">Click to add notes...</span>}
                       </div>
                     )}
+                    <Button
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => createOrderFromLead(lead)}
+                      data-testid={`button-create-order-${lead.id}`}
+                    >
+                      <ShoppingCart className="h-4 w-4 mr-2" />
+                      Create Order
+                    </Button>
                   </div>
                 </div>
               </CardContent>

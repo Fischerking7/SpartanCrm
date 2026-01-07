@@ -1,5 +1,6 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSearch, useLocation } from "wouter";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
 import { JobStatusBadge, ApprovalStatusBadge, PaymentStatusBadge } from "@/components/status-badge";
@@ -24,6 +25,8 @@ interface MobileLineEntry {
 export default function Orders() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const searchString = useSearch();
+  const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [exportFilter, setExportFilter] = useState<string>("all");
@@ -35,6 +38,7 @@ export default function Orders() {
   const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fromLeadId, setFromLeadId] = useState<string | null>(null);
 
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
@@ -77,6 +81,36 @@ export default function Orders() {
   };
 
   const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
+
+  // Handle pre-filling form from lead query params
+  useEffect(() => {
+    if (searchString) {
+      const params = new URLSearchParams(searchString);
+      const fromLead = params.get("fromLead");
+      const customerName = params.get("customerName");
+      const customerAddress = params.get("customerAddress");
+      const customerPhone = params.get("customerPhone");
+      const customerEmail = params.get("customerEmail");
+      
+      if (fromLead) {
+        setFromLeadId(fromLead);
+        setNewOrderForm(f => ({
+          ...f,
+          customerName: customerName || "",
+          customerAddress: customerAddress || "",
+          customerPhone: customerPhone || "",
+          customerEmail: customerEmail || "",
+        }));
+        setShowNewOrderDialog(true);
+        // Clear the URL params after processing
+        setLocation("/orders", { replace: true });
+        toast({
+          title: "Lead information loaded",
+          description: "Customer details have been pre-filled from the lead.",
+        });
+      }
+    }
+  }, [searchString]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
