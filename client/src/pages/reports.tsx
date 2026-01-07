@@ -117,6 +117,19 @@ interface CommissionData {
   orders: number;
 }
 
+interface TeamProductionData {
+  leaderId: string;
+  leaderName: string;
+  leaderRepId: string;
+  role: string;
+  sold: number;
+  connected: number;
+  mobileLines: number;
+  pendingDollars: number;
+  connectedDollars: number;
+  teamSize: number;
+}
+
 export default function Reports() {
   const { toast } = useToast();
   const [period, setPeriod] = useState("this_month");
@@ -186,6 +199,16 @@ export default function Reports() {
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
+  });
+
+  const { data: teamProduction } = useQuery<{ data: TeamProductionData[]; totals: { totalSold: number; totalConnected: number; totalMobileLines: number; totalPendingDollars: number; totalConnectedDollars: number } }>({
+    queryKey: ["/api/reports/team-production", period, customStartDate, customEndDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/reports/team-production?${buildQueryString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) return { data: [], totals: { totalSold: 0, totalConnected: 0, totalMobileLines: 0, totalPendingDollars: 0, totalConnectedDollars: 0 } };
+      return res.json();
+    },
+    enabled: summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER" || summary?.scopeInfo?.role === "EXECUTIVE",
   });
 
   const handleExport = () => {
@@ -445,11 +468,14 @@ export default function Reports() {
       </div>
 
       <Tabs defaultValue="trend" className="space-y-4">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="trend" data-testid="tab-trend">Trend Analysis</TabsTrigger>
           <TabsTrigger value="performance" data-testid="tab-performance">Rep Performance</TabsTrigger>
           <TabsTrigger value="breakdown" data-testid="tab-breakdown">Sales Breakdown</TabsTrigger>
           <TabsTrigger value="commission" data-testid="tab-commission">Commission Summary</TabsTrigger>
+          {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER" || summary?.scopeInfo?.role === "EXECUTIVE") && (
+            <TabsTrigger value="team-production" data-testid="tab-team-production">Team Production</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="trend" className="space-y-4">
@@ -685,6 +711,91 @@ export default function Reports() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER" || summary?.scopeInfo?.role === "EXECUTIVE") && (
+          <TabsContent value="team-production" className="space-y-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Users className="h-5 w-5" />
+                    Team Production Overview
+                  </CardTitle>
+                  <CardDescription>View sold, connected orders, and mobile lines by team leader</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {teamProduction?.data?.length ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 bg-muted/50 rounded-md">
+                      <div>
+                        <div className="text-sm text-muted-foreground">Total Sold</div>
+                        <div className="text-xl font-bold">{teamProduction.totals.totalSold}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Total Connected</div>
+                        <div className="text-xl font-bold text-green-600">{teamProduction.totals.totalConnected}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Mobile Lines</div>
+                        <div className="text-xl font-bold">{teamProduction.totals.totalMobileLines}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Pending $</div>
+                        <div className="text-xl font-bold text-yellow-600">{formatCurrency(teamProduction.totals.totalPendingDollars)}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Connected $</div>
+                        <div className="text-xl font-bold text-green-600">{formatCurrency(teamProduction.totals.totalConnectedDollars)}</div>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-3 px-2 font-medium">Team Leader</th>
+                            <th className="text-left py-3 px-2 font-medium">Role</th>
+                            <th className="text-right py-3 px-2 font-medium">Team Size</th>
+                            <th className="text-right py-3 px-2 font-medium">Sold</th>
+                            <th className="text-right py-3 px-2 font-medium">Connected</th>
+                            <th className="text-right py-3 px-2 font-medium">Mobile Lines</th>
+                            <th className="text-right py-3 px-2 font-medium">Pending $</th>
+                            <th className="text-right py-3 px-2 font-medium">Connected $</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {teamProduction.data.map((team) => (
+                            <tr key={team.leaderId} className="border-b last:border-0 hover-elevate">
+                              <td className="py-3 px-2">
+                                <div>
+                                  <span className="font-medium">{team.leaderName}</span>
+                                  <span className="text-muted-foreground ml-2 font-mono text-xs">({team.leaderRepId})</span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-2">
+                                <Badge variant="outline" className="text-xs">{team.role}</Badge>
+                              </td>
+                              <td className="text-right py-3 px-2 font-mono">{team.teamSize}</td>
+                              <td className="text-right py-3 px-2 font-mono">{team.sold}</td>
+                              <td className="text-right py-3 px-2 font-mono text-green-600">{team.connected}</td>
+                              <td className="text-right py-3 px-2 font-mono">{team.mobileLines}</td>
+                              <td className="text-right py-3 px-2 font-mono text-yellow-600">{formatCurrency(team.pendingDollars)}</td>
+                              <td className="text-right py-3 px-2 font-mono text-green-600">{formatCurrency(team.connectedDollars)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-muted-foreground">
+                    No team production data available
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

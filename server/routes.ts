@@ -3102,5 +3102,127 @@ export async function registerRoutes(
     }
   });
 
+  // Team Production Report - For ADMIN and EXECUTIVE to view team leader production
+  app.get("/api/reports/team-production", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      // Only ADMIN, FOUNDER, and EXECUTIVE can access this report
+      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const allOrders = await storage.getOrders({});
+      const allUsers = await storage.getUsers();
+      
+      // Filter orders by date range
+      const periodOrders = allOrders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= start && orderDate < end;
+      });
+      
+      // Get team leaders (executives, managers, supervisors)
+      const teamLeaders = allUsers.filter(u => 
+        ["EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(u.role) && !u.deletedAt
+      );
+      
+      const teamData: Array<{
+        leaderId: string;
+        leaderName: string;
+        leaderRepId: string;
+        role: string;
+        sold: number;
+        connected: number;
+        mobileLines: number;
+        pendingDollars: number;
+        connectedDollars: number;
+        teamSize: number;
+      }> = [];
+      
+      for (const leader of teamLeaders) {
+        let teamRepIds: string[] = [];
+        
+        if (leader.role === "EXECUTIVE") {
+          // For executive - restrict based on current user
+          if (user.role === "EXECUTIVE" && user.id !== leader.id) {
+            continue; // Executives can only see their own team
+          }
+          const scope = await storage.getExecutiveScope(leader.id);
+          teamRepIds = scope.allRepRepIds;
+        } else if (leader.role === "MANAGER") {
+          // For manager - check if under current executive
+          if (user.role === "EXECUTIVE") {
+            const execScope = await storage.getExecutiveScope(user.id);
+            if (!execScope.managerIds.includes(leader.id)) {
+              continue; // This manager is not under this executive
+            }
+          }
+          const scope = await storage.getManagerScope(leader.id);
+          teamRepIds = scope.allRepRepIds;
+        } else if (leader.role === "SUPERVISOR") {
+          // For supervisor - check if under current executive
+          if (user.role === "EXECUTIVE") {
+            const execScope = await storage.getExecutiveScope(user.id);
+            if (!execScope.supervisorIds.includes(leader.id)) {
+              continue; // This supervisor is not under this executive
+            }
+          }
+          const supervisedReps = await storage.getSupervisedReps(leader.id);
+          teamRepIds = [leader.repId, ...supervisedReps.map(r => r.repId)];
+        }
+        
+        // Calculate team stats
+        const teamOrders = periodOrders.filter(o => teamRepIds.includes(o.repId));
+        const sold = teamOrders.length;
+        const connected = teamOrders.filter(o => o.jobStatus === "COMPLETED").length;
+        const mobileLines = teamOrders.reduce((sum, o) => sum + (o.mobileLinesQty || 0), 0);
+        
+        const pendingDollars = teamOrders
+          .filter(o => o.jobStatus === "PENDING")
+          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        
+        const connectedDollars = teamOrders
+          .filter(o => o.jobStatus === "COMPLETED")
+          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        
+        teamData.push({
+          leaderId: leader.id,
+          leaderName: leader.name,
+          leaderRepId: leader.repId,
+          role: leader.role,
+          sold,
+          connected,
+          mobileLines,
+          pendingDollars,
+          connectedDollars,
+          teamSize: teamRepIds.length,
+        });
+      }
+      
+      // Sort by role hierarchy then by sold
+      const roleOrder = { EXECUTIVE: 0, MANAGER: 1, SUPERVISOR: 2 };
+      teamData.sort((a, b) => {
+        const roleCompare = (roleOrder[a.role as keyof typeof roleOrder] || 3) - (roleOrder[b.role as keyof typeof roleOrder] || 3);
+        if (roleCompare !== 0) return roleCompare;
+        return b.sold - a.sold;
+      });
+      
+      const totals = teamData.reduce((acc, team) => ({
+        totalSold: acc.totalSold + team.sold,
+        totalConnected: acc.totalConnected + team.connected,
+        totalMobileLines: acc.totalMobileLines + team.mobileLines,
+        totalPendingDollars: acc.totalPendingDollars + team.pendingDollars,
+        totalConnectedDollars: acc.totalConnectedDollars + team.connectedDollars,
+      }), { totalSold: 0, totalConnected: 0, totalMobileLines: 0, totalPendingDollars: 0, totalConnectedDollars: 0 });
+      
+      res.json({ data: teamData, totals });
+    } catch (error) {
+      console.error("Team production error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
   return httpServer;
 }
