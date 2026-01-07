@@ -746,13 +746,44 @@ export const storage = {
   },
 
   // Export Batches
-  async createExportBatch(userId: string, recordCount: number, fileName?: string) {
+  async getExportBatches() {
+    return db.query.exportBatches.findMany({ orderBy: [desc(exportBatches.createdAt)] });
+  },
+  async getExportBatchById(id: string) {
+    return db.query.exportBatches.findFirst({ where: eq(exportBatches.id, id) });
+  },
+  async createExportBatch(userId: string, recordCount: number, fileName?: string, notes?: string) {
     const [batch] = await db.insert(exportBatches).values({
       createdByUserId: userId,
       recordCount,
       fileName,
+      notes,
     }).returning();
     return batch;
+  },
+  async getOrdersByExportBatch(exportBatchId: string) {
+    return db.query.salesOrders.findMany({
+      where: eq(salesOrders.exportBatchId, exportBatchId),
+      orderBy: [desc(salesOrders.createdAt)],
+    });
+  },
+  async markOrdersAsExported(orderIds: string[], exportBatchId: string) {
+    const updated = await db.update(salesOrders)
+      .set({ 
+        exportedToAccounting: true, 
+        exportBatchId, 
+        exportedAt: new Date(),
+        updatedAt: new Date() 
+      })
+      .where(inArray(salesOrders.id, orderIds))
+      .returning();
+    return updated;
+  },
+  async getExportedOrders() {
+    return db.query.salesOrders.findMany({
+      where: eq(salesOrders.exportedToAccounting, true),
+      orderBy: [desc(salesOrders.exportedAt)],
+    });
   },
 
   // Override Agreements
