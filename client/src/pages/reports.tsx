@@ -35,6 +35,9 @@ import {
   Calendar,
   Percent,
   Users,
+  Tv,
+  Smartphone,
+  Target,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -145,6 +148,32 @@ interface OverrideInvoiceData {
   }>;
 }
 
+interface ProductionPeriodMetrics {
+  totalSold: number;
+  pending: number;
+  connected: number;
+  approved: number;
+  pendingDollars: string;
+  connectedDollars: string;
+  totalEarned: string;
+  mobileLines: number;
+  tvSold: number;
+}
+
+interface ProductionMetrics {
+  scopeInfo: {
+    role: string;
+    scopeDescription: string;
+    repCount: number;
+  };
+  periods: {
+    weekly: { start: string; end: string; label: string };
+    mtd: { start: string; end: string; label: string };
+  };
+  weekly: ProductionPeriodMetrics;
+  mtd: ProductionPeriodMetrics;
+}
+
 export default function Reports() {
   const { toast } = useToast();
   const [period, setPeriod] = useState("this_month");
@@ -164,6 +193,15 @@ export default function Reports() {
     queryFn: async () => {
       const res = await fetch(`/api/reports/summary?${buildQueryString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch summary");
+      return res.json();
+    },
+  });
+
+  const { data: production, isLoading: productionLoading } = useQuery<ProductionMetrics>({
+    queryKey: ["/api/reports/production"],
+    queryFn: async () => {
+      const res = await fetch("/api/reports/production", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch production");
       return res.json();
     },
   });
@@ -287,49 +325,19 @@ export default function Reports() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-semibold">Reports</h1>
-            {summary?.scopeInfo && (
+            <h1 className="text-2xl font-semibold">Production Results</h1>
+            {production?.scopeInfo && (
               <Badge variant="secondary" className="flex items-center gap-1" data-testid="badge-scope">
                 <Users className="h-3 w-3" />
-                {summary.scopeInfo.scopeDescription}
+                {production.scopeInfo.scopeDescription}
               </Badge>
             )}
           </div>
           <p className="text-muted-foreground">
-            Comprehensive analytics and performance metrics
+            Weekly and month-to-date production metrics
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <Select value={period} onValueChange={setPeriod}>
-            <SelectTrigger className="w-[180px]" data-testid="select-period">
-              <Calendar className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Select period" />
-            </SelectTrigger>
-            <SelectContent>
-              {PERIOD_OPTIONS.map(opt => (
-                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {period === "custom" && (
-            <>
-              <Input
-                type="date"
-                value={customStartDate}
-                onChange={e => setCustomStartDate(e.target.value)}
-                className="w-[150px]"
-                data-testid="input-start-date"
-              />
-              <span className="text-muted-foreground">to</span>
-              <Input
-                type="date"
-                value={customEndDate}
-                onChange={e => setCustomEndDate(e.target.value)}
-                className="w-[150px]"
-                data-testid="input-end-date"
-              />
-            </>
-          )}
           <Button variant="outline" onClick={handleExport} data-testid="button-export-report">
             <Download className="h-4 w-4 mr-2" />
             Export
@@ -337,174 +345,413 @@ export default function Reports() {
         </div>
       </div>
 
-      {summaryLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map(i => (
+      {productionLoading ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          {[1, 2].map(i => (
             <Card key={i}>
               <CardContent className="p-6">
-                <Skeleton className="h-4 w-24 mb-2" />
-                <Skeleton className="h-8 w-32" />
+                <Skeleton className="h-4 w-24 mb-4" />
+                <div className="grid grid-cols-2 gap-4">
+                  <Skeleton className="h-16" />
+                  <Skeleton className="h-16" />
+                </div>
               </CardContent>
             </Card>
           ))}
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card data-testid="stat-total-orders">
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Orders</p>
-                  <p className="text-3xl font-bold font-mono mt-2">{summary?.totalOrders || 0}</p>
-                  <div className="flex items-center gap-1 mt-1">
-                    {getTrendIcon(summary?.comparison.ordersTrend || "0")}
-                    <span className={`text-xs ${getTrendColor(summary?.comparison.ordersTrend || "0")}`}>
-                      {summary?.comparison.ordersTrend}% vs prev
-                    </span>
+        <>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card data-testid="card-weekly-production">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Target className="h-5 w-5 text-primary" />
+                      This Week
+                    </CardTitle>
+                    <CardDescription>{production?.periods?.weekly?.start} - {production?.periods?.weekly?.end}</CardDescription>
+                  </div>
+                  <Badge variant="outline">{production?.weekly?.totalSold || 0} Sold</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 rounded-md bg-orange-500/10 border border-orange-200 dark:border-orange-900">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                      <Clock className="h-4 w-4 text-orange-600" />
+                      Pending Dollars
+                    </div>
+                    <p className="text-2xl font-bold font-mono">${production?.weekly?.pendingDollars || "0.00"}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{production?.weekly?.pending || 0} orders</p>
+                  </div>
+                  <div className="p-4 rounded-md bg-green-500/10 border border-green-200 dark:border-green-900">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      Connected Dollars
+                    </div>
+                    <p className="text-2xl font-bold font-mono">${production?.weekly?.connectedDollars || "0.00"}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{production?.weekly?.connected || 0} orders</p>
                   </div>
                 </div>
-                <div className="p-2 rounded-md bg-primary/10">
-                  <FileText className="h-5 w-5 text-primary" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card data-testid="stat-total-earned">
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Earned</p>
-                  <p className="text-3xl font-bold font-mono mt-2">${summary?.totalEarned || "0.00"}</p>
-                  <div className="flex items-center gap-1 mt-1">
-                    {getTrendIcon(summary?.comparison.earnedTrend || "0")}
-                    <span className={`text-xs ${getTrendColor(summary?.comparison.earnedTrend || "0")}`}>
-                      {summary?.comparison.earnedTrend}% vs prev
-                    </span>
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-blue-500/10">
+                      <Smartphone className="h-4 w-4 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Mobile Lines</p>
+                      <p className="font-semibold">{production?.weekly?.mobileLines || 0}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-purple-500/10">
+                      <Tv className="h-4 w-4 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">TV Sold</p>
+                      <p className="font-semibold">{production?.weekly?.tvSold || 0}</p>
+                    </div>
                   </div>
                 </div>
-                <div className="p-2 rounded-md bg-green-500/10">
-                  <DollarSign className="h-5 w-5 text-green-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          <Card data-testid="stat-outstanding">
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Outstanding</p>
-                  <p className="text-3xl font-bold font-mono mt-2">${summary?.outstanding || "0.00"}</p>
-                  <span className="text-xs text-muted-foreground">
-                    Earned - Paid
-                  </span>
+            <Card data-testid="card-mtd-production">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Calendar className="h-5 w-5 text-primary" />
+                      {production?.periods?.mtd?.label || "MTD"}
+                    </CardTitle>
+                    <CardDescription>{production?.periods?.mtd?.start} - {production?.periods?.mtd?.end}</CardDescription>
+                  </div>
+                  <Badge variant="outline">{production?.mtd?.totalSold || 0} Sold</Badge>
                 </div>
-                <div className="p-2 rounded-md bg-yellow-500/10">
-                  <Clock className="h-5 w-5 text-yellow-600" />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 rounded-md bg-orange-500/10 border border-orange-200 dark:border-orange-900">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                      <Clock className="h-4 w-4 text-orange-600" />
+                      Pending Dollars
+                    </div>
+                    <p className="text-2xl font-bold font-mono">${production?.mtd?.pendingDollars || "0.00"}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{production?.mtd?.pending || 0} orders</p>
+                  </div>
+                  <div className="p-4 rounded-md bg-green-500/10 border border-green-200 dark:border-green-900">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      Connected Dollars
+                    </div>
+                    <p className="text-2xl font-bold font-mono">${production?.mtd?.connectedDollars || "0.00"}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{production?.mtd?.connected || 0} orders</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-blue-500/10">
+                      <Smartphone className="h-4 w-4 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Mobile Lines</p>
+                      <p className="font-semibold">{production?.mtd?.mobileLines || 0}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-purple-500/10">
+                      <Tv className="h-4 w-4 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">TV Sold</p>
+                      <p className="font-semibold">{production?.mtd?.tvSold || 0}</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-          <Card data-testid="stat-approval-rate">
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Approval Rate</p>
-                  <p className="text-3xl font-bold font-mono mt-2">{summary?.approvalRate || "0"}%</p>
-                  <span className="text-xs text-muted-foreground">
-                    {summary?.approvedOrders || 0} of {summary?.totalOrders || 0} approved
-                  </span>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card data-testid="stat-weekly-total">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Weekly Total</p>
+                    <p className="text-3xl font-bold font-mono mt-2">${production?.weekly?.totalEarned || "0.00"}</p>
+                    <span className="text-xs text-muted-foreground">
+                      All commissions
+                    </span>
+                  </div>
+                  <div className="p-2 rounded-md bg-primary/10">
+                    <DollarSign className="h-5 w-5 text-primary" />
+                  </div>
                 </div>
-                <div className="p-2 rounded-md bg-blue-500/10">
-                  <Percent className="h-5 w-5 text-blue-600" />
+              </CardContent>
+            </Card>
+
+            <Card data-testid="stat-mtd-total">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">MTD Total</p>
+                    <p className="text-3xl font-bold font-mono mt-2">${production?.mtd?.totalEarned || "0.00"}</p>
+                    <span className="text-xs text-muted-foreground">
+                      All commissions
+                    </span>
+                  </div>
+                  <div className="p-2 rounded-md bg-green-500/10">
+                    <DollarSign className="h-5 w-5 text-green-600" />
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+
+            <Card data-testid="stat-weekly-approved">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Weekly Approved</p>
+                    <p className="text-3xl font-bold font-mono mt-2">{production?.weekly?.approved || 0}</p>
+                    <span className="text-xs text-muted-foreground">
+                      of {production?.weekly?.totalSold || 0} orders
+                    </span>
+                  </div>
+                  <div className="p-2 rounded-md bg-blue-500/10">
+                    <CheckCircle className="h-5 w-5 text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card data-testid="stat-mtd-approved">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">MTD Approved</p>
+                    <p className="text-3xl font-bold font-mono mt-2">{production?.mtd?.approved || 0}</p>
+                    <span className="text-xs text-muted-foreground">
+                      of {production?.mtd?.totalSold || 0} orders
+                    </span>
+                  </div>
+                  <div className="p-2 rounded-md bg-green-500/10">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card data-testid="stat-pending-dollars">
-          <CardContent className="p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Pending Dollars</p>
-                <p className="text-3xl font-bold font-mono mt-2">${summary?.pendingDollars || "0.00"}</p>
-                <span className="text-xs text-muted-foreground">
-                  Commission from pending orders
-                </span>
-              </div>
-              <div className="p-2 rounded-md bg-orange-500/10">
-                <Clock className="h-5 w-5 text-orange-600" />
-              </div>
+      <Tabs defaultValue="detailed" className="space-y-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <TabsList className="flex-wrap">
+            <TabsTrigger value="detailed" data-testid="tab-detailed">Detailed Analytics</TabsTrigger>
+            <TabsTrigger value="trend" data-testid="tab-trend">Trend Analysis</TabsTrigger>
+            <TabsTrigger value="performance" data-testid="tab-performance">Rep Performance</TabsTrigger>
+            <TabsTrigger value="breakdown" data-testid="tab-breakdown">Sales Breakdown</TabsTrigger>
+            <TabsTrigger value="commission" data-testid="tab-commission">Commission Summary</TabsTrigger>
+            {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER" || summary?.scopeInfo?.role === "EXECUTIVE") && (
+              <TabsTrigger value="team-production" data-testid="tab-team-production">Team Production</TabsTrigger>
+            )}
+            {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
+              <TabsTrigger value="override-invoices" data-testid="tab-override-invoices">Override by Invoice</TabsTrigger>
+            )}
+          </TabsList>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Select value={period} onValueChange={setPeriod}>
+              <SelectTrigger className="w-[180px]" data-testid="select-period">
+                <Calendar className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent>
+                {PERIOD_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {period === "custom" && (
+              <>
+                <Input
+                  type="date"
+                  value={customStartDate}
+                  onChange={e => setCustomStartDate(e.target.value)}
+                  className="w-[150px]"
+                  data-testid="input-start-date"
+                />
+                <span className="text-muted-foreground">to</span>
+                <Input
+                  type="date"
+                  value={customEndDate}
+                  onChange={e => setCustomEndDate(e.target.value)}
+                  className="w-[150px]"
+                  data-testid="input-end-date"
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        <TabsContent value="detailed" className="space-y-4">
+          {summaryLoading ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {[1, 2, 3, 4].map(i => (
+                <Card key={i}>
+                  <CardContent className="p-6">
+                    <Skeleton className="h-4 w-24 mb-2" />
+                    <Skeleton className="h-8 w-32" />
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </CardContent>
-        </Card>
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <Card data-testid="stat-total-orders">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Orders</p>
+                        <p className="text-3xl font-bold font-mono mt-2">{summary?.totalOrders || 0}</p>
+                        <div className="flex items-center gap-1 mt-1">
+                          {getTrendIcon(summary?.comparison.ordersTrend || "0")}
+                          <span className={`text-xs ${getTrendColor(summary?.comparison.ordersTrend || "0")}`}>
+                            {summary?.comparison.ordersTrend}% vs prev
+                          </span>
+                        </div>
+                      </div>
+                      <div className="p-2 rounded-md bg-primary/10">
+                        <FileText className="h-5 w-5 text-primary" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
 
-        <Card data-testid="stat-connected-dollars">
-          <CardContent className="p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Connected Dollars</p>
-                <p className="text-3xl font-bold font-mono mt-2">${summary?.connectedDollars || "0.00"}</p>
-                <span className="text-xs text-muted-foreground">
-                  Commission from completed orders
-                </span>
+                <Card data-testid="stat-total-earned">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Earned</p>
+                        <p className="text-3xl font-bold font-mono mt-2">${summary?.totalEarned || "0.00"}</p>
+                        <div className="flex items-center gap-1 mt-1">
+                          {getTrendIcon(summary?.comparison.earnedTrend || "0")}
+                          <span className={`text-xs ${getTrendColor(summary?.comparison.earnedTrend || "0")}`}>
+                            {summary?.comparison.earnedTrend}% vs prev
+                          </span>
+                        </div>
+                      </div>
+                      <div className="p-2 rounded-md bg-green-500/10">
+                        <DollarSign className="h-5 w-5 text-green-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card data-testid="stat-outstanding">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Outstanding</p>
+                        <p className="text-3xl font-bold font-mono mt-2">${summary?.outstanding || "0.00"}</p>
+                        <span className="text-xs text-muted-foreground">
+                          Earned - Paid
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-md bg-yellow-500/10">
+                        <Clock className="h-5 w-5 text-yellow-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card data-testid="stat-approval-rate">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Approval Rate</p>
+                        <p className="text-3xl font-bold font-mono mt-2">{summary?.approvalRate || "0"}%</p>
+                        <span className="text-xs text-muted-foreground">
+                          {summary?.approvedOrders || 0} of {summary?.totalOrders || 0} approved
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-md bg-blue-500/10">
+                        <Percent className="h-5 w-5 text-blue-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-              <div className="p-2 rounded-md bg-green-500/10">
-                <CheckCircle className="h-5 w-5 text-green-600" />
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <Card data-testid="stat-pending-dollars-detail">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Pending Dollars</p>
+                        <p className="text-3xl font-bold font-mono mt-2">${summary?.pendingDollars || "0.00"}</p>
+                        <span className="text-xs text-muted-foreground">
+                          Commission from pending orders
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-md bg-orange-500/10">
+                        <Clock className="h-5 w-5 text-orange-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card data-testid="stat-connected-dollars-detail">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Connected Dollars</p>
+                        <p className="text-3xl font-bold font-mono mt-2">${summary?.connectedDollars || "0.00"}</p>
+                        <span className="text-xs text-muted-foreground">
+                          Commission from completed orders
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-md bg-green-500/10">
+                        <CheckCircle className="h-5 w-5 text-green-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatsCard
-          title="Avg Commission"
-          value={`$${summary?.avgCommission || "0.00"}`}
-          icon={DollarSign}
-          testId="stat-avg-commission"
-          isCurrency={false}
-        />
-        <StatsCard
-          title="Completed Orders"
-          value={summary?.completedOrders || 0}
-          icon={CheckCircle}
-          testId="stat-completed-orders"
-          isCurrency={false}
-        />
-        <StatsCard
-          title="Pending Approval"
-          value={summary?.pendingOrders || 0}
-          icon={Clock}
-          testId="stat-pending-orders"
-          isCurrency={false}
-        />
-        <StatsCard
-          title="Total Paid"
-          value={summary?.totalPaid || "0.00"}
-          icon={DollarSign}
-          testId="stat-total-paid"
-        />
-      </div>
-
-      <Tabs defaultValue="trend" className="space-y-4">
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="trend" data-testid="tab-trend">Trend Analysis</TabsTrigger>
-          <TabsTrigger value="performance" data-testid="tab-performance">Rep Performance</TabsTrigger>
-          <TabsTrigger value="breakdown" data-testid="tab-breakdown">Sales Breakdown</TabsTrigger>
-          <TabsTrigger value="commission" data-testid="tab-commission">Commission Summary</TabsTrigger>
-          {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER" || summary?.scopeInfo?.role === "EXECUTIVE") && (
-            <TabsTrigger value="team-production" data-testid="tab-team-production">Team Production</TabsTrigger>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <StatsCard
+                  title="Avg Commission"
+                  value={`$${summary?.avgCommission || "0.00"}`}
+                  icon={DollarSign}
+                  testId="stat-avg-commission"
+                  isCurrency={false}
+                />
+                <StatsCard
+                  title="Completed Orders"
+                  value={summary?.completedOrders || 0}
+                  icon={CheckCircle}
+                  testId="stat-completed-orders"
+                  isCurrency={false}
+                />
+                <StatsCard
+                  title="Pending Approval"
+                  value={summary?.pendingOrders || 0}
+                  icon={Clock}
+                  testId="stat-pending-orders"
+                  isCurrency={false}
+                />
+                <StatsCard
+                  title="Total Paid"
+                  value={summary?.totalPaid || "0.00"}
+                  icon={DollarSign}
+                  testId="stat-total-paid"
+                />
+              </div>
+            </>
           )}
-          {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
-            <TabsTrigger value="override-invoices" data-testid="tab-override-invoices">Override by Invoice</TabsTrigger>
-          )}
-        </TabsList>
+        </TabsContent>
 
         <TabsContent value="trend" className="space-y-4">
           <Card>
