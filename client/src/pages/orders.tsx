@@ -186,6 +186,21 @@ export default function Orders() {
     enabled: isAdmin,
   });
 
+  // Auto-detect mobile rates when provider/client/service change
+  const { data: mobileRateCheck } = useQuery<{ hasMobileRates: boolean; mobileProductTypes: string[] }>({
+    queryKey: ["/api/rate-cards/mobile-check", newOrderForm.providerId, newOrderForm.clientId, newOrderForm.serviceId],
+    queryFn: async () => {
+      if (!newOrderForm.providerId) return { hasMobileRates: false, mobileProductTypes: [] };
+      const params = new URLSearchParams({ providerId: newOrderForm.providerId });
+      if (newOrderForm.clientId) params.append("clientId", newOrderForm.clientId);
+      if (newOrderForm.serviceId) params.append("serviceId", newOrderForm.serviceId);
+      const res = await fetch(`/api/rate-cards/mobile-check?${params}`, { headers: getAuthHeaders() });
+      if (!res.ok) return { hasMobileRates: false, mobileProductTypes: [] };
+      return res.json();
+    },
+    enabled: showNewOrderDialog && !!newOrderForm.providerId,
+  });
+
   const createOrderMutation = useMutation({
     mutationFn: async (orderData: typeof newOrderForm) => {
       const res = await fetch("/api/orders", {
@@ -737,6 +752,9 @@ export default function Orders() {
                   data-testid="checkbox-has-mobile"
                 />
                 <Label htmlFor="hasMobile" className="cursor-pointer">Mobile</Label>
+                {mobileRateCheck?.hasMobileRates && !newOrderForm.hasMobile && (
+                  <span className="text-xs text-muted-foreground ml-2">(mobile rates available)</span>
+                )}
               </div>
             </div>
             {newOrderForm.hasMobile && (

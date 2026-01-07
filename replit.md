@@ -41,8 +41,18 @@ Key tables defined in `shared/schema.ts`:
 - Users, Providers, Clients, Services, RateCards
 - SalesOrders, Incentives, OverrideAgreements
 - Chargebacks, Adjustments, PayRuns
+- MobileLineItems (individual mobile lines per order with product type and ported status)
+- CommissionLineItems (per-service commission breakdown)
 - UnmatchedPayments, UnmatchedChargebacks, RateIssues (exception queues)
 - AuditLogs, ExportBatches, Counters
+
+### Mobile Line Tracking
+- Each mobile line sold is tracked individually in the `mobile_line_items` table
+- Each line has its own `mobileProductType` (UNLIMITED, 3_GIG, 1_GIG, BYOD, OTHER) and `mobilePortedStatus` (PORTED, NON_PORTED)
+- Commission calculation processes each line with specific rate card matching
+- Override agreements are matched per individual mobile line by product type
+- Legacy aggregate fields (mobileProductType, mobilePortedStatus, mobileLinesQty) maintained on orders for backward compatibility
+- Order form auto-detects when mobile rates are available based on rate card configuration
 
 ### API Design
 RESTful endpoints with JWT authentication middleware. All sensitive operations create audit log entries. Key endpoint patterns:

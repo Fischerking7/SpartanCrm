@@ -1627,6 +1627,39 @@ export async function registerRoutes(
   app.get("/api/admin/rate-cards", auth, adminOnly, async (req, res) => {
     try { res.json(await storage.getRateCards()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
+  
+  // Check if mobile rates exist for given provider/client/service combo (for order form auto-detect)
+  app.get("/api/rate-cards/mobile-check", auth, async (req, res) => {
+    try {
+      const { providerId, clientId, serviceId } = req.query;
+      if (!providerId) return res.status(400).json({ hasMobileRates: false });
+      
+      // Find any active rate cards with non-zero mobile per-line amounts
+      const allRateCards = await storage.getActiveRateCards();
+      const mobileRateCards = allRateCards.filter(rc => {
+        // Must match provider
+        if (rc.providerId !== providerId) return false;
+        // Client match (or no client specified on rate card = applies to all)
+        if (rc.clientId && clientId && rc.clientId !== clientId) return false;
+        // Service match (or no service specified on rate card = applies to all)
+        if (rc.serviceId && serviceId && rc.serviceId !== serviceId) return false;
+        // Must have mobile rate configured
+        const mobileAmount = parseFloat(rc.mobilePerLineAmount || "0");
+        return mobileAmount > 0 || rc.mobileProductType;
+      });
+      
+      // Get distinct mobile product types from matching rate cards
+      const mobileProductTypes = Array.from(new Set(mobileRateCards.filter(rc => rc.mobileProductType).map(rc => rc.mobileProductType))) as string[];
+      
+      res.json({ 
+        hasMobileRates: mobileRateCards.length > 0,
+        mobileProductTypes,
+        rateCardCount: mobileRateCards.length
+      });
+    } catch (error) { 
+      res.status(500).json({ hasMobileRates: false }); 
+    }
+  });
   app.post("/api/admin/rate-cards", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       let { customServiceName, serviceId, ...rateCardData } = req.body;
