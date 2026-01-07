@@ -618,7 +618,7 @@ export default function Orders() {
           >
             <Eye className="h-4 w-4" />
           </Button>
-          {isAdmin && row.approvalStatus === "PENDING" && (
+          {isAdmin && row.approvalStatus === "UNAPPROVED" && (
             <Button
               size="icon"
               variant="ghost"
@@ -855,46 +855,63 @@ export default function Orders() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  {commissionLines && commissionLines.length > 0 ? (
-                    <>
-                      {commissionLines.map((line, idx) => {
-                        const categoryLabels: Record<string, string> = {
-                          "INTERNET": "Internet",
-                          "MOBILE": "Mobile",
-                          "VIDEO": "Video (TV)"
-                        };
-                        const label = categoryLabels[line.serviceCategory] || line.serviceCategory;
-                        const detail = line.serviceCategory === "MOBILE" && line.quantity > 1 
-                          ? ` (${line.quantity} lines)` 
-                          : line.serviceCategory === "MOBILE" && line.mobileProductType
-                            ? ` (${line.mobileProductType.replace("_", " ")})`
-                            : "";
-                        return (
-                          <div key={idx} className="flex justify-between gap-2">
-                            <span>{label}{detail}</span>
-                            <span className="font-mono">${parseFloat(line.totalAmount).toFixed(2)}</span>
+                  {(() => {
+                    // Calculate gross from line items and derive deduction
+                    const grossFromLines = commissionLines?.reduce((sum, line) => sum + parseFloat(line.totalAmount), 0) || 0;
+                    const netCommission = parseFloat(selectedOrder.baseCommissionEarned);
+                    const overrideDeduction = grossFromLines > 0 ? grossFromLines - netCommission : 0;
+                    
+                    return (
+                      <>
+                        {commissionLines && commissionLines.length > 0 ? (
+                          <>
+                            {commissionLines.map((line, idx) => {
+                              const categoryLabels: Record<string, string> = {
+                                "INTERNET": "Internet",
+                                "MOBILE": "Mobile",
+                                "VIDEO": "Video (TV)"
+                              };
+                              const label = categoryLabels[line.serviceCategory] || line.serviceCategory;
+                              const detail = line.serviceCategory === "MOBILE" && line.quantity > 1 
+                                ? ` (${line.quantity} lines)` 
+                                : line.serviceCategory === "MOBILE" && line.mobileProductType
+                                  ? ` (${line.mobileProductType.replace("_", " ")})`
+                                  : "";
+                              return (
+                                <div key={idx} className="flex justify-between gap-2">
+                                  <span>{label}{detail}</span>
+                                  <span className="font-mono">${parseFloat(line.totalAmount).toFixed(2)}</span>
+                                </div>
+                              );
+                            })}
+                            {overrideDeduction > 0.01 && (
+                              <div className="flex justify-between gap-2 text-muted-foreground">
+                                <span>Override Deduction</span>
+                                <span className="font-mono">-${overrideDeduction.toFixed(2)}</span>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="flex justify-between gap-2">
+                            <span>Base Commission</span>
+                            <span className="font-mono">${parseFloat(selectedOrder.baseCommissionEarned).toFixed(2)}</span>
                           </div>
-                        );
-                      })}
-                    </>
-                  ) : (
-                    <div className="flex justify-between gap-2">
-                      <span>Base Commission</span>
-                      <span className="font-mono">${parseFloat(selectedOrder.baseCommissionEarned).toFixed(2)}</span>
-                    </div>
-                  )}
-                  {parseFloat(selectedOrder.incentiveEarned) > 0 && (
-                    <div className="flex justify-between gap-2">
-                      <span>Incentives</span>
-                      <span className="font-mono">${parseFloat(selectedOrder.incentiveEarned).toFixed(2)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between gap-2 border-t pt-2 font-semibold">
-                    <span>Total Earned</span>
-                    <span className="font-mono">
-                      ${(parseFloat(selectedOrder.baseCommissionEarned) + parseFloat(selectedOrder.incentiveEarned)).toFixed(2)}
-                    </span>
-                  </div>
+                        )}
+                        {parseFloat(selectedOrder.incentiveEarned) > 0 && (
+                          <div className="flex justify-between gap-2">
+                            <span>Incentives</span>
+                            <span className="font-mono">${parseFloat(selectedOrder.incentiveEarned).toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between gap-2 border-t pt-2 font-semibold">
+                          <span>Total Earned</span>
+                          <span className="font-mono">
+                            ${(parseFloat(selectedOrder.baseCommissionEarned) + parseFloat(selectedOrder.incentiveEarned)).toFixed(2)}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
