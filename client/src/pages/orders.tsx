@@ -274,25 +274,29 @@ export default function Orders() {
   };
 
   const updateJobStatusMutation = useMutation({
-    mutationFn: async ({ orderId, jobStatus }: { orderId: string; jobStatus: string }) => {
+    mutationFn: async ({ orderId, jobStatus, installDate }: { orderId: string; jobStatus?: string; installDate?: string }) => {
+      const body: Record<string, string> = {};
+      if (jobStatus) body.jobStatus = jobStatus;
+      if (installDate !== undefined) body.installDate = installDate;
+      
       const res = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ jobStatus }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || "Failed to update job status");
+        throw new Error(error.message || "Failed to update order");
       }
       return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setSelectedOrder(data);
-      toast({ title: "Job status updated" });
+      toast({ title: "Order updated" });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to update status", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to update order", description: error.message, variant: "destructive" });
     },
   });
 
@@ -584,16 +588,28 @@ export default function Orders() {
                   <p className="font-medium">{selectedOrder.customerName}</p>
                 </div>
                 <div>
+                  <Label className="text-muted-foreground">Email</Label>
+                  <p className="text-sm">{selectedOrder.customerEmail || "-"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Phone</Label>
+                  <p className="text-sm">{selectedOrder.customerPhone || "-"}</p>
+                </div>
+                <div>
                   <Label className="text-muted-foreground">Rep ID</Label>
                   <p className="font-mono">{selectedOrder.repId}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Account Number</Label>
-                  <p className="font-mono">{selectedOrder.accountNumber || "-"}</p>
+                  <Label className="text-muted-foreground">Provider</Label>
+                  <p className="font-medium">{providers?.find(p => p.id === selectedOrder.providerId)?.name || "-"}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Service</Label>
                   <p className="font-medium">{services?.find(s => s.id === selectedOrder.serviceId)?.name || "-"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Account Number</Label>
+                  <p className="font-mono">{selectedOrder.accountNumber || "-"}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Date Sold</Label>
@@ -601,7 +617,17 @@ export default function Orders() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Install Date</Label>
-                  <p>{selectedOrder.installDate ? new Date(selectedOrder.installDate).toLocaleDateString() : "-"}</p>
+                  <div className="mt-1">
+                    <Input
+                      type="date"
+                      value={selectedOrder.installDate || ""}
+                      onChange={(e) => {
+                        updateJobStatusMutation.mutate({ orderId: selectedOrder.id, jobStatus: selectedOrder.jobStatus, installDate: e.target.value });
+                      }}
+                      className="w-[160px]"
+                      data-testid="input-install-date"
+                    />
+                  </div>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Job Status</Label>
