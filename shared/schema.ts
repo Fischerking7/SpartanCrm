@@ -103,6 +103,7 @@ export const rateCards = pgTable("rate_cards", {
   baseAmount: decimal("base_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   tvAddonAmount: decimal("tv_addon_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   mobilePerLineAmount: decimal("mobile_per_line_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  overrideDeduction: decimal("override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
   effectiveStart: date("effective_start").notNull(),
   effectiveEnd: date("effective_end"),
   active: boolean("active").notNull().default(true),

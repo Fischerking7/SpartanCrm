@@ -49,6 +49,7 @@ export default function AdminRateCards() {
     baseAmount: "",
     tvAddonAmount: "",
     mobilePerLineAmount: "",
+    overrideDeduction: "",
     effectiveStart: "",
     effectiveEnd: "",
     active: true,
@@ -155,6 +156,7 @@ export default function AdminRateCards() {
       baseAmount: "",
       tvAddonAmount: "",
       mobilePerLineAmount: "",
+      overrideDeduction: "",
       effectiveStart: "",
       effectiveEnd: "",
       active: true,
@@ -175,6 +177,7 @@ export default function AdminRateCards() {
       baseAmount: r.baseAmount || "0",
       tvAddonAmount: r.tvAddonAmount || "0",
       mobilePerLineAmount: r.mobilePerLineAmount || "0",
+      overrideDeduction: r.overrideDeduction || "0",
       effectiveStart: r.effectiveStart,
       effectiveEnd: r.effectiveEnd || "",
       active: r.active,
@@ -259,6 +262,12 @@ export default function AdminRateCards() {
       className: "text-right",
     },
     {
+      key: "overrideDeduction",
+      header: "Override",
+      cell: (r: RateCard) => <span className="font-mono text-orange-600">${parseFloat(r.overrideDeduction || "0").toFixed(2)}</span>,
+      className: "text-right",
+    },
+    {
       key: "active",
       header: "Status",
       cell: (r: RateCard) => <Badge variant={r.active ? "default" : "secondary"}>{r.active ? "Active" : "Inactive"}</Badge>,
@@ -288,6 +297,7 @@ export default function AdminRateCards() {
       baseAmount: formData.baseAmount || "0",
       tvAddonAmount: formData.tvAddonAmount || "0",
       mobilePerLineAmount: formData.mobilePerLineAmount || "0",
+      overrideDeduction: formData.overrideDeduction || "0",
       effectiveStart: formData.effectiveStart,
       effectiveEnd: formData.effectiveEnd || null,
       active: formData.active,
@@ -458,7 +468,7 @@ export default function AdminRateCards() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label>Base Amount ($)</Label>
                 <Input
@@ -494,6 +504,18 @@ export default function AdminRateCards() {
                   data-testid="input-mobile-per-line"
                 />
                 <p className="text-xs text-muted-foreground">Per mobile line sold</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Override Deduction ($)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={formData.overrideDeduction}
+                  onChange={(e) => setFormData({ ...formData, overrideDeduction: e.target.value })}
+                  data-testid="input-override-deduction"
+                />
+                <p className="text-xs text-muted-foreground">Deducted for supervisors</p>
               </div>
             </div>
 
