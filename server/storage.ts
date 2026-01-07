@@ -683,6 +683,20 @@ export const storage = {
   async getPayRuns() {
     return db.query.payRuns.findMany({ orderBy: [desc(payRuns.createdAt)] });
   },
+  async getPayRunById(id: string) {
+    return db.query.payRuns.findFirst({ where: eq(payRuns.id, id) });
+  },
+  async getOrdersByPayRunId(payRunId: string) {
+    return db.query.salesOrders.findMany({
+      where: eq(salesOrders.payRunId, payRunId),
+      orderBy: [desc(salesOrders.createdAt)],
+      with: {
+        client: true,
+        provider: true,
+        service: true,
+      },
+    });
+  },
   async createPayRun(data: InsertPayRun) {
     const [payRun] = await db.insert(payRuns).values(data).returning();
     return payRun;
@@ -690,6 +704,14 @@ export const storage = {
   async updatePayRun(id: string, data: Partial<PayRun>) {
     const [payRun] = await db.update(payRuns).set(data).where(eq(payRuns.id, id)).returning();
     return payRun;
+  },
+  async linkOrdersToPayRun(orderIds: string[], payRunId: string) {
+    const results = [];
+    for (const orderId of orderIds) {
+      const [order] = await db.update(salesOrders).set({ payRunId }).where(eq(salesOrders.id, orderId)).returning();
+      results.push(order);
+    }
+    return results;
   },
 
   // Exception Queues

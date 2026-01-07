@@ -1849,6 +1849,70 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
+  app.get("/api/admin/payruns/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      
+      const orders = await storage.getOrdersByPayRunId(req.params.id);
+      
+      // Calculate totals
+      let totalCommission = 0;
+      const repTotals: Record<string, { name: string; total: number; count: number }> = {};
+      
+      for (const order of orders) {
+        const commission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
+        totalCommission += commission;
+        
+        if (!repTotals[order.repId]) {
+          repTotals[order.repId] = { name: order.repId, total: 0, count: 0 };
+        }
+        repTotals[order.repId].total += commission;
+        repTotals[order.repId].count++;
+      }
+      
+      res.json({
+        ...payRun,
+        orders,
+        stats: {
+          totalOrders: orders.length,
+          totalCommission: totalCommission.toFixed(2),
+          repBreakdown: Object.values(repTotals).sort((a, b) => b.total - a.total),
+        },
+      });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  app.post("/api/admin/payruns/:id/link-orders", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { orderIds } = req.body;
+      if (!orderIds?.length) return res.status(400).json({ message: "No orders to link" });
+      
+      const orders = await storage.linkOrdersToPayRun(orderIds, req.params.id);
+      await storage.createAuditLog({ 
+        action: "link_orders_to_payrun", 
+        tableName: "pay_runs", 
+        recordId: req.params.id, 
+        afterJson: JSON.stringify({ orderIds }), 
+        userId: req.user!.id 
+      });
+      res.json({ linked: orders.length });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  // Get approved orders not yet linked to a pay run
+  app.get("/api/admin/payruns/unlinked-orders", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const orders = await storage.getOrders();
+      const unlinked = orders.filter(o => 
+        o.approvalStatus === "APPROVED" && 
+        o.paymentStatus === "UNPAID" && 
+        !o.payRunId
+      );
+      res.json(unlinked);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
   // Adjustments
   app.get("/api/adjustments", auth, async (req: AuthRequest, res) => {
     try {
