@@ -296,6 +296,29 @@ export default function Orders() {
     },
   });
 
+  const recalculateCommissionMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await fetch(`/api/orders/${orderId}/recalculate-commission`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to recalculate commission");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", data.id, "commission-lines"] });
+      setSelectedOrder(data);
+      toast({ title: "Commission recalculated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to recalculate commission", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleCreateOrder = () => {
     if (!newOrderForm.customerName || !newOrderForm.dateSold) {
       toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
@@ -590,8 +613,21 @@ export default function Orders() {
                 </div>
               </div>
               <div className="border-t pt-4">
-                <Label className="text-muted-foreground">Commission Breakdown</Label>
-                <div className="mt-2 space-y-2">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <Label className="text-muted-foreground">Commission Breakdown</Label>
+                  {isAdmin && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => recalculateCommissionMutation.mutate(selectedOrder.id)}
+                      disabled={recalculateCommissionMutation.isPending}
+                      data-testid="button-recalculate-commission"
+                    >
+                      {recalculateCommissionMutation.isPending ? "Recalculating..." : "Recalculate"}
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-2">
                   {commissionLines && commissionLines.length > 0 ? (
                     <>
                       {commissionLines.map((line, idx) => {

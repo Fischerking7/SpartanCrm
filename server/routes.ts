@@ -961,6 +961,50 @@ export async function registerRoutes(
     }
   });
   
+  // Recalculate commission for an existing order (useful for orders created before fixes)
+  app.post("/api/orders/:id/recalculate-commission", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user!;
+      
+      const order = await storage.getOrderById(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      
+      // Only admins can recalculate commissions
+      if (!["ADMIN", "FOUNDER"].includes(user.role)) {
+        return res.status(403).json({ message: "Only admins can recalculate commissions" });
+      }
+      
+      // Delete existing commission line items
+      await storage.deleteCommissionLineItemsByOrderId(id);
+      
+      // Find matching rate card and recalculate
+      const rateCard = await storage.findMatchingRateCard(order, order.dateSold);
+      let baseCommission = "0";
+      let appliedRateCardId: string | null = null;
+      
+      if (rateCard) {
+        const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
+        await storage.createCommissionLineItems(order.id, lineItems);
+        baseCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0).toFixed(2);
+        appliedRateCardId = rateCard.id;
+      }
+      
+      // Update order with recalculated commission
+      const updatedOrder = await storage.updateOrder(order.id, {
+        baseCommissionEarned: baseCommission,
+        appliedRateCardId,
+        calcAt: new Date(),
+      });
+      
+      await storage.createAuditLog({ action: "recalculate_commission", tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(updatedOrder), userId: user.id });
+      
+      res.json(updatedOrder);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to recalculate commission" });
+    }
+  });
+  
   // Strict whitelist-based order mutation
   app.patch("/api/orders/:id", auth, async (req: AuthRequest, res) => {
     try {
