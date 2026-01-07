@@ -78,116 +78,45 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   
   const earnings: OverrideEarning[] = [];
   
-  // Fetch mobile line items for per-line override calculation
-  const mobileLines = await storage.getMobileLineItemsByOrderId(approvedOrder.id);
-  
-  // Base order filter (without mobile product type - we'll handle mobile per-line)
-  const baseOrderFilter = { 
+  // Simplified: order filter for matching agreements
+  const orderFilter = { 
     providerId: approvedOrder.providerId, 
     clientId: approvedOrder.clientId, 
     serviceId: approvedOrder.serviceId,
-    tvSold: approvedOrder.tvSold
   };
   
-  // Helper: Calculate override amount for non-mobile or legacy mobile orders
-  const calculateOverrideAmount = (agreement: { amountFlat: string; mobileProductType: string | null }): string => {
-    // For non-mobile agreements or when no mobile line items exist, use the base amount
-    // If using legacy aggregate fields, multiply by mobileLinesQty
-    if (agreement.mobileProductType && agreement.mobileProductType !== "NO_MOBILE" && mobileLines.length === 0 && approvedOrder.mobileLinesQty > 0) {
-      return (parseFloat(agreement.amountFlat) * approvedOrder.mobileLinesQty).toFixed(2);
-    }
-    return agreement.amountFlat;
-  };
-  
-  // Helper: Process agreements for a recipient and source level
-  const processAgreements = async (
-    recipientUserId: string, 
-    sourceLevel: "REP" | "SUPERVISOR" | "MANAGER",
-    filter: typeof baseOrderFilter & { mobileProductType?: string | null }
-  ) => {
-    const agreements = await storage.getActiveOverrideAgreements(recipientUserId, sourceLevel, approvedOrder.dateSold, filter);
+  // Helper: Process agreements for a recipient based on hierarchy
+  const processAgreements = async (recipientUserId: string, recipientRole: string) => {
+    const agreements = await storage.getActiveOverrideAgreements(recipientUserId, approvedOrder.dateSold, orderFilter);
     for (const agreement of agreements) {
-      // For mobile-specific agreements with mobile line items, process per-line
-      if (agreement.mobileProductType && agreement.mobileProductType !== "NO_MOBILE" && mobileLines.length > 0) {
-        // Count matching mobile lines for this specific product type
-        const matchingLines = mobileLines.filter(line => line.mobileProductType === agreement.mobileProductType);
-        if (matchingLines.length > 0) {
-          const totalAmount = (parseFloat(agreement.amountFlat) * matchingLines.length).toFixed(2);
-          const earning = await storage.createOverrideEarning({
-            salesOrderId: approvedOrder.id,
-            recipientUserId,
-            sourceRepId: approvedOrder.repId,
-            sourceLevelUsed: sourceLevel,
-            amount: totalAmount,
-            overrideAgreementId: agreement.id,
-          });
-          earnings.push(earning);
-        }
-      } else {
-        // Non-mobile agreement or legacy order
-        const earning = await storage.createOverrideEarning({
-          salesOrderId: approvedOrder.id,
-          recipientUserId,
-          sourceRepId: approvedOrder.repId,
-          sourceLevelUsed: sourceLevel,
-          amount: calculateOverrideAmount(agreement),
-          overrideAgreementId: agreement.id,
-        });
-        earnings.push(earning);
-      }
+      const earning = await storage.createOverrideEarning({
+        salesOrderId: approvedOrder.id,
+        recipientUserId,
+        sourceRepId: approvedOrder.repId,
+        sourceLevelUsed: recipientRole as any,
+        amount: agreement.amountFlat,
+        overrideAgreementId: agreement.id,
+      });
+      earnings.push(earning);
     }
   };
   
-  // Get hierarchy for the rep
+  // Get hierarchy for the rep who made the sale
   const hierarchy = await storage.getRepHierarchy(approvedOrder.repId);
   
-  // Build filter for agreements - include each mobile product type from the order
-  const mobileProductTypes = mobileLines.length > 0 
-    ? Array.from(new Set(mobileLines.map(l => l.mobileProductType))) 
-    : (approvedOrder.mobileProductType ? [approvedOrder.mobileProductType] : []);
-  
-  // Get all admins - they get overrides on every approved order globally
-  const admins = await storage.getUsersByRole("ADMIN");
-  for (const admin of admins) {
-    // Process non-mobile agreements
-    await processAgreements(admin.id, "REP", { ...baseOrderFilter, mobileProductType: null });
-    // Process mobile agreements for each product type
-    for (const mobileType of mobileProductTypes) {
-      await processAgreements(admin.id, "REP", { ...baseOrderFilter, mobileProductType: mobileType });
-    }
-  }
-
-  // Executive overrides (MANAGER, SUPERVISOR, REP levels)
-  if (hierarchy.executive) {
-    for (const sourceLevel of ["REP", "SUPERVISOR", "MANAGER"] as const) {
-      await processAgreements(hierarchy.executive.id, sourceLevel, { ...baseOrderFilter, mobileProductType: null });
-      for (const mobileType of mobileProductTypes) {
-        await processAgreements(hierarchy.executive.id, sourceLevel, { ...baseOrderFilter, mobileProductType: mobileType });
-      }
-    }
-  }
-
-  // Manager overrides (REP level always, SUPERVISOR level only if supervisor exists)
-  if (hierarchy.manager) {
-    await processAgreements(hierarchy.manager.id, "REP", { ...baseOrderFilter, mobileProductType: null });
-    for (const mobileType of mobileProductTypes) {
-      await processAgreements(hierarchy.manager.id, "REP", { ...baseOrderFilter, mobileProductType: mobileType });
-    }
-    
-    if (hierarchy.supervisor) {
-      await processAgreements(hierarchy.manager.id, "SUPERVISOR", { ...baseOrderFilter, mobileProductType: null });
-      for (const mobileType of mobileProductTypes) {
-        await processAgreements(hierarchy.manager.id, "SUPERVISOR", { ...baseOrderFilter, mobileProductType: mobileType });
-      }
-    }
-  }
-
-  // Supervisor overrides (REP level only)
+  // Supervisor gets override on their assigned reps' sales
   if (hierarchy.supervisor) {
-    await processAgreements(hierarchy.supervisor.id, "REP", { ...baseOrderFilter, mobileProductType: null });
-    for (const mobileType of mobileProductTypes) {
-      await processAgreements(hierarchy.supervisor.id, "REP", { ...baseOrderFilter, mobileProductType: mobileType });
-    }
+    await processAgreements(hierarchy.supervisor.id, "SUPERVISOR");
+  }
+  
+  // Manager gets override on their supervised reps and supervisors' sales
+  if (hierarchy.manager) {
+    await processAgreements(hierarchy.manager.id, "MANAGER");
+  }
+  
+  // Executive gets override on everyone in their division
+  if (hierarchy.executive) {
+    await processAgreements(hierarchy.executive.id, "EXECUTIVE");
   }
 
   return earnings;

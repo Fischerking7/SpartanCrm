@@ -825,11 +825,11 @@ export const storage = {
     const [agreement] = await db.update(overrideAgreements).set({ ...data, updatedAt: new Date() }).where(eq(overrideAgreements.id, id)).returning();
     return agreement;
   },
-  async getActiveOverrideAgreements(recipientUserId: string, sourceLevel: string, date: string, filter?: { providerId?: string; clientId?: string; serviceId?: string; mobileProductType?: string | null; tvSold?: boolean }) {
+  async getActiveOverrideAgreements(recipientUserId: string, date: string, filter?: { providerId?: string; clientId?: string; serviceId?: string }) {
+    // Simplified: get all active agreements for this recipient on the given date
     const agreements = await db.query.overrideAgreements.findMany({
       where: and(
         eq(overrideAgreements.recipientUserId, recipientUserId),
-        eq(overrideAgreements.sourceLevel, sourceLevel as any),
         eq(overrideAgreements.active, true),
         lte(overrideAgreements.effectiveStart, date),
         or(isNull(overrideAgreements.effectiveEnd), gte(overrideAgreements.effectiveEnd, date))
@@ -840,20 +840,6 @@ export const storage = {
       if (a.providerId && a.providerId !== filter?.providerId) return false;
       if (a.clientId && a.clientId !== filter?.clientId) return false;
       if (a.serviceId && a.serviceId !== filter?.serviceId) return false;
-      // Mobile product type matching:
-      // - "NO_MOBILE" matches orders without mobile products (mobileProductType is null/undefined)
-      // - Specific types (UNLIMITED, 3_GIG, etc.) match orders with that exact type
-      if (a.mobileProductType) {
-        if (a.mobileProductType === "NO_MOBILE") {
-          // Only match orders that have NO mobile product
-          if (filter?.mobileProductType) return false;
-        } else {
-          // Match orders with specific mobile product type
-          if (a.mobileProductType !== filter?.mobileProductType) return false;
-        }
-      }
-      // If override specifies TV sold filter, order must match
-      if (a.tvSoldFilter !== null && a.tvSoldFilter !== undefined && a.tvSoldFilter !== filter?.tvSold) return false;
       return true;
     });
   },

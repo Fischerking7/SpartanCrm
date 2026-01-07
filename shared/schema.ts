@@ -212,18 +212,15 @@ export const incentives = pgTable("incentives", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// Override Agreements table - Flat rate overrides for hierarchy
+// Override Agreements table - Simplified: recipient gets flat rate on sales from their hierarchy
+// No need to specify source user - system uses role hierarchy (assigned supervisor/manager/executive)
 export const overrideAgreements = pgTable("override_agreements", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  sourceUserId: varchar("source_user_id").references(() => users.id),
   recipientUserId: varchar("recipient_user_id").notNull().references(() => users.id),
-  sourceLevel: sourceLevelEnum("source_level").notNull(),
   amountFlat: decimal("amount_flat", { precision: 10, scale: 2 }).notNull(),
   providerId: varchar("provider_id").references(() => providers.id),
   clientId: varchar("client_id").references(() => clients.id),
   serviceId: varchar("service_id").references(() => services.id),
-  mobileProductType: varchar("mobile_product_type"),
-  tvSoldFilter: boolean("tv_sold_filter"),
   effectiveStart: date("effective_start").notNull(),
   effectiveEnd: date("effective_end"),
   active: boolean("active").notNull().default(true),
@@ -233,7 +230,6 @@ export const overrideAgreements = pgTable("override_agreements", {
 });
 
 export const overrideAgreementsRelations = relations(overrideAgreements, ({ one }) => ({
-  sourceUser: one(users, { fields: [overrideAgreements.sourceUserId], references: [users.id], relationName: "sourceUser" }),
   recipient: one(users, { fields: [overrideAgreements.recipientUserId], references: [users.id], relationName: "recipient" }),
   provider: one(providers, { fields: [overrideAgreements.providerId], references: [providers.id] }),
   client: one(clients, { fields: [overrideAgreements.clientId], references: [clients.id] }),
