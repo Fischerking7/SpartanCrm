@@ -15,7 +15,7 @@ import { Search, Users, Plus, Trash2, ChevronRight, DollarSign, ChevronLeft, Che
 import type { OverrideAgreement, User, Provider, Client, Service } from "@shared/schema";
 
 const MOBILE_PRODUCT_TYPES = [
-  { value: "", label: "Any/None" },
+  { value: "_any", label: "Any/None" },
   { value: "NO_MOBILE", label: "No Mobile (exclude mobile)" },
   { value: "UNLIMITED", label: "Unlimited" },
   { value: "3_GIG", label: "3 Gig" },
@@ -25,7 +25,7 @@ const MOBILE_PRODUCT_TYPES = [
 ];
 
 const TV_SOLD_OPTIONS = [
-  { value: "", label: "Any" },
+  { value: "_any", label: "Any" },
   { value: "true", label: "TV Sold" },
   { value: "false", label: "No TV" },
 ];
@@ -139,11 +139,11 @@ export default function AdminOverrides() {
       setEditingOverride(existingOverride);
       setWizardData({
         recipientUserId: existingOverride.recipientUserId,
-        providerId: existingOverride.providerId || "",
-        clientId: existingOverride.clientId || "",
-        serviceId: existingOverride.serviceId || "",
-        mobileProductType: existingOverride.mobileProductType || "",
-        tvSoldFilter: existingOverride.tvSoldFilter === null ? "" : existingOverride.tvSoldFilter ? "true" : "false",
+        providerId: existingOverride.providerId || "_any",
+        clientId: existingOverride.clientId || "_any",
+        serviceId: existingOverride.serviceId || "_any",
+        mobileProductType: existingOverride.mobileProductType || "_any",
+        tvSoldFilter: existingOverride.tvSoldFilter === null ? "_any" : existingOverride.tvSoldFilter ? "true" : "false",
         amountFlat: existingOverride.amountFlat,
         effectiveStart: existingOverride.effectiveStart,
         effectiveEnd: existingOverride.effectiveEnd || "",
@@ -154,11 +154,11 @@ export default function AdminOverrides() {
       setEditingOverride(null);
       setWizardData({
         recipientUserId: selectedRecipient.id,
-        providerId: "",
-        clientId: "",
-        serviceId: "",
-        mobileProductType: "",
-        tvSoldFilter: "",
+        providerId: "_any",
+        clientId: "_any",
+        serviceId: "_any",
+        mobileProductType: "_any",
+        tvSoldFilter: "_any",
         amountFlat: "",
         effectiveStart: new Date().toISOString().split("T")[0],
         effectiveEnd: "",
@@ -189,11 +189,11 @@ export default function AdminOverrides() {
       const data = {
         recipientUserId: wizardData.recipientUserId,
         amountFlat: wizardData.amountFlat,
-        providerId: wizardData.providerId || null,
-        clientId: wizardData.clientId || null,
-        serviceId: wizardData.serviceId || null,
-        mobileProductType: wizardData.mobileProductType || null,
-        tvSoldFilter: wizardData.tvSoldFilter === "" ? null : wizardData.tvSoldFilter === "true",
+        providerId: wizardData.providerId === "_any" ? null : wizardData.providerId,
+        clientId: wizardData.clientId === "_any" ? null : wizardData.clientId,
+        serviceId: wizardData.serviceId === "_any" ? null : wizardData.serviceId,
+        mobileProductType: wizardData.mobileProductType === "_any" ? null : wizardData.mobileProductType,
+        tvSoldFilter: wizardData.tvSoldFilter === "_any" ? null : wizardData.tvSoldFilter === "true",
         effectiveStart: wizardData.effectiveStart,
         effectiveEnd: wizardData.effectiveEnd || null,
         active: wizardData.active,
@@ -454,7 +454,7 @@ export default function AdminOverrides() {
                     <SelectValue placeholder="Any provider" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Any provider</SelectItem>
+                    <SelectItem value="_any">Any provider</SelectItem>
                     {providers?.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                     ))}
@@ -469,7 +469,7 @@ export default function AdminOverrides() {
                     <SelectValue placeholder="Any client" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Any client</SelectItem>
+                    <SelectItem value="_any">Any client</SelectItem>
                     {clients?.map((c) => (
                       <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                     ))}
@@ -485,7 +485,7 @@ export default function AdminOverrides() {
                   <SelectValue placeholder="Any service" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Any service</SelectItem>
+                  <SelectItem value="_any">Any service</SelectItem>
                   {services?.map((s) => (
                     <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                   ))}
