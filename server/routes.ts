@@ -2401,6 +2401,43 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/leads/:id/disposition", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { disposition } = req.body;
+      
+      const validDispositions = ["NONE", "SOLD", "NOT_HOME", "RETURN", "REJECT"];
+      if (!disposition || !validDispositions.includes(disposition)) {
+        return res.status(400).json({ message: "Invalid disposition" });
+      }
+      
+      // Verify the lead belongs to this user
+      const lead = await storage.getLeadById(id);
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      if (lead.repId !== req.user!.repId) {
+        return res.status(403).json({ message: "Not authorized to update this lead" });
+      }
+      
+      const updated = await storage.updateLeadDisposition(id, disposition);
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "lead_disposition_update",
+        tableName: "leads",
+        recordId: id,
+        beforeJson: JSON.stringify({ disposition: lead.disposition }),
+        afterJson: JSON.stringify({ disposition }),
+      });
+      
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update lead disposition" });
+    }
+  });
+
   // Import leads from Excel (REP and above can import)
   app.post("/api/leads/import", auth, upload.single("file"), async (req: AuthRequest, res) => {
     try {

@@ -78,6 +78,31 @@ export default function Leads() {
     },
   });
 
+  const updateDispositionMutation = useMutation({
+    mutationFn: async ({ id, disposition }: { id: string; disposition: string }) => {
+      const res = await fetch(`/api/leads/${id}/disposition`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ disposition }),
+      });
+      if (!res.ok) throw new Error("Failed to update disposition");
+      return res.json();
+    },
+    onSuccess: (_, { disposition }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      const messages: Record<string, string> = {
+        SOLD: "Lead marked as sold and removed from your list",
+        NOT_HOME: "Lead marked as not home",
+        RETURN: "Lead marked for return visit",
+        REJECT: "Lead rejected and removed from your list",
+      };
+      toast({ title: messages[disposition] || "Disposition updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update disposition", variant: "destructive" });
+    },
+  });
+
   const handleSaveNotes = (leadId: string) => {
     updateNotesMutation.mutate({ id: leadId, notes: notesValue });
   };
@@ -386,15 +411,56 @@ export default function Leads() {
                         {lead.notes || <span className="text-muted-foreground italic">Click to add notes...</span>}
                       </div>
                     )}
-                    <Button
-                      size="sm"
-                      className="mt-2"
-                      onClick={() => createOrderFromLead(lead)}
-                      data-testid={`button-create-order-${lead.id}`}
-                    >
-                      <ShoppingCart className="h-4 w-4 mr-2" />
-                      Create Order
-                    </Button>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <Button
+                        size="sm"
+                        onClick={() => createOrderFromLead(lead)}
+                        data-testid={`button-create-order-${lead.id}`}
+                      >
+                        <ShoppingCart className="h-4 w-4 mr-2" />
+                        Create Order
+                      </Button>
+                    </div>
+                    
+                    <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t">
+                      <span className="text-xs text-muted-foreground self-center mr-1">Disposition:</span>
+                      <Button
+                        size="sm"
+                        variant={lead.disposition === "SOLD" ? "default" : "outline"}
+                        onClick={() => updateDispositionMutation.mutate({ id: lead.id, disposition: "SOLD" })}
+                        disabled={updateDispositionMutation.isPending}
+                        data-testid={`button-disposition-sold-${lead.id}`}
+                      >
+                        Sold
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={lead.disposition === "NOT_HOME" ? "default" : "outline"}
+                        onClick={() => updateDispositionMutation.mutate({ id: lead.id, disposition: "NOT_HOME" })}
+                        disabled={updateDispositionMutation.isPending}
+                        data-testid={`button-disposition-not-home-${lead.id}`}
+                      >
+                        Not Home
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={lead.disposition === "RETURN" ? "default" : "outline"}
+                        onClick={() => updateDispositionMutation.mutate({ id: lead.id, disposition: "RETURN" })}
+                        disabled={updateDispositionMutation.isPending}
+                        data-testid={`button-disposition-return-${lead.id}`}
+                      >
+                        Return
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={lead.disposition === "REJECT" ? "destructive" : "outline"}
+                        onClick={() => updateDispositionMutation.mutate({ id: lead.id, disposition: "REJECT" })}
+                        disabled={updateDispositionMutation.isPending}
+                        data-testid={`button-disposition-reject-${lead.id}`}
+                      >
+                        Reject
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardContent>

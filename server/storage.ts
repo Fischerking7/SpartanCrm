@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, sql, lte, gte, or, isNull, ilike, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, lte, gte, or, isNull, ilike, inArray, notInArray } from "drizzle-orm";
 import {
   users, providers, clients, services, rateCards, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
@@ -1612,8 +1612,13 @@ export const storage = {
   },
 
   // Leads
-  async getLeadsByRepId(repId: string, filters?: { zipCode?: string; street?: string; city?: string; dateFrom?: string; dateTo?: string; houseNumber?: string; streetName?: string }) {
+  async getLeadsByRepId(repId: string, filters?: { zipCode?: string; street?: string; city?: string; dateFrom?: string; dateTo?: string; houseNumber?: string; streetName?: string; includeDisposed?: boolean }) {
     const conditions = [eq(leads.repId, repId)];
+    
+    // By default, exclude SOLD and REJECT dispositions (they're "removed" from rep's view)
+    if (!filters?.includeDisposed) {
+      conditions.push(notInArray(leads.disposition, ["SOLD", "REJECT"]));
+    }
     
     if (filters?.zipCode) {
       conditions.push(ilike(leads.zipCode, `%${filters.zipCode}%`));
@@ -1661,6 +1666,37 @@ export const storage = {
   async updateLeadNotes(id: string, notes: string) {
     const [lead] = await db.update(leads).set({ notes, updatedAt: new Date() }).where(eq(leads.id, id)).returning();
     return lead;
+  },
+  
+  async updateLeadDisposition(id: string, disposition: string) {
+    const [lead] = await db.update(leads).set({ 
+      disposition, 
+      dispositionAt: new Date(),
+      updatedAt: new Date() 
+    }).where(eq(leads.id, id)).returning();
+    return lead;
+  },
+  
+  async getAllLeadsForReporting(filters?: { repId?: string; disposition?: string; dateFrom?: string; dateTo?: string }) {
+    const conditions = [];
+    
+    if (filters?.repId) {
+      conditions.push(eq(leads.repId, filters.repId));
+    }
+    if (filters?.disposition) {
+      conditions.push(eq(leads.disposition, filters.disposition));
+    }
+    if (filters?.dateFrom) {
+      conditions.push(gte(leads.dispositionAt, new Date(filters.dateFrom)));
+    }
+    if (filters?.dateTo) {
+      conditions.push(lte(leads.dispositionAt, new Date(filters.dateTo + 'T23:59:59')));
+    }
+    
+    return db.query.leads.findMany({
+      where: conditions.length > 0 ? and(...conditions) : undefined,
+      orderBy: [desc(leads.updatedAt)]
+    });
   },
   
   async deleteLead(id: string) {

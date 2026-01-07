@@ -447,6 +447,10 @@ export type Counter = typeof counters.$inferSelect;
 export type CommissionLineItem = typeof commissionLineItems.$inferSelect;
 export type InsertCommissionLineItem = z.infer<typeof insertCommissionLineItemSchema>;
 
+// Lead dispositions
+export const leadDispositions = ["NONE", "SOLD", "NOT_HOME", "RETURN", "REJECT"] as const;
+export type LeadDisposition = typeof leadDispositions[number];
+
 // Leads table - for imported lead data
 export const leads = pgTable("leads", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -462,6 +466,8 @@ export const leads = pgTable("leads", {
   state: text("state"),
   zipCode: text("zip_code"),
   notes: text("notes"),
+  disposition: text("disposition").notNull().default("NONE"),
+  dispositionAt: timestamp("disposition_at"),
   importedAt: timestamp("imported_at").defaultNow().notNull(),
   importedBy: varchar("imported_by").references(() => users.id),
   status: text("status").notNull().default("NEW"),
