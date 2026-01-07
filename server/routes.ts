@@ -3103,6 +3103,93 @@ export async function registerRoutes(
     return { start, end };
   }
 
+  // Production metrics - weekly and MTD pending/connected dollars
+  app.get("/api/reports/production", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const now = new Date();
+      
+      const allOrders = await storage.getOrders({});
+      const { filteredOrders: orders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user);
+      
+      // Calculate week start (Monday)
+      const dayOfWeek = now.getDay();
+      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset);
+      const weekEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); // Today end
+      
+      // Calculate MTD (calendar month-to-date)
+      const mtdStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const mtdEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      
+      // Weekly orders
+      const weeklyOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= weekStart && orderDate < weekEnd;
+      });
+      
+      // MTD orders
+      const mtdOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= mtdStart && orderDate < mtdEnd;
+      });
+      
+      // Calculate metrics
+      const calcMetrics = (orderSet: SalesOrder[]) => {
+        const totalSold = orderSet.length;
+        const pendingOrders = orderSet.filter(o => o.jobStatus === "PENDING");
+        const connectedOrders = orderSet.filter(o => o.jobStatus === "COMPLETED");
+        const approvedOrders = orderSet.filter(o => o.approvalStatus === "APPROVED");
+        
+        const pendingDollars = pendingOrders.reduce((sum, o) => 
+          sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        const connectedDollars = connectedOrders.reduce((sum, o) => 
+          sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        const totalEarned = approvedOrders.reduce((sum, o) => 
+          sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        
+        const mobileLines = orderSet.reduce((sum, o) => sum + (o.mobileLinesQty || 0), 0);
+        const tvSold = orderSet.filter(o => o.tvSold).length;
+        
+        return {
+          totalSold,
+          pending: pendingOrders.length,
+          connected: connectedOrders.length,
+          approved: approvedOrders.length,
+          pendingDollars: pendingDollars.toFixed(2),
+          connectedDollars: connectedDollars.toFixed(2),
+          totalEarned: totalEarned.toFixed(2),
+          mobileLines,
+          tvSold,
+        };
+      };
+      
+      const weekly = calcMetrics(weeklyOrders);
+      const mtd = calcMetrics(mtdOrders);
+      
+      res.json({
+        scopeInfo,
+        periods: {
+          weekly: {
+            start: weekStart.toISOString().split("T")[0],
+            end: weekEnd.toISOString().split("T")[0],
+            label: "This Week",
+          },
+          mtd: {
+            start: mtdStart.toISOString().split("T")[0],
+            end: mtdEnd.toISOString().split("T")[0],
+            label: `MTD (${now.toLocaleString("default", { month: "short" })})`,
+          },
+        },
+        weekly,
+        mtd,
+      });
+    } catch (error) {
+      console.error("Production metrics error:", error);
+      res.status(500).json({ message: "Failed to get production metrics" });
+    }
+  });
+
   // Reports Summary - KPIs
   app.get("/api/reports/summary", auth, async (req: AuthRequest, res) => {
     try {
