@@ -325,10 +325,33 @@ export const storage = {
     return serviceCards[0] || mobileOnlyCards[0];
   },
   
-  // Calculate commission using rate card with new payout structure - returns total for backward compatibility
+  // Calculate commission using rate card with new payout structure - returns NET total after override deductions
   calculateCommission(rateCard: RateCard, order: SalesOrder): number {
     const lineItems = this.calculateCommissionLineItems(rateCard, order);
-    return lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
+    const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
+    
+    // Subtract override deductions from gross commission to get net
+    let totalDeduction = 0;
+    
+    // BASE deduction always applies if there's a base commission
+    const baseDeduction = parseFloat(rateCard.overrideDeduction || "0");
+    if (baseDeduction > 0 && parseFloat(rateCard.baseAmount || "0") > 0) {
+      totalDeduction += baseDeduction;
+    }
+    
+    // TV deduction applies if TV was sold
+    const tvDeduction = parseFloat(rateCard.tvOverrideDeduction || "0");
+    if (tvDeduction > 0 && order.tvSold) {
+      totalDeduction += tvDeduction;
+    }
+    
+    // Mobile deduction applies if mobile was sold
+    const mobileDeduction = parseFloat(rateCard.mobileOverrideDeduction || "0");
+    if (mobileDeduction > 0 && order.mobileSold) {
+      totalDeduction += mobileDeduction;
+    }
+    
+    return Math.max(0, grossCommission - totalDeduction);
   },
 
   // Calculate commission line items - returns separate entries for Internet, Mobile, Video

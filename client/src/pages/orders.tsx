@@ -884,7 +884,7 @@ export default function Orders() {
                                 </div>
                               );
                             })}
-                            {overrideDeduction > 0.01 && (
+                            {isAdmin && overrideDeduction > 0.01 && (
                               <div className="flex justify-between gap-2 text-muted-foreground">
                                 <span>Override Deduction</span>
                                 <span className="font-mono">-${overrideDeduction.toFixed(2)}</span>
