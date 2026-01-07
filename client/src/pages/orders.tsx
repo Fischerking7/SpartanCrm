@@ -26,6 +26,7 @@ export default function Orders() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [exportFilter, setExportFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("createdAt_desc");
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false);
@@ -323,6 +324,36 @@ export default function Orders() {
     },
   });
 
+  const exportToAccountingMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/accounting/export-approved", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to export");
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `export-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      return { success: true };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({ title: "Export successful", description: "Approved orders have been exported and marked" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Export failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleCreateOrder = () => {
     if (!newOrderForm.customerName || !newOrderForm.dateSold) {
       toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
@@ -341,7 +372,11 @@ export default function Orders() {
       order.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.repId.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || order.jobStatus === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesExport = exportFilter === "all" || 
+      (exportFilter === "exported" && order.exportedToAccounting) ||
+      (exportFilter === "unexported" && !order.exportedToAccounting) ||
+      (exportFilter === "ready" && order.approvalStatus === "APPROVED" && !order.exportedToAccounting);
+    return matchesSearch && matchesStatus && matchesExport;
   }).sort((a, b) => {
     const [field, direction] = sortBy.split("_");
     const multiplier = direction === "asc" ? 1 : -1;
@@ -499,15 +534,22 @@ export default function Orders() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin && (
-            <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-orders">
-              <Upload className="h-4 w-4 mr-2" />
-              Import Excel
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-orders">
+                <Upload className="h-4 w-4 mr-2" />
+                Import Excel
+              </Button>
+              <Button 
+                variant="default" 
+                onClick={() => exportToAccountingMutation.mutate()}
+                disabled={exportToAccountingMutation.isPending}
+                data-testid="button-export-to-accounting"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                {exportToAccountingMutation.isPending ? "Exporting..." : "Export to Accounting"}
+              </Button>
+            </>
           )}
-          <Button variant="outline" data-testid="button-export-orders">
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
           <Button onClick={() => setShowNewOrderDialog(true)} data-testid="button-new-order">
             <Plus className="h-4 w-4 mr-2" />
             New Order
@@ -540,6 +582,19 @@ export default function Orders() {
                 <SelectItem value="CANCELED">Canceled</SelectItem>
               </SelectContent>
             </Select>
+            {isAdmin && (
+              <Select value={exportFilter} onValueChange={setExportFilter}>
+                <SelectTrigger className="w-[180px]" data-testid="select-export-filter">
+                  <SelectValue placeholder="Export status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Export Status</SelectItem>
+                  <SelectItem value="ready">Ready to Export</SelectItem>
+                  <SelectItem value="unexported">Not Exported</SelectItem>
+                  <SelectItem value="exported">Exported</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
             <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger className="w-[180px]" data-testid="select-sort-orders">
                 <SelectValue placeholder="Sort by" />
