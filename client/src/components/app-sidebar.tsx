@@ -32,6 +32,8 @@ import {
   FileSpreadsheet,
   History,
   UserPlus,
+  BarChart3,
+  Calculator,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 
@@ -53,6 +55,8 @@ const adminMenuItems = [
   { title: "Pay Runs", url: "/payruns", icon: Calendar },
   { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
   { title: "Export History", url: "/export-history", icon: Download },
+  { title: "Reports", url: "/reports", icon: BarChart3 },
+  { title: "Recalculate", url: "/recalculate", icon: Calculator },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
   { title: "Audit Log", url: "/audit", icon: History },

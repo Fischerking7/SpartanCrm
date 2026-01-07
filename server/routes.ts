@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, managerOrAdmin, type AuthRequest } from "./auth";
-import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, type SalesOrder, type OverrideEarning, type User } from "@shared/schema";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 import crypto from "crypto";
@@ -1896,9 +1896,315 @@ export async function registerRoutes(
 
   app.post("/api/admin/accounting/import-payments", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
     try {
-      // This is a placeholder - full payment import would parse CSV and match to orders
-      res.json({ matched: 0, unmatched: 0, message: "Payment import endpoint ready" });
-    } catch (error) { res.status(500).json({ message: "Import failed" }); }
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const payRunId = req.body.payRunId || null;
+      const csvContent = req.file.buffer.toString("utf-8");
+      const records = parse(csvContent, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, any>[];
+
+      let matched = 0;
+      let unmatched = 0;
+      const unmatchedRows: any[] = [];
+
+      for (const row of records) {
+        const invoiceNumber = row.invoiceNumber || row.invoice_number || row.Invoice || row["Invoice Number"] || row.InvoiceNumber;
+        const amount = parseFloat(row.amount || row.Amount || row.payment || row.Payment || "0");
+        const paidDate = row.paidDate || row.paid_date || row.PaidDate || row.date || row.Date || new Date().toISOString().split("T")[0];
+        const quickbooksRefId = row.refId || row.ref_id || row.RefId || row.reference || row.Reference || null;
+
+        if (!invoiceNumber) {
+          unmatchedRows.push({ row, reason: "Missing invoice number" });
+          unmatched++;
+          continue;
+        }
+
+        const order = await storage.getOrderByInvoiceNumber(invoiceNumber);
+        if (order) {
+          await storage.updateOrder(order.id, {
+            paidDate: paidDate,
+            commissionPaid: amount.toString(),
+            paymentStatus: "PAID",
+            quickbooksRefId: quickbooksRefId,
+            payRunId: payRunId,
+          });
+          matched++;
+        } else {
+          await storage.createUnmatchedPayment({
+            payRunId: payRunId,
+            rawRowJson: JSON.stringify(row),
+            reason: `No order found with invoice number: ${invoiceNumber}`,
+          });
+          unmatched++;
+        }
+      }
+
+      await storage.createAuditLog({
+        action: "import_payments",
+        tableName: "sales_orders",
+        afterJson: JSON.stringify({ matched, unmatched, payRunId }),
+        userId: req.user!.id,
+      });
+
+      res.json({ matched, unmatched, message: `Imported ${matched} payments, ${unmatched} unmatched` });
+    } catch (error: any) {
+      console.error("Payment import error:", error);
+      res.status(500).json({ message: error.message || "Import failed" });
+    }
+  });
+
+  // Chargeback import
+  app.post("/api/admin/chargebacks/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const payRunId = req.body.payRunId || null;
+      const csvContent = req.file.buffer.toString("utf-8");
+      const records = parse(csvContent, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, any>[];
+
+      let matched = 0;
+      let unmatched = 0;
+
+      for (const row of records) {
+        const invoiceNumber = row.invoiceNumber || row.invoice_number || row.Invoice || row["Invoice Number"] || row.InvoiceNumber;
+        const amount = parseFloat(row.amount || row.Amount || row.chargeback || row.Chargeback || "0");
+        const chargebackDate = row.chargebackDate || row.chargeback_date || row.date || row.Date || new Date().toISOString().split("T")[0];
+        const reason = row.reason || row.Reason || "CANCELLATION";
+        const notes = row.notes || row.Notes || null;
+        const quickbooksRefId = row.refId || row.ref_id || row.RefId || row.reference || row.Reference || null;
+
+        if (!invoiceNumber) {
+          await storage.createUnmatchedChargeback({
+            payRunId: payRunId,
+            rawRowJson: JSON.stringify(row),
+            reason: "Missing invoice number",
+          });
+          unmatched++;
+          continue;
+        }
+
+        const order = await storage.getOrderByInvoiceNumber(invoiceNumber);
+        if (order) {
+          await storage.createChargeback({
+            invoiceNumber: invoiceNumber,
+            salesOrderId: order.id,
+            repId: order.repId,
+            amount: Math.abs(amount).toString(),
+            reason: reason as any,
+            chargebackDate: chargebackDate,
+            quickbooksRefId: quickbooksRefId,
+            payRunId: payRunId,
+            notes: notes,
+            createdByUserId: req.user!.id,
+          });
+          matched++;
+        } else {
+          await storage.createUnmatchedChargeback({
+            payRunId: payRunId,
+            rawRowJson: JSON.stringify(row),
+            reason: `No order found with invoice number: ${invoiceNumber}`,
+          });
+          unmatched++;
+        }
+      }
+
+      await storage.createAuditLog({
+        action: "import_chargebacks",
+        tableName: "chargebacks",
+        afterJson: JSON.stringify({ matched, unmatched, payRunId }),
+        userId: req.user!.id,
+      });
+
+      res.json({ matched, unmatched, message: `Imported ${matched} chargebacks, ${unmatched} unmatched` });
+    } catch (error: any) {
+      console.error("Chargeback import error:", error);
+      res.status(500).json({ message: error.message || "Import failed" });
+    }
+  });
+
+  // Bulk commission recalculation
+  app.post("/api/admin/recalculate-commissions", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { orderIds, providerId, clientId, dateFrom, dateTo, recalculateAll } = req.body;
+      
+      let orders: SalesOrder[];
+      
+      if (recalculateAll) {
+        orders = await storage.getOrders({});
+      } else if (orderIds && orderIds.length > 0) {
+        orders = await Promise.all(orderIds.map((id: string) => storage.getOrderById(id)));
+        orders = orders.filter((o): o is SalesOrder => o !== undefined);
+      } else {
+        const allOrders = await storage.getOrders({});
+        orders = allOrders.filter((o: SalesOrder) => {
+          if (providerId && o.providerId !== providerId) return false;
+          if (clientId && o.clientId !== clientId) return false;
+          if (dateFrom && new Date(o.dateSold) < new Date(dateFrom)) return false;
+          if (dateTo && new Date(o.dateSold) > new Date(dateTo)) return false;
+          return true;
+        });
+      }
+
+      let recalculated = 0;
+      let errors = 0;
+      const errorDetails: string[] = [];
+
+      for (const order of orders) {
+        try {
+          await storage.deleteCommissionLineItemsByOrderId(order.id);
+          
+          const rateCard = await storage.findMatchingRateCard(order, order.dateSold);
+          let baseCommission = "0";
+          let appliedRateCardId: string | null = null;
+          
+          if (rateCard) {
+            const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
+            await storage.createCommissionLineItems(order.id, lineItems);
+            baseCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0).toFixed(2);
+            appliedRateCardId = rateCard.id;
+          }
+          
+          await storage.updateOrder(order.id, {
+            baseCommissionEarned: baseCommission,
+            appliedRateCardId,
+            calcAt: new Date(),
+          });
+          
+          recalculated++;
+        } catch (err: any) {
+          errors++;
+          errorDetails.push(`Order ${order.invoiceNumber || order.id}: ${err.message}`);
+        }
+      }
+
+      await storage.createAuditLog({
+        action: "bulk_recalculate_commissions",
+        tableName: "sales_orders",
+        afterJson: JSON.stringify({ recalculated, errors, filters: { providerId, clientId, dateFrom, dateTo, recalculateAll } }),
+        userId: req.user!.id,
+      });
+
+      res.json({ 
+        recalculated, 
+        errors, 
+        total: orders.length,
+        errorDetails: errorDetails.slice(0, 10),
+        message: `Recalculated ${recalculated} orders${errors > 0 ? `, ${errors} errors` : ""}` 
+      });
+    } catch (error: any) {
+      console.error("Bulk recalculation error:", error);
+      res.status(500).json({ message: error.message || "Recalculation failed" });
+    }
+  });
+
+  // Reports API
+  app.get("/api/admin/reports/summary", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { dateFrom, dateTo, providerId, clientId } = req.query as Record<string, string>;
+      
+      let orders: SalesOrder[] = await storage.getOrders({});
+      
+      if (dateFrom) orders = orders.filter((o: SalesOrder) => new Date(o.dateSold) >= new Date(dateFrom));
+      if (dateTo) orders = orders.filter((o: SalesOrder) => new Date(o.dateSold) <= new Date(dateTo));
+      if (providerId) orders = orders.filter((o: SalesOrder) => o.providerId === providerId);
+      if (clientId) orders = orders.filter((o: SalesOrder) => o.clientId === clientId);
+
+      const users = await storage.getUsers();
+      const providers = await storage.getProviders();
+      const clients = await storage.getClients();
+
+      const totalOrders = orders.length;
+      const approvedOrders = orders.filter((o: SalesOrder) => o.approvalStatus === "APPROVED").length;
+      const pendingOrders = orders.filter((o: SalesOrder) => o.approvalStatus === "UNAPPROVED").length;
+      const completedOrders = orders.filter((o: SalesOrder) => o.jobStatus === "COMPLETED").length;
+      
+      const totalEarned = orders
+        .filter((o: SalesOrder) => o.approvalStatus === "APPROVED")
+        .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      
+      const totalPaid = orders
+        .filter((o: SalesOrder) => o.paymentStatus === "PAID")
+        .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.commissionPaid), 0);
+
+      const repPerformance = users
+        .filter((u: User) => ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role))
+        .map((rep: User) => {
+          const repOrders = orders.filter((o: SalesOrder) => o.repId === rep.repId);
+          const repEarned = repOrders
+            .filter((o: SalesOrder) => o.approvalStatus === "APPROVED")
+            .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+          return {
+            repId: rep.repId,
+            name: rep.name,
+            role: rep.role,
+            orderCount: repOrders.length,
+            approvedCount: repOrders.filter((o: SalesOrder) => o.approvalStatus === "APPROVED").length,
+            totalEarned: repEarned,
+          };
+        })
+        .filter((r: { orderCount: number }) => r.orderCount > 0)
+        .sort((a: { totalEarned: number }, b: { totalEarned: number }) => b.totalEarned - a.totalEarned);
+
+      const providerBreakdown = providers.map((provider: Provider) => {
+        const providerOrders = orders.filter((o: SalesOrder) => o.providerId === provider.id);
+        const earned = providerOrders
+          .filter((o: SalesOrder) => o.approvalStatus === "APPROVED")
+          .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        return {
+          id: provider.id,
+          name: provider.name,
+          orderCount: providerOrders.length,
+          totalEarned: earned,
+        };
+      }).filter((p: { orderCount: number }) => p.orderCount > 0).sort((a: { totalEarned: number }, b: { totalEarned: number }) => b.totalEarned - a.totalEarned);
+
+      const clientBreakdown = clients.map((client: Client) => {
+        const clientOrders = orders.filter((o: SalesOrder) => o.clientId === client.id);
+        const earned = clientOrders
+          .filter((o: SalesOrder) => o.approvalStatus === "APPROVED")
+          .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        return {
+          id: client.id,
+          name: client.name,
+          orderCount: clientOrders.length,
+          totalEarned: earned,
+        };
+      }).filter((c: { orderCount: number }) => c.orderCount > 0).sort((a: { totalEarned: number }, b: { totalEarned: number }) => b.totalEarned - a.totalEarned);
+
+      const monthlyTrend = orders.reduce((acc: Record<string, { month: string; orders: number; earned: number }>, order: SalesOrder) => {
+        const month = order.dateSold.substring(0, 7);
+        if (!acc[month]) {
+          acc[month] = { month, orders: 0, earned: 0 };
+        }
+        acc[month].orders++;
+        if (order.approvalStatus === "APPROVED") {
+          acc[month].earned += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
+        }
+        return acc;
+      }, {} as Record<string, { month: string; orders: number; earned: number }>);
+
+      res.json({
+        summary: {
+          totalOrders,
+          approvedOrders,
+          pendingOrders,
+          completedOrders,
+          totalEarned,
+          totalPaid,
+          outstandingBalance: totalEarned - totalPaid,
+        },
+        repPerformance,
+        providerBreakdown,
+        clientBreakdown,
+        monthlyTrend: Object.values(monthlyTrend).sort((a, b) => a.month.localeCompare(b.month)),
+      });
+    } catch (error: any) {
+      console.error("Reports error:", error);
+      res.status(500).json({ message: error.message || "Failed to generate reports" });
+    }
   });
 
   // Export Batches
