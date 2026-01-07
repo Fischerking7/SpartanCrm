@@ -26,7 +26,7 @@ export default function Orders() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<string>("dateSold_desc");
+  const [sortBy, setSortBy] = useState<string>("createdAt_desc");
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
