@@ -137,6 +137,7 @@ function Router() {
   }
 
   const isAdmin = user.role === "ADMIN" || user.role === "FOUNDER";
+  const canViewReports = user.role !== "REP";
 
   return (
     <AuthenticatedLayout>
@@ -148,13 +149,14 @@ function Router() {
         <Route path="/adjustments" component={Adjustments} />
         <Route path="/change-password" component={ChangePassword} />
         
+        {canViewReports && <Route path="/reports" component={Reports} />}
+        
         {isAdmin && (
           <>
             <Route path="/approvals" component={Approvals} />
             <Route path="/payruns" component={PayRuns} />
             <Route path="/accounting" component={Accounting} />
             <Route path="/export-history" component={ExportHistory} />
-            <Route path="/reports" component={Reports} />
             <Route path="/recalculate" component={Recalculate} />
             <Route path="/queues" component={Queues} />
             <Route path="/audit" component={Audit} />

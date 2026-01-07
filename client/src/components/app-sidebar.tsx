@@ -37,12 +37,21 @@ import {
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 
-// Sales roles (REP, SUPERVISOR, MANAGER, EXECUTIVE) get the same navigation
-const salesMenuItems = [
+// REP role only
+const repMenuItems = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
+];
+
+// SUPERVISOR, MANAGER, EXECUTIVE - includes Reports
+const salesLeaderMenuItems = [
+  { title: "Orders", url: "/orders", icon: FileText },
+  { title: "My Leads", url: "/leads", icon: UserPlus },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "Reports", url: "/reports", icon: BarChart3 },
 ];
 
 // Admin/Founder get additional accounting and management options
@@ -79,9 +88,9 @@ export function AppSidebar() {
   if (!user) return null;
 
   const isAdmin = user.role === "ADMIN" || user.role === "FOUNDER";
-  const isSalesRole = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(user.role);
+  const isSalesLeader = ["SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(user.role);
 
-  const menuItems = isAdmin ? adminMenuItems : salesMenuItems;
+  const menuItems = isAdmin ? adminMenuItems : (isSalesLeader ? salesLeaderMenuItems : repMenuItems);
 
   const getInitials = (name: string) => {
     return name
