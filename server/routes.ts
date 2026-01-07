@@ -3280,5 +3280,101 @@ export async function registerRoutes(
     }
   });
 
+  // Override Earnings by Invoice
+  app.get("/api/reports/override-invoices", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate, recipientId } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      // Only ADMIN and FOUNDER can see all override earnings
+      if (!["ADMIN", "FOUNDER"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const overrideEarnings = await storage.getOverrideEarnings();
+      const orders = await storage.getOrders({});
+      const users = await storage.getUsers();
+      const overrideAgreements = await storage.getOverrideAgreements();
+      
+      // Filter by date and optionally by recipient
+      const filteredEarnings = overrideEarnings.filter(e => {
+        const order = orders.find(o => o.id === e.salesOrderId);
+        if (!order) return false;
+        const orderDate = new Date(order.dateSold);
+        if (orderDate < start || orderDate >= end) return false;
+        if (recipientId && e.recipientUserId !== recipientId) return false;
+        return true;
+      });
+      
+      // Group by invoice/order
+      const invoiceMap: Record<string, {
+        orderId: string;
+        invoiceNumber: string | null;
+        customerName: string;
+        dateSold: string;
+        repName: string;
+        totalOverride: number;
+        overrides: Array<{
+          recipientName: string;
+          recipientRole: string;
+          amount: string;
+          agreementId: string | null;
+        }>;
+      }> = {};
+      
+      for (const earning of filteredEarnings) {
+        const order = orders.find(o => o.id === earning.salesOrderId);
+        if (!order) continue;
+        
+        const recipient = users.find(u => u.id === earning.recipientUserId);
+        const rep = users.find(u => u.repId === order.repId);
+        
+        if (!invoiceMap[order.id]) {
+          invoiceMap[order.id] = {
+            orderId: order.id,
+            invoiceNumber: order.invoiceNumber,
+            customerName: order.customerName,
+            dateSold: order.dateSold,
+            repName: rep?.name || order.repId,
+            totalOverride: 0,
+            overrides: [],
+          };
+        }
+        
+        const amount = parseFloat(earning.amount);
+        invoiceMap[order.id].totalOverride += amount;
+        invoiceMap[order.id].overrides.push({
+          recipientName: recipient?.name || earning.recipientUserId,
+          recipientRole: earning.sourceLevelUsed,
+          amount: earning.amount,
+          agreementId: earning.overrideAgreementId,
+        });
+      }
+      
+      const data = Object.values(invoiceMap).sort((a, b) => 
+        new Date(b.dateSold).getTime() - new Date(a.dateSold).getTime()
+      );
+      
+      // Get totals
+      const totalOverrides = data.reduce((sum, inv) => sum + inv.totalOverride, 0);
+      const invoiceCount = data.length;
+      
+      // Get eligible recipients for filter dropdown
+      const recipients = users
+        .filter(u => ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"].includes(u.role) && !u.deletedAt)
+        .map(u => ({ id: u.id, name: u.name, role: u.role }));
+      
+      res.json({ 
+        data, 
+        totals: { totalOverrides: totalOverrides.toFixed(2), invoiceCount },
+        recipients,
+      });
+    } catch (error) {
+      console.error("Override invoices error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
   return httpServer;
 }

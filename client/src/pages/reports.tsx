@@ -130,6 +130,21 @@ interface TeamProductionData {
   teamSize: number;
 }
 
+interface OverrideInvoiceData {
+  orderId: string;
+  invoiceNumber: string | null;
+  customerName: string;
+  dateSold: string;
+  repName: string;
+  totalOverride: number;
+  overrides: Array<{
+    recipientName: string;
+    recipientRole: string;
+    amount: string;
+    agreementId: string | null;
+  }>;
+}
+
 export default function Reports() {
   const { toast } = useToast();
   const [period, setPeriod] = useState("this_month");
@@ -209,6 +224,16 @@ export default function Reports() {
       return res.json();
     },
     enabled: summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER" || summary?.scopeInfo?.role === "EXECUTIVE",
+  });
+
+  const { data: overrideInvoices } = useQuery<{ data: OverrideInvoiceData[]; totals: { totalOverrides: string; invoiceCount: number }; recipients: Array<{ id: string; name: string; role: string }> }>({
+    queryKey: ["/api/reports/override-invoices", period, customStartDate, customEndDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/reports/override-invoices?${buildQueryString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) return { data: [], totals: { totalOverrides: "0.00", invoiceCount: 0 }, recipients: [] };
+      return res.json();
+    },
+    enabled: summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER",
   });
 
   const handleExport = () => {
@@ -475,6 +500,9 @@ export default function Reports() {
           <TabsTrigger value="commission" data-testid="tab-commission">Commission Summary</TabsTrigger>
           {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER" || summary?.scopeInfo?.role === "EXECUTIVE") && (
             <TabsTrigger value="team-production" data-testid="tab-team-production">Team Production</TabsTrigger>
+          )}
+          {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
+            <TabsTrigger value="override-invoices" data-testid="tab-override-invoices">Override by Invoice</TabsTrigger>
           )}
         </TabsList>
 
@@ -790,6 +818,83 @@ export default function Reports() {
                 ) : (
                   <div className="py-12 text-center text-muted-foreground">
                     No team production data available
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
+          <TabsContent value="override-invoices" className="space-y-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+                <div>
+                  <CardTitle className="text-lg">Override Earnings by Invoice</CardTitle>
+                  <CardDescription>Override commissions grouped by invoice/order</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">
+                    {overrideInvoices?.totals?.invoiceCount || 0} invoices
+                  </Badge>
+                  <Badge variant="default">
+                    ${overrideInvoices?.totals?.totalOverrides || "0.00"} total
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {overrideInvoices?.data?.length ? (
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[700px]">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/50">
+                            <th className="text-left py-3 px-2 font-medium">Invoice #</th>
+                            <th className="text-left py-3 px-2 font-medium">Date</th>
+                            <th className="text-left py-3 px-2 font-medium">Customer</th>
+                            <th className="text-left py-3 px-2 font-medium">Rep</th>
+                            <th className="text-left py-3 px-2 font-medium">Recipients</th>
+                            <th className="text-right py-3 px-2 font-medium">Override Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {overrideInvoices.data.map((inv) => (
+                            <tr key={inv.orderId} className="border-b last:border-0 hover-elevate" data-testid={`override-invoice-row-${inv.orderId}`}>
+                              <td className="py-3 px-2 font-mono text-xs">
+                                {inv.invoiceNumber || "-"}
+                              </td>
+                              <td className="py-3 px-2">{inv.dateSold}</td>
+                              <td className="py-3 px-2">{inv.customerName}</td>
+                              <td className="py-3 px-2">{inv.repName}</td>
+                              <td className="py-3 px-2">
+                                <div className="flex flex-wrap gap-1">
+                                  {inv.overrides.map((o, idx) => (
+                                    <Badge key={idx} variant="outline" className="text-xs">
+                                      {o.recipientName} ({o.recipientRole}): ${o.amount}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="text-right py-3 px-2 font-mono font-semibold text-green-600">
+                                {formatCurrency(inv.totalOverride)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-muted/50 font-medium">
+                            <td colSpan={5} className="py-3 px-2 text-right">Total:</td>
+                            <td className="text-right py-3 px-2 font-mono text-green-600">
+                              ${overrideInvoices?.totals?.totalOverrides || "0.00"}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-muted-foreground">
+                    No override earnings found for this period
                   </div>
                 )}
               </CardContent>
