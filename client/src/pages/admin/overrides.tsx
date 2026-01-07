@@ -108,7 +108,7 @@ export default function AdminOverrides() {
   });
 
   const eligibleRecipients = users?.filter((u) =>
-    ["SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt
+    ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt
   ) || [];
 
   const getUserName = (userId: string) => users?.find((u) => u.id === userId)?.name || userId;
@@ -317,7 +317,7 @@ export default function AdminOverrides() {
                       <Users className="h-5 w-5 text-muted-foreground" />
                       <div>
                         <p className="font-medium">{user.name}</p>
-                        <p className="text-sm text-muted-foreground">{user.email}</p>
+                        <p className="text-sm text-muted-foreground">ID: {user.repId}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -353,6 +353,7 @@ export default function AdminOverrides() {
                 {selectedRecipient?.role === "SUPERVISOR" && "Gets overrides on sales from assigned reps"}
                 {selectedRecipient?.role === "MANAGER" && "Gets overrides on sales from assigned supervisors and their reps"}
                 {selectedRecipient?.role === "EXECUTIVE" && "Gets overrides on sales from all team members in division"}
+                {selectedRecipient?.role === "ADMIN" && "Gets overrides on all sales company-wide"}
               </p>
               <Button onClick={() => startWizard()} data-testid="button-add-override">
                 <Plus className="h-4 w-4 mr-2" />

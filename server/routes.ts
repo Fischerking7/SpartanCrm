@@ -159,6 +159,13 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   if (hierarchy.executive) {
     await processAgreements(hierarchy.executive.id, "EXECUTIVE");
   }
+  
+  // ADMIN gets override on all sales company-wide
+  const admins = await storage.getUsers();
+  const activeAdmins = admins.filter(u => u.role === "ADMIN" && u.status === "ACTIVE" && !u.deletedAt);
+  for (const admin of activeAdmins) {
+    await processAgreements(admin.id, "ADMIN");
+  }
 
   return earnings;
 }
