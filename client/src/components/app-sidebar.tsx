@@ -40,7 +40,7 @@ const salesMenuItems = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Commissions", url: "/commissions", icon: DollarSign },
+  { title: "My Commissions", url: "/commissions", icon: DollarSign },
 ];
 
 // Admin/Founder get additional accounting and management options
@@ -48,6 +48,7 @@ const adminMenuItems = [
   { title: "All Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "Approvals Queue", url: "/approvals", icon: CheckSquare },
   { title: "Pay Runs", url: "/payruns", icon: Calendar },
   { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
