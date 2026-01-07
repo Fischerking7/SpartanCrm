@@ -104,6 +104,7 @@ export const rateCards = pgTable("rate_cards", {
   tvAddonAmount: decimal("tv_addon_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   mobilePerLineAmount: decimal("mobile_per_line_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   overrideDeduction: decimal("override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
+  tvOverrideDeduction: decimal("tv_override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
   effectiveStart: date("effective_start").notNull(),
   effectiveEnd: date("effective_end"),
   active: boolean("active").notNull().default(true),
@@ -369,12 +370,14 @@ export const unmatchedChargebacks = pgTable("unmatched_chargebacks", {
 
 // Override Deduction Pool - Pending rate card deductions awaiting distribution during export
 export const overrideDeductionPoolStatusEnum = pgEnum("override_deduction_pool_status", ["PENDING", "DISTRIBUTED"]);
+export const overrideDeductionTypeEnum = pgEnum("override_deduction_type", ["MOBILE", "TV"]);
 
 export const overrideDeductionPool = pgTable("override_deduction_pool", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   salesOrderId: varchar("sales_order_id").notNull().references(() => salesOrders.id),
   rateCardId: varchar("rate_card_id").notNull().references(() => rateCards.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  deductionType: overrideDeductionTypeEnum("deduction_type").notNull().default("MOBILE"),
   status: overrideDeductionPoolStatusEnum("status").notNull().default("PENDING"),
   exportBatchId: varchar("export_batch_id").references(() => exportBatches.id),
   distributedAt: timestamp("distributed_at"),

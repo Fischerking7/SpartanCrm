@@ -78,35 +78,45 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   
   const earnings: OverrideEarning[] = [];
   
-  // --- RATE CARD OVERRIDE DEDUCTION ---
+  // --- RATE CARD OVERRIDE DEDUCTIONS (MOBILE & TV) ---
   // Pool override deductions from rate cards (distributed later during export)
   // Check if pool entries already exist for this order to prevent duplicates
   const existingPoolEntries = await storage.getOverrideDeductionPoolByOrderId(approvedOrder.id);
-  const existingPoolRateCardIds = new Set(existingPoolEntries.map(e => e.rateCardId));
+  const existingPoolKeys = new Set(existingPoolEntries.map(e => `${e.rateCardId}-${e.deductionType}`));
   
   const commissionLineItems = await storage.getCommissionLineItemsByOrderId(approvedOrder.id);
   const usedRateCardIds = new Set<string>();
   
   for (const lineItem of commissionLineItems) {
     if (lineItem.appliedRateCardId && !usedRateCardIds.has(lineItem.appliedRateCardId)) {
-      // Skip if pool entry already exists for this rate card
-      if (existingPoolRateCardIds.has(lineItem.appliedRateCardId)) {
-        usedRateCardIds.add(lineItem.appliedRateCardId);
-        continue;
-      }
-      
       const rateCard = await storage.getRateCardById(lineItem.appliedRateCardId);
       if (rateCard) {
-        const deductionAmount = parseFloat(rateCard.overrideDeduction || "0");
-        if (deductionAmount > 0) {
-          // Add to pool instead of distributing immediately
+        // Pool mobile override deduction
+        const mobileDeduction = parseFloat(rateCard.overrideDeduction || "0");
+        const mobileKey = `${rateCard.id}-MOBILE`;
+        if (mobileDeduction > 0 && !existingPoolKeys.has(mobileKey)) {
           await storage.createOverrideDeductionPoolEntry({
             salesOrderId: approvedOrder.id,
             rateCardId: rateCard.id,
-            amount: deductionAmount.toFixed(2),
+            amount: mobileDeduction.toFixed(2),
+            deductionType: "MOBILE",
             status: "PENDING",
           });
         }
+        
+        // Pool TV override deduction (only if tvSold is true)
+        const tvDeduction = parseFloat(rateCard.tvOverrideDeduction || "0");
+        const tvKey = `${rateCard.id}-TV`;
+        if (tvDeduction > 0 && approvedOrder.tvSold && !existingPoolKeys.has(tvKey)) {
+          await storage.createOverrideDeductionPoolEntry({
+            salesOrderId: approvedOrder.id,
+            rateCardId: rateCard.id,
+            amount: tvDeduction.toFixed(2),
+            deductionType: "TV",
+            status: "PENDING",
+          });
+        }
+        
         usedRateCardIds.add(lineItem.appliedRateCardId);
       }
     }

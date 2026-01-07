@@ -50,6 +50,7 @@ export default function AdminRateCards() {
     tvAddonAmount: "",
     mobilePerLineAmount: "",
     overrideDeduction: "",
+    tvOverrideDeduction: "",
     effectiveStart: "",
     effectiveEnd: "",
     active: true,
@@ -157,6 +158,7 @@ export default function AdminRateCards() {
       tvAddonAmount: "",
       mobilePerLineAmount: "",
       overrideDeduction: "",
+      tvOverrideDeduction: "",
       effectiveStart: "",
       effectiveEnd: "",
       active: true,
@@ -178,6 +180,7 @@ export default function AdminRateCards() {
       tvAddonAmount: r.tvAddonAmount || "0",
       mobilePerLineAmount: r.mobilePerLineAmount || "0",
       overrideDeduction: r.overrideDeduction || "0",
+      tvOverrideDeduction: (r as any).tvOverrideDeduction || "0",
       effectiveStart: r.effectiveStart,
       effectiveEnd: r.effectiveEnd || "",
       active: r.active,
@@ -263,8 +266,14 @@ export default function AdminRateCards() {
     },
     {
       key: "overrideDeduction",
-      header: "Override",
+      header: "Mobile Override",
       cell: (r: RateCard) => <span className="font-mono text-orange-600">${parseFloat(r.overrideDeduction || "0").toFixed(2)}</span>,
+      className: "text-right",
+    },
+    {
+      key: "tvOverrideDeduction",
+      header: "TV Override",
+      cell: (r: RateCard) => <span className="font-mono text-purple-600">${parseFloat((r as any).tvOverrideDeduction || "0").toFixed(2)}</span>,
       className: "text-right",
     },
     {
@@ -298,6 +307,7 @@ export default function AdminRateCards() {
       tvAddonAmount: formData.tvAddonAmount || "0",
       mobilePerLineAmount: formData.mobilePerLineAmount || "0",
       overrideDeduction: formData.overrideDeduction || "0",
+      tvOverrideDeduction: formData.tvOverrideDeduction || "0",
       effectiveStart: formData.effectiveStart,
       effectiveEnd: formData.effectiveEnd || null,
       active: formData.active,
@@ -506,7 +516,7 @@ export default function AdminRateCards() {
                 <p className="text-xs text-muted-foreground">Per mobile line sold</p>
               </div>
               <div className="space-y-2">
-                <Label>Override Deduction ($)</Label>
+                <Label>Mobile Override Deduction ($)</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -515,7 +525,19 @@ export default function AdminRateCards() {
                   onChange={(e) => setFormData({ ...formData, overrideDeduction: e.target.value })}
                   data-testid="input-override-deduction"
                 />
-                <p className="text-xs text-muted-foreground">Deducted for supervisors</p>
+                <p className="text-xs text-muted-foreground">Pooled for mobile sales</p>
+              </div>
+              <div className="space-y-2">
+                <Label>TV Override Deduction ($)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={formData.tvOverrideDeduction}
+                  onChange={(e) => setFormData({ ...formData, tvOverrideDeduction: e.target.value })}
+                  data-testid="input-tv-override-deduction"
+                />
+                <p className="text-xs text-muted-foreground">Pooled when TV sold</p>
               </div>
             </div>
 

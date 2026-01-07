@@ -33,6 +33,7 @@ export default function Accounting() {
     salesOrderId: string;
     rateCardId: string;
     amount: string;
+    deductionType: "MOBILE" | "TV";
     status: "PENDING" | "DISTRIBUTED";
     exportBatchId: string | null;
     distributedAt: string | null;
@@ -324,6 +325,7 @@ export default function Accounting() {
                       <TableHead>Rep ID</TableHead>
                       <TableHead>Date Sold</TableHead>
                       <TableHead>Rate Card</TableHead>
+                      <TableHead>Type</TableHead>
                       <TableHead className="text-right">Deduction</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
@@ -335,6 +337,11 @@ export default function Accounting() {
                         <TableCell>{entry.repId}</TableCell>
                         <TableCell>{entry.dateSold}</TableCell>
                         <TableCell>{entry.rateCardName}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={entry.deductionType === "TV" ? "border-purple-500 text-purple-600" : "border-orange-500 text-orange-600"}>
+                            {entry.deductionType}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-right font-mono">
                           ${parseFloat(entry.amount).toFixed(2)}
                         </TableCell>
