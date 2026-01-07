@@ -1883,14 +1883,19 @@ export async function registerRoutes(
         await storage.updateOrder(order.id, { exportedToAccounting: true, exportBatchId: batch.id, exportedAt: new Date() });
       }
 
-      const csvData = orders.map(o => ({
-        invoiceNumber: o.invoiceNumber,
-        repId: o.repId,
-        customerName: o.customerName,
-        dateSold: o.dateSold,
-        baseCommission: o.baseCommissionEarned,
-        incentive: o.incentiveEarned,
-        total: (parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned)).toFixed(2),
+      const csvData = orders.map((o: any) => ({
+        "Rep ID": o.repId,
+        "Client": o.client?.name || "",
+        "Provider": o.provider?.name || "",
+        "Date Sold": o.dateSold,
+        "Install Date": o.installDate || "",
+        "Account Number": o.accountNumber || "",
+        "Service": o.service?.name || "",
+        "TV/Video?": o.tvSold ? "Yes" : "No",
+        "Mobile sold?": o.mobileSold ? "Yes" : "No",
+        "Mobile Lines Sold Quantity": o.mobileLinesQty || 0,
+        "Commission Earned": (parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned)).toFixed(2),
+        "Customer Name": o.customerName,
       }));
 
       const csv = stringify(csvData, { header: true });

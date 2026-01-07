@@ -613,6 +613,11 @@ export const storage = {
     return db.query.salesOrders.findMany({
       where: and(eq(salesOrders.approvalStatus, "APPROVED"), eq(salesOrders.exportedToAccounting, false)),
       orderBy: [desc(salesOrders.createdAt)],
+      with: {
+        client: true,
+        provider: true,
+        service: true,
+      },
     });
   },
 
