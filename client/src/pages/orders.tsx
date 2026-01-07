@@ -181,7 +181,9 @@ export default function Orders() {
       const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
       if (!res.ok) return [];
       const users = await res.json();
-      return users.filter((u: User) => u.role === "REP" && u.status === "ACTIVE" && !u.deletedAt);
+      // Allow admins to create orders for any sales role
+      const salesRoles = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"];
+      return users.filter((u: User) => salesRoles.includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
     },
     enabled: isAdmin,
   });
@@ -652,14 +654,14 @@ export default function Orders() {
             <div className="grid grid-cols-2 gap-4">
               {isAdmin && (
                 <div className="space-y-2">
-                  <Label>Rep ID *</Label>
+                  <Label>Assign To *</Label>
                   <Select value={newOrderForm.repId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}>
                     <SelectTrigger data-testid="select-rep">
-                      <SelectValue placeholder="Select rep" />
+                      <SelectValue placeholder="Select user" />
                     </SelectTrigger>
                     <SelectContent>
                       {reps?.map((rep) => (
-                        <SelectItem key={rep.id} value={rep.repId}>{rep.name} ({rep.repId})</SelectItem>
+                        <SelectItem key={rep.id} value={rep.repId}>{rep.name} ({rep.repId}) - {rep.role}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
