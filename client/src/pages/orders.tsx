@@ -15,7 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2 } from "lucide-react";
-import type { SalesOrder, Client, Provider, Service, User, CommissionLineItem } from "@shared/schema";
+import type { SalesOrder, Client, Provider, Service, User, CommissionLineItem, RateCard } from "@shared/schema";
 
 interface MobileLineEntry {
   mobileProductType: string;
@@ -249,6 +249,35 @@ export default function Orders() {
     },
     enabled: !!selectedOrder?.id,
   });
+
+  // Fetch rate cards for override calculation (admin/executive only)
+  const isAdminOrExec = user?.role === "ADMIN" || user?.role === "FOUNDER" || user?.role === "EXECUTIVE";
+  const { data: rateCards } = useQuery<RateCard[]>({
+    queryKey: ["/api/rate-cards"],
+    queryFn: async () => {
+      const res = await fetch("/api/rate-cards", { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: isAdminOrExec,
+  });
+
+  // Helper to calculate override amount for an order
+  const getOverrideAmount = (order: SalesOrder): number => {
+    if (!rateCards || !order.appliedRateCardId) return 0;
+    const rateCard = rateCards.find(rc => rc.id === order.appliedRateCardId);
+    if (!rateCard) return 0;
+    
+    let total = 0;
+    total += parseFloat(rateCard.overrideDeduction || "0");
+    if (order.tvSold) {
+      total += parseFloat(rateCard.tvOverrideDeduction || "0");
+    }
+    if (order.mobileSold) {
+      total += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+    }
+    return total;
+  };
 
   const createOrderMutation = useMutation({
     mutationFn: async (orderData: typeof newOrderForm) => {
@@ -600,6 +629,19 @@ export default function Orders() {
       ),
       className: "text-right",
     },
+    ...(isAdminOrExec ? [{
+      key: "overrideAmount",
+      header: "Override",
+      cell: (row: SalesOrder) => {
+        const amount = getOverrideAmount(row);
+        return (
+          <span className="font-mono text-right block text-muted-foreground">
+            ${amount.toFixed(2)}
+          </span>
+        );
+      },
+      className: "text-right",
+    }] : []),
     {
       key: "paymentStatus",
       header: "Payment",
