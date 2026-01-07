@@ -889,37 +889,17 @@ export async function registerRoutes(
         orderData.tvSold = !!req.body.hasTv;
       }
       
-      // Calculate commission from rate card
-      let baseCommission = "0";
-      let appliedRateCardId: string | null = null;
-      let commissionSource: "CALCULATED" | "MANUAL" | "IMPORTED" = "CALCULATED";
-      
-      // Build a temporary order object to find matching rate card
-      const tempOrder = {
-        providerId,
-        serviceId,
-        clientId,
-        tvSold: orderData.tvSold || false,
-        mobileSold: orderData.mobileSold || false,
-        mobileLinesQty: orderData.mobileLinesQty || 0,
-      };
-      
-      const rateCard = await storage.findMatchingRateCard(tempOrder as any, dateSold);
-      if (rateCard) {
-        baseCommission = storage.calculateCommission(rateCard, tempOrder as any).toString();
-        appliedRateCardId = rateCard.id;
-      }
-      
       // System-controlled fields - cannot be set by user
+      // Create order first without commission, then calculate after mobile lines exist
       const data = { 
         ...orderData,
         repId: assignedRepId,
         jobStatus: "PENDING" as const,
         approvalStatus: "UNAPPROVED" as const,
-        baseCommissionEarned: baseCommission,
-        appliedRateCardId,
-        commissionSource,
-        calcAt: rateCard ? new Date() : null,
+        baseCommissionEarned: "0",
+        appliedRateCardId: null,
+        commissionSource: "CALCULATED" as const,
+        calcAt: null,
         incentiveEarned: "0",
         commissionPaid: "0",
         paymentStatus: "UNPAID" as const,
@@ -928,7 +908,7 @@ export async function registerRoutes(
       
       const order = await storage.createOrder(data as any);
       
-      // Create mobile line items if provided
+      // Create mobile line items if provided - must be done BEFORE commission calculation
       if (hasMobileLines) {
         for (let i = 0; i < mobileLines.length; i++) {
           const line = mobileLines[i];
@@ -941,8 +921,30 @@ export async function registerRoutes(
         }
       }
       
-      await storage.createAuditLog({ action: "create_order", tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(order), userId: user.id });
-      res.json(order);
+      // Now calculate commission using the async method that looks up per-line rate cards
+      let baseCommission = "0";
+      let appliedRateCardId: string | null = null;
+      
+      const rateCard = await storage.findMatchingRateCard(order, dateSold);
+      if (rateCard) {
+        // Use the async version that properly looks up mobile-specific rate cards per line
+        const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
+        await storage.createCommissionLineItems(order.id, lineItems);
+        
+        // Sum up all line item commissions
+        baseCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0).toFixed(2);
+        appliedRateCardId = rateCard.id;
+      }
+      
+      // Update order with calculated commission
+      const updatedOrder = await storage.updateOrder(order.id, {
+        baseCommissionEarned: baseCommission,
+        appliedRateCardId,
+        calcAt: rateCard ? new Date() : null,
+      });
+      
+      await storage.createAuditLog({ action: "create_order", tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(updatedOrder), userId: user.id });
+      res.json(updatedOrder);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to create order" });
     }
