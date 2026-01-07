@@ -975,9 +975,20 @@ export async function registerRoutes(
         const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
         await storage.createCommissionLineItems(order.id, lineItems);
         
-        // Sum up all line item commissions
-        baseCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0).toFixed(2);
+        // Sum up all line item commissions (gross)
+        const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
         appliedRateCardId = rateCard.id;
+        
+        // Subtract override deductions for net commission
+        let totalDeductions = 0;
+        totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+        if (order.tvSold) {
+          totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
+        }
+        if (order.mobileSold) {
+          totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+        }
+        baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
       }
       
       // Update order with calculated commission
@@ -1033,20 +1044,16 @@ export async function registerRoutes(
         const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
         appliedRateCardId = rateCard.id;
         
-        // Calculate override deductions to subtract from rep's commission (only for approved orders)
-        if (order.approvalStatus === "APPROVED") {
-          let totalDeductions = 0;
-          totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
-          if (order.tvSold) {
-            totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
-          }
-          if (order.mobileSold) {
-            totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
-          }
-          baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
-        } else {
-          baseCommission = grossCommission.toFixed(2);
+        // Calculate override deductions to subtract from rep's commission (always apply)
+        let totalDeductions = 0;
+        totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+        if (order.tvSold) {
+          totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
         }
+        if (order.mobileSold) {
+          totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+        }
+        baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
       }
       
       // Update order with recalculated commission
@@ -2313,20 +2320,16 @@ export async function registerRoutes(
             const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
             appliedRateCardId = rateCard.id;
             
-            // Calculate override deductions to subtract from rep's commission (only for approved orders)
-            if (order.approvalStatus === "APPROVED") {
-              let totalDeductions = 0;
-              totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
-              if (order.tvSold) {
-                totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
-              }
-              if (order.mobileSold) {
-                totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
-              }
-              baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
-            } else {
-              baseCommission = grossCommission.toFixed(2);
+            // Calculate override deductions to subtract from rep's commission (always apply for all orders)
+            let totalDeductions = 0;
+            totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+            if (order.tvSold) {
+              totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
             }
+            if (order.mobileSold) {
+              totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+            }
+            baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
           }
           
           await storage.updateOrder(order.id, {
