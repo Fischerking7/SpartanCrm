@@ -78,17 +78,32 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   
   const earnings: OverrideEarning[] = [];
   
-  // Simplified: order filter for matching agreements
-  const orderFilter = { 
+  // Fetch mobile line items for per-line override calculation
+  const mobileLines = await storage.getMobileLineItemsByOrderId(approvedOrder.id);
+  
+  // Base order filter
+  const baseOrderFilter = { 
     providerId: approvedOrder.providerId, 
     clientId: approvedOrder.clientId, 
     serviceId: approvedOrder.serviceId,
+    tvSold: approvedOrder.tvSold,
   };
+  
+  // Get mobile product types from order
+  const mobileProductTypes = mobileLines.length > 0 
+    ? Array.from(new Set(mobileLines.map(l => l.mobileProductType))) 
+    : (approvedOrder.mobileProductType ? [approvedOrder.mobileProductType] : []);
   
   // Helper: Process agreements for a recipient based on hierarchy
   const processAgreements = async (recipientUserId: string, recipientRole: string) => {
-    const agreements = await storage.getActiveOverrideAgreements(recipientUserId, approvedOrder.dateSold, orderFilter);
-    for (const agreement of agreements) {
+    // Process non-mobile agreements first
+    const nonMobileAgreements = await storage.getActiveOverrideAgreements(
+      recipientUserId, 
+      approvedOrder.dateSold, 
+      { ...baseOrderFilter, mobileProductType: null }
+    );
+    
+    for (const agreement of nonMobileAgreements) {
       const earning = await storage.createOverrideEarning({
         salesOrderId: approvedOrder.id,
         recipientUserId,
@@ -98,6 +113,32 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
         overrideAgreementId: agreement.id,
       });
       earnings.push(earning);
+    }
+    
+    // Process mobile-specific agreements for each product type
+    for (const mobileType of mobileProductTypes) {
+      const mobileAgreements = await storage.getActiveOverrideAgreements(
+        recipientUserId, 
+        approvedOrder.dateSold, 
+        { ...baseOrderFilter, mobileProductType: mobileType }
+      );
+      
+      for (const agreement of mobileAgreements) {
+        // Count matching lines for this product type
+        const matchingLines = mobileLines.filter(l => l.mobileProductType === mobileType);
+        const lineCount = matchingLines.length || 1;
+        const totalAmount = (parseFloat(agreement.amountFlat) * lineCount).toFixed(2);
+        
+        const earning = await storage.createOverrideEarning({
+          salesOrderId: approvedOrder.id,
+          recipientUserId,
+          sourceRepId: approvedOrder.repId,
+          sourceLevelUsed: recipientRole as any,
+          amount: totalAmount,
+          overrideAgreementId: agreement.id,
+        });
+        earnings.push(earning);
+      }
     }
   };
   

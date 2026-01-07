@@ -825,8 +825,8 @@ export const storage = {
     const [agreement] = await db.update(overrideAgreements).set({ ...data, updatedAt: new Date() }).where(eq(overrideAgreements.id, id)).returning();
     return agreement;
   },
-  async getActiveOverrideAgreements(recipientUserId: string, date: string, filter?: { providerId?: string; clientId?: string; serviceId?: string }) {
-    // Simplified: get all active agreements for this recipient on the given date
+  async getActiveOverrideAgreements(recipientUserId: string, date: string, filter?: { providerId?: string; clientId?: string; serviceId?: string; mobileProductType?: string | null; tvSold?: boolean }) {
+    // Get all active agreements for this recipient on the given date
     const agreements = await db.query.overrideAgreements.findMany({
       where: and(
         eq(overrideAgreements.recipientUserId, recipientUserId),
@@ -840,6 +840,16 @@ export const storage = {
       if (a.providerId && a.providerId !== filter?.providerId) return false;
       if (a.clientId && a.clientId !== filter?.clientId) return false;
       if (a.serviceId && a.serviceId !== filter?.serviceId) return false;
+      // Mobile product type matching
+      if (a.mobileProductType) {
+        if (a.mobileProductType === "NO_MOBILE") {
+          if (filter?.mobileProductType) return false;
+        } else {
+          if (a.mobileProductType !== filter?.mobileProductType) return false;
+        }
+      }
+      // TV sold filter
+      if (a.tvSoldFilter !== null && a.tvSoldFilter !== undefined && a.tvSoldFilter !== filter?.tvSold) return false;
       return true;
     });
   },
