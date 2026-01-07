@@ -30,6 +30,7 @@ import AdminServices from "@/pages/admin/services";
 import AdminRateCards from "@/pages/admin/rate-cards";
 import AdminIncentives from "@/pages/admin/incentives";
 import AdminOverrides from "@/pages/admin/overrides";
+import ExportHistory from "@/pages/export-history";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -150,6 +151,7 @@ function Router() {
             <Route path="/approvals" component={Approvals} />
             <Route path="/payruns" component={PayRuns} />
             <Route path="/accounting" component={Accounting} />
+            <Route path="/export-history" component={ExportHistory} />
             <Route path="/queues" component={Queues} />
             <Route path="/audit" component={Audit} />
             <Route path="/admin/users" component={AdminUsers} />
