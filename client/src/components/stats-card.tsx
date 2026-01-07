@@ -10,6 +10,7 @@ interface StatsCardProps {
   trendValue?: string;
   icon?: LucideIcon;
   testId?: string;
+  isCurrency?: boolean;
 }
 
 export function StatsCard({
@@ -20,9 +21,18 @@ export function StatsCard({
   trendValue,
   icon: Icon,
   testId,
+  isCurrency = true,
 }: StatsCardProps) {
   const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : Minus;
   const trendColor = trend === "up" ? "text-green-600" : trend === "down" ? "text-red-600" : "text-muted-foreground";
+
+  const formatValue = (val: string | number) => {
+    if (typeof val === "string") return val;
+    if (isCurrency) {
+      return `$${val.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+    }
+    return val.toLocaleString("en-US");
+  };
 
   return (
     <Card data-testid={testId}>
@@ -33,7 +43,7 @@ export function StatsCard({
               {title}
             </p>
             <p className="text-3xl font-bold font-mono mt-2" data-testid={`${testId}-value`}>
-              {typeof value === "number" ? `$${value.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : value}
+              {formatValue(value)}
             </p>
             {(subtitle || trendValue) && (
               <div className="flex items-center gap-2 mt-1">

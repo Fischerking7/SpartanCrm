@@ -140,12 +140,14 @@ export default function AdminDashboard() {
             value={stats?.activeReps || 0}
             icon={Users}
             testId="stat-active-reps"
+            isCurrency={false}
           />
           <StatsCard
             title="Pending Approvals"
             value={stats?.pendingApprovals || 0}
             icon={CheckSquare}
             testId="stat-pending-approvals"
+            isCurrency={false}
           />
         </div>
       )}
