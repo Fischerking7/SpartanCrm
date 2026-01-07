@@ -460,6 +460,15 @@ export default function Orders() {
       ),
     },
     {
+      key: "customerPhone",
+      header: "Phone",
+      cell: (row: SalesOrder) => (
+        <span className="font-mono text-sm text-muted-foreground truncate block max-w-[120px]">
+          {row.customerPhone || "-"}
+        </span>
+      ),
+    },
+    {
       key: "provider",
       header: "Provider",
       cell: (row: SalesOrder) => {
