@@ -324,35 +324,48 @@ export default function Orders() {
     },
   });
 
-  const exportToAccountingMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/admin/accounting/export-approved", {
-        method: "POST",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Failed to export");
-      }
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `export-${new Date().toISOString().split("T")[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      return { success: true };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      toast({ title: "Export successful", description: "Approved orders have been exported and marked" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Export failed", description: error.message, variant: "destructive" });
-    },
-  });
+  const handleExportToExcel = () => {
+    if (!filteredOrders?.length) {
+      toast({ title: "No orders to export", variant: "destructive" });
+      return;
+    }
+    
+    const headers = ["Invoice #", "Rep ID", "Customer Name", "Account #", "Phone", "Provider", "Service", "TV", "Mobile", "Mobile Lines", "Date Sold", "Install Date", "Job Status", "Approval Status", "Commission", "Payment Status"];
+    const rows = filteredOrders.map(order => {
+      const provider = providers?.find(p => p.id === order.providerId);
+      const service = services?.find(s => s.id === order.serviceId);
+      return [
+        order.invoiceNumber || "",
+        order.repId,
+        order.customerName,
+        order.accountNumber || "",
+        order.customerPhone || "",
+        provider?.name || "",
+        service?.name || "",
+        order.tvSold ? "Yes" : "No",
+        order.mobileSold ? "Yes" : "No",
+        order.mobileLinesQty?.toString() || "0",
+        order.dateSold,
+        order.installDate || "",
+        order.jobStatus,
+        order.approvalStatus,
+        parseFloat(order.baseCommissionEarned).toFixed(2),
+        order.paymentStatus,
+      ];
+    });
+    
+    const csvContent = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `orders-export-${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    toast({ title: "Export successful", description: `${filteredOrders.length} orders exported` });
+  };
 
   const markPaidMutation = useMutation({
     mutationFn: async (orderId: string) => {
@@ -572,12 +585,11 @@ export default function Orders() {
               </Button>
               <Button 
                 variant="default" 
-                onClick={() => exportToAccountingMutation.mutate()}
-                disabled={exportToAccountingMutation.isPending}
-                data-testid="button-export-to-accounting"
+                onClick={handleExportToExcel}
+                data-testid="button-export-to-excel"
               >
                 <Download className="h-4 w-4 mr-2" />
-                {exportToAccountingMutation.isPending ? "Exporting..." : "Export to Accounting"}
+                Export to Excel
               </Button>
             </>
           )}
