@@ -1846,14 +1846,22 @@ export async function registerRoutes(
       res.json(adjustment);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.post("/api/admin/adjustments/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+  const canApproveAdjustments = (req: AuthRequest, res: any, next: any) => {
+    if (req.user?.role === "ADMIN" || req.user?.role === "FOUNDER" || req.user?.role === "EXECUTIVE") {
+      next();
+    } else {
+      res.status(403).json({ message: "Only Admin and Executive can approve adjustments" });
+    }
+  };
+
+  app.post("/api/admin/adjustments/:id/approve", auth, canApproveAdjustments, async (req: AuthRequest, res) => {
     try {
       const adjustment = await storage.updateAdjustment(req.params.id, { approvalStatus: "APPROVED", approvedByUserId: req.user!.id, approvedAt: new Date() });
       await storage.createAuditLog({ action: "approve_adjustment", tableName: "adjustments", recordId: req.params.id, afterJson: JSON.stringify(adjustment), userId: req.user!.id });
       res.json(adjustment);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.post("/api/admin/adjustments/:id/reject", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/adjustments/:id/reject", auth, canApproveAdjustments, async (req: AuthRequest, res) => {
     try {
       const adjustment = await storage.updateAdjustment(req.params.id, { approvalStatus: "REJECTED", approvedByUserId: req.user!.id, approvedAt: new Date() });
       await storage.createAuditLog({ action: "reject_adjustment", tableName: "adjustments", recordId: req.params.id, afterJson: JSON.stringify(adjustment), userId: req.user!.id });

@@ -43,15 +43,27 @@ const repMenuItems = [
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
 ];
 
-// SUPERVISOR, MANAGER, EXECUTIVE - includes Reports
+// SUPERVISOR, MANAGER - includes Reports and Adjustments
 const salesLeaderMenuItems = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "Reports", url: "/reports", icon: BarChart3 },
+  { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
+];
+
+// EXECUTIVE - can approve adjustments
+const executiveMenuItems = [
+  { title: "Orders", url: "/orders", icon: FileText },
+  { title: "My Leads", url: "/leads", icon: UserPlus },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "Reports", url: "/reports", icon: BarChart3 },
+  { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
 ];
 
 // Admin/Founder get additional accounting and management options
@@ -88,9 +100,10 @@ export function AppSidebar() {
   if (!user) return null;
 
   const isAdmin = user.role === "ADMIN" || user.role === "FOUNDER";
-  const isSalesLeader = ["SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(user.role);
+  const isExecutive = user.role === "EXECUTIVE";
+  const isSalesLeader = ["SUPERVISOR", "MANAGER"].includes(user.role);
 
-  const menuItems = isAdmin ? adminMenuItems : (isSalesLeader ? salesLeaderMenuItems : repMenuItems);
+  const menuItems = isAdmin ? adminMenuItems : (isExecutive ? executiveMenuItems : (isSalesLeader ? salesLeaderMenuItems : repMenuItems));
 
   const getInitials = (name: string) => {
     return name

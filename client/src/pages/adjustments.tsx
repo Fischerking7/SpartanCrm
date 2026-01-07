@@ -29,7 +29,8 @@ export default function Adjustments() {
     adjustmentDate: new Date().toISOString().split("T")[0],
   });
 
-  const isAdmin = user?.role === "ADMIN";
+  const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
+  const canApprove = isAdmin || user?.role === "EXECUTIVE";
 
   const { data: adjustments, isLoading } = useQuery<Adjustment[]>({
     queryKey: ["/api/adjustments"],
@@ -47,7 +48,7 @@ export default function Adjustments() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: isAdmin,
+    enabled: canApprove,
   });
 
   const createMutation = useMutation({
@@ -173,7 +174,7 @@ export default function Adjustments() {
       header: "Status",
       cell: (row: Adjustment) => <ApprovalStatusBadge status={row.approvalStatus} />,
     },
-    ...(isAdmin
+    ...(canApprove
       ? [
           {
             key: "actions",
@@ -214,7 +215,7 @@ export default function Adjustments() {
         <div>
           <h1 className="text-2xl font-semibold">Adjustments</h1>
           <p className="text-muted-foreground">
-            {isAdmin ? "Review and approve commission adjustments" : "Submit adjustments for your team"}
+            {canApprove ? "Review and approve commission adjustments" : "Submit adjustment requests"}
           </p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="button-new-adjustment">
