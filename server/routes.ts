@@ -2788,6 +2788,16 @@ export async function registerRoutes(
         .filter(o => o.paymentStatus === "PAID")
         .reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
       
+      // Pending dollars: commission from orders with jobStatus = PENDING
+      const pendingDollars = periodOrders
+        .filter(o => o.jobStatus === "PENDING")
+        .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      
+      // Connected dollars: commission from orders with jobStatus = COMPLETED
+      const connectedDollars = periodOrders
+        .filter(o => o.jobStatus === "COMPLETED")
+        .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      
       const avgCommission = approvedOrders > 0 ? totalEarned / approvedOrders : 0;
       const approvalRate = totalOrders > 0 ? (approvedOrders / totalOrders) * 100 : 0;
       const completionRate = totalOrders > 0 ? (completedOrders / totalOrders) * 100 : 0;
@@ -2816,6 +2826,8 @@ export async function registerRoutes(
         totalEarned: totalEarned.toFixed(2),
         totalPaid: totalPaid.toFixed(2),
         outstanding: (totalEarned - totalPaid).toFixed(2),
+        pendingDollars: pendingDollars.toFixed(2),
+        connectedDollars: connectedDollars.toFixed(2),
         avgCommission: avgCommission.toFixed(2),
         approvalRate: approvalRate.toFixed(1),
         completionRate: completionRate.toFixed(1),

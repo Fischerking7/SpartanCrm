@@ -61,6 +61,8 @@ interface ReportSummary {
   totalEarned: string;
   totalPaid: string;
   outstanding: string;
+  pendingDollars: string;
+  connectedDollars: string;
   avgCommission: string;
   approvalRate: string;
   completionRate: string;
@@ -360,6 +362,42 @@ export default function Reports() {
           </Card>
         </div>
       )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card data-testid="stat-pending-dollars">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Pending Dollars</p>
+                <p className="text-3xl font-bold font-mono mt-2">${summary?.pendingDollars || "0.00"}</p>
+                <span className="text-xs text-muted-foreground">
+                  Commission from pending orders
+                </span>
+              </div>
+              <div className="p-2 rounded-md bg-orange-500/10">
+                <Clock className="h-5 w-5 text-orange-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="stat-connected-dollars">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Connected Dollars</p>
+                <p className="text-3xl font-bold font-mono mt-2">${summary?.connectedDollars || "0.00"}</p>
+                <span className="text-xs text-muted-foreground">
+                  Commission from completed orders
+                </span>
+              </div>
+              <div className="p-2 rounded-md bg-green-500/10">
+                <CheckCircle className="h-5 w-5 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard
