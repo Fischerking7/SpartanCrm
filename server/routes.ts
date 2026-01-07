@@ -2673,5 +2673,462 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== REPORTS ====================
+  
+  // Helper to get date ranges
+  function getDateRange(period: string, customStart?: string, customEnd?: string) {
+    const now = new Date();
+    let start: Date, end: Date;
+    
+    switch (period) {
+      case "today":
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        end = new Date(start);
+        end.setDate(end.getDate() + 1);
+        break;
+      case "yesterday":
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        break;
+      case "this_week":
+        const dayOfWeek = now.getDay();
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset);
+        end = new Date(start);
+        end.setDate(end.getDate() + 7);
+        break;
+      case "last_week":
+        const currentDayOfWeek = now.getDay();
+        const lastMondayOffset = currentDayOfWeek === 0 ? -13 : -6 - currentDayOfWeek;
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + lastMondayOffset);
+        end = new Date(start);
+        end.setDate(end.getDate() + 7);
+        break;
+      case "this_month":
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        break;
+      case "last_month":
+        start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        end = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case "this_quarter":
+        const currentQuarter = Math.floor(now.getMonth() / 3);
+        start = new Date(now.getFullYear(), currentQuarter * 3, 1);
+        end = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 1);
+        break;
+      case "last_quarter":
+        const lastQuarter = Math.floor(now.getMonth() / 3) - 1;
+        const year = lastQuarter < 0 ? now.getFullYear() - 1 : now.getFullYear();
+        const adjustedQuarter = lastQuarter < 0 ? 3 : lastQuarter;
+        start = new Date(year, adjustedQuarter * 3, 1);
+        end = new Date(year, (adjustedQuarter + 1) * 3, 1);
+        break;
+      case "this_year":
+        start = new Date(now.getFullYear(), 0, 1);
+        end = new Date(now.getFullYear() + 1, 0, 1);
+        break;
+      case "last_year":
+        start = new Date(now.getFullYear() - 1, 0, 1);
+        end = new Date(now.getFullYear(), 0, 1);
+        break;
+      case "custom":
+        start = customStart ? new Date(customStart) : new Date(now.getFullYear(), now.getMonth(), 1);
+        end = customEnd ? new Date(customEnd) : new Date();
+        end.setDate(end.getDate() + 1);
+        break;
+      default:
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    }
+    
+    return { start, end };
+  }
+
+  // Reports Summary - KPIs
+  app.get("/api/reports/summary", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      let orders = await storage.getOrders({});
+      
+      // Role-based filtering
+      if (user.role === "REP") {
+        orders = orders.filter(o => o.repId === user.repId);
+      } else if (user.role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+        orders = orders.filter(o => repIds.includes(o.repId));
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      }
+      
+      // Filter by date range (using dateSold)
+      const periodOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= start && orderDate < end;
+      });
+      
+      const totalOrders = periodOrders.length;
+      const completedOrders = periodOrders.filter(o => o.jobStatus === "COMPLETED").length;
+      const approvedOrders = periodOrders.filter(o => o.approvalStatus === "APPROVED").length;
+      const pendingOrders = periodOrders.filter(o => o.approvalStatus === "UNAPPROVED").length;
+      
+      const totalEarned = periodOrders
+        .filter(o => o.approvalStatus === "APPROVED")
+        .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      
+      const totalPaid = periodOrders
+        .filter(o => o.paymentStatus === "PAID")
+        .reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
+      
+      const avgCommission = approvedOrders > 0 ? totalEarned / approvedOrders : 0;
+      const approvalRate = totalOrders > 0 ? (approvedOrders / totalOrders) * 100 : 0;
+      const completionRate = totalOrders > 0 ? (completedOrders / totalOrders) * 100 : 0;
+      
+      // Get previous period for comparison
+      const periodLength = end.getTime() - start.getTime();
+      const prevStart = new Date(start.getTime() - periodLength);
+      const prevEnd = new Date(start);
+      
+      const prevOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= prevStart && orderDate < prevEnd;
+      });
+      
+      const prevTotalOrders = prevOrders.length;
+      const prevTotalEarned = prevOrders
+        .filter(o => o.approvalStatus === "APPROVED")
+        .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      
+      res.json({
+        period: { start: start.toISOString(), end: end.toISOString() },
+        totalOrders,
+        completedOrders,
+        approvedOrders,
+        pendingOrders,
+        totalEarned: totalEarned.toFixed(2),
+        totalPaid: totalPaid.toFixed(2),
+        outstanding: (totalEarned - totalPaid).toFixed(2),
+        avgCommission: avgCommission.toFixed(2),
+        approvalRate: approvalRate.toFixed(1),
+        completionRate: completionRate.toFixed(1),
+        comparison: {
+          ordersTrend: prevTotalOrders > 0 ? ((totalOrders - prevTotalOrders) / prevTotalOrders * 100).toFixed(1) : "0",
+          earnedTrend: prevTotalEarned > 0 ? ((totalEarned - prevTotalEarned) / prevTotalEarned * 100).toFixed(1) : "0",
+        },
+      });
+    } catch (error) {
+      console.error("Report summary error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Sales by Rep
+  app.get("/api/reports/sales-by-rep", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      let orders = await storage.getOrders({});
+      const users = await storage.getUsers();
+      
+      // Role-based filtering
+      if (user.role === "REP") {
+        orders = orders.filter(o => o.repId === user.repId);
+      } else if (user.role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+        orders = orders.filter(o => repIds.includes(o.repId));
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      }
+      
+      const periodOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= start && orderDate < end;
+      });
+      
+      const repStats: Record<string, { name: string; orders: number; earned: number; approved: number }> = {};
+      
+      for (const order of periodOrders) {
+        if (!repStats[order.repId]) {
+          const repUser = users.find(u => u.repId === order.repId);
+          repStats[order.repId] = { name: repUser?.name || order.repId, orders: 0, earned: 0, approved: 0 };
+        }
+        repStats[order.repId].orders++;
+        if (order.approvalStatus === "APPROVED") {
+          repStats[order.repId].approved++;
+          repStats[order.repId].earned += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
+        }
+      }
+      
+      const data = Object.entries(repStats)
+        .map(([repId, stats]) => ({ repId, ...stats }))
+        .sort((a, b) => b.earned - a.earned);
+      
+      res.json({ data });
+    } catch (error) {
+      console.error("Sales by rep error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Sales by Provider
+  app.get("/api/reports/sales-by-provider", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      let orders = await storage.getOrders({});
+      const providers = await storage.getProviders();
+      
+      // Role-based filtering
+      if (user.role === "REP") {
+        orders = orders.filter(o => o.repId === user.repId);
+      } else if (user.role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+        orders = orders.filter(o => repIds.includes(o.repId));
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      }
+      
+      const periodOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= start && orderDate < end;
+      });
+      
+      const providerStats: Record<string, { name: string; orders: number; earned: number }> = {};
+      
+      for (const order of periodOrders) {
+        const providerId = order.providerId;
+        if (!providerStats[providerId]) {
+          const provider = providers.find(p => p.id === providerId);
+          providerStats[providerId] = { name: provider?.name || "Unknown", orders: 0, earned: 0 };
+        }
+        providerStats[providerId].orders++;
+        if (order.approvalStatus === "APPROVED") {
+          providerStats[providerId].earned += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
+        }
+      }
+      
+      const data = Object.entries(providerStats)
+        .map(([id, stats]) => ({ id, ...stats }))
+        .sort((a, b) => b.orders - a.orders);
+      
+      res.json({ data });
+    } catch (error) {
+      console.error("Sales by provider error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Sales by Service
+  app.get("/api/reports/sales-by-service", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      let orders = await storage.getOrders({});
+      const services = await storage.getServices();
+      
+      // Role-based filtering
+      if (user.role === "REP") {
+        orders = orders.filter(o => o.repId === user.repId);
+      } else if (user.role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+        orders = orders.filter(o => repIds.includes(o.repId));
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      }
+      
+      const periodOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= start && orderDate < end;
+      });
+      
+      const serviceStats: Record<string, { name: string; orders: number; earned: number }> = {};
+      
+      for (const order of periodOrders) {
+        const serviceId = order.serviceId;
+        if (!serviceStats[serviceId]) {
+          const service = services.find(s => s.id === serviceId);
+          serviceStats[serviceId] = { name: service?.name || "Unknown", orders: 0, earned: 0 };
+        }
+        serviceStats[serviceId].orders++;
+        if (order.approvalStatus === "APPROVED") {
+          serviceStats[serviceId].earned += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
+        }
+      }
+      
+      const data = Object.entries(serviceStats)
+        .map(([id, stats]) => ({ id, ...stats }))
+        .sort((a, b) => b.orders - a.orders);
+      
+      res.json({ data });
+    } catch (error) {
+      console.error("Sales by service error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Trend Data
+  app.get("/api/reports/trend", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate, groupBy = "day" } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      let orders = await storage.getOrders({});
+      
+      // Role-based filtering
+      if (user.role === "REP") {
+        orders = orders.filter(o => o.repId === user.repId);
+      } else if (user.role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+        orders = orders.filter(o => repIds.includes(o.repId));
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      }
+      
+      const periodOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= start && orderDate < end;
+      });
+      
+      const trendData: Record<string, { label: string; orders: number; earned: number }> = {};
+      
+      for (const order of periodOrders) {
+        const orderDate = new Date(order.dateSold);
+        let key: string, label: string;
+        
+        if (groupBy === "day") {
+          key = orderDate.toISOString().split("T")[0];
+          label = orderDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        } else if (groupBy === "week") {
+          const weekStart = new Date(orderDate);
+          const day = weekStart.getDay();
+          const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1);
+          weekStart.setDate(diff);
+          key = weekStart.toISOString().split("T")[0];
+          label = `Week of ${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+        } else {
+          key = `${orderDate.getFullYear()}-${String(orderDate.getMonth() + 1).padStart(2, "0")}`;
+          label = orderDate.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+        }
+        
+        if (!trendData[key]) {
+          trendData[key] = { label, orders: 0, earned: 0 };
+        }
+        trendData[key].orders++;
+        if (order.approvalStatus === "APPROVED") {
+          trendData[key].earned += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
+        }
+      }
+      
+      const data = Object.entries(trendData)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, stats]) => ({ key, ...stats }));
+      
+      res.json({ data });
+    } catch (error) {
+      console.error("Trend error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Commission Summary - Earned vs Paid
+  app.get("/api/reports/commission-summary", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      let orders = await storage.getOrders({});
+      const users = await storage.getUsers();
+      
+      // Role-based filtering
+      if (user.role === "REP") {
+        orders = orders.filter(o => o.repId === user.repId);
+      } else if (user.role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+        orders = orders.filter(o => repIds.includes(o.repId));
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        orders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+      }
+      
+      const periodOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= start && orderDate < end;
+      });
+      
+      const repSummary: Record<string, { name: string; earned: number; paid: number; outstanding: number; orders: number }> = {};
+      
+      for (const order of periodOrders) {
+        if (!repSummary[order.repId]) {
+          const repUser = users.find(u => u.repId === order.repId);
+          repSummary[order.repId] = { name: repUser?.name || order.repId, earned: 0, paid: 0, outstanding: 0, orders: 0 };
+        }
+        repSummary[order.repId].orders++;
+        if (order.approvalStatus === "APPROVED") {
+          const earned = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
+          const paid = parseFloat(order.commissionPaid);
+          repSummary[order.repId].earned += earned;
+          repSummary[order.repId].paid += paid;
+          repSummary[order.repId].outstanding += (earned - paid);
+        }
+      }
+      
+      const data = Object.entries(repSummary)
+        .map(([repId, stats]) => ({ repId, ...stats }))
+        .sort((a, b) => b.earned - a.earned);
+      
+      const totals = data.reduce((acc, rep) => ({
+        totalEarned: acc.totalEarned + rep.earned,
+        totalPaid: acc.totalPaid + rep.paid,
+        totalOutstanding: acc.totalOutstanding + rep.outstanding,
+        totalOrders: acc.totalOrders + rep.orders,
+      }), { totalEarned: 0, totalPaid: 0, totalOutstanding: 0, totalOrders: 0 });
+      
+      res.json({ data, totals });
+    } catch (error) {
+      console.error("Commission summary error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
   return httpServer;
 }

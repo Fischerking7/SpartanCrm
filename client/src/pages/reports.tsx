@@ -1,406 +1,638 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
+import { StatsCard } from "@/components/stats-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { BarChart3, Users, Building2, TrendingUp, DollarSign, FileText, CheckCircle } from "lucide-react";
-import type { Provider, Client } from "@shared/schema";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from "recharts";
+import {
+  DollarSign,
+  TrendingUp,
+  TrendingDown,
+  FileText,
+  CheckCircle,
+  Clock,
+  Download,
+  Calendar,
+  Percent,
+} from "lucide-react";
+
+const PERIOD_OPTIONS = [
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "this_week", label: "This Week" },
+  { value: "last_week", label: "Last Week" },
+  { value: "this_month", label: "This Month" },
+  { value: "last_month", label: "Last Month" },
+  { value: "this_quarter", label: "This Quarter" },
+  { value: "last_quarter", label: "Last Quarter" },
+  { value: "this_year", label: "This Year" },
+  { value: "last_year", label: "Last Year" },
+  { value: "custom", label: "Custom Range" },
+];
+
+const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
 
 interface ReportSummary {
-  summary: {
-    totalOrders: number;
-    approvedOrders: number;
-    pendingOrders: number;
-    completedOrders: number;
-    totalEarned: number;
-    totalPaid: number;
-    outstandingBalance: number;
+  period: { start: string; end: string };
+  totalOrders: number;
+  completedOrders: number;
+  approvedOrders: number;
+  pendingOrders: number;
+  totalEarned: string;
+  totalPaid: string;
+  outstanding: string;
+  avgCommission: string;
+  approvalRate: string;
+  completionRate: string;
+  comparison: {
+    ordersTrend: string;
+    earnedTrend: string;
   };
-  repPerformance: Array<{
-    repId: string;
-    name: string;
-    role: string;
-    orderCount: number;
-    approvedCount: number;
-    totalEarned: number;
-  }>;
-  providerBreakdown: Array<{
-    id: string;
-    name: string;
-    orderCount: number;
-    totalEarned: number;
-  }>;
-  clientBreakdown: Array<{
-    id: string;
-    name: string;
-    orderCount: number;
-    totalEarned: number;
-  }>;
-  monthlyTrend: Array<{
-    month: string;
-    orders: number;
-    earned: number;
-  }>;
+}
+
+interface RepData {
+  repId: string;
+  name: string;
+  orders: number;
+  earned: number;
+  approved: number;
+}
+
+interface ProviderData {
+  id: string;
+  name: string;
+  orders: number;
+  earned: number;
+}
+
+interface ServiceData {
+  id: string;
+  name: string;
+  orders: number;
+  earned: number;
+}
+
+interface TrendData {
+  key: string;
+  label: string;
+  orders: number;
+  earned: number;
+}
+
+interface CommissionData {
+  repId: string;
+  name: string;
+  earned: number;
+  paid: number;
+  outstanding: number;
+  orders: number;
 }
 
 export default function Reports() {
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [selectedProvider, setSelectedProvider] = useState<string>("");
-  const [selectedClient, setSelectedClient] = useState<string>("");
+  const { toast } = useToast();
+  const [period, setPeriod] = useState("this_month");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
+  const [groupBy, setGroupBy] = useState("day");
 
-  const queryParams = new URLSearchParams();
-  if (dateFrom) queryParams.append("dateFrom", dateFrom);
-  if (dateTo) queryParams.append("dateTo", dateTo);
-  if (selectedProvider && selectedProvider !== "__ALL__") queryParams.append("providerId", selectedProvider);
-  if (selectedClient && selectedClient !== "__ALL__") queryParams.append("clientId", selectedClient);
+  const buildQueryString = () => {
+    const params = new URLSearchParams({ period });
+    if (period === "custom" && customStartDate) params.set("startDate", customStartDate);
+    if (period === "custom" && customEndDate) params.set("endDate", customEndDate);
+    return params.toString();
+  };
 
-  const { data: reportData, isLoading } = useQuery<ReportSummary>({
-    queryKey: ["/api/admin/reports/summary", dateFrom, dateTo, selectedProvider, selectedClient],
+  const { data: summary, isLoading: summaryLoading } = useQuery<ReportSummary>({
+    queryKey: ["/api/reports/summary", period, customStartDate, customEndDate],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/reports/summary?${queryParams.toString()}`, {
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) throw new Error("Failed to fetch reports");
+      const res = await fetch(`/api/reports/summary?${buildQueryString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch summary");
       return res.json();
     },
   });
 
-  const { data: providers } = useQuery<Provider[]>({
-    queryKey: ["/api/providers"],
+  const { data: salesByRep } = useQuery<{ data: RepData[] }>({
+    queryKey: ["/api/reports/sales-by-rep", period, customStartDate, customEndDate],
     queryFn: async () => {
-      const res = await fetch("/api/providers", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch providers");
+      const res = await fetch(`/api/reports/sales-by-rep?${buildQueryString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
   });
 
-  const { data: clients } = useQuery<Client[]>({
-    queryKey: ["/api/clients"],
+  const { data: salesByProvider } = useQuery<{ data: ProviderData[] }>({
+    queryKey: ["/api/reports/sales-by-provider", period, customStartDate, customEndDate],
     queryFn: async () => {
-      const res = await fetch("/api/clients", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch clients");
+      const res = await fetch(`/api/reports/sales-by-provider?${buildQueryString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
   });
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(amount);
+  const { data: salesByService } = useQuery<{ data: ServiceData[] }>({
+    queryKey: ["/api/reports/sales-by-service", period, customStartDate, customEndDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/reports/sales-by-service?${buildQueryString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  const { data: trendData } = useQuery<{ data: TrendData[] }>({
+    queryKey: ["/api/reports/trend", period, customStartDate, customEndDate, groupBy],
+    queryFn: async () => {
+      const params = new URLSearchParams({ period, groupBy });
+      if (period === "custom" && customStartDate) params.set("startDate", customStartDate);
+      if (period === "custom" && customEndDate) params.set("endDate", customEndDate);
+      const res = await fetch(`/api/reports/trend?${params.toString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  const { data: commissionSummary } = useQuery<{ data: CommissionData[]; totals: { totalEarned: number; totalPaid: number; totalOutstanding: number; totalOrders: number } }>({
+    queryKey: ["/api/reports/commission-summary", period, customStartDate, customEndDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/reports/commission-summary?${buildQueryString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  const handleExport = () => {
+    if (!commissionSummary?.data?.length) {
+      toast({ title: "No data to export", variant: "destructive" });
+      return;
+    }
+
+    const headers = ["Rep ID", "Name", "Orders", "Earned", "Paid", "Outstanding"];
+    const rows = commissionSummary.data.map(row => [
+      row.repId,
+      row.name,
+      row.orders.toString(),
+      row.earned.toFixed(2),
+      row.paid.toFixed(2),
+      row.outstanding.toFixed(2),
+    ]);
+
+    const periodLabel = PERIOD_OPTIONS.find(p => p.value === period)?.label || period;
+    const csvContent = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `commission-report-${periodLabel.toLowerCase().replace(/\s/g, "-")}-${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    toast({ title: "Report exported successfully" });
+  };
+
+  const formatCurrency = (value: number) => `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const getTrendIcon = (value: string) => {
+    const num = parseFloat(value);
+    if (num > 0) return <TrendingUp className="h-4 w-4 text-green-600" />;
+    if (num < 0) return <TrendingDown className="h-4 w-4 text-red-600" />;
+    return null;
+  };
+
+  const getTrendColor = (value: string) => {
+    const num = parseFloat(value);
+    if (num > 0) return "text-green-600";
+    if (num < 0) return "text-red-600";
+    return "text-muted-foreground";
   };
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Reports & Analytics</h1>
-        <p className="text-muted-foreground">
-          View performance metrics, breakdowns, and trends
-        </p>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold">Reports</h1>
+          <p className="text-muted-foreground">
+            Comprehensive analytics and performance metrics
+          </p>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-[180px]" data-testid="select-period">
+              <Calendar className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Select period" />
+            </SelectTrigger>
+            <SelectContent>
+              {PERIOD_OPTIONS.map(opt => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {period === "custom" && (
+            <>
+              <Input
+                type="date"
+                value={customStartDate}
+                onChange={e => setCustomStartDate(e.target.value)}
+                className="w-[150px]"
+                data-testid="input-start-date"
+              />
+              <span className="text-muted-foreground">to</span>
+              <Input
+                type="date"
+                value={customEndDate}
+                onChange={e => setCustomEndDate(e.target.value)}
+                className="w-[150px]"
+                data-testid="input-end-date"
+              />
+            </>
+          )}
+          <Button variant="outline" onClick={handleExport} data-testid="button-export-report">
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Filters</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-4 items-end">
-            <div className="space-y-2">
-              <Label>Date From</Label>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-40"
-                data-testid="input-date-from"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Date To</Label>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-40"
-                data-testid="input-date-to"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Provider</Label>
-              <Select value={selectedProvider || "__ALL__"} onValueChange={setSelectedProvider}>
-                <SelectTrigger className="w-40" data-testid="select-provider">
-                  <SelectValue placeholder="All Providers" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__ALL__">All Providers</SelectItem>
-                  {providers?.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Client</Label>
-              <Select value={selectedClient || "__ALL__"} onValueChange={setSelectedClient}>
-                <SelectTrigger className="w-40" data-testid="select-client">
-                  <SelectValue placeholder="All Clients" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__ALL__">All Clients</SelectItem>
-                  {clients?.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setDateFrom("");
-                setDateTo("");
-                setSelectedProvider("");
-                setSelectedClient("");
-              }}
-              data-testid="button-clear-filters"
-            >
-              Clear Filters
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {isLoading ? (
-        <div className="text-center py-8 text-muted-foreground">Loading reports...</div>
-      ) : reportData ? (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-                <FileText className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-total-orders">
-                  {reportData.summary.totalOrders}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {reportData.summary.approvedOrders} approved, {reportData.summary.pendingOrders} pending
-                </p>
+      {summaryLoading ? (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map(i => (
+            <Card key={i}>
+              <CardContent className="p-6">
+                <Skeleton className="h-4 w-24 mb-2" />
+                <Skeleton className="h-8 w-32" />
               </CardContent>
             </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Completed Jobs</CardTitle>
-                <CheckCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-completed-jobs">
-                  {reportData.summary.completedOrders}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {((reportData.summary.completedOrders / reportData.summary.totalOrders) * 100 || 0).toFixed(1)}% completion rate
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Earned</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-total-earned">
-                  {formatCurrency(reportData.summary.totalEarned)}
-                </div>
-                <p className="text-xs text-muted-foreground">From approved orders</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Outstanding Balance</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-outstanding">
-                  {formatCurrency(reportData.summary.outstandingBalance)}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {formatCurrency(reportData.summary.totalPaid)} paid
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Tabs defaultValue="reps">
-            <TabsList>
-              <TabsTrigger value="reps" data-testid="tab-reps">
-                <Users className="h-4 w-4 mr-2" />
-                Rep Performance
-              </TabsTrigger>
-              <TabsTrigger value="providers" data-testid="tab-providers">
-                <Building2 className="h-4 w-4 mr-2" />
-                By Provider
-              </TabsTrigger>
-              <TabsTrigger value="clients" data-testid="tab-clients">
-                <Building2 className="h-4 w-4 mr-2" />
-                By Client
-              </TabsTrigger>
-              <TabsTrigger value="trend" data-testid="tab-trend">
-                <BarChart3 className="h-4 w-4 mr-2" />
-                Monthly Trend
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="reps">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Rep Performance</CardTitle>
-                  <CardDescription>Rankings by total earned commissions</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {reportData.repPerformance.length === 0 ? (
-                      <p className="text-muted-foreground text-center py-4">No data available</p>
-                    ) : (
-                      reportData.repPerformance.map((rep, index) => (
-                        <div
-                          key={rep.repId}
-                          className="flex items-center justify-between p-3 rounded-md bg-muted/50"
-                          data-testid={`row-rep-${rep.repId}`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="font-mono text-sm text-muted-foreground w-6">
-                              #{index + 1}
-                            </span>
-                            <div>
-                              <p className="font-medium">{rep.name}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {rep.repId} - {rep.role}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-semibold">{formatCurrency(rep.totalEarned)}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {rep.orderCount} orders ({rep.approvedCount} approved)
-                            </p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="providers">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Provider Breakdown</CardTitle>
-                  <CardDescription>Orders and earnings by provider</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {reportData.providerBreakdown.length === 0 ? (
-                      <p className="text-muted-foreground text-center py-4">No data available</p>
-                    ) : (
-                      reportData.providerBreakdown.map((provider) => (
-                        <div
-                          key={provider.id}
-                          className="flex items-center justify-between p-3 rounded-md bg-muted/50"
-                          data-testid={`row-provider-${provider.id}`}
-                        >
-                          <div>
-                            <p className="font-medium">{provider.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {provider.orderCount} orders
-                            </p>
-                          </div>
-                          <p className="font-semibold">{formatCurrency(provider.totalEarned)}</p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="clients">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Client Breakdown</CardTitle>
-                  <CardDescription>Orders and earnings by client</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {reportData.clientBreakdown.length === 0 ? (
-                      <p className="text-muted-foreground text-center py-4">No data available</p>
-                    ) : (
-                      reportData.clientBreakdown.map((client) => (
-                        <div
-                          key={client.id}
-                          className="flex items-center justify-between p-3 rounded-md bg-muted/50"
-                          data-testid={`row-client-${client.id}`}
-                        >
-                          <div>
-                            <p className="font-medium">{client.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {client.orderCount} orders
-                            </p>
-                          </div>
-                          <p className="font-semibold">{formatCurrency(client.totalEarned)}</p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="trend">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Monthly Trend</CardTitle>
-                  <CardDescription>Orders and earnings over time</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {reportData.monthlyTrend.length === 0 ? (
-                      <p className="text-muted-foreground text-center py-4">No data available</p>
-                    ) : (
-                      reportData.monthlyTrend.map((month) => (
-                        <div
-                          key={month.month}
-                          className="flex items-center justify-between p-3 rounded-md bg-muted/50"
-                          data-testid={`row-month-${month.month}`}
-                        >
-                          <div>
-                            <p className="font-medium">{month.month}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {month.orders} orders
-                            </p>
-                          </div>
-                          <p className="font-semibold">{formatCurrency(month.earned)}</p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </>
+          ))}
+        </div>
       ) : (
-        <div className="text-center py-8 text-muted-foreground">No data available</div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card data-testid="stat-total-orders">
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Orders</p>
+                  <p className="text-3xl font-bold font-mono mt-2">{summary?.totalOrders || 0}</p>
+                  <div className="flex items-center gap-1 mt-1">
+                    {getTrendIcon(summary?.comparison.ordersTrend || "0")}
+                    <span className={`text-xs ${getTrendColor(summary?.comparison.ordersTrend || "0")}`}>
+                      {summary?.comparison.ordersTrend}% vs prev
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2 rounded-md bg-primary/10">
+                  <FileText className="h-5 w-5 text-primary" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="stat-total-earned">
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Earned</p>
+                  <p className="text-3xl font-bold font-mono mt-2">${summary?.totalEarned || "0.00"}</p>
+                  <div className="flex items-center gap-1 mt-1">
+                    {getTrendIcon(summary?.comparison.earnedTrend || "0")}
+                    <span className={`text-xs ${getTrendColor(summary?.comparison.earnedTrend || "0")}`}>
+                      {summary?.comparison.earnedTrend}% vs prev
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2 rounded-md bg-green-500/10">
+                  <DollarSign className="h-5 w-5 text-green-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="stat-outstanding">
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Outstanding</p>
+                  <p className="text-3xl font-bold font-mono mt-2">${summary?.outstanding || "0.00"}</p>
+                  <span className="text-xs text-muted-foreground">
+                    Earned - Paid
+                  </span>
+                </div>
+                <div className="p-2 rounded-md bg-yellow-500/10">
+                  <Clock className="h-5 w-5 text-yellow-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="stat-approval-rate">
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Approval Rate</p>
+                  <p className="text-3xl font-bold font-mono mt-2">{summary?.approvalRate || "0"}%</p>
+                  <span className="text-xs text-muted-foreground">
+                    {summary?.approvedOrders || 0} of {summary?.totalOrders || 0} approved
+                  </span>
+                </div>
+                <div className="p-2 rounded-md bg-blue-500/10">
+                  <Percent className="h-5 w-5 text-blue-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatsCard
+          title="Avg Commission"
+          value={`$${summary?.avgCommission || "0.00"}`}
+          icon={DollarSign}
+          testId="stat-avg-commission"
+          isCurrency={false}
+        />
+        <StatsCard
+          title="Completed Orders"
+          value={summary?.completedOrders || 0}
+          icon={CheckCircle}
+          testId="stat-completed-orders"
+          isCurrency={false}
+        />
+        <StatsCard
+          title="Pending Approval"
+          value={summary?.pendingOrders || 0}
+          icon={Clock}
+          testId="stat-pending-orders"
+          isCurrency={false}
+        />
+        <StatsCard
+          title="Total Paid"
+          value={summary?.totalPaid || "0.00"}
+          icon={DollarSign}
+          testId="stat-total-paid"
+        />
+      </div>
+
+      <Tabs defaultValue="trend" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="trend" data-testid="tab-trend">Trend Analysis</TabsTrigger>
+          <TabsTrigger value="performance" data-testid="tab-performance">Rep Performance</TabsTrigger>
+          <TabsTrigger value="breakdown" data-testid="tab-breakdown">Sales Breakdown</TabsTrigger>
+          <TabsTrigger value="commission" data-testid="tab-commission">Commission Summary</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="trend" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+              <div>
+                <CardTitle className="text-lg">Sales Trend</CardTitle>
+                <CardDescription>Orders and earnings over time</CardDescription>
+              </div>
+              <Select value={groupBy} onValueChange={setGroupBy}>
+                <SelectTrigger className="w-[120px]" data-testid="select-group-by">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="day">Daily</SelectItem>
+                  <SelectItem value="week">Weekly</SelectItem>
+                  <SelectItem value="month">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </CardHeader>
+            <CardContent>
+              {trendData?.data?.length ? (
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={trendData.data}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis dataKey="label" className="text-xs" />
+                    <YAxis yAxisId="left" className="text-xs" />
+                    <YAxis yAxisId="right" orientation="right" className="text-xs" tickFormatter={v => `$${v}`} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                      formatter={(value: number, name: string) => [
+                        name === "earned" ? formatCurrency(value) : value,
+                        name === "earned" ? "Earned" : "Orders"
+                      ]}
+                    />
+                    <Legend />
+                    <Line yAxisId="left" type="monotone" dataKey="orders" stroke="#3b82f6" strokeWidth={2} name="Orders" />
+                    <Line yAxisId="right" type="monotone" dataKey="earned" stroke="#10b981" strokeWidth={2} name="Earned" />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[350px] flex items-center justify-center text-muted-foreground">
+                  No data for selected period
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="performance" className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Top Performers by Revenue</CardTitle>
+                <CardDescription>Commission earned by rep</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {salesByRep?.data?.length ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={salesByRep.data.slice(0, 10)} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis type="number" tickFormatter={v => `$${v}`} className="text-xs" />
+                      <YAxis dataKey="name" type="category" width={100} className="text-xs" />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                        formatter={(value: number) => [formatCurrency(value), "Earned"]}
+                      />
+                      <Bar dataKey="earned" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    No data for selected period
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Top Performers by Volume</CardTitle>
+                <CardDescription>Order count by rep</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {salesByRep?.data?.length ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={salesByRep.data.slice(0, 10).sort((a, b) => b.orders - a.orders)} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis type="number" className="text-xs" />
+                      <YAxis dataKey="name" type="category" width={100} className="text-xs" />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                        formatter={(value: number) => [value, "Orders"]}
+                      />
+                      <Bar dataKey="orders" fill="#10b981" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    No data for selected period
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="breakdown" className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Sales by Provider</CardTitle>
+                <CardDescription>Order distribution across providers</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {salesByProvider?.data?.length ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={salesByProvider.data}
+                        dataKey="orders"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={100}
+                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {salesByProvider.data.map((_, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    No data for selected period
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Sales by Service</CardTitle>
+                <CardDescription>Order distribution across services</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {salesByService?.data?.length ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={salesByService.data.slice(0, 8)}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis dataKey="name" className="text-xs" angle={-45} textAnchor="end" height={80} />
+                      <YAxis className="text-xs" />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                      />
+                      <Bar dataKey="orders" fill="#8b5cf6" radius={[4, 4, 0, 0]} name="Orders" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    No data for selected period
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="commission" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+              <div>
+                <CardTitle className="text-lg">Commission Summary by Rep</CardTitle>
+                <CardDescription>Earned vs Paid breakdown</CardDescription>
+              </div>
+              {commissionSummary?.totals && (
+                <div className="flex gap-6 text-sm flex-wrap">
+                  <div>
+                    <span className="text-muted-foreground">Total Earned: </span>
+                    <span className="font-mono font-medium">{formatCurrency(commissionSummary.totals.totalEarned)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Total Paid: </span>
+                    <span className="font-mono font-medium">{formatCurrency(commissionSummary.totals.totalPaid)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Outstanding: </span>
+                    <span className="font-mono font-medium text-yellow-600">{formatCurrency(commissionSummary.totals.totalOutstanding)}</span>
+                  </div>
+                </div>
+              )}
+            </CardHeader>
+            <CardContent>
+              {commissionSummary?.data?.length ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-2 font-medium">Rep</th>
+                        <th className="text-right py-3 px-2 font-medium">Orders</th>
+                        <th className="text-right py-3 px-2 font-medium">Earned</th>
+                        <th className="text-right py-3 px-2 font-medium">Paid</th>
+                        <th className="text-right py-3 px-2 font-medium">Outstanding</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {commissionSummary.data.map((row) => (
+                        <tr key={row.repId} className="border-b last:border-0 hover-elevate">
+                          <td className="py-3 px-2">
+                            <div>
+                              <span className="font-medium">{row.name}</span>
+                              <span className="text-muted-foreground ml-2 font-mono text-xs">({row.repId})</span>
+                            </div>
+                          </td>
+                          <td className="text-right py-3 px-2 font-mono">{row.orders}</td>
+                          <td className="text-right py-3 px-2 font-mono text-green-600">{formatCurrency(row.earned)}</td>
+                          <td className="text-right py-3 px-2 font-mono">{formatCurrency(row.paid)}</td>
+                          <td className="text-right py-3 px-2 font-mono text-yellow-600">{formatCurrency(row.outstanding)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="py-12 text-center text-muted-foreground">
+                  No data for selected period
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
