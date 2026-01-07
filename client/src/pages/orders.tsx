@@ -386,7 +386,43 @@ export default function Orders() {
       key: "customerName",
       header: "Customer",
       cell: (row: SalesOrder) => (
-        <span className="font-medium truncate block max-w-[200px]">{row.customerName}</span>
+        <span className="font-medium truncate block max-w-[150px]">{row.customerName}</span>
+      ),
+    },
+    {
+      key: "accountNumber",
+      header: "Account #",
+      cell: (row: SalesOrder) => (
+        <span className="font-mono text-sm text-muted-foreground truncate block max-w-[100px]">
+          {row.accountNumber || "-"}
+        </span>
+      ),
+    },
+    {
+      key: "provider",
+      header: "Provider",
+      cell: (row: SalesOrder) => {
+        const provider = providers?.find(p => p.id === row.providerId);
+        return <span className="text-sm truncate block max-w-[100px]">{provider?.name || "-"}</span>;
+      },
+    },
+    {
+      key: "service",
+      header: "Service",
+      cell: (row: SalesOrder) => {
+        const service = services?.find(s => s.id === row.serviceId);
+        return <span className="text-sm truncate block max-w-[100px]">{service?.name || "-"}</span>;
+      },
+    },
+    {
+      key: "addons",
+      header: "Add-ons",
+      cell: (row: SalesOrder) => (
+        <div className="flex gap-1 flex-wrap">
+          {row.tvSold && <span className="text-xs bg-muted px-1.5 py-0.5 rounded">TV</span>}
+          {row.mobileSold && <span className="text-xs bg-muted px-1.5 py-0.5 rounded">Mobile ({row.mobileLinesQty})</span>}
+          {!row.tvSold && !row.mobileSold && <span className="text-muted-foreground text-sm">-</span>}
+        </div>
       ),
     },
     {
@@ -400,7 +436,7 @@ export default function Orders() {
     },
     {
       key: "installDate",
-      header: "Install Date",
+      header: "Install",
       cell: (row: SalesOrder) => (
         <span className="text-sm text-muted-foreground">
           {row.installDate ? new Date(row.installDate).toLocaleDateString() : "-"}
@@ -409,7 +445,7 @@ export default function Orders() {
     },
     {
       key: "jobStatus",
-      header: "Job Status",
+      header: "Job",
       cell: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
     },
     {
