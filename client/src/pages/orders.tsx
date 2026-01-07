@@ -354,6 +354,28 @@ export default function Orders() {
     },
   });
 
+  const markPaidMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await fetch(`/api/admin/orders/${orderId}/mark-paid`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to mark as paid");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setSelectedOrder(data);
+      toast({ title: "Order marked as paid" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to mark as paid", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleCreateOrder = () => {
     if (!newOrderForm.customerName || !newOrderForm.dateSold) {
       toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
@@ -789,7 +811,17 @@ export default function Orders() {
               </div>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="gap-2">
+            {isAdmin && selectedOrder && selectedOrder.paymentStatus !== "PAID" && (
+              <Button 
+                onClick={() => markPaidMutation.mutate(selectedOrder.id)}
+                disabled={markPaidMutation.isPending}
+                data-testid="button-mark-paid"
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                {markPaidMutation.isPending ? "Marking..." : "Mark as Paid"}
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setSelectedOrder(null)}>
               Close
             </Button>

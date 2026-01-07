@@ -1182,6 +1182,27 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/orders/:id/mark-paid", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user!;
+      const order = await storage.getOrderById(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+
+      const totalCommission = (parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned)).toFixed(2);
+      const updated = await storage.updateOrder(id, {
+        paymentStatus: "PAID",
+        paidDate: new Date().toISOString().split("T")[0],
+        commissionPaid: totalCommission,
+      });
+
+      await storage.createAuditLog({ action: "mark_paid", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark order as paid" });
+    }
+  });
+
   app.post("/api/admin/orders/bulk-approve", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const { orderIds } = req.body;
