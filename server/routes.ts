@@ -1821,6 +1821,19 @@ export async function registerRoutes(
     try { res.json(await storage.getRateCards()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
   
+  // Rate cards for override display (admins and executives)
+  app.get("/api/rate-cards/for-overrides", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      res.json(await storage.getRateCards());
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get rate cards" });
+    }
+  });
+  
   // Check if mobile rates exist for given provider/client/service combo (for order form auto-detect)
   app.get("/api/rate-cards/mobile-check", auth, async (req, res) => {
     try {
