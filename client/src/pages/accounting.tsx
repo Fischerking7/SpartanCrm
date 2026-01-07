@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Download, Upload, FileSpreadsheet, DollarSign } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, DollarSign, Layers } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import type { PayRun } from "@shared/schema";
 
 export default function Accounting() {
@@ -22,6 +24,39 @@ export default function Accounting() {
     queryFn: async () => {
       const res = await fetch("/api/admin/payruns", { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch pay runs");
+      return res.json();
+    },
+  });
+
+  interface PoolEntry {
+    id: string;
+    salesOrderId: string;
+    rateCardId: string;
+    amount: string;
+    status: "PENDING" | "DISTRIBUTED";
+    exportBatchId: string | null;
+    distributedAt: string | null;
+    createdAt: string;
+    invoiceNumber: string;
+    repId: string;
+    dateSold: string;
+    rateCardName: string;
+  }
+
+  const { data: poolEntries, isLoading: poolLoading } = useQuery<PoolEntry[]>({
+    queryKey: ["/api/admin/override-pool", "PENDING"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/override-pool?status=PENDING", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch pool entries");
+      return res.json();
+    },
+  });
+
+  const { data: poolTotal } = useQuery<{ total: string }>({
+    queryKey: ["/api/admin/override-pool/total"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/override-pool/total", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch pool total");
       return res.json();
     },
   });
@@ -172,6 +207,13 @@ export default function Accounting() {
             <FileSpreadsheet className="h-4 w-4 mr-2" />
             Import Chargebacks
           </TabsTrigger>
+          <TabsTrigger value="override-pool" data-testid="tab-override-pool">
+            <Layers className="h-4 w-4 mr-2" />
+            Override Pool
+            {poolEntries && poolEntries.length > 0 && (
+              <Badge variant="secondary" className="ml-2">{poolEntries.length}</Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="export">
@@ -252,6 +294,64 @@ export default function Accounting() {
                 <Upload className="h-4 w-4 mr-2" />
                 {importChargebacksMutation.isPending ? "Importing..." : "Upload Chargeback CSV"}
               </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="override-pool">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center justify-between gap-4">
+                <span>Override Deduction Pool</span>
+                {poolTotal && (
+                  <Badge variant="outline" className="text-base">
+                    Pool Total: ${parseFloat(poolTotal.total).toFixed(2)}
+                  </Badge>
+                )}
+              </CardTitle>
+              <CardDescription>
+                Rate card override deductions pooled from approved orders. These deductions are distributed to the hierarchy after export finalization.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {poolLoading ? (
+                <div className="text-muted-foreground">Loading...</div>
+              ) : poolEntries && poolEntries.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Invoice</TableHead>
+                      <TableHead>Rep ID</TableHead>
+                      <TableHead>Date Sold</TableHead>
+                      <TableHead>Rate Card</TableHead>
+                      <TableHead className="text-right">Deduction</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {poolEntries.map((entry) => (
+                      <TableRow key={entry.id} data-testid={`row-pool-${entry.id}`}>
+                        <TableCell className="font-mono">{entry.invoiceNumber}</TableCell>
+                        <TableCell>{entry.repId}</TableCell>
+                        <TableCell>{entry.dateSold}</TableCell>
+                        <TableCell>{entry.rateCardName}</TableCell>
+                        <TableCell className="text-right font-mono">
+                          ${parseFloat(entry.amount).toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={entry.status === "PENDING" ? "secondary" : "default"}>
+                            {entry.status}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="text-muted-foreground text-center py-8">
+                  No pending override deductions in pool.
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

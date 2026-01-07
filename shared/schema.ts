@@ -367,6 +367,35 @@ export const unmatchedChargebacks = pgTable("unmatched_chargebacks", {
   resolutionNote: text("resolution_note"),
 });
 
+// Override Deduction Pool - Pending rate card deductions awaiting distribution during export
+export const overrideDeductionPoolStatusEnum = pgEnum("override_deduction_pool_status", ["PENDING", "DISTRIBUTED"]);
+
+export const overrideDeductionPool = pgTable("override_deduction_pool", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  salesOrderId: varchar("sales_order_id").notNull().references(() => salesOrders.id),
+  rateCardId: varchar("rate_card_id").notNull().references(() => rateCards.id),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  status: overrideDeductionPoolStatusEnum("status").notNull().default("PENDING"),
+  exportBatchId: varchar("export_batch_id").references(() => exportBatches.id),
+  distributedAt: timestamp("distributed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const overrideDeductionPoolRelations = relations(overrideDeductionPool, ({ one }) => ({
+  salesOrder: one(salesOrders, { fields: [overrideDeductionPool.salesOrderId], references: [salesOrders.id] }),
+  rateCard: one(rateCards, { fields: [overrideDeductionPool.rateCardId], references: [rateCards.id] }),
+  exportBatch: one(exportBatches, { fields: [overrideDeductionPool.exportBatchId], references: [exportBatches.id] }),
+}));
+
+export const insertOverrideDeductionPoolSchema = createInsertSchema(overrideDeductionPool).omit({
+  id: true,
+  createdAt: true,
+  distributedAt: true,
+});
+
+export type OverrideDeductionPool = typeof overrideDeductionPool.$inferSelect;
+export type InsertOverrideDeductionPool = z.infer<typeof insertOverrideDeductionPoolSchema>;
+
 // Rate Issues table
 export const rateIssues = pgTable("rate_issues", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

@@ -5,6 +5,7 @@ import {
   incentives, overrideAgreements, chargebacks, adjustments,
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues,
   auditLogs, exportBatches, counters, overrideEarnings, leads, commissionLineItems, mobileLineItems,
+  overrideDeductionPool,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -15,6 +16,7 @@ import {
   type RateIssue, type AuditLog, type InsertAuditLog, type Lead, type InsertLead,
   type CommissionLineItem, type InsertCommissionLineItem,
   type MobileLineItem, type InsertMobileLineItem,
+  type OverrideDeductionPool, type InsertOverrideDeductionPool,
 } from "@shared/schema";
 
 export const storage = {
@@ -571,6 +573,45 @@ export const storage = {
       appliedRateCardId 
     }).where(eq(mobileLineItems.id, id)).returning();
     return item;
+  },
+
+  // Override Deduction Pool
+  async getOverrideDeductionPoolEntries(status?: "PENDING" | "DISTRIBUTED") {
+    if (status) {
+      return db.query.overrideDeductionPool.findMany({
+        where: eq(overrideDeductionPool.status, status),
+        orderBy: [desc(overrideDeductionPool.createdAt)],
+      });
+    }
+    return db.query.overrideDeductionPool.findMany({
+      orderBy: [desc(overrideDeductionPool.createdAt)],
+    });
+  },
+  async getOverrideDeductionPoolByOrderId(orderId: string) {
+    return db.query.overrideDeductionPool.findMany({
+      where: eq(overrideDeductionPool.salesOrderId, orderId),
+    });
+  },
+  async createOverrideDeductionPoolEntry(data: InsertOverrideDeductionPool) {
+    const [entry] = await db.insert(overrideDeductionPool).values(data).returning();
+    return entry;
+  },
+  async markPoolEntriesDistributed(ids: string[], exportBatchId: string) {
+    const updated = await db.update(overrideDeductionPool)
+      .set({ 
+        status: "DISTRIBUTED", 
+        exportBatchId, 
+        distributedAt: new Date() 
+      })
+      .where(inArray(overrideDeductionPool.id, ids))
+      .returning();
+    return updated;
+  },
+  async getPendingPoolTotal() {
+    const result = await db.select({
+      total: sql<string>`COALESCE(SUM(${overrideDeductionPool.amount}), 0)::text`
+    }).from(overrideDeductionPool).where(eq(overrideDeductionPool.status, "PENDING"));
+    return result[0]?.total || "0";
   },
 
   // Sales Orders
