@@ -2426,13 +2426,31 @@ export async function registerRoutes(
       const currentUser = req.user!;
       const isRep = currentUser.role === "REP";
 
+      // Helper to get value from row with case-insensitive column matching
+      const getRowValue = (row: Record<string, any>, ...keys: string[]): string => {
+        for (const key of keys) {
+          // Try exact match first
+          if (row[key] !== undefined && row[key] !== null) {
+            return row[key].toString().trim();
+          }
+          // Try case-insensitive match
+          const lowerKey = key.toLowerCase();
+          for (const rowKey of Object.keys(row)) {
+            if (rowKey.toLowerCase() === lowerKey && row[rowKey] !== undefined && row[rowKey] !== null) {
+              return row[rowKey].toString().trim();
+            }
+          }
+        }
+        return "";
+      };
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const rowNum = i + 2;
 
         try {
           // For REPs, use their own repId; for others, use from file or default to their own
-          let repId = row.repId?.toString().trim();
+          let repId = getRowValue(row, "repId", "rep_id", "RepId", "Rep ID");
           
           if (isRep) {
             // REPs can only import leads for themselves
@@ -2443,10 +2461,10 @@ export async function registerRoutes(
           }
 
           // Address fields - houseNumber and streetName, or combined address/street
-          let houseNumber = row.houseNumber?.toString().trim() || row.house_number?.toString().trim() || "";
-          let streetName = row.streetName?.toString().trim() || row.street_name?.toString().trim() || "";
-          const customerAddress = row.customerAddress?.toString().trim() || row.address?.toString().trim() || "";
-          const street = row.street?.toString().trim() || "";
+          let houseNumber = getRowValue(row, "houseNumber", "house_number", "House Number", "HouseNumber", "House #", "House");
+          let streetName = getRowValue(row, "streetName", "street_name", "Street Name", "StreetName");
+          const customerAddress = getRowValue(row, "customerAddress", "customer_address", "Address", "Full Address");
+          const street = getRowValue(row, "street", "Street");
           
           // If no separate fields, try to parse from combined address
           if (!houseNumber && !streetName && (customerAddress || street)) {
@@ -2466,7 +2484,13 @@ export async function registerRoutes(
             continue;
           }
 
-          const customerName = row.customerName?.toString().trim() || "";
+          const customerName = getRowValue(row, "customerName", "customer_name", "Customer Name", "Name", "Customer");
+          const customerPhone = getRowValue(row, "customerPhone", "customer_phone", "Phone", "Phone Number", "Telephone");
+          const customerEmail = getRowValue(row, "customerEmail", "customer_email", "Email", "E-mail");
+          const city = getRowValue(row, "city", "City");
+          const state = getRowValue(row, "state", "State");
+          const zipCode = getRowValue(row, "zipCode", "zip_code", "Zip", "Zip Code", "ZIP", "Postal Code");
+          const notes = getRowValue(row, "notes", "Notes", "Comments");
 
           // Verify rep exists (for non-REPs importing for other reps)
           const rep = users.find(u => u.repId === repId);
@@ -2481,15 +2505,15 @@ export async function registerRoutes(
             repId,
             customerName: customerName || null,
             customerAddress: customerAddress || null,
-            customerPhone: row.customerPhone?.toString().trim() || null,
-            customerEmail: row.customerEmail?.toString().trim() || null,
+            customerPhone: customerPhone || null,
+            customerEmail: customerEmail || null,
             houseNumber: houseNumber || null,
             streetName: streetName || null,
             street: street || null,
-            city: row.city?.toString().trim() || null,
-            state: row.state?.toString().trim() || null,
-            zipCode: row.zipCode?.toString().trim() || null,
-            notes: row.notes?.toString().trim() || null,
+            city: city || null,
+            state: state || null,
+            zipCode: zipCode || null,
+            notes: notes || null,
             importedBy: req.user!.id,
             status: "NEW",
           });
