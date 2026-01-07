@@ -371,20 +371,19 @@ export const storage = {
           const mobileRateCard = await this.findRateCardForMobileLine(order, mobileLine);
           const perLineAmount = parseFloat(mobileRateCard?.mobilePerLineAmount || "0");
           
-          if (perLineAmount > 0) {
-            lineItems.push({
-              serviceCategory: "MOBILE",
-              quantity: 1,
-              unitAmount: perLineAmount.toFixed(2),
-              totalAmount: perLineAmount.toFixed(2),
-              mobileProductType: mobileLine.mobileProductType,
-              mobilePortedStatus: mobileLine.mobilePortedStatus,
-              appliedRateCardId: mobileRateCard?.id || null,
-            });
-            
-            // Update the mobile line item with its commission
-            await this.updateMobileLineItemCommission(mobileLine.id, perLineAmount.toFixed(2), mobileRateCard?.id || null);
-          }
+          // Always add mobile line items to show in breakdown (even if $0)
+          lineItems.push({
+            serviceCategory: "MOBILE",
+            quantity: 1,
+            unitAmount: perLineAmount.toFixed(2),
+            totalAmount: perLineAmount.toFixed(2),
+            mobileProductType: mobileLine.mobileProductType,
+            mobilePortedStatus: mobileLine.mobilePortedStatus,
+            appliedRateCardId: mobileRateCard?.id || null,
+          });
+          
+          // Update the mobile line item with its commission
+          await this.updateMobileLineItemCommission(mobileLine.id, perLineAmount.toFixed(2), mobileRateCard?.id || null);
         }
       } else {
         // Fallback: Use legacy aggregate fields if no mobile line items exist
