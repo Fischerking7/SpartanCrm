@@ -253,13 +253,13 @@ export default function Orders() {
   // Fetch rate cards for override calculation (admin/executive only)
   const isAdminOrExec = user?.role === "ADMIN" || user?.role === "FOUNDER" || user?.role === "EXECUTIVE";
   const { data: rateCards } = useQuery<RateCard[]>({
-    queryKey: ["/api/rate-cards"],
+    queryKey: ["/api/admin/rate-cards"],
     queryFn: async () => {
-      const res = await fetch("/api/rate-cards", { headers: getAuthHeaders() });
+      const res = await fetch("/api/admin/rate-cards", { headers: getAuthHeaders() });
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: isAdminOrExec,
+    enabled: isAdmin, // Only admins can access this endpoint
   });
 
   // Helper to calculate override amount for an order
@@ -629,7 +629,7 @@ export default function Orders() {
       ),
       className: "text-right",
     },
-    ...(isAdminOrExec ? [{
+    ...(isAdmin ? [{
       key: "overrideAmount",
       header: "Override",
       cell: (row: SalesOrder) => {
