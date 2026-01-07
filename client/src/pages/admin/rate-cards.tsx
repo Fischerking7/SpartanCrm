@@ -51,6 +51,7 @@ export default function AdminRateCards() {
     mobilePerLineAmount: "",
     overrideDeduction: "",
     tvOverrideDeduction: "",
+    mobileOverrideDeduction: "",
     effectiveStart: "",
     effectiveEnd: "",
     active: true,
@@ -159,6 +160,7 @@ export default function AdminRateCards() {
       mobilePerLineAmount: "",
       overrideDeduction: "",
       tvOverrideDeduction: "",
+      mobileOverrideDeduction: "",
       effectiveStart: "",
       effectiveEnd: "",
       active: true,
@@ -181,6 +183,7 @@ export default function AdminRateCards() {
       mobilePerLineAmount: r.mobilePerLineAmount || "0",
       overrideDeduction: r.overrideDeduction || "0",
       tvOverrideDeduction: (r as any).tvOverrideDeduction || "0",
+      mobileOverrideDeduction: (r as any).mobileOverrideDeduction || "0",
       effectiveStart: r.effectiveStart,
       effectiveEnd: r.effectiveEnd || "",
       active: r.active,
@@ -277,6 +280,12 @@ export default function AdminRateCards() {
       className: "text-right",
     },
     {
+      key: "mobileOverrideDeduction",
+      header: "Mobile Override",
+      cell: (r: RateCard) => <span className="font-mono text-green-600">${parseFloat((r as any).mobileOverrideDeduction || "0").toFixed(2)}</span>,
+      className: "text-right",
+    },
+    {
       key: "active",
       header: "Status",
       cell: (r: RateCard) => <Badge variant={r.active ? "default" : "secondary"}>{r.active ? "Active" : "Inactive"}</Badge>,
@@ -308,6 +317,7 @@ export default function AdminRateCards() {
       mobilePerLineAmount: formData.mobilePerLineAmount || "0",
       overrideDeduction: formData.overrideDeduction || "0",
       tvOverrideDeduction: formData.tvOverrideDeduction || "0",
+      mobileOverrideDeduction: formData.mobileOverrideDeduction || "0",
       effectiveStart: formData.effectiveStart,
       effectiveEnd: formData.effectiveEnd || null,
       active: formData.active,
@@ -538,6 +548,18 @@ export default function AdminRateCards() {
                   data-testid="input-tv-override-deduction"
                 />
                 <p className="text-xs text-muted-foreground">Pooled when TV sold</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Mobile Override Deduction ($)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={formData.mobileOverrideDeduction}
+                  onChange={(e) => setFormData({ ...formData, mobileOverrideDeduction: e.target.value })}
+                  data-testid="input-mobile-override-deduction"
+                />
+                <p className="text-xs text-muted-foreground">Pooled when mobile sold</p>
               </div>
             </div>
 

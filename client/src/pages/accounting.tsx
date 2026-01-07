@@ -341,6 +341,7 @@ export default function Accounting() {
                           <Badge variant="outline" className={
                             entry.deductionType === "TV" ? "border-purple-500 text-purple-600" : 
                             entry.deductionType === "BASE" ? "border-blue-500 text-blue-600" : 
+                            entry.deductionType === "MOBILE" ? "border-green-500 text-green-600" :
                             "border-orange-500 text-orange-600"
                           }>
                             {entry.deductionType}

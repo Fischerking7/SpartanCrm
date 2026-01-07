@@ -117,6 +117,19 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
           });
         }
         
+        // Pool mobile override deduction (only if mobileSold is true)
+        const mobileDeduction = parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+        const mobileKey = `${rateCard.id}-MOBILE`;
+        if (mobileDeduction > 0 && approvedOrder.mobileSold && !existingPoolKeys.has(mobileKey)) {
+          await storage.createOverrideDeductionPoolEntry({
+            salesOrderId: approvedOrder.id,
+            rateCardId: rateCard.id,
+            amount: mobileDeduction.toFixed(2),
+            deductionType: "MOBILE",
+            status: "PENDING",
+          });
+        }
+        
         usedRateCardIds.add(lineItem.appliedRateCardId);
       }
     }
