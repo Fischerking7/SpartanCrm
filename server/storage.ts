@@ -174,6 +174,9 @@ export const storage = {
   async getRateCards() {
     return db.query.rateCards.findMany({ orderBy: [desc(rateCards.createdAt)] });
   },
+  async getRateCardById(id: string) {
+    return db.query.rateCards.findFirst({ where: eq(rateCards.id, id) });
+  },
   async createRateCard(data: InsertRateCard) {
     const [rateCard] = await db.insert(rateCards).values(data).returning();
     return rateCard;

@@ -78,6 +78,92 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   
   const earnings: OverrideEarning[] = [];
   
+  // --- RATE CARD OVERRIDE DEDUCTION ---
+  // Calculate total override deduction from all commission line items' rate cards
+  const commissionLineItems = await storage.getCommissionLineItemsByOrderId(approvedOrder.id);
+  let totalOverrideDeduction = 0;
+  const usedRateCardIds = new Set<string>();
+  
+  for (const lineItem of commissionLineItems) {
+    if (lineItem.appliedRateCardId && !usedRateCardIds.has(lineItem.appliedRateCardId)) {
+      const rateCard = await storage.getRateCardById(lineItem.appliedRateCardId);
+      if (rateCard) {
+        totalOverrideDeduction += parseFloat(rateCard.overrideDeduction || "0");
+        usedRateCardIds.add(lineItem.appliedRateCardId);
+      }
+    }
+  }
+  
+  // Get hierarchy for the rep who made the sale
+  const hierarchy = await storage.getRepHierarchy(approvedOrder.repId);
+  
+  // Distribute rate card override deduction to hierarchy
+  // Base distribution: 40% Supervisor, 30% Manager, 20% Executive, 10% Admin
+  // Missing levels have their shares redistributed proportionally among present levels
+  if (totalOverrideDeduction > 0) {
+    const baseSplits = {
+      SUPERVISOR: 0.4,
+      MANAGER: 0.3,
+      EXECUTIVE: 0.2,
+      ADMIN: 0.1,
+    };
+    
+    // Get active admins
+    const allUsers = await storage.getUsers();
+    const activeAdmins = allUsers.filter(u => u.role === "ADMIN" && u.status === "ACTIVE" && !u.deletedAt);
+    
+    // Build present roles with their base weights
+    const presentRoles: { role: string; weight: number; recipients: any[] }[] = [];
+    if (hierarchy.supervisor) {
+      presentRoles.push({ role: "SUPERVISOR", weight: baseSplits.SUPERVISOR, recipients: [hierarchy.supervisor] });
+    }
+    if (hierarchy.manager) {
+      presentRoles.push({ role: "MANAGER", weight: baseSplits.MANAGER, recipients: [hierarchy.manager] });
+    }
+    if (hierarchy.executive) {
+      presentRoles.push({ role: "EXECUTIVE", weight: baseSplits.EXECUTIVE, recipients: [hierarchy.executive] });
+    }
+    if (activeAdmins.length > 0) {
+      presentRoles.push({ role: "ADMIN", weight: baseSplits.ADMIN, recipients: activeAdmins });
+    }
+    
+    // Calculate total weight of present roles for normalization
+    const totalWeight = presentRoles.reduce((sum, r) => sum + r.weight, 0);
+    
+    if (totalWeight > 0) {
+      let distributedTotal = 0;
+      
+      // Distribute to each present role, normalized so total = 100% of deduction
+      for (const roleInfo of presentRoles) {
+        const normalizedShare = roleInfo.weight / totalWeight;
+        const roleTotal = totalOverrideDeduction * normalizedShare;
+        const perRecipientAmount = roleTotal / roleInfo.recipients.length;
+        
+        for (const recipient of roleInfo.recipients) {
+          const amount = perRecipientAmount.toFixed(2);
+          if (parseFloat(amount) > 0) {
+            const earning = await storage.createOverrideEarning({
+              salesOrderId: approvedOrder.id,
+              recipientUserId: recipient.id,
+              sourceRepId: approvedOrder.repId,
+              sourceLevelUsed: roleInfo.role as any,
+              amount,
+              overrideAgreementId: null,
+            });
+            earnings.push(earning);
+            distributedTotal += parseFloat(amount);
+          }
+        }
+      }
+      
+      // Sanity check: log if distributed total doesn't match expected (rounding may cause minor differences)
+      if (Math.abs(distributedTotal - totalOverrideDeduction) > 0.05) {
+        console.warn(`Override distribution mismatch for order ${approvedOrder.id}: expected ${totalOverrideDeduction}, distributed ${distributedTotal}`);
+      }
+    }
+  }
+  
+  // --- OVERRIDE AGREEMENTS (legacy/additional) ---
   // Fetch mobile line items for per-line override calculation
   const mobileLines = await storage.getMobileLineItemsByOrderId(approvedOrder.id);
   
@@ -150,9 +236,6 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       }
     }
   };
-  
-  // Get hierarchy for the rep who made the sale
-  const hierarchy = await storage.getRepHierarchy(approvedOrder.repId);
   
   // Supervisor gets override on their assigned reps' sales
   if (hierarchy.supervisor) {
