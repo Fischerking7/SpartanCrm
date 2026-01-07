@@ -859,7 +859,10 @@ export const storage = {
 
   // Override Agreements
   async getOverrideAgreements() {
-    return db.query.overrideAgreements.findMany({ orderBy: [desc(overrideAgreements.createdAt)] });
+    return db.query.overrideAgreements.findMany({ 
+      where: eq(overrideAgreements.active, true),
+      orderBy: [desc(overrideAgreements.createdAt)] 
+    });
   },
   async createOverrideAgreement(data: InsertOverrideAgreement) {
     const [agreement] = await db.insert(overrideAgreements).values(data).returning();
