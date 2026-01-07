@@ -1901,6 +1901,30 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Import failed" }); }
   });
 
+  // Export Batches
+  app.get("/api/admin/accounting/export-batches", auth, adminOnly, async (req, res) => {
+    try {
+      const batches = await storage.getExportBatches();
+      res.json(batches);
+    } catch (error) { res.status(500).json({ message: "Failed to get export batches" }); }
+  });
+
+  app.get("/api/admin/accounting/export-batches/:id", auth, adminOnly, async (req, res) => {
+    try {
+      const batch = await storage.getExportBatchById(req.params.id);
+      if (!batch) return res.status(404).json({ message: "Batch not found" });
+      const orders = await storage.getOrdersByExportBatch(req.params.id);
+      res.json({ batch, orders });
+    } catch (error) { res.status(500).json({ message: "Failed to get export batch" }); }
+  });
+
+  app.get("/api/admin/accounting/exported-orders", auth, adminOnly, async (req, res) => {
+    try {
+      const orders = await storage.getExportedOrders();
+      res.json(orders);
+    } catch (error) { res.status(500).json({ message: "Failed to get exported orders" }); }
+  });
+
   // Exception Queues
   app.get("/api/admin/queues/unmatched-payments", auth, adminOnly, async (req, res) => {
     try { res.json(await storage.getUnmatchedPayments()); } catch (error) { res.status(500).json({ message: "Failed" }); }
