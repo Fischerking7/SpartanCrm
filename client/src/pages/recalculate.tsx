@@ -22,10 +22,20 @@ export default function Recalculate() {
 
   const { data: providers } = useQuery<Provider[]>({
     queryKey: ["/api/providers"],
+    queryFn: async () => {
+      const res = await fetch("/api/providers", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch providers");
+      return res.json();
+    },
   });
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
+    queryFn: async () => {
+      const res = await fetch("/api/clients", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch clients");
+      return res.json();
+    },
   });
 
   const recalculateMutation = useMutation({
