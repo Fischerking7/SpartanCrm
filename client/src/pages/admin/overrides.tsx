@@ -30,12 +30,19 @@ const TV_SOLD_OPTIONS = [
   { value: "false", label: "No TV" },
 ];
 
+const PORTED_STATUS_OPTIONS = [
+  { value: "_any", label: "Any" },
+  { value: "PORTED", label: "Ported" },
+  { value: "NON_PORTED", label: "Non-Ported" },
+];
+
 type WizardData = {
   recipientUserId: string;
   providerId: string;
   clientId: string;
   serviceId: string;
   mobileProductType: string;
+  mobilePortedFilter: string;
   tvSoldFilter: string;
   amountFlat: string;
   effectiveStart: string;
@@ -56,6 +63,7 @@ export default function AdminOverrides() {
     clientId: "",
     serviceId: "",
     mobileProductType: "",
+    mobilePortedFilter: "",
     tvSoldFilter: "",
     amountFlat: "",
     effectiveStart: new Date().toISOString().split("T")[0],
@@ -143,6 +151,7 @@ export default function AdminOverrides() {
         clientId: existingOverride.clientId || "_any",
         serviceId: existingOverride.serviceId || "_any",
         mobileProductType: existingOverride.mobileProductType || "_any",
+        mobilePortedFilter: existingOverride.mobilePortedFilter || "_any",
         tvSoldFilter: existingOverride.tvSoldFilter === null ? "_any" : existingOverride.tvSoldFilter ? "true" : "false",
         amountFlat: existingOverride.amountFlat,
         effectiveStart: existingOverride.effectiveStart,
@@ -158,6 +167,7 @@ export default function AdminOverrides() {
         clientId: "_any",
         serviceId: "_any",
         mobileProductType: "_any",
+        mobilePortedFilter: "_any",
         tvSoldFilter: "_any",
         amountFlat: "",
         effectiveStart: new Date().toISOString().split("T")[0],
@@ -193,6 +203,7 @@ export default function AdminOverrides() {
         clientId: wizardData.clientId === "_any" ? null : wizardData.clientId,
         serviceId: wizardData.serviceId === "_any" ? null : wizardData.serviceId,
         mobileProductType: wizardData.mobileProductType === "_any" ? null : wizardData.mobileProductType,
+        mobilePortedFilter: wizardData.mobilePortedFilter === "_any" ? null : wizardData.mobilePortedFilter,
         tvSoldFilter: wizardData.tvSoldFilter === "_any" ? null : wizardData.tvSoldFilter === "true",
         effectiveStart: wizardData.effectiveStart,
         effectiveEnd: wizardData.effectiveEnd || null,
@@ -401,6 +412,7 @@ export default function AdminOverrides() {
                     
                     <div className="flex flex-wrap gap-2 text-sm">
                       <Badge variant="secondary">Mobile: {getMobileTypeLabel(override.mobileProductType)}</Badge>
+                      <Badge variant="secondary">Ported: {override.mobilePortedFilter || "Any"}</Badge>
                       <Badge variant="secondary">TV: {getTvLabel(override.tvSoldFilter)}</Badge>
                     </div>
                     
@@ -494,7 +506,7 @@ export default function AdminOverrides() {
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <Label>Mobile Product Type</Label>
                 <Select value={wizardData.mobileProductType} onValueChange={(v) => updateWizard("mobileProductType", v)}>
@@ -504,6 +516,20 @@ export default function AdminOverrides() {
                   <SelectContent>
                     {MOBILE_PRODUCT_TYPES.map((m) => (
                       <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label>Ported Status</Label>
+                <Select value={wizardData.mobilePortedFilter} onValueChange={(v) => updateWizard("mobilePortedFilter", v)}>
+                  <SelectTrigger data-testid="select-ported-status">
+                    <SelectValue placeholder="Any" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PORTED_STATUS_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

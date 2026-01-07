@@ -222,6 +222,7 @@ export const overrideAgreements = pgTable("override_agreements", {
   clientId: varchar("client_id").references(() => clients.id),
   serviceId: varchar("service_id").references(() => services.id),
   mobileProductType: varchar("mobile_product_type"),
+  mobilePortedFilter: varchar("mobile_ported_filter"),
   tvSoldFilter: boolean("tv_sold_filter"),
   effectiveStart: date("effective_start").notNull(),
   effectiveEnd: date("effective_end"),
