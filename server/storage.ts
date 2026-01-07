@@ -635,7 +635,7 @@ export const storage = {
     } else {
       await db.insert(counters).values({ key, value: nextValue });
     }
-    return `INV-${year}${month}-${nextValue.toString().padStart(5, "0")}`;
+    return `INV-${month}${year}-${nextValue.toString().padStart(5, "0")}`;
   },
 
   // Incentives
