@@ -401,6 +401,26 @@ export default function Orders() {
     toast({ title: "Export successful", description: `${filteredOrders.length} orders exported` });
   };
 
+  const handleDeleteOrder = async (orderId: string) => {
+    if (!confirm("Are you sure you want to permanently delete this order? This action cannot be undone.")) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/hard-delete`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to delete order");
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({ title: "Order deleted successfully" });
+    } catch (error: any) {
+      toast({ title: "Failed to delete order", description: error.message, variant: "destructive" });
+    }
+  };
+
   const markPaidMutation = useMutation({
     mutationFn: async (orderId: string) => {
       const res = await fetch(`/api/admin/orders/${orderId}/mark-paid`, {
@@ -589,14 +609,27 @@ export default function Orders() {
       key: "actions",
       header: "",
       cell: (row: SalesOrder) => (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setSelectedOrder(row)}
-          data-testid={`button-view-order-${row.id}`}
-        >
-          <Eye className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => setSelectedOrder(row)}
+            data-testid={`button-view-order-${row.id}`}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          {isAdmin && row.approvalStatus === "PENDING" && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="text-destructive"
+              onClick={() => handleDeleteOrder(row.id)}
+              data-testid={`button-delete-order-${row.id}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       ),
     },
   ];

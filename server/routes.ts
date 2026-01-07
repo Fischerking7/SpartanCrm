@@ -1147,6 +1147,27 @@ export async function registerRoutes(
     }
   });
 
+  // Admin hard delete order (permanently removes order and all related data)
+  app.delete("/api/admin/orders/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const order = await storage.getOrderById(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      
+      await storage.createAuditLog({ 
+        action: "hard_delete_order", 
+        tableName: "sales_orders", 
+        recordId: id, 
+        beforeJson: JSON.stringify(order), 
+        userId: req.user!.id 
+      });
+      await storage.hardDeleteOrder(id);
+      res.json({ message: "Order permanently deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete order" });
+    }
+  });
+
   // Admin approval routes
   app.get("/api/admin/approvals/queue", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
@@ -2396,6 +2417,14 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to get export batch" }); }
   });
 
+  app.delete("/api/admin/accounting/export-batches/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteExportBatch(req.params.id);
+      await storage.createAuditLog({ action: "delete_export_batch", tableName: "export_batches", recordId: req.params.id, userId: req.user!.id });
+      res.json({ message: "Export batch deleted" });
+    } catch (error) { res.status(500).json({ message: "Failed to delete export batch" }); }
+  });
+
   app.get("/api/admin/accounting/exported-orders", auth, adminOnly, async (req, res) => {
     try {
       const orders = await storage.getExportedOrders();
@@ -2657,6 +2686,63 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Lead import error:", error);
       res.status(500).json({ message: error.message || "Failed to import leads" });
+    }
+  });
+
+  // Admin delete leads by date range
+  app.delete("/api/admin/leads/by-date", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { dateFrom, dateTo } = req.query;
+      if (!dateFrom || !dateTo) {
+        return res.status(400).json({ message: "dateFrom and dateTo required" });
+      }
+      const count = await storage.deleteLeadsByDateRange(dateFrom as string, dateTo as string);
+      await storage.createAuditLog({ 
+        action: "bulk_delete_leads", 
+        tableName: "leads", 
+        afterJson: JSON.stringify({ dateFrom, dateTo, count }),
+        userId: req.user!.id 
+      });
+      res.json({ message: `Deleted ${count} leads`, count });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete leads" });
+    }
+  });
+
+  // Admin delete all leads
+  app.delete("/api/admin/leads/all", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const count = await storage.deleteAllLeads();
+      await storage.createAuditLog({ 
+        action: "delete_all_leads", 
+        tableName: "leads", 
+        afterJson: JSON.stringify({ count }),
+        userId: req.user!.id 
+      });
+      res.json({ message: `Deleted ${count} leads`, count });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete leads" });
+    }
+  });
+
+  // Admin delete single lead
+  app.delete("/api/admin/leads/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const lead = await storage.getLeadById(id);
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      
+      await storage.deleteLead(id);
+      await storage.createAuditLog({ 
+        action: "delete_lead", 
+        tableName: "leads", 
+        recordId: id,
+        beforeJson: JSON.stringify(lead),
+        userId: req.user!.id 
+      });
+      res.json({ message: "Lead deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete lead" });
     }
   });
 

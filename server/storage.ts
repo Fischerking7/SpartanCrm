@@ -647,6 +647,23 @@ export const storage = {
     const [order] = await db.update(salesOrders).set({ ...data, updatedAt: new Date() }).where(eq(salesOrders.id, id)).returning();
     return order;
   },
+  async hardDeleteOrder(id: string) {
+    // Get order first to get invoice number for adjustments
+    const order = await db.query.salesOrders.findFirst({ where: eq(salesOrders.id, id) });
+    // Delete all related records first
+    await db.delete(commissionLineItems).where(eq(commissionLineItems.salesOrderId, id));
+    await db.delete(mobileLineItems).where(eq(mobileLineItems.salesOrderId, id));
+    await db.delete(overrideEarnings).where(eq(overrideEarnings.salesOrderId, id));
+    await db.delete(overrideDeductionPool).where(eq(overrideDeductionPool.salesOrderId, id));
+    await db.delete(chargebacks).where(eq(chargebacks.salesOrderId, id));
+    await db.delete(rateIssues).where(eq(rateIssues.salesOrderId, id));
+    // Delete adjustments by invoice number if order exists
+    if (order?.invoiceNumber) {
+      await db.delete(adjustments).where(eq(adjustments.invoiceNumber, order.invoiceNumber));
+    }
+    // Delete the order
+    await db.delete(salesOrders).where(eq(salesOrders.id, id));
+  },
   async getPendingApprovals() {
     return db.query.salesOrders.findMany({
       where: eq(salesOrders.approvalStatus, "UNAPPROVED"),
@@ -855,6 +872,18 @@ export const storage = {
       where: eq(salesOrders.exportedToAccounting, true),
       orderBy: [desc(salesOrders.exportedAt)],
     });
+  },
+  async deleteExportBatch(id: string) {
+    // Clear export reference from orders first
+    await db.update(salesOrders)
+      .set({ exportBatchId: null, exportedToAccounting: false, exportedAt: null })
+      .where(eq(salesOrders.exportBatchId, id));
+    // Clear export reference from override pool
+    await db.update(overrideDeductionPool)
+      .set({ exportBatchId: null })
+      .where(eq(overrideDeductionPool.exportBatchId, id));
+    // Delete the batch
+    await db.delete(exportBatches).where(eq(exportBatches.id, id));
   },
 
   // Override Agreements
@@ -1746,5 +1775,18 @@ export const storage = {
   
   async deleteLead(id: string) {
     await db.delete(leads).where(eq(leads.id, id));
+  },
+  async deleteLeadsByDateRange(dateFrom: string, dateTo: string) {
+    const result = await db.delete(leads)
+      .where(and(
+        gte(leads.importedAt, new Date(dateFrom)),
+        lte(leads.importedAt, new Date(dateTo + 'T23:59:59'))
+      ))
+      .returning();
+    return result.length;
+  },
+  async deleteAllLeads() {
+    const result = await db.delete(leads).returning();
+    return result.length;
   },
 };
