@@ -903,13 +903,21 @@ export default function Orders() {
                 </div>
                 <div className="space-y-2">
                   {(() => {
-                    // Calculate gross from line items and derive deduction
-                    const grossFromLines = commissionLines?.reduce((sum, line) => sum + parseFloat(line.totalAmount), 0) || 0;
-                    const netCommission = parseFloat(selectedOrder.baseCommissionEarned);
-                    const overrideDeduction = grossFromLines > 0 ? grossFromLines - netCommission : 0;
-                    // Executives are exempt from override deductions
-                    const orderRepRole = reps?.find(r => r.repId === selectedOrder.repId)?.role;
-                    const isExecutiveSale = orderRepRole === "EXECUTIVE";
+                    // Calculate gross total and determine proportional net amounts
+                    // This ensures displayed net amounts sum to baseCommissionEarned exactly
+                    const grossTotal = commissionLines?.reduce((sum, line) => sum + parseFloat(line.totalAmount), 0) || 0;
+                    const netTotal = parseFloat(selectedOrder.baseCommissionEarned);
+                    const totalDeduction = grossTotal > 0 ? grossTotal - netTotal : 0;
+                    
+                    // Calculate proportional net for each line so they sum to netTotal
+                    const getNetAmount = (line: CommissionLineItem): number => {
+                      if (grossTotal <= 0) return 0;
+                      const grossAmount = parseFloat(line.totalAmount);
+                      // Distribute deduction proportionally based on each line's contribution to gross
+                      const proportion = grossAmount / grossTotal;
+                      const lineDeduction = totalDeduction * proportion;
+                      return Math.max(0, grossAmount - lineDeduction);
+                    };
                     
                     return (
                       <>
@@ -927,19 +935,14 @@ export default function Orders() {
                                 : line.serviceCategory === "MOBILE" && line.mobileProductType
                                   ? ` (${line.mobileProductType.replace("_", " ")})`
                                   : "";
+                              const netAmount = getNetAmount(line);
                               return (
                                 <div key={idx} className="flex justify-between gap-2">
                                   <span>{label}{detail}</span>
-                                  <span className="font-mono">${parseFloat(line.totalAmount).toFixed(2)}</span>
+                                  <span className="font-mono">${netAmount.toFixed(2)}</span>
                                 </div>
                               );
                             })}
-                            {isAdmin && !isExecutiveSale && overrideDeduction > 0.01 && (
-                              <div className="flex justify-between gap-2 text-muted-foreground">
-                                <span>Override Deduction</span>
-                                <span className="font-mono">-${overrideDeduction.toFixed(2)}</span>
-                              </div>
-                            )}
                           </>
                         ) : (
                           <div className="flex justify-between gap-2">

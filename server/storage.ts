@@ -439,6 +439,9 @@ export const storage = {
   async findRateCardForMobileLine(order: SalesOrder, mobileLine: MobileLineItem): Promise<RateCard | null> {
     const date = order.dateSold;
     
+    // Helper to check if card has mobile payout configured
+    const hasMobileAmount = (c: RateCard) => parseFloat(c.mobilePerLineAmount || "0") > 0;
+    
     // Try to find rate card matching mobile product type and ported status
     const cards = await db.query.rateCards.findMany({
       where: and(
@@ -455,7 +458,8 @@ export const storage = {
     const fullMatch = cards.find(c => 
       c.clientId === order.clientId && 
       c.mobileProductType === mobileLine.mobileProductType && 
-      c.mobilePortedStatus === mobileLine.mobilePortedStatus
+      c.mobilePortedStatus === mobileLine.mobilePortedStatus &&
+      hasMobileAmount(c)
     );
     if (fullMatch) return fullMatch;
     
@@ -463,7 +467,8 @@ export const storage = {
     const typeMatch = cards.find(c => 
       c.clientId === order.clientId && 
       c.mobileProductType === mobileLine.mobileProductType && 
-      !c.mobilePortedStatus
+      !c.mobilePortedStatus &&
+      hasMobileAmount(c)
     );
     if (typeMatch) return typeMatch;
     
@@ -471,30 +476,44 @@ export const storage = {
     const portedMatch = cards.find(c => 
       c.clientId === order.clientId && 
       !c.mobileProductType && 
-      c.mobilePortedStatus === mobileLine.mobilePortedStatus
+      c.mobilePortedStatus === mobileLine.mobilePortedStatus &&
+      hasMobileAmount(c)
     );
     if (portedMatch) return portedMatch;
     
-    // 4. Match provider + client (any mobile)
-    const clientMatch = cards.find(c => 
+    // 4. Match provider + client with any mobile amount configured
+    const clientMobileMatch = cards.find(c => 
       c.clientId === order.clientId && 
-      !c.mobileProductType && 
-      !c.mobilePortedStatus
+      hasMobileAmount(c)
     );
-    if (clientMatch) return clientMatch;
+    if (clientMobileMatch) return clientMobileMatch;
     
     // 5. Match provider only with mobile product type
     const providerTypeMatch = cards.find(c => 
       !c.clientId && 
-      c.mobileProductType === mobileLine.mobileProductType
+      c.mobileProductType === mobileLine.mobileProductType &&
+      hasMobileAmount(c)
     );
     if (providerTypeMatch) return providerTypeMatch;
     
-    // 6. Match provider only (fallback)
-    const providerMatch = cards.find(c => 
+    // 6. Match provider only with ported status
+    const providerPortedMatch = cards.find(c => 
       !c.clientId && 
-      !c.mobileProductType
+      !c.mobileProductType &&
+      c.mobilePortedStatus === mobileLine.mobilePortedStatus &&
+      hasMobileAmount(c)
     );
+    if (providerPortedMatch) return providerPortedMatch;
+    
+    // 7. Match provider only with any mobile amount
+    const providerMobileMatch = cards.find(c => 
+      !c.clientId && 
+      hasMobileAmount(c)
+    );
+    if (providerMobileMatch) return providerMobileMatch;
+    
+    // 8. Final fallback - any rate card (may have $0 mobile)
+    const providerMatch = cards.find(c => !c.clientId);
     return providerMatch || null;
   },
 
