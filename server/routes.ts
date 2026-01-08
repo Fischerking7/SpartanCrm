@@ -2906,22 +2906,29 @@ export async function registerRoutes(
       }
 
       // Helper to get value from row with case-insensitive column matching
+      // Also handles column names with trailing/leading spaces and normalizes whitespace
       const getRowValue = (row: Record<string, any>, ...keys: string[]): string => {
         for (const key of keys) {
           // Try exact match first
           if (row[key] !== undefined && row[key] !== null) {
             return row[key].toString().trim();
           }
-          // Try case-insensitive match
-          const lowerKey = key.toLowerCase();
+          // Try case-insensitive match with whitespace normalization
+          const normalizedKey = key.toLowerCase().replace(/\s+/g, ' ').trim();
           for (const rowKey of Object.keys(row)) {
-            if (rowKey.toLowerCase() === lowerKey && row[rowKey] !== undefined && row[rowKey] !== null) {
+            const normalizedRowKey = rowKey.toLowerCase().replace(/\s+/g, ' ').trim();
+            if (normalizedRowKey === normalizedKey && row[rowKey] !== undefined && row[rowKey] !== null) {
               return row[rowKey].toString().trim();
             }
           }
         }
         return "";
       };
+
+      // Debug: Log column names found in first row (helpful for troubleshooting)
+      if (rows.length > 0) {
+        console.log("Excel import - columns found:", Object.keys(rows[0]));
+      }
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -3080,39 +3087,70 @@ export async function registerRoutes(
     }
   });
 
-  // Admin fix leads with building numbers in wrong position
+  // Admin fix leads with building numbers in wrong position or in ZIP+4
   app.post("/api/admin/leads/fix-addresses", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       // Get all leads
       const allLeads = await storage.getAllLeadsForAdmin();
       let fixed = 0;
-      const fixedLeads: { id: string; before: string; after: string }[] = [];
+      const fixedLeads: { id: string; before: string; after: string; source: string }[] = [];
       
       for (const lead of allLeads) {
         // Skip if already has houseNumber populated
         if (lead.houseNumber) continue;
         
-        // Check if streetName or street has a number at the end
-        const addrToCheck = lead.streetName || lead.street || lead.customerAddress;
-        if (!addrToCheck) continue;
+        let newHouseNumber: string | null = null;
+        let source = "";
         
-        const match = addrToCheck.trim().match(/^(.+)\s+(\d+[A-Za-z]?)$/);
-        if (match) {
-          const newStreetName = match[1];
-          const newHouseNumber = match[2];
-          
-          // Update the lead
-          await storage.updateLead(lead.id, {
-            houseNumber: newHouseNumber,
-            streetName: newStreetName,
-          });
-          
-          fixedLeads.push({
-            id: lead.id,
-            before: addrToCheck,
-            after: `${newHouseNumber} ${newStreetName}`
-          });
-          fixed++;
+        // Method 1: Check if streetName or street has a number at the end (e.g. "WOODLAND AVE 12")
+        const addrToCheck = lead.streetName || lead.street || lead.customerAddress;
+        if (addrToCheck) {
+          const match = addrToCheck.trim().match(/^(.+)\s+(\d+[A-Za-z]?)$/);
+          if (match) {
+            const newStreetName = match[1];
+            newHouseNumber = match[2];
+            source = "street_suffix";
+            
+            // Update the lead
+            await storage.updateLead(lead.id, {
+              houseNumber: newHouseNumber,
+              streetName: newStreetName,
+            });
+            
+            fixedLeads.push({
+              id: lead.id,
+              before: addrToCheck,
+              after: `${newHouseNumber} ${newStreetName}`,
+              source
+            });
+            fixed++;
+            continue;
+          }
+        }
+        
+        // Method 2: Extract house number from ZIP+4 extension (e.g. "19079-1620" -> house number 1620)
+        if (lead.zipCode) {
+          const zipMatch = lead.zipCode.match(/^(\d{5})-(\d{4})$/);
+          if (zipMatch) {
+            newHouseNumber = zipMatch[2].replace(/^0+/, '') || zipMatch[2]; // Remove leading zeros
+            source = "zip4";
+            
+            const streetName = lead.streetName || lead.street || "";
+            
+            // Update the lead with house number from ZIP+4
+            await storage.updateLead(lead.id, {
+              houseNumber: newHouseNumber,
+              zipCode: zipMatch[1], // Keep just the 5-digit zip
+            });
+            
+            fixedLeads.push({
+              id: lead.id,
+              before: `${streetName}, ${lead.zipCode}`,
+              after: `${newHouseNumber} ${streetName}`,
+              source
+            });
+            fixed++;
+          }
         }
       }
       
