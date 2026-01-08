@@ -103,6 +103,15 @@ RESTful endpoints with JWT authentication middleware. All sensitive operations c
 - **react-hook-form**: Form state management
 - **zod**: Runtime type validation and schema definition
 
+### Security Features (January 2026)
+- **Rate Limiting**: Auth endpoints (login, password reset) limited to 10 attempts per 15 minutes per IP
+- **File Upload Validation**: 10MB max file size, file type whitelist (xlsx, xls, csv), 10k row limit
+- **Input Sanitization**: Update routes use explicit field extraction (whitelist approach)
+- **Production Error Logging**: Structured JSON logging with request context
+- **Backup Strategy**: Neon PostgreSQL with point-in-time recovery (see docs/operations/backups.md)
+- **Trust Proxy**: Configured for correct rate limiting behind reverse proxies
+
 ### Environment Variables Required
-- `DATABASE_URL`: PostgreSQL connection string
-- `SESSION_SECRET`: JWT signing secret (falls back to default in development)
+- `DATABASE_URL`: PostgreSQL connection string (required)
+- `SESSION_SECRET`: Session encryption key (required in production)
+- `JWT_SECRET`: Authentication token signing secret (required - no fallback)
