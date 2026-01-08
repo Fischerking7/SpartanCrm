@@ -19,9 +19,8 @@ const authLimiter = rateLimit({
   message: { message: "Too many login attempts. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => {
-    return req.headers["x-forwarded-for"]?.toString() || req.ip || "unknown";
-  },
+  // Use default keyGenerator which properly handles IPv6
+  validate: { xForwardedForHeader: false },
 });
 
 // File upload validation constants
@@ -2305,6 +2304,10 @@ export async function registerRoutes(
       if (req.file.size > MAX_FILE_SIZE) {
         return res.status(413).json({ message: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` });
       }
+      // Validate file extension
+      if (!req.file.originalname.toLowerCase().endsWith('.csv')) {
+        return res.status(415).json({ message: "Invalid file type. Only CSV files are allowed for payment imports" });
+      }
 
       const payRunId = req.body.payRunId || null;
       const csvContent = req.file.buffer.toString("utf-8");
@@ -2371,6 +2374,10 @@ export async function registerRoutes(
       }
       if (req.file.size > MAX_FILE_SIZE) {
         return res.status(413).json({ message: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` });
+      }
+      // Validate file extension
+      if (!req.file.originalname.toLowerCase().endsWith('.csv')) {
+        return res.status(415).json({ message: "Invalid file type. Only CSV files are allowed for chargeback imports" });
       }
 
       const payRunId = req.body.payRunId || null;
