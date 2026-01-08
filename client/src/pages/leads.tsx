@@ -88,10 +88,18 @@ export default function Leads() {
     const street = getStreetAddress(lead);
     if (!street) return null;
     
-    const parts = [street, lead.city, lead.state, lead.zipCode?.split('-')[0]].filter(Boolean);
-    if (parts.length < 2) return null;
-    const encoded = parts.map(p => encodeURIComponent(p?.replace(/\s+/g, '-') || '')).join('/');
-    return `https://www.whitepages.com/address/${encoded}`;
+    // Use 5-digit ZIP only (no ZIP+4)
+    const zip = lead.zipCode?.split('-')[0] || "";
+    const city = lead.city || "";
+    const state = lead.state || "";
+    
+    // Format: street/city-state-zip (all with dashes replacing spaces)
+    const streetPart = street.replace(/\s+/g, '-');
+    const locationPart = [city, state, zip].filter(Boolean).join('-').replace(/\s+/g, '-');
+    
+    if (!locationPart) return null;
+    
+    return `https://www.whitepages.com/address/${encodeURIComponent(streetPart)}/${encodeURIComponent(locationPart)}`;
   };
   
   const formatAddress = (lead: Lead): { line1: string; line2: string } => {
