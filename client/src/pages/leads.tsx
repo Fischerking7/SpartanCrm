@@ -55,23 +55,29 @@ export default function Leads() {
   const canBulkManage = canAssignToOthers; // SUPERVISOR+ can multi-select and bulk manage
   const isAdmin = ["ADMIN", "FOUNDER"].includes(user?.role || "");
 
-  const buildWhitepagesUrl = (lead: Lead): string | null => {
+  const buildAddressLookupUrl = (lead: Lead): string | null => {
     // Build full street address with house number
     let street = "";
     if (lead.houseNumber) {
       street = lead.houseNumber;
-      if (lead.streetName) street += " " + lead.streetName;
-      if (lead.aptUnit) street += " " + lead.aptUnit;
+      if (lead.street) street += " " + lead.street;
+      else if (lead.streetName) street += " " + lead.streetName;
     } else if (lead.street) {
       street = lead.street;
+    } else if (lead.streetName) {
+      street = lead.streetName;
     } else if (lead.customerAddress) {
       street = lead.customerAddress;
     }
     if (!street) return null;
-    const parts = [street, lead.city, lead.state, lead.zipCode].filter(Boolean);
-    if (parts.length < 2) return null;
-    const encoded = parts.map(p => encodeURIComponent(p?.replace(/\s+/g, '-') || '')).join('/');
-    return `https://www.whitepages.com/address/${encoded}`;
+    
+    // Build city/state/zip for TruePeopleSearch
+    const cityStateZip = [lead.city, lead.state, lead.zipCode?.split('-')[0]].filter(Boolean).join(' ');
+    if (!cityStateZip) return null;
+    
+    const streetParam = encodeURIComponent(street);
+    const cityStateZipParam = encodeURIComponent(cityStateZip);
+    return `https://www.truepeoplesearch.com/resultaddress?streetaddress=${streetParam}&citystatezip=${cityStateZipParam}`;
   };
   
   const formatAddress = (lead: Lead): { line1: string; line2: string } => {
@@ -680,7 +686,7 @@ export default function Leads() {
                       )}
                     </div>
                     {(() => {
-                      const wpUrl = buildWhitepagesUrl(lead);
+                      const lookupUrl = buildAddressLookupUrl(lead);
                       const hasAddress = lead.houseNumber || lead.street || lead.streetName || lead.customerAddress;
                       if (!hasAddress) return null;
                       
@@ -701,13 +707,13 @@ export default function Leads() {
                       return (
                         <div className="flex items-start gap-2 text-sm text-muted-foreground">
                           <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                          {wpUrl ? (
+                          {lookupUrl ? (
                             <a 
-                              href={wpUrl} 
+                              href={lookupUrl} 
                               target="_blank" 
                               rel="noopener noreferrer"
                               className="hover:text-foreground hover:underline"
-                              data-testid={`link-whitepages-${lead.id}`}
+                              data-testid={`link-address-lookup-${lead.id}`}
                             >
                               <div className="flex items-start gap-1">
                                 <div>
