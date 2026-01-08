@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
@@ -10,6 +10,83 @@ import crypto from "crypto";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import rateLimit from "express-rate-limit";
+
+// Rate limiter for auth endpoints (10 attempts per 15 minutes per IP)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // limit each IP to 10 requests per windowMs
+  message: { message: "Too many login attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    return req.headers["x-forwarded-for"]?.toString() || req.ip || "unknown";
+  },
+});
+
+// File upload validation constants
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_ROW_COUNT = 10000;
+const ALLOWED_MIME_TYPES = [
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // xlsx
+  "application/vnd.ms-excel", // xls
+  "text/csv",
+  "application/csv",
+];
+
+// Validate uploaded file and return parsed data
+function validateFileUpload(file: Express.Multer.File | undefined, res: Response): { valid: false } | { valid: true; workbook: XLSX.WorkBook } {
+  if (!file) {
+    res.status(400).json({ message: "No file uploaded" });
+    return { valid: false };
+  }
+  
+  if (file.size > MAX_FILE_SIZE) {
+    res.status(413).json({ message: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` });
+    return { valid: false };
+  }
+  
+  // Check MIME type (allow through if not detected, check by extension)
+  const isExcel = file.originalname.toLowerCase().endsWith('.xlsx') || file.originalname.toLowerCase().endsWith('.xls');
+  const isCsv = file.originalname.toLowerCase().endsWith('.csv');
+  
+  if (!isExcel && !isCsv) {
+    res.status(415).json({ message: "Invalid file type. Only Excel (.xlsx, .xls) and CSV files are allowed" });
+    return { valid: false };
+  }
+  
+  try {
+    const workbook = XLSX.read(file.buffer, { type: "buffer" });
+    return { valid: true, workbook };
+  } catch (error) {
+    res.status(422).json({ message: "Failed to parse file. Please ensure it is a valid Excel or CSV file" });
+    return { valid: false };
+  }
+}
+
+// Validate row count after parsing
+function validateRowCount(rows: any[], res: Response): boolean {
+  if (rows.length > MAX_ROW_COUNT) {
+    res.status(422).json({ message: `Too many rows. Maximum allowed is ${MAX_ROW_COUNT} rows` });
+    return false;
+  }
+  return true;
+}
+
+// Field allowlists for update operations (prevents privilege escalation)
+const USER_UPDATE_ALLOWLIST = ["name", "status", "assignedSupervisorId", "assignedManagerId", "assignedExecutiveId"] as const;
+const ORDER_UPDATE_ALLOWLIST = ["customerName", "customerAddress", "customerPhone", "customerEmail", "installDate", "accountNumber", "notes"] as const;
+
+// Pick only allowed fields from an object
+function pickAllowedFields<T extends Record<string, any>>(obj: T, allowlist: readonly string[]): Partial<T> {
+  const result: Partial<T> = {};
+  for (const key of allowlist) {
+    if (key in obj) {
+      result[key as keyof T] = obj[key];
+    }
+  }
+  return result;
+}
 
 // Role hierarchy for authority comparisons (higher number = more authority)
 const ROLE_HIERARCHY: Record<string, number> = {
@@ -349,8 +426,8 @@ export async function registerRoutes(
   await bootstrapFounder();
   await bootstrapAdmin();
 
-  // Auth routes
-  app.post("/api/auth/login", async (req, res) => {
+  // Auth routes - with rate limiting
+  app.post("/api/auth/login", authLimiter, async (req, res) => {
     try {
       const parsed = loginSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -424,8 +501,8 @@ export async function registerRoutes(
     }
   });
   
-  // Admin/Manager/Supervisor password reset for target user
-  app.post("/api/users/:id/password-reset", auth, async (req: AuthRequest, res) => {
+  // Admin/Manager/Supervisor password reset for target user (rate limited)
+  app.post("/api/users/:id/password-reset", authLimiter, auth, async (req: AuthRequest, res) => {
     try {
       const actor = req.user!;
       const targetId = req.params.id;
@@ -1395,16 +1472,19 @@ export async function registerRoutes(
     }
   });
 
-  // Excel Import for Orders
-  const upload = multer({ storage: multer.memoryStorage() });
+  // Excel Import for Orders - with file validation
+  const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_FILE_SIZE, files: 1 }
+  });
   
   app.post("/api/admin/orders/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
     try {
-      if (!req.file) {
-        return res.status(400).json({ message: "No file uploaded" });
-      }
-
-      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      // Validate file upload
+      const validation = validateFileUpload(req.file, res);
+      if (!validation.valid) return;
+      
+      const workbook = validation.workbook;
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(sheet) as Record<string, any>[];
@@ -1412,6 +1492,9 @@ export async function registerRoutes(
       if (rows.length === 0) {
         return res.status(400).json({ message: "Excel file is empty" });
       }
+      
+      // Validate row count
+      if (!validateRowCount(rows, res)) return;
 
       const errors: string[] = [];
       let success = 0;
@@ -2215,13 +2298,19 @@ export async function registerRoutes(
 
   app.post("/api/admin/accounting/import-payments", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
     try {
+      // Validate file upload
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
+      }
+      if (req.file.size > MAX_FILE_SIZE) {
+        return res.status(413).json({ message: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` });
       }
 
       const payRunId = req.body.payRunId || null;
       const csvContent = req.file.buffer.toString("utf-8");
       const records = parse(csvContent, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, any>[];
+      
+      if (!validateRowCount(records, res)) return;
 
       let matched = 0;
       let unmatched = 0;
@@ -2276,13 +2365,19 @@ export async function registerRoutes(
   // Chargeback import
   app.post("/api/admin/chargebacks/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
     try {
+      // Validate file upload
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
+      }
+      if (req.file.size > MAX_FILE_SIZE) {
+        return res.status(413).json({ message: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` });
       }
 
       const payRunId = req.body.payRunId || null;
       const csvContent = req.file.buffer.toString("utf-8");
       const records = parse(csvContent, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, any>[];
+      
+      if (!validateRowCount(records, res)) return;
 
       let matched = 0;
       let unmatched = 0;
@@ -2858,15 +2953,15 @@ export async function registerRoutes(
     }
   });
 
-  // Import leads from Excel (REP and above can import)
+  // Import leads from Excel (REP and above can import) - with file validation
   // SUPERVISOR+ can use ?targetRepId=X to import leads for another user
   app.post("/api/leads/import", auth, upload.single("file"), async (req: AuthRequest, res) => {
     try {
-      if (!req.file) {
-        return res.status(400).json({ message: "No file uploaded" });
-      }
-
-      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      // Validate file upload
+      const validation = validateFileUpload(req.file, res);
+      if (!validation.valid) return;
+      
+      const workbook = validation.workbook;
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(sheet) as Record<string, any>[];
@@ -2874,6 +2969,9 @@ export async function registerRoutes(
       if (rows.length === 0) {
         return res.status(400).json({ message: "Excel file is empty" });
       }
+      
+      // Validate row count
+      if (!validateRowCount(rows, res)) return;
 
       const errors: string[] = [];
       let success = 0;
