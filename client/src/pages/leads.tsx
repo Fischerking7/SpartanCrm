@@ -671,7 +671,7 @@ export default function Leads() {
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-medium" data-testid={`text-lead-name-${lead.id}`}>
-                        {lead.customerName}
+                        {lead.customerName || <span className="text-muted-foreground italic">No Name</span>}
                       </h3>
                       {isClosedLead && (
                         <Badge variant={lead.disposition === "SOLD" ? "default" : "destructive"} className="text-xs">
@@ -680,13 +680,23 @@ export default function Leads() {
                       )}
                     </div>
                     {(() => {
-                      const addr = formatAddress(lead);
                       const wpUrl = buildWhitepagesUrl(lead);
-                      const hasAddress = addr.line1 || addr.line2 || lead.customerAddress;
+                      const hasAddress = lead.houseNumber || lead.street || lead.streetName || lead.customerAddress;
                       if (!hasAddress) return null;
                       
-                      const displayLine1 = addr.line1 || lead.customerAddress || "";
-                      const displayLine2 = addr.line2;
+                      // Build comprehensive address display
+                      let streetLine = "";
+                      if (lead.houseNumber) {
+                        streetLine = lead.houseNumber;
+                        if (lead.street) streetLine += " " + lead.street;
+                        else if (lead.streetName) streetLine += " " + lead.streetName;
+                      } else if (lead.street) {
+                        streetLine = lead.street;
+                      } else if (lead.streetName) {
+                        streetLine = lead.streetName;
+                      } else if (lead.customerAddress) {
+                        streetLine = lead.customerAddress;
+                      }
                       
                       return (
                         <div className="flex items-start gap-2 text-sm text-muted-foreground">
@@ -701,16 +711,18 @@ export default function Leads() {
                             >
                               <div className="flex items-start gap-1">
                                 <div>
-                                  {displayLine1 && <div>{displayLine1}</div>}
-                                  {displayLine2 && <div>{displayLine2}</div>}
+                                  <div className="font-medium text-foreground">{streetLine}</div>
+                                  {lead.aptUnit && <div>Unit {lead.aptUnit}</div>}
+                                  <div>{[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}</div>
                                 </div>
                                 <ExternalLink className="h-3 w-3 mt-0.5 flex-shrink-0" />
                               </div>
                             </a>
                           ) : (
                             <div>
-                              {displayLine1 && <div>{displayLine1}</div>}
-                              {displayLine2 && <div>{displayLine2}</div>}
+                              <div className="font-medium text-foreground">{streetLine}</div>
+                              {lead.aptUnit && <div>Unit {lead.aptUnit}</div>}
+                              <div>{[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}</div>
                             </div>
                           )}
                         </div>
@@ -731,10 +743,18 @@ export default function Leads() {
                         <span data-testid={`text-lead-email-${lead.id}`}>{lead.customerEmail}</span>
                       </div>
                     )}
+                    {!lead.customerPhone && !lead.customerEmail && (
+                      <div className="text-sm text-muted-foreground italic">No contact info</div>
+                    )}
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Calendar className="h-4 w-4" />
                       <span>Imported {new Date(lead.importedAt).toLocaleDateString()}</span>
                     </div>
+                    {lead.repId && (
+                      <div className="text-xs text-muted-foreground">
+                        Rep: {lead.repId}
+                      </div>
+                    )}
                   </div>
                   
                   <div className="space-y-2">
