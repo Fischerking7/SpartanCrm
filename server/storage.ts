@@ -1730,7 +1730,7 @@ export const storage = {
 
   // Leads
   async getLeadsByRepId(repId: string, filters?: { zipCode?: string; street?: string; city?: string; dateFrom?: string; dateTo?: string; houseNumber?: string; streetName?: string; includeDisposed?: boolean }) {
-    const conditions = [eq(leads.repId, repId)];
+    const conditions = [eq(leads.repId, repId), isNull(leads.deletedAt)];
     
     // By default, exclude SOLD and REJECT dispositions (they're "removed" from rep's view)
     if (!filters?.includeDisposed) {
@@ -1803,7 +1803,7 @@ export const storage = {
   },
   
   async getAllLeadsForReporting(filters?: { repId?: string; disposition?: string; dateFrom?: string; dateTo?: string }) {
-    const conditions = [];
+    const conditions = [isNull(leads.deletedAt)];
     
     if (filters?.repId) {
       conditions.push(eq(leads.repId, filters.repId));
@@ -1819,13 +1819,33 @@ export const storage = {
     }
     
     return db.query.leads.findMany({
-      where: conditions.length > 0 ? and(...conditions) : undefined,
+      where: and(...conditions),
       orderBy: [desc(leads.updatedAt)]
     });
   },
   
   async deleteLead(id: string) {
     await db.delete(leads).where(eq(leads.id, id));
+  },
+  
+  // Bulk soft delete leads
+  async softDeleteLeads(ids: string[], deletedByUserId: string) {
+    if (ids.length === 0) return [];
+    const result = await db.update(leads)
+      .set({ deletedAt: new Date(), deletedByUserId, updatedAt: new Date() })
+      .where(inArray(leads.id, ids))
+      .returning();
+    return result;
+  },
+  
+  // Bulk assign leads to a different rep
+  async assignLeadsToRep(ids: string[], newRepId: string) {
+    if (ids.length === 0) return [];
+    const result = await db.update(leads)
+      .set({ repId: newRepId, updatedAt: new Date() })
+      .where(and(inArray(leads.id, ids), isNull(leads.deletedAt)))
+      .returning();
+    return result;
   },
   async deleteLeadsByDateRange(dateFrom: string, dateTo: string) {
     const result = await db.delete(leads)
