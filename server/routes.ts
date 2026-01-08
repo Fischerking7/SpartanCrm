@@ -3,12 +3,13 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, managerOrAdmin, type AuthRequest } from "./auth";
-import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client } from "@shared/schema";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 import crypto from "crypto";
 import multer from "multer";
 import * as XLSX from "xlsx";
+import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
 // Role hierarchy for authority comparisons (higher number = more authority)
 const ROLE_HIERARCHY: Record<string, number> = {
@@ -3719,6 +3720,117 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Override invoices error:", error);
       res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Register object storage routes
+  registerObjectStorageRoutes(app);
+
+  // === Knowledge Documents API ===
+  
+  // Get all knowledge documents
+  app.get("/api/knowledge-documents", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const docs = await storage.getKnowledgeDocuments();
+      res.json(docs);
+    } catch (error) {
+      console.error("Get knowledge documents error:", error);
+      res.status(500).json({ message: "Failed to get documents" });
+    }
+  });
+
+  // Get single knowledge document
+  app.get("/api/knowledge-documents/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const doc = await storage.getKnowledgeDocumentById(req.params.id);
+      if (!doc) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      res.json(doc);
+    } catch (error) {
+      console.error("Get knowledge document error:", error);
+      res.status(500).json({ message: "Failed to get document" });
+    }
+  });
+
+  // Create knowledge document (after file is uploaded to object storage)
+  app.post("/api/knowledge-documents", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const validatedData = insertKnowledgeDocumentSchema.parse({
+        ...req.body,
+        uploadedById: req.user!.id,
+      });
+      
+      const doc = await storage.createKnowledgeDocument(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "CREATE",
+        entityType: "knowledge_document",
+        entityId: doc.id,
+        details: { title: doc.title, fileName: doc.fileName },
+      });
+      
+      res.status(201).json(doc);
+    } catch (error) {
+      console.error("Create knowledge document error:", error);
+      res.status(500).json({ message: "Failed to create document" });
+    }
+  });
+
+  // Update knowledge document metadata
+  app.patch("/api/knowledge-documents/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const existing = await storage.getKnowledgeDocumentById(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      
+      const { title, description, category, tags } = req.body;
+      const doc = await storage.updateKnowledgeDocument(req.params.id, {
+        title: title !== undefined ? title : existing.title,
+        description: description !== undefined ? description : existing.description,
+        category: category !== undefined ? category : existing.category,
+        tags: tags !== undefined ? tags : existing.tags,
+      });
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "UPDATE",
+        entityType: "knowledge_document",
+        entityId: doc!.id,
+        details: { title: doc!.title },
+      });
+      
+      res.json(doc);
+    } catch (error) {
+      console.error("Update knowledge document error:", error);
+      res.status(500).json({ message: "Failed to update document" });
+    }
+  });
+
+  // Soft delete knowledge document (Admin/Manager only)
+  app.delete("/api/knowledge-documents/:id", authMiddleware, managerOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const existing = await storage.getKnowledgeDocumentById(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      
+      await storage.softDeleteKnowledgeDocument(req.params.id, req.user!.id);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "DELETE",
+        entityType: "knowledge_document",
+        entityId: req.params.id,
+        details: { title: existing.title, fileName: existing.fileName },
+      });
+      
+      res.json({ message: "Document deleted" });
+    } catch (error) {
+      console.error("Delete knowledge document error:", error);
+      res.status(500).json({ message: "Failed to delete document" });
     }
   });
 

@@ -5,7 +5,7 @@ import {
   incentives, overrideAgreements, chargebacks, adjustments,
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues,
   auditLogs, exportBatches, counters, overrideEarnings, leads, commissionLineItems, mobileLineItems,
-  overrideDeductionPool,
+  overrideDeductionPool, knowledgeDocuments,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -17,6 +17,7 @@ import {
   type CommissionLineItem, type InsertCommissionLineItem,
   type MobileLineItem, type InsertMobileLineItem,
   type OverrideDeductionPool, type InsertOverrideDeductionPool,
+  type KnowledgeDocument, type InsertKnowledgeDocument,
 } from "@shared/schema";
 
 export const storage = {
@@ -1811,5 +1812,50 @@ export const storage = {
   async deleteAllLeads() {
     const result = await db.delete(leads).returning();
     return result.length;
+  },
+
+  // Knowledge Documents
+  async getKnowledgeDocuments() {
+    return db.query.knowledgeDocuments.findMany({
+      where: isNull(knowledgeDocuments.deletedAt),
+      orderBy: [desc(knowledgeDocuments.createdAt)],
+    });
+  },
+
+  async getKnowledgeDocumentById(id: string) {
+    return db.query.knowledgeDocuments.findFirst({ 
+      where: and(eq(knowledgeDocuments.id, id), isNull(knowledgeDocuments.deletedAt))
+    });
+  },
+
+  async createKnowledgeDocument(data: InsertKnowledgeDocument) {
+    const [doc] = await db.insert(knowledgeDocuments).values(data).returning();
+    return doc;
+  },
+
+  async updateKnowledgeDocument(id: string, data: Partial<InsertKnowledgeDocument>) {
+    const [doc] = await db.update(knowledgeDocuments)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(knowledgeDocuments.id, id))
+      .returning();
+    return doc;
+  },
+
+  async softDeleteKnowledgeDocument(id: string, deletedByUserId: string) {
+    const [doc] = await db.update(knowledgeDocuments)
+      .set({ deletedAt: new Date(), deletedByUserId, updatedAt: new Date() })
+      .where(eq(knowledgeDocuments.id, id))
+      .returning();
+    return doc;
+  },
+
+  async getKnowledgeDocumentsByCategory(category: string) {
+    return db.query.knowledgeDocuments.findMany({
+      where: and(
+        eq(knowledgeDocuments.category, category),
+        isNull(knowledgeDocuments.deletedAt)
+      ),
+      orderBy: [desc(knowledgeDocuments.createdAt)],
+    });
   },
 };
