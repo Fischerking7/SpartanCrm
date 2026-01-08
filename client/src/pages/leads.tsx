@@ -731,6 +731,24 @@ export default function Leads() {
                   </div>
                   
                   <div className="space-y-2">
+                    {lead.accountNumber && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-muted-foreground font-medium">Acct:</span>
+                        <span data-testid={`text-lead-account-${lead.id}`}>{lead.accountNumber}</span>
+                      </div>
+                    )}
+                    {lead.customerStatus && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-muted-foreground font-medium">Status:</span>
+                        <span data-testid={`text-lead-status-${lead.id}`}>{lead.customerStatus}</span>
+                      </div>
+                    )}
+                    {lead.discoReason && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-muted-foreground font-medium">Disco:</span>
+                        <span data-testid={`text-lead-disco-${lead.id}`}>{lead.discoReason}</span>
+                      </div>
+                    )}
                     {lead.customerPhone && (
                       <div className="flex items-center gap-2 text-sm">
                         <Phone className="h-4 w-4 text-muted-foreground" />
@@ -742,9 +760,6 @@ export default function Leads() {
                         <Mail className="h-4 w-4 text-muted-foreground" />
                         <span data-testid={`text-lead-email-${lead.id}`}>{lead.customerEmail}</span>
                       </div>
-                    )}
-                    {!lead.customerPhone && !lead.customerEmail && (
-                      <div className="text-sm text-muted-foreground italic">No contact info</div>
                     )}
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Calendar className="h-4 w-4" />

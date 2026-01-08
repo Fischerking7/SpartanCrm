@@ -3011,6 +3011,11 @@ export async function registerRoutes(
           const state = getRowValue(row, "state", "State");
           const zipCode = getRowValue(row, "zipCode", "zip_code", "Zip", "Zip Code", "ZIP", "Postal Code");
           const notes = getRowValue(row, "notes", "Notes", "Comments");
+          
+          // Additional fields from file
+          const accountNumber = getRowValue(row, "accountNumber", "account_number", "Account Number", "Account No", "Account #", "Account", "Acct", "Acct No", "Acct #");
+          const customerStatus = getRowValue(row, "customerStatus", "customer_status", "Customer Status", "Status", "Cust Status");
+          const discoReason = getRowValue(row, "discoReason", "disco_reason", "Disco Reason", "Disconnect Reason", "Disconnection Reason", "Disco", "DC Reason");
 
           // Verify rep exists (for non-REPs importing for other reps)
           const rep = users.find(u => u.repId === repId);
@@ -3034,6 +3039,9 @@ export async function registerRoutes(
             city: city || null,
             state: state || null,
             zipCode: zipCode || null,
+            accountNumber: accountNumber || null,
+            customerStatus: customerStatus || null,
+            discoReason: discoReason || null,
             notes: notes || null,
             importedBy: req.user!.id,
             status: "NEW",
