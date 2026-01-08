@@ -2593,7 +2593,7 @@ export async function registerRoutes(
   // Leads - accessible by all authenticated users for their own leads
   app.get("/api/leads", auth, async (req: AuthRequest, res) => {
     try {
-      const { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName } = req.query as {
+      const { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, viewRepId } = req.query as {
         zipCode?: string;
         street?: string;
         city?: string;
@@ -2601,11 +2601,70 @@ export async function registerRoutes(
         dateTo?: string;
         houseNumber?: string;
         streetName?: string;
+        viewRepId?: string;
       };
-      const leads = await storage.getLeadsByRepId(req.user!.repId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
+      
+      // Determine which rep's leads to fetch
+      let targetRepId = req.user!.repId;
+      const canViewOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(req.user!.role);
+      
+      if (viewRepId && canViewOthers) {
+        // Verify caller can view this rep's leads (target must be at or below caller's level)
+        const users = await storage.getUsers();
+        const targetUser = users.find(u => u.repId === viewRepId && !u.deletedAt);
+        if (targetUser) {
+          const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+          const targetLevel = ROLE_HIERARCHY[targetUser.role] || 0;
+          if (targetLevel <= callerLevel) {
+            targetRepId = viewRepId;
+          }
+        }
+      }
+      
+      const leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
       res.json(leads);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch leads" });
+    }
+  });
+  
+  // Get lead counts per rep for SUPERVISOR+ roles
+  app.get("/api/leads/counts", auth, async (req: AuthRequest, res) => {
+    try {
+      const canViewOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(req.user!.role);
+      if (!canViewOthers) {
+        return res.status(403).json({ message: "Only supervisors and above can view lead counts" });
+      }
+      
+      const users = await storage.getUsers();
+      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+      
+      // Get all leads
+      const allLeads = await storage.getAllLeadsForReporting({});
+      
+      // Count leads per rep for users at or below caller's level
+      const counts: { repId: string; name: string; role: string; count: number }[] = [];
+      
+      for (const user of users) {
+        if (user.deletedAt || user.status !== "ACTIVE" || !user.repId) continue;
+        const userLevel = ROLE_HIERARCHY[user.role] || 0;
+        if (userLevel > callerLevel) continue;
+        
+        const userLeads = allLeads.filter(l => l.repId === user.repId && !["SOLD", "REJECT"].includes(l.disposition || ""));
+        counts.push({
+          repId: user.repId,
+          name: user.name,
+          role: user.role,
+          count: userLeads.length,
+        });
+      }
+      
+      // Sort by count descending
+      counts.sort((a, b) => b.count - a.count);
+      
+      res.json(counts);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch lead counts" });
     }
   });
 

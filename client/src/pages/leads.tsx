@@ -27,6 +27,7 @@ export default function Leads() {
     dateFrom: "",
     dateTo: "",
   });
+  const [viewingRepId, setViewingRepId] = useState<string>("");
   
   const [editingNotes, setEditingNotes] = useState<string | null>(null);
   const [notesValue, setNotesValue] = useState("");
@@ -48,6 +49,12 @@ export default function Leads() {
     queryKey: ["/api/users/assignable"],
     enabled: canAssignToOthers,
   });
+  
+  // Fetch lead counts per rep for SUPERVISOR+ roles
+  const { data: leadCounts } = useQuery<{ repId: string; name: string; role: string; count: number }[]>({
+    queryKey: ["/api/leads/counts"],
+    enabled: canAssignToOthers,
+  });
 
   const buildQueryUrl = () => {
     const params = new URLSearchParams();
@@ -57,12 +64,13 @@ export default function Leads() {
     if (filters.zipCode) params.append("zipCode", filters.zipCode);
     if (filters.dateFrom) params.append("dateFrom", filters.dateFrom);
     if (filters.dateTo) params.append("dateTo", filters.dateTo);
+    if (viewingRepId && canAssignToOthers) params.append("viewRepId", viewingRepId);
     const qs = params.toString();
     return `/api/leads${qs ? `?${qs}` : ""}`;
   };
 
   const { data: leads, isLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/leads", filters],
+    queryKey: ["/api/leads", filters, viewingRepId],
     queryFn: async () => {
       const res = await fetch(buildQueryUrl(), { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch leads");
@@ -267,14 +275,41 @@ export default function Leads() {
   // Assignable users already filtered by backend based on role hierarchy
   const assignableUsers = assignableUsersList || [];
 
+  // Get viewing rep name for display
+  const viewingRepName = viewingRepId 
+    ? assignableUsers.find(u => u.repId === viewingRepId)?.name || viewingRepId
+    : null;
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold" data-testid="text-page-title">My Leads</h1>
-          <p className="text-muted-foreground">View and manage your imported leads</p>
+          <h1 className="text-2xl font-semibold" data-testid="text-page-title">
+            {viewingRepName ? `${viewingRepName}'s Leads` : "My Leads"}
+          </h1>
+          <p className="text-muted-foreground">
+            {viewingRepName ? `Viewing leads for ${viewingRepName}` : "View and manage your imported leads"}
+          </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          {canAssignToOthers && (
+            <div className="flex items-center gap-2">
+              <Label className="text-sm whitespace-nowrap">View leads for:</Label>
+              <Select value={viewingRepId || "__my__"} onValueChange={(v) => setViewingRepId(v === "__my__" ? "" : v)}>
+                <SelectTrigger className="w-[200px]" data-testid="select-view-rep">
+                  <SelectValue placeholder="My Leads" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__my__">My Leads ({leadCounts?.find(c => c.repId === user?.repId)?.count || 0})</SelectItem>
+                  {leadCounts?.filter(c => c.repId !== user?.repId).map(c => (
+                    <SelectItem key={c.repId} value={c.repId}>
+                      {c.name} ({c.count})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {canImport && (
             <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-leads">
               <Upload className="h-4 w-4 mr-2" />
