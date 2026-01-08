@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, managerOrAdmin, type AuthRequest } from "./auth";
+import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
@@ -1170,8 +1170,8 @@ export async function registerRoutes(
     }
   });
 
-  // Admin hard delete order (permanently removes order and all related data)
-  app.delete("/api/admin/orders/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  // Hard delete order (permanently removes order and all related data) - Executive/Admin only
+  app.delete("/api/admin/orders/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const order = await storage.getOrderById(id);

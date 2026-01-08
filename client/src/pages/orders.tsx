@@ -435,7 +435,7 @@ export default function Orders() {
       return;
     }
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/hard-delete`, {
+      const res = await fetch(`/api/admin/orders/${orderId}`, {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
@@ -660,7 +660,7 @@ export default function Orders() {
           >
             <Eye className="h-4 w-4" />
           </Button>
-          {isAdmin && row.approvalStatus === "UNAPPROVED" && (
+          {isAdminOrExec && row.approvalStatus === "UNAPPROVED" && (
             <Button
               size="icon"
               variant="ghost"

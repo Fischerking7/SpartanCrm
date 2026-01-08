@@ -56,14 +56,23 @@ export function authMiddleware(db: any) {
 }
 
 export function adminOnly(req: AuthRequest, res: Response, next: NextFunction) {
-  if (req.user?.role !== "ADMIN") {
+  if (req.user?.role !== "ADMIN" && req.user?.role !== "FOUNDER") {
     return res.status(403).json({ message: "Admin access required" });
   }
   next();
 }
 
+export function executiveOrAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  const allowedRoles = ["ADMIN", "FOUNDER", "EXECUTIVE"];
+  if (!req.user?.role || !allowedRoles.includes(req.user.role)) {
+    return res.status(403).json({ message: "Executive or admin access required" });
+  }
+  next();
+}
+
 export function managerOrAdmin(req: AuthRequest, res: Response, next: NextFunction) {
-  if (req.user?.role !== "ADMIN" && req.user?.role !== "MANAGER") {
+  const allowedRoles = ["ADMIN", "FOUNDER", "MANAGER", "EXECUTIVE"];
+  if (!req.user?.role || !allowedRoles.includes(req.user.role)) {
     return res.status(403).json({ message: "Manager or admin access required" });
   }
   next();
