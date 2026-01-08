@@ -120,6 +120,30 @@ interface CommissionData {
   orders: number;
 }
 
+interface RepLeaderboardData {
+  userId: string;
+  repId: string;
+  name: string;
+  role: string;
+  supervisorName: string | null;
+  ordersSold: number;
+  ordersConnected: number;
+  ordersPending: number;
+  ordersApproved: number;
+  earned: number;
+  paid: number;
+  outstanding: number;
+  mobileLines: number;
+  tvSold: number;
+  internetSold: number;
+  avgOrderValue: number;
+  approvalRate: number;
+  connectionRate: number;
+  leadsConverted: number;
+  leadsTotal: number;
+  conversionRate: number;
+}
+
 interface TeamProductionData {
   leaderId: string;
   leaderName: string;
@@ -261,7 +285,17 @@ export default function Reports() {
       if (!res.ok) return { data: [], totals: { totalSold: 0, totalConnected: 0, totalMobileLines: 0, totalPendingDollars: 0, totalConnectedDollars: 0 } };
       return res.json();
     },
-    enabled: summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER" || summary?.scopeInfo?.role === "EXECUTIVE",
+    enabled: summary?.scopeInfo?.role !== "REP",
+  });
+
+  const { data: repLeaderboard } = useQuery<{ data: RepLeaderboardData[]; totals: { totalOrders: number; totalConnected: number; totalEarned: number; totalPaid: number; totalMobileLines: number; totalLeads: number; totalConverted: number }; scopeInfo: { role: string; scopeDescription: string; repCount: number } }>({
+    queryKey: ["/api/reports/rep-leaderboard", period, customStartDate, customEndDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/reports/rep-leaderboard?${buildQueryString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) return { data: [], totals: { totalOrders: 0, totalConnected: 0, totalEarned: 0, totalPaid: 0, totalMobileLines: 0, totalLeads: 0, totalConverted: 0 }, scopeInfo: { role: "", scopeDescription: "", repCount: 0 } };
+      return res.json();
+    },
+    enabled: summary?.scopeInfo?.role !== "REP",
   });
 
   const { data: overrideInvoices } = useQuery<{ data: OverrideInvoiceData[]; totals: { totalOverrides: string; invoiceCount: number }; recipients: Array<{ id: string; name: string; role: string }> }>({
@@ -553,7 +587,10 @@ export default function Reports() {
             <TabsTrigger value="performance" data-testid="tab-performance">Rep Performance</TabsTrigger>
             <TabsTrigger value="breakdown" data-testid="tab-breakdown">Sales Breakdown</TabsTrigger>
             <TabsTrigger value="commission" data-testid="tab-commission">Commission Summary</TabsTrigger>
-            {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER" || summary?.scopeInfo?.role === "EXECUTIVE") && (
+            {summary?.scopeInfo?.role !== "REP" && (
+              <TabsTrigger value="rep-leaderboard" data-testid="tab-rep-leaderboard">Rep Leaderboard</TabsTrigger>
+            )}
+            {summary?.scopeInfo?.role !== "REP" && (
               <TabsTrigger value="team-production" data-testid="tab-team-production">Team Production</TabsTrigger>
             )}
             {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
@@ -987,7 +1024,123 @@ export default function Reports() {
           </Card>
         </TabsContent>
 
-        {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER" || summary?.scopeInfo?.role === "EXECUTIVE") && (
+        {summary?.scopeInfo?.role !== "REP" && (
+          <TabsContent value="rep-leaderboard" className="space-y-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Users className="h-5 w-5" />
+                    Rep Leaderboard
+                  </CardTitle>
+                  <CardDescription>Detailed individual rep performance metrics</CardDescription>
+                </div>
+                {repLeaderboard?.totals && (
+                  <div className="flex gap-4 text-sm flex-wrap">
+                    <div>
+                      <span className="text-muted-foreground">Reps: </span>
+                      <span className="font-mono font-medium">{repLeaderboard.data.length}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Total Earned: </span>
+                      <span className="font-mono font-medium text-green-600">{formatCurrency(repLeaderboard.totals.totalEarned)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Total Leads: </span>
+                      <span className="font-mono font-medium">{repLeaderboard.totals.totalLeads}</span>
+                    </div>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent>
+                {repLeaderboard?.data?.length ? (
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[1200px]">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/50">
+                            <th className="text-left py-3 px-2 font-medium sticky left-0 bg-muted/50">Rep</th>
+                            <th className="text-left py-3 px-2 font-medium">Role</th>
+                            <th className="text-left py-3 px-2 font-medium">Supervisor</th>
+                            <th className="text-right py-3 px-2 font-medium">Sold</th>
+                            <th className="text-right py-3 px-2 font-medium">Connected</th>
+                            <th className="text-right py-3 px-2 font-medium">Pending</th>
+                            <th className="text-right py-3 px-2 font-medium">Earned</th>
+                            <th className="text-right py-3 px-2 font-medium">Paid</th>
+                            <th className="text-right py-3 px-2 font-medium">Outstanding</th>
+                            <th className="text-right py-3 px-2 font-medium">Mobile</th>
+                            <th className="text-right py-3 px-2 font-medium">TV</th>
+                            <th className="text-right py-3 px-2 font-medium">Internet</th>
+                            <th className="text-right py-3 px-2 font-medium">Approval %</th>
+                            <th className="text-right py-3 px-2 font-medium">Connect %</th>
+                            <th className="text-right py-3 px-2 font-medium">Leads</th>
+                            <th className="text-right py-3 px-2 font-medium">Conv %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {repLeaderboard.data.map((rep, idx) => (
+                            <tr key={rep.userId} className="border-b last:border-0 hover-elevate" data-testid={`rep-leaderboard-row-${rep.repId}`}>
+                              <td className="py-3 px-2 sticky left-0 bg-card">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-muted-foreground font-mono text-xs">#{idx + 1}</span>
+                                  <div>
+                                    <span className="font-medium">{rep.name}</span>
+                                    <span className="text-muted-foreground ml-1 font-mono text-xs">({rep.repId})</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 px-2">
+                                <Badge variant="outline" className="text-xs">{rep.role}</Badge>
+                              </td>
+                              <td className="py-3 px-2 text-muted-foreground text-xs">{rep.supervisorName || "-"}</td>
+                              <td className="text-right py-3 px-2 font-mono">{rep.ordersSold}</td>
+                              <td className="text-right py-3 px-2 font-mono text-green-600">{rep.ordersConnected}</td>
+                              <td className="text-right py-3 px-2 font-mono text-yellow-600">{rep.ordersPending}</td>
+                              <td className="text-right py-3 px-2 font-mono text-green-600">{formatCurrency(rep.earned)}</td>
+                              <td className="text-right py-3 px-2 font-mono">{formatCurrency(rep.paid)}</td>
+                              <td className="text-right py-3 px-2 font-mono text-yellow-600">{formatCurrency(rep.outstanding)}</td>
+                              <td className="text-right py-3 px-2 font-mono">{rep.mobileLines}</td>
+                              <td className="text-right py-3 px-2 font-mono">{rep.tvSold}</td>
+                              <td className="text-right py-3 px-2 font-mono">{rep.internetSold}</td>
+                              <td className="text-right py-3 px-2 font-mono">{rep.approvalRate.toFixed(0)}%</td>
+                              <td className="text-right py-3 px-2 font-mono">{rep.connectionRate.toFixed(0)}%</td>
+                              <td className="text-right py-3 px-2 font-mono">{rep.leadsTotal > 0 ? `${rep.leadsConverted}/${rep.leadsTotal}` : "-"}</td>
+                              <td className="text-right py-3 px-2 font-mono">{rep.leadsTotal > 0 ? `${rep.conversionRate.toFixed(0)}%` : "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-muted/50 font-medium">
+                            <td colSpan={3} className="py-3 px-2">Totals ({repLeaderboard.data.length} reps)</td>
+                            <td className="text-right py-3 px-2 font-mono">{repLeaderboard.totals.totalOrders}</td>
+                            <td className="text-right py-3 px-2 font-mono text-green-600">{repLeaderboard.totals.totalConnected}</td>
+                            <td className="text-right py-3 px-2 font-mono">-</td>
+                            <td className="text-right py-3 px-2 font-mono text-green-600">{formatCurrency(repLeaderboard.totals.totalEarned)}</td>
+                            <td className="text-right py-3 px-2 font-mono">{formatCurrency(repLeaderboard.totals.totalPaid)}</td>
+                            <td className="text-right py-3 px-2 font-mono text-yellow-600">{formatCurrency(repLeaderboard.totals.totalEarned - repLeaderboard.totals.totalPaid)}</td>
+                            <td className="text-right py-3 px-2 font-mono">{repLeaderboard.totals.totalMobileLines}</td>
+                            <td className="text-right py-3 px-2 font-mono">-</td>
+                            <td className="text-right py-3 px-2 font-mono">-</td>
+                            <td className="text-right py-3 px-2 font-mono">-</td>
+                            <td className="text-right py-3 px-2 font-mono">-</td>
+                            <td className="text-right py-3 px-2 font-mono">{repLeaderboard.totals.totalConverted}/{repLeaderboard.totals.totalLeads}</td>
+                            <td className="text-right py-3 px-2 font-mono">{repLeaderboard.totals.totalLeads > 0 ? `${((repLeaderboard.totals.totalConverted / repLeaderboard.totals.totalLeads) * 100).toFixed(0)}%` : "-"}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-muted-foreground">
+                    No rep data available for this period
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {summary?.scopeInfo?.role !== "REP" && (
           <TabsContent value="team-production" className="space-y-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">

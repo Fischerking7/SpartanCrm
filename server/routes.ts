@@ -3535,15 +3535,15 @@ export async function registerRoutes(
     }
   });
 
-  // Team Production Report - For ADMIN and EXECUTIVE to view team leader production
+  // Team Production Report - For SUPERVISOR+ to view team leader production (within their scope)
   app.get("/api/reports/team-production", auth, async (req: AuthRequest, res) => {
     try {
       const { period = "this_month", startDate, endDate } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      // Only ADMIN, FOUNDER, and EXECUTIVE can access this report
-      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+      // REPs cannot access this report - need SUPERVISOR or higher
+      if (user.role === "REP") {
         return res.status(403).json({ message: "Access denied" });
       }
       
@@ -3556,10 +3556,38 @@ export async function registerRoutes(
         return orderDate >= start && orderDate < end;
       });
       
-      // Get team leaders (executives, managers, supervisors)
-      const teamLeaders = allUsers.filter(u => 
-        ["EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(u.role) && !u.deletedAt
-      );
+      // Determine which team leaders to show based on user's role
+      let teamLeaders: typeof allUsers = [];
+      let userScope: { supervisorIds?: string[]; managerIds?: string[]; allRepRepIds: string[] } = { allRepRepIds: [] };
+      
+      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+        // Full access - show all team leaders
+        teamLeaders = allUsers.filter(u => 
+          ["EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(u.role) && !u.deletedAt
+        );
+      } else if (user.role === "EXECUTIVE") {
+        // Show managers and supervisors under this executive
+        userScope = await storage.getExecutiveScope(user.id);
+        teamLeaders = allUsers.filter(u => 
+          (["MANAGER", "SUPERVISOR"].includes(u.role) && !u.deletedAt) &&
+          (userScope.managerIds?.includes(u.id) || userScope.supervisorIds?.includes(u.id))
+        );
+        // Also include self
+        teamLeaders.unshift(user);
+      } else if (user.role === "MANAGER") {
+        // Show supervisors under this manager
+        userScope = await storage.getManagerScope(user.id);
+        teamLeaders = allUsers.filter(u => 
+          u.role === "SUPERVISOR" && !u.deletedAt && userScope.supervisorIds?.includes(u.id)
+        );
+        // Also include self
+        teamLeaders.unshift(user);
+      } else if (user.role === "SUPERVISOR") {
+        // Supervisor only sees their own team production
+        teamLeaders = [user];
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        userScope = { allRepRepIds: [user.repId, ...supervisedReps.map(r => r.repId)] };
+      }
       
       const teamData: Array<{
         leaderId: string;
@@ -3578,30 +3606,12 @@ export async function registerRoutes(
         let teamRepIds: string[] = [];
         
         if (leader.role === "EXECUTIVE") {
-          // For executive - restrict based on current user
-          if (user.role === "EXECUTIVE" && user.id !== leader.id) {
-            continue; // Executives can only see their own team
-          }
           const scope = await storage.getExecutiveScope(leader.id);
           teamRepIds = scope.allRepRepIds;
         } else if (leader.role === "MANAGER") {
-          // For manager - check if under current executive
-          if (user.role === "EXECUTIVE") {
-            const execScope = await storage.getExecutiveScope(user.id);
-            if (!execScope.managerIds.includes(leader.id)) {
-              continue; // This manager is not under this executive
-            }
-          }
           const scope = await storage.getManagerScope(leader.id);
           teamRepIds = scope.allRepRepIds;
         } else if (leader.role === "SUPERVISOR") {
-          // For supervisor - check if under current executive
-          if (user.role === "EXECUTIVE") {
-            const execScope = await storage.getExecutiveScope(user.id);
-            if (!execScope.supervisorIds.includes(leader.id)) {
-              continue; // This supervisor is not under this executive
-            }
-          }
           const supervisedReps = await storage.getSupervisedReps(leader.id);
           teamRepIds = [leader.repId, ...supervisedReps.map(r => r.repId)];
         }
@@ -3653,6 +3663,164 @@ export async function registerRoutes(
       res.json({ data: teamData, totals });
     } catch (error) {
       console.error("Team production error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Detailed Rep Leaderboard - Individual rep metrics for SUPERVISOR+ to see their team members
+  app.get("/api/reports/rep-leaderboard", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      const allOrders = await storage.getOrders({});
+      const allUsers = await storage.getUsers();
+      const allLeads = await storage.getLeads();
+      
+      // Apply role-based filtering
+      const { filteredOrders: scopedOrders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user);
+      
+      // Filter orders by date range
+      const periodOrders = scopedOrders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= start && orderDate < end;
+      });
+      
+      // Get rep IDs from the scoped orders
+      const repIdsInScope = [...new Set(periodOrders.map(o => o.repId))];
+      
+      // Build detailed metrics per rep
+      const repMetrics: Array<{
+        userId: string;
+        repId: string;
+        name: string;
+        role: string;
+        supervisorName: string | null;
+        ordersSold: number;
+        ordersConnected: number;
+        ordersPending: number;
+        ordersApproved: number;
+        earned: number;
+        paid: number;
+        outstanding: number;
+        mobileLines: number;
+        tvSold: number;
+        internetSold: number;
+        avgOrderValue: number;
+        approvalRate: number;
+        connectionRate: number;
+        leadsConverted: number;
+        leadsTotal: number;
+        conversionRate: number;
+      }> = [];
+      
+      // Also include reps with no orders this period but are in scope
+      let allRepIdsInScope = repIdsInScope;
+      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+        allRepIdsInScope = [...new Set([
+          ...repIdsInScope,
+          ...allUsers.filter(u => !u.deletedAt && ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role)).map(u => u.repId)
+        ])];
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        allRepIdsInScope = [...new Set([...repIdsInScope, ...scope.allRepRepIds])];
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        allRepIdsInScope = [...new Set([...repIdsInScope, ...scope.allRepRepIds])];
+      } else if (user.role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        allRepIdsInScope = [...new Set([...repIdsInScope, user.repId, ...supervisedReps.map(r => r.repId)])];
+      }
+      
+      for (const repId of allRepIdsInScope) {
+        const repUser = allUsers.find(u => u.repId === repId && !u.deletedAt);
+        if (!repUser) continue;
+        
+        const repOrders = periodOrders.filter(o => o.repId === repId);
+        const ordersSold = repOrders.length;
+        const ordersConnected = repOrders.filter(o => o.jobStatus === "COMPLETED").length;
+        const ordersPending = repOrders.filter(o => o.jobStatus === "PENDING").length;
+        const ordersApproved = repOrders.filter(o => o.approvalStatus === "APPROVED").length;
+        
+        const earned = repOrders
+          .filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED")
+          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        
+        const paid = repOrders
+          .filter(o => o.paidDate)
+          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        
+        const mobileLines = repOrders.reduce((sum, o) => sum + (o.mobileLinesQty || 0), 0);
+        const tvSold = repOrders.filter(o => o.serviceType === "TV").length;
+        const internetSold = repOrders.filter(o => o.serviceType === "INTERNET").length;
+        
+        const avgOrderValue = ordersSold > 0 ? earned / ordersConnected || 0 : 0;
+        const approvalRate = ordersSold > 0 ? (ordersApproved / ordersSold) * 100 : 0;
+        const connectionRate = ordersSold > 0 ? (ordersConnected / ordersSold) * 100 : 0;
+        
+        // Get leads for this rep in period
+        const repLeads = allLeads.filter(l => {
+          if (l.assignedRepId !== repUser.id) return false;
+          const leadDate = new Date(l.createdAt);
+          return leadDate >= start && leadDate < end;
+        });
+        const leadsConverted = repLeads.filter(l => l.disposition === "SOLD").length;
+        const leadsTotal = repLeads.length;
+        const conversionRate = leadsTotal > 0 ? (leadsConverted / leadsTotal) * 100 : 0;
+        
+        // Find supervisor name
+        let supervisorName: string | null = null;
+        if (repUser.supervisorId) {
+          const supervisor = allUsers.find(u => u.id === repUser.supervisorId);
+          supervisorName = supervisor?.name || null;
+        }
+        
+        repMetrics.push({
+          userId: repUser.id,
+          repId: repUser.repId,
+          name: repUser.name,
+          role: repUser.role,
+          supervisorName,
+          ordersSold,
+          ordersConnected,
+          ordersPending,
+          ordersApproved,
+          earned,
+          paid,
+          outstanding: earned - paid,
+          mobileLines,
+          tvSold,
+          internetSold,
+          avgOrderValue,
+          approvalRate,
+          connectionRate,
+          leadsConverted,
+          leadsTotal,
+          conversionRate,
+        });
+      }
+      
+      // Sort by earned descending
+      repMetrics.sort((a, b) => b.earned - a.earned);
+      
+      const totals = repMetrics.reduce((acc, rep) => ({
+        totalOrders: acc.totalOrders + rep.ordersSold,
+        totalConnected: acc.totalConnected + rep.ordersConnected,
+        totalEarned: acc.totalEarned + rep.earned,
+        totalPaid: acc.totalPaid + rep.paid,
+        totalMobileLines: acc.totalMobileLines + rep.mobileLines,
+        totalLeads: acc.totalLeads + rep.leadsTotal,
+        totalConverted: acc.totalConverted + rep.leadsConverted,
+      }), { totalOrders: 0, totalConnected: 0, totalEarned: 0, totalPaid: 0, totalMobileLines: 0, totalLeads: 0, totalConverted: 0 });
+      
+      res.json({ 
+        data: repMetrics, 
+        totals,
+        scopeInfo,
+      });
+    } catch (error) {
+      console.error("Rep leaderboard error:", error);
       res.status(500).json({ message: "Failed to generate report" });
     }
   });
