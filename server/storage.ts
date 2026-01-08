@@ -1816,16 +1816,15 @@ export const storage = {
 
   // Knowledge Documents
   async getKnowledgeDocuments() {
-    return db.query.knowledgeDocuments.findMany({
-      where: isNull(knowledgeDocuments.deletedAt),
-      orderBy: [desc(knowledgeDocuments.createdAt)],
-    });
+    return db.select().from(knowledgeDocuments)
+      .where(isNull(knowledgeDocuments.deletedAt))
+      .orderBy(desc(knowledgeDocuments.createdAt));
   },
 
   async getKnowledgeDocumentById(id: string) {
-    return db.query.knowledgeDocuments.findFirst({ 
-      where: and(eq(knowledgeDocuments.id, id), isNull(knowledgeDocuments.deletedAt))
-    });
+    const results = await db.select().from(knowledgeDocuments)
+      .where(and(eq(knowledgeDocuments.id, id), isNull(knowledgeDocuments.deletedAt)));
+    return results[0] || null;
   },
 
   async createKnowledgeDocument(data: InsertKnowledgeDocument) {
@@ -1850,12 +1849,11 @@ export const storage = {
   },
 
   async getKnowledgeDocumentsByCategory(category: string) {
-    return db.query.knowledgeDocuments.findMany({
-      where: and(
+    return db.select().from(knowledgeDocuments)
+      .where(and(
         eq(knowledgeDocuments.category, category),
         isNull(knowledgeDocuments.deletedAt)
-      ),
-      orderBy: [desc(knowledgeDocuments.createdAt)],
-    });
+      ))
+      .orderBy(desc(knowledgeDocuments.createdAt));
   },
 };

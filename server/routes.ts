@@ -3796,9 +3796,9 @@ export async function registerRoutes(
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "CREATE",
-        entityType: "knowledge_document",
-        entityId: doc.id,
-        details: { title: doc.title, fileName: doc.fileName },
+        tableName: "knowledge_documents",
+        recordId: doc.id,
+        afterJson: JSON.stringify({ title: doc.title, fileName: doc.fileName }),
       });
       
       res.status(201).json(doc);
@@ -3827,9 +3827,9 @@ export async function registerRoutes(
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "UPDATE",
-        entityType: "knowledge_document",
-        entityId: doc!.id,
-        details: { title: doc!.title },
+        tableName: "knowledge_documents",
+        recordId: doc!.id,
+        afterJson: JSON.stringify({ title: doc!.title }),
       });
       
       res.json(doc);
@@ -3852,9 +3852,9 @@ export async function registerRoutes(
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "DELETE",
-        entityType: "knowledge_document",
-        entityId: req.params.id,
-        details: { title: existing.title, fileName: existing.fileName },
+        tableName: "knowledge_documents",
+        recordId: req.params.id,
+        beforeJson: JSON.stringify({ title: existing.title, fileName: existing.fileName }),
       });
       
       res.json({ message: "Document deleted" });
