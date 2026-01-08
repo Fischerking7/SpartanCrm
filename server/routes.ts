@@ -2947,11 +2947,13 @@ export async function registerRoutes(
 
           // Address fields - houseNumber, aptUnit, and streetName, or combined address/street
           // Check for building/house number with many possible column name variations
+          // Includes "Bld No" (without 'g') variations that some systems use
           let houseNumber = getRowValue(row, 
             "houseNumber", "house_number", "House Number", "HouseNumber", "House #", "House",
+            "Bld No.", "Bld No", "Bld No ", "BldNo", "Bld#", "Bld #", "Bld",
             "Bldg No.", "Bldg No", "Bldg No ", "BldgNo", "Bldg#", "Bldg #", "Bldg",
             "Building No.", "Building No", "Building Number", "Building #", "Building",
-            "Address No", "Address Number", "Street No", "Street Number", "No.", "No"
+            "Address No", "Address Number", "Street No", "Street Number", "No.", "No", "#"
           );
           const aptUnit = getRowValue(row, "apt", "Apt", "Apt.", "Apt #", "Apartment", "Unit", "Unit #", "Suite", "Ste", "Basement", "Bsmt", "apt_unit", "aptUnit");
           
@@ -2961,13 +2963,21 @@ export async function registerRoutes(
           
           // If no separate fields, try to parse from combined address
           if (!houseNumber && !streetName && (customerAddress || street)) {
-            const fullAddr = customerAddress || street;
-            const match = fullAddr.match(/^(\d+[A-Za-z]?)\s+(.+)$/);
+            const fullAddr = (customerAddress || street).trim();
+            // Try number at the BEGINNING: "123 Main St"
+            let match = fullAddr.match(/^(\d+[A-Za-z]?)\s+(.+)$/);
             if (match) {
               houseNumber = match[1];
               streetName = match[2];
             } else {
-              streetName = fullAddr;
+              // Try number at the END: "Main St 123"
+              match = fullAddr.match(/^(.+)\s+(\d+[A-Za-z]?)$/);
+              if (match) {
+                streetName = match[1];
+                houseNumber = match[2];
+              } else {
+                streetName = fullAddr;
+              }
             }
           }
           
