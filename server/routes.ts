@@ -3674,21 +3674,43 @@ export async function registerRoutes(
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
+      // REPs cannot access this report - need SUPERVISOR or higher
+      if (user.role === "REP") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
       const allOrders = await storage.getOrders({});
       const allUsers = await storage.getUsers();
-      const allLeads = await storage.getLeads();
       
-      // Apply role-based filtering
-      const { filteredOrders: scopedOrders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user);
+      // Determine which rep IDs are in scope FIRST (independent of orders)
+      let scopedRepIds: string[] = [];
+      let scopeDescription = "";
       
-      // Filter orders by date range
-      const periodOrders = scopedOrders.filter(o => {
+      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+        // Full access - all reps
+        scopedRepIds = allUsers
+          .filter(u => !u.deletedAt && ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role))
+          .map(u => u.repId);
+        scopeDescription = "All Reps";
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        scopedRepIds = scope.allRepRepIds;
+        scopeDescription = "Your Organization";
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        scopedRepIds = scope.allRepRepIds;
+        scopeDescription = "Your Team";
+      } else if (user.role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        scopedRepIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+        scopeDescription = "Your Direct Reports";
+      }
+      
+      // Filter orders by date range AND scope
+      const periodOrders = allOrders.filter(o => {
         const orderDate = new Date(o.dateSold);
-        return orderDate >= start && orderDate < end;
+        return orderDate >= start && orderDate < end && scopedRepIds.includes(o.repId);
       });
-      
-      // Get rep IDs from the scoped orders
-      const repIdsInScope = [...new Set(periodOrders.map(o => o.repId))];
       
       // Build detailed metrics per rep
       const repMetrics: Array<{
@@ -3715,25 +3737,13 @@ export async function registerRoutes(
         conversionRate: number;
       }> = [];
       
-      // Also include reps with no orders this period but are in scope
-      let allRepIdsInScope = repIdsInScope;
-      if (user.role === "ADMIN" || user.role === "FOUNDER") {
-        allRepIdsInScope = [...new Set([
-          ...repIdsInScope,
-          ...allUsers.filter(u => !u.deletedAt && ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role)).map(u => u.repId)
-        ])];
-      } else if (user.role === "EXECUTIVE") {
-        const scope = await storage.getExecutiveScope(user.id);
-        allRepIdsInScope = [...new Set([...repIdsInScope, ...scope.allRepRepIds])];
-      } else if (user.role === "MANAGER") {
-        const scope = await storage.getManagerScope(user.id);
-        allRepIdsInScope = [...new Set([...repIdsInScope, ...scope.allRepRepIds])];
-      } else if (user.role === "SUPERVISOR") {
-        const supervisedReps = await storage.getSupervisedReps(user.id);
-        allRepIdsInScope = [...new Set([...repIdsInScope, user.repId, ...supervisedReps.map(r => r.repId)])];
-      }
+      const scopeInfo = {
+        role: user.role,
+        scopeDescription,
+        repCount: scopedRepIds.length,
+      };
       
-      for (const repId of allRepIdsInScope) {
+      for (const repId of scopedRepIds) {
         const repUser = allUsers.find(u => u.repId === repId && !u.deletedAt);
         if (!repUser) continue;
         
@@ -3760,10 +3770,10 @@ export async function registerRoutes(
         const connectionRate = ordersSold > 0 ? (ordersConnected / ordersSold) * 100 : 0;
         
         // Get leads for this rep in period
-        const repLeads = allLeads.filter(l => {
-          if (l.assignedRepId !== repUser.id) return false;
-          const leadDate = new Date(l.createdAt);
-          return leadDate >= start && leadDate < end;
+        const repLeads = await storage.getLeadsByRepId(repId, {
+          dateFrom: start.toISOString().split("T")[0],
+          dateTo: end.toISOString().split("T")[0],
+          includeDisposed: true,
         });
         const leadsConverted = repLeads.filter(l => l.disposition === "SOLD").length;
         const leadsTotal = repLeads.length;
