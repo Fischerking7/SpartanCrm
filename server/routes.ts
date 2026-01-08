@@ -1192,7 +1192,7 @@ export async function registerRoutes(
   });
 
   // Admin approval routes
-  app.get("/api/admin/approvals/queue", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/approvals/queue", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       let orders = await storage.getPendingApprovals();
@@ -1203,7 +1203,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/orders/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/orders/:id/approve", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const user = req.user!;
@@ -1315,7 +1315,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/orders/bulk-approve", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/orders/bulk-approve", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { orderIds } = req.body;
       const user = req.user!;
