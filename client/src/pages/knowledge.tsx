@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
+import type { KnowledgeDocument } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +44,6 @@ import {
   X,
   ExternalLink,
 } from "lucide-react";
-import type { KnowledgeDocument } from "@shared/schema";
 
 const CATEGORIES = [
   "Training",
@@ -101,6 +101,11 @@ export default function KnowledgeDatabase() {
 
   const { data: documents = [], isLoading } = useQuery<KnowledgeDocument[]>({
     queryKey: ["/api/knowledge-documents"],
+    queryFn: async () => {
+      const res = await fetch("/api/knowledge-documents", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch documents");
+      return res.json();
+    },
   });
 
   const createMutation = useMutation({
