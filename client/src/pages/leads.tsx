@@ -46,14 +46,35 @@ export default function Leads() {
   const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
 
   const buildWhitepagesUrl = (lead: Lead): string | null => {
-    const street = lead.houseNumber && lead.streetName 
-      ? `${lead.houseNumber} ${lead.streetName}` 
-      : lead.street || lead.customerAddress;
+    // Build full street address with house number
+    let street = "";
+    if (lead.houseNumber) {
+      street = lead.houseNumber;
+      if (lead.streetName) street += " " + lead.streetName;
+      if (lead.aptUnit) street += " " + lead.aptUnit;
+    } else if (lead.street) {
+      street = lead.street;
+    } else if (lead.customerAddress) {
+      street = lead.customerAddress;
+    }
     if (!street) return null;
     const parts = [street, lead.city, lead.state, lead.zipCode].filter(Boolean);
     if (parts.length < 2) return null;
     const encoded = parts.map(p => encodeURIComponent(p?.replace(/\s+/g, '-') || '')).join('/');
     return `https://www.whitepages.com/address/${encoded}`;
+  };
+  
+  const formatAddress = (lead: Lead): { line1: string; line2: string } => {
+    let line1 = "";
+    if (lead.houseNumber) {
+      line1 = lead.houseNumber;
+      if (lead.streetName) line1 += " " + lead.streetName;
+      if (lead.aptUnit) line1 += " " + lead.aptUnit;
+    } else if (lead.street) {
+      line1 = lead.street;
+    }
+    const line2 = [lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ");
+    return { line1, line2 };
   };
 
   // Fetch assignable users for SUPERVISOR+ to assign leads
@@ -463,66 +484,43 @@ export default function Leads() {
                         </Badge>
                       )}
                     </div>
-                    {(lead.houseNumber || lead.streetName || lead.street || lead.city || lead.state || lead.zipCode) && (
-                      <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                        <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                        {buildWhitepagesUrl(lead) ? (
-                          <a 
-                            href={buildWhitepagesUrl(lead) || "#"} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="hover:text-foreground hover:underline"
-                            data-testid={`link-whitepages-${lead.id}`}
-                          >
-                            <div className="flex items-start gap-1">
-                              <div>
-                                {(lead.houseNumber || lead.streetName) && (
-                                  <div>{[lead.houseNumber, lead.streetName].filter(Boolean).join(" ")}</div>
-                                )}
-                                {lead.street && !lead.houseNumber && !lead.streetName && <div>{lead.street}</div>}
-                                {(lead.city || lead.state || lead.zipCode) && (
-                                  <div>
-                                    {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
-                                  </div>
-                                )}
+                    {(() => {
+                      const addr = formatAddress(lead);
+                      const wpUrl = buildWhitepagesUrl(lead);
+                      const hasAddress = addr.line1 || addr.line2 || lead.customerAddress;
+                      if (!hasAddress) return null;
+                      
+                      const displayLine1 = addr.line1 || lead.customerAddress || "";
+                      const displayLine2 = addr.line2;
+                      
+                      return (
+                        <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                          <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                          {wpUrl ? (
+                            <a 
+                              href={wpUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="hover:text-foreground hover:underline"
+                              data-testid={`link-whitepages-${lead.id}`}
+                            >
+                              <div className="flex items-start gap-1">
+                                <div>
+                                  {displayLine1 && <div>{displayLine1}</div>}
+                                  {displayLine2 && <div>{displayLine2}</div>}
+                                </div>
+                                <ExternalLink className="h-3 w-3 mt-0.5 flex-shrink-0" />
                               </div>
-                              <ExternalLink className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                            </a>
+                          ) : (
+                            <div>
+                              {displayLine1 && <div>{displayLine1}</div>}
+                              {displayLine2 && <div>{displayLine2}</div>}
                             </div>
-                          </a>
-                        ) : (
-                          <div>
-                            {(lead.houseNumber || lead.streetName) && (
-                              <div>{[lead.houseNumber, lead.streetName].filter(Boolean).join(" ")}</div>
-                            )}
-                            {lead.street && !lead.houseNumber && !lead.streetName && <div>{lead.street}</div>}
-                            {(lead.city || lead.state || lead.zipCode) && (
-                              <div>
-                                {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {lead.customerAddress && !lead.street && !lead.houseNumber && !lead.streetName && (
-                      <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                        <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                        {buildWhitepagesUrl(lead) ? (
-                          <a 
-                            href={buildWhitepagesUrl(lead) || "#"} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="hover:text-foreground hover:underline flex items-center gap-1"
-                            data-testid={`link-whitepages-${lead.id}`}
-                          >
-                            <span>{lead.customerAddress}</span>
-                            <ExternalLink className="h-3 w-3 flex-shrink-0" />
-                          </a>
-                        ) : (
-                          <span>{lead.customerAddress}</span>
-                        )}
-                      </div>
-                    )}
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                   
                   <div className="space-y-2">
@@ -688,7 +686,7 @@ export default function Leads() {
               Import Leads from Excel
             </DialogTitle>
             <DialogDescription>
-              Upload an Excel file (.xlsx) with lead data. Required: houseNumber + streetName (or address). Optional: customerName, customerPhone, customerEmail, city, state, zipCode, notes.
+              Upload an Excel file (.xlsx) with lead data. Required: houseNumber + streetName (or address). Optional: apt/unit, customerName, customerPhone, customerEmail, city, state, zipCode, notes.
             </DialogDescription>
           </DialogHeader>
           

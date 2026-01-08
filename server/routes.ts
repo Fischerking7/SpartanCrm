@@ -2945,16 +2945,9 @@ export async function registerRoutes(
             repId = getRowValue(row, "repId", "rep_id", "RepId", "Rep ID") || currentUser.repId;
           }
 
-          // Address fields - houseNumber and streetName, or combined address/street
+          // Address fields - houseNumber, aptUnit, and streetName, or combined address/street
           let houseNumber = getRowValue(row, "houseNumber", "house_number", "House Number", "HouseNumber", "House #", "House", "Bldg No.", "Bldg No", "Building No", "Building Number", "Bldg");
-          const aptUnit = getRowValue(row, "apt", "Apt", "Apt.", "Apartment", "Unit", "Unit #", "Suite", "Ste", "Basement", "Bsmt");
-          
-          // Combine house number with apartment/unit if present
-          if (aptUnit && houseNumber) {
-            houseNumber = `${houseNumber} ${aptUnit}`;
-          } else if (aptUnit && !houseNumber) {
-            houseNumber = aptUnit;
-          }
+          const aptUnit = getRowValue(row, "apt", "Apt", "Apt.", "Apartment", "Unit", "Unit #", "Suite", "Ste", "Basement", "Bsmt", "apt_unit", "aptUnit");
           
           let streetName = getRowValue(row, "streetName", "street_name", "Street Name", "StreetName");
           const customerAddress = getRowValue(row, "customerAddress", "customer_address", "Address", "Full Address");
@@ -3002,6 +2995,7 @@ export async function registerRoutes(
             customerPhone: customerPhone || null,
             customerEmail: customerEmail || null,
             houseNumber: houseNumber || null,
+            aptUnit: aptUnit || null,
             streetName: streetName || null,
             street: street || null,
             city: city || null,

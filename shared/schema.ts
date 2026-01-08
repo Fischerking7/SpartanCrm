@@ -493,6 +493,7 @@ export const leads = pgTable("leads", {
   customerPhone: text("customer_phone"),
   customerEmail: text("customer_email"),
   houseNumber: text("house_number"),
+  aptUnit: text("apt_unit"),
   streetName: text("street_name"),
   street: text("street"),
   city: text("city"),
