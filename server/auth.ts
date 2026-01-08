@@ -3,7 +3,15 @@ import bcrypt from "bcryptjs";
 import type { Request, Response, NextFunction } from "express";
 import type { User } from "@shared/schema";
 
-const JWT_SECRET = process.env.SESSION_SECRET || "fallback-secret-key";
+function getJwtSecret(): string {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    throw new Error("SESSION_SECRET environment variable is required for production security");
+  }
+  return secret;
+}
+
+const JWT_SECRET = getJwtSecret();
 
 export interface AuthRequest extends Request {
   user?: User;
