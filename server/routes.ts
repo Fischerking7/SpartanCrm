@@ -3759,7 +3759,7 @@ export async function registerRoutes(
   // === Knowledge Documents API ===
   
   // Get all knowledge documents
-  app.get("/api/knowledge-documents", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/knowledge-documents", auth, async (req: AuthRequest, res) => {
     try {
       const docs = await storage.getKnowledgeDocuments();
       res.json(docs);
@@ -3770,7 +3770,7 @@ export async function registerRoutes(
   });
 
   // Get single knowledge document
-  app.get("/api/knowledge-documents/:id", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/knowledge-documents/:id", auth, async (req: AuthRequest, res) => {
     try {
       const doc = await storage.getKnowledgeDocumentById(req.params.id);
       if (!doc) {
@@ -3784,7 +3784,7 @@ export async function registerRoutes(
   });
 
   // Create knowledge document (after file is uploaded to object storage)
-  app.post("/api/knowledge-documents", authMiddleware, async (req: AuthRequest, res) => {
+  app.post("/api/knowledge-documents", auth, async (req: AuthRequest, res) => {
     try {
       const validatedData = insertKnowledgeDocumentSchema.parse({
         ...req.body,
@@ -3809,7 +3809,7 @@ export async function registerRoutes(
   });
 
   // Update knowledge document metadata
-  app.patch("/api/knowledge-documents/:id", authMiddleware, async (req: AuthRequest, res) => {
+  app.patch("/api/knowledge-documents/:id", auth, async (req: AuthRequest, res) => {
     try {
       const existing = await storage.getKnowledgeDocumentById(req.params.id);
       if (!existing) {
@@ -3840,7 +3840,7 @@ export async function registerRoutes(
   });
 
   // Soft delete knowledge document (Admin/Manager only)
-  app.delete("/api/knowledge-documents/:id", authMiddleware, managerOrAdmin, async (req: AuthRequest, res) => {
+  app.delete("/api/knowledge-documents/:id", auth, managerOrAdmin, async (req: AuthRequest, res) => {
     try {
       const existing = await storage.getKnowledgeDocumentById(req.params.id);
       if (!existing) {

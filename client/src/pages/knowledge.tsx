@@ -99,26 +99,14 @@ export default function KnowledgeDatabase() {
   const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
   const canDelete = isAdmin || user?.role === "MANAGER" || user?.role === "EXECUTIVE";
 
-  const { data: documents = [], isLoading, error } = useQuery<KnowledgeDocument[]>({
+  const { data: documents = [], isLoading } = useQuery<KnowledgeDocument[]>({
     queryKey: ["/api/knowledge-documents"],
     queryFn: async () => {
-      console.log("Fetching knowledge documents...");
-      const headers = getAuthHeaders();
-      console.log("Auth headers:", headers);
-      const res = await fetch("/api/knowledge-documents", { headers });
-      console.log("Response status:", res.status);
+      const res = await fetch("/api/knowledge-documents", { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch documents");
-      const data = await res.json();
-      console.log("Fetched documents:", data);
-      return data;
+      return res.json();
     },
-    staleTime: 0,
-    refetchOnMount: "always",
   });
-  
-  if (error) {
-    console.error("Knowledge documents query error:", error);
-  }
 
   const createMutation = useMutation({
     mutationFn: async (data: {
