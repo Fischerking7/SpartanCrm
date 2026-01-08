@@ -93,14 +93,14 @@ export default function Leads() {
     const city = lead.city || "";
     const state = lead.state || "";
     
-    // Build "where" as city, state zip (e.g., "Sharon Hill, PA 19079")
-    const whereParts = [city, state].filter(Boolean).join(', ');
-    const where = whereParts ? `${whereParts} ${zip}`.trim() : zip;
+    // Build full address: "123 Main St, Sharon Hill, PA 19079"
+    const locationParts = [city, state].filter(Boolean).join(', ');
+    const fullAddress = locationParts 
+      ? `${street}, ${locationParts} ${zip}`.trim()
+      : `${street}, ${zip}`.trim();
     
-    if (!where) return null;
-    
-    // Use query parameter format for more reliable address lookup
-    return `https://www.whitepages.com/address?street=${encodeURIComponent(street)}&where=${encodeURIComponent(where)}`;
+    // Use simple search query format
+    return `https://www.whitepages.com/address?q=${encodeURIComponent(fullAddress)}`;
   };
   
   const formatAddress = (lead: Lead): { line1: string; line2: string } => {
