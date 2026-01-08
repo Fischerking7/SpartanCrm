@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw } from "lucide-react";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
 import type { Lead } from "@shared/schema";
@@ -44,6 +44,17 @@ export default function Leads() {
 
   const canImport = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
   const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
+
+  const buildWhitepagesUrl = (lead: Lead): string | null => {
+    const street = lead.houseNumber && lead.streetName 
+      ? `${lead.houseNumber} ${lead.streetName}` 
+      : lead.street || lead.customerAddress;
+    if (!street) return null;
+    const parts = [street, lead.city, lead.state, lead.zipCode].filter(Boolean);
+    if (parts.length < 2) return null;
+    const encoded = parts.map(p => encodeURIComponent(p?.replace(/\s+/g, '-') || '')).join('/');
+    return `https://www.whitepages.com/address/${encoded}`;
+  };
 
   // Fetch assignable users for SUPERVISOR+ to assign leads
   const { data: assignableUsersList } = useQuery<{ id: string; name: string; repId: string; role: string; status: string }[]>({
@@ -455,23 +466,61 @@ export default function Leads() {
                     {(lead.houseNumber || lead.streetName || lead.street || lead.city || lead.state || lead.zipCode) && (
                       <div className="flex items-start gap-2 text-sm text-muted-foreground">
                         <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                        <div>
-                          {(lead.houseNumber || lead.streetName) && (
-                            <div>{[lead.houseNumber, lead.streetName].filter(Boolean).join(" ")}</div>
-                          )}
-                          {lead.street && !lead.houseNumber && !lead.streetName && <div>{lead.street}</div>}
-                          {(lead.city || lead.state || lead.zipCode) && (
-                            <div>
-                              {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
+                        {buildWhitepagesUrl(lead) ? (
+                          <a 
+                            href={buildWhitepagesUrl(lead) || "#"} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="hover:text-foreground hover:underline"
+                            data-testid={`link-whitepages-${lead.id}`}
+                          >
+                            <div className="flex items-start gap-1">
+                              <div>
+                                {(lead.houseNumber || lead.streetName) && (
+                                  <div>{[lead.houseNumber, lead.streetName].filter(Boolean).join(" ")}</div>
+                                )}
+                                {lead.street && !lead.houseNumber && !lead.streetName && <div>{lead.street}</div>}
+                                {(lead.city || lead.state || lead.zipCode) && (
+                                  <div>
+                                    {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
+                                  </div>
+                                )}
+                              </div>
+                              <ExternalLink className="h-3 w-3 mt-0.5 flex-shrink-0" />
                             </div>
-                          )}
-                        </div>
+                          </a>
+                        ) : (
+                          <div>
+                            {(lead.houseNumber || lead.streetName) && (
+                              <div>{[lead.houseNumber, lead.streetName].filter(Boolean).join(" ")}</div>
+                            )}
+                            {lead.street && !lead.houseNumber && !lead.streetName && <div>{lead.street}</div>}
+                            {(lead.city || lead.state || lead.zipCode) && (
+                              <div>
+                                {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                     {lead.customerAddress && !lead.street && !lead.houseNumber && !lead.streetName && (
                       <div className="flex items-start gap-2 text-sm text-muted-foreground">
                         <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                        <span>{lead.customerAddress}</span>
+                        {buildWhitepagesUrl(lead) ? (
+                          <a 
+                            href={buildWhitepagesUrl(lead) || "#"} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="hover:text-foreground hover:underline flex items-center gap-1"
+                            data-testid={`link-whitepages-${lead.id}`}
+                          >
+                            <span>{lead.customerAddress}</span>
+                            <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                          </a>
+                        ) : (
+                          <span>{lead.customerAddress}</span>
+                        )}
                       </div>
                     )}
                   </div>
