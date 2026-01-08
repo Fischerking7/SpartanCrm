@@ -254,19 +254,23 @@ export default function Leads() {
   const hasActiveFilters = filters.houseNumber || filters.streetName || filters.city || filters.zipCode || filters.dateFrom || filters.dateTo;
 
   const createOrderFromLead = (lead: Lead) => {
-    const address = [
-      lead.houseNumber,
-      lead.streetName || lead.street,
-      lead.city,
-      lead.state,
-      lead.zipCode
-    ].filter(Boolean).join(", ") || lead.customerAddress || "";
+    // Build full street address
+    const streetPart = lead.houseNumber 
+      ? `${lead.houseNumber} ${lead.streetName || lead.street || ""}`.trim()
+      : (lead.street || lead.streetName || "");
+    
+    // Build city, state, zip part
+    const cityStateZip = [lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ");
+    
+    // Combine into full address
+    const address = [streetPart, cityStateZip].filter(Boolean).join(", ") || lead.customerAddress || "";
     
     const params = new URLSearchParams();
     if (lead.customerName) params.set("customerName", lead.customerName);
     if (address) params.set("customerAddress", address);
     if (lead.customerPhone) params.set("customerPhone", lead.customerPhone);
     if (lead.customerEmail) params.set("customerEmail", lead.customerEmail);
+    if (lead.accountNumber) params.set("accountNumber", lead.accountNumber);
     params.set("fromLead", lead.id);
     
     setLocation(`/orders?${params.toString()}`);

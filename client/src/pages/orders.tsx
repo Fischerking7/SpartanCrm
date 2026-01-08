@@ -91,6 +91,7 @@ export default function Orders() {
       const customerAddress = params.get("customerAddress");
       const customerPhone = params.get("customerPhone");
       const customerEmail = params.get("customerEmail");
+      const accountNumber = params.get("accountNumber");
       
       if (fromLead) {
         setFromLeadId(fromLead);
@@ -100,6 +101,7 @@ export default function Orders() {
           customerAddress: customerAddress || "",
           customerPhone: customerPhone || "",
           customerEmail: customerEmail || "",
+          accountNumber: accountNumber || "",
         }));
         setShowNewOrderDialog(true);
         // Clear the URL params after processing
