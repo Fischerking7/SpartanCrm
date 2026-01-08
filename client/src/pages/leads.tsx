@@ -217,9 +217,9 @@ export default function Leads() {
       formData.append("file", importFile);
       
       const authHeaders = getAuthHeaders() as { Authorization: string };
-      // Include targetRepId in URL for SUPERVISOR+ roles if selected
+      // Include targetRepId in URL for SUPERVISOR+ roles if selected (not "__self__")
       let importUrl = "/api/leads/import";
-      if (canAssignToOthers && targetRepId) {
+      if (canAssignToOthers && targetRepId && targetRepId !== "__self__") {
         importUrl += `?targetRepId=${encodeURIComponent(targetRepId)}`;
       }
       
@@ -576,7 +576,7 @@ export default function Leads() {
                     <SelectValue placeholder="Myself (or select a user)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Myself</SelectItem>
+                    <SelectItem value="__self__">Myself</SelectItem>
                     {assignableUsers.map(u => (
                       <SelectItem key={u.id} value={u.repId}>
                         {u.name} ({u.repId}) - {u.role}
