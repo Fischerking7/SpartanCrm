@@ -2633,7 +2633,63 @@ export async function registerRoutes(
     }
   });
 
+  // Assign/reassign a lead to another user (SUPERVISOR+ only)
+  app.patch("/api/leads/:id/assign", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { targetRepId } = req.body;
+      
+      if (!targetRepId) {
+        return res.status(400).json({ message: "targetRepId is required" });
+      }
+      
+      // Only SUPERVISOR+ can assign leads to others
+      const canAssign = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(req.user!.role);
+      if (!canAssign) {
+        return res.status(403).json({ message: "Only supervisors and above can assign leads to other users" });
+      }
+      
+      // Verify lead exists
+      const lead = await storage.getLeadById(id);
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      
+      // Verify target user exists and is a valid lead assignee
+      const users = await storage.getUsers();
+      const targetUser = users.find(u => u.repId === targetRepId && !u.deletedAt && u.status === "ACTIVE");
+      if (!targetUser) {
+        return res.status(400).json({ message: `User with rep ID '${targetRepId}' not found` });
+      }
+      // Leads should only be assigned to REPs and SUPERVISORs who work with leads
+      if (!["REP", "SUPERVISOR"].includes(targetUser.role)) {
+        return res.status(400).json({ message: "Leads can only be assigned to REPs or Supervisors" });
+      }
+      
+      const oldRepId = lead.repId;
+      
+      // Update the lead's repId
+      const updated = await storage.updateLead(id, { repId: targetRepId });
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "lead_assign",
+        tableName: "leads",
+        recordId: id,
+        beforeJson: JSON.stringify({ repId: oldRepId }),
+        afterJson: JSON.stringify({ repId: targetRepId, assignedBy: req.user!.repId }),
+      });
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Lead assign error:", error);
+      res.status(500).json({ message: "Failed to assign lead" });
+    }
+  });
+
   // Import leads from Excel (REP and above can import)
+  // SUPERVISOR+ can use ?targetRepId=X to import leads for another user
   app.post("/api/leads/import", auth, upload.single("file"), async (req: AuthRequest, res) => {
     try {
       if (!req.file) {
@@ -2657,6 +2713,25 @@ export async function registerRoutes(
       const users = await storage.getUsers();
       const currentUser = req.user!;
       const isRep = currentUser.role === "REP";
+      const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(currentUser.role);
+      
+      // Check for targetRepId query parameter (SUPERVISOR+ only)
+      const targetRepId = req.query.targetRepId as string | undefined;
+      if (targetRepId && !canAssignToOthers) {
+        return res.status(403).json({ message: "Only supervisors and above can import leads for other users" });
+      }
+      
+      // Validate targetRepId if provided - only allow assigning to REP/SUPERVISOR roles
+      if (targetRepId) {
+        const targetUser = users.find(u => u.repId === targetRepId && !u.deletedAt && u.status === "ACTIVE");
+        if (!targetUser) {
+          return res.status(400).json({ message: `Target rep '${targetRepId}' not found` });
+        }
+        // Leads should only be assigned to REPs and SUPERVISORs who work with leads
+        if (!["REP", "SUPERVISOR"].includes(targetUser.role)) {
+          return res.status(400).json({ message: "Leads can only be assigned to REPs or Supervisors" });
+        }
+      }
 
       // Helper to get value from row with case-insensitive column matching
       const getRowValue = (row: Record<string, any>, ...keys: string[]): string => {
@@ -2681,15 +2756,21 @@ export async function registerRoutes(
         const rowNum = i + 2;
 
         try {
-          // For REPs, use their own repId; for others, use from file or default to their own
-          let repId = getRowValue(row, "repId", "rep_id", "RepId", "Rep ID");
+          // Determine repId for this lead:
+          // 1. If targetRepId is provided (SUPERVISOR+ importing for specific user), use it
+          // 2. If REP, always use their own repId
+          // 3. Otherwise, use from file or default to current user's repId
+          let repId: string;
           
-          if (isRep) {
+          if (targetRepId) {
+            // SUPERVISOR+ importing for a specific user - all leads go to that user
+            repId = targetRepId;
+          } else if (isRep) {
             // REPs can only import leads for themselves
             repId = currentUser.repId;
-          } else if (!repId) {
-            // Non-REPs default to their own repId if not specified
-            repId = currentUser.repId;
+          } else {
+            // Non-REPs: check file for repId or default to their own
+            repId = getRowValue(row, "repId", "rep_id", "RepId", "Rep ID") || currentUser.repId;
           }
 
           // Address fields - houseNumber and streetName, or combined address/street

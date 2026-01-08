@@ -9,9 +9,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog } from "lucide-react";
 import { useLocation } from "wouter";
-import type { Lead } from "@shared/schema";
+import type { Lead, User } from "@shared/schema";
 
 export default function Leads() {
   const { user } = useAuth();
@@ -33,9 +34,20 @@ export default function Leads() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
+  const [targetRepId, setTargetRepId] = useState<string>("");
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [assigningLeadId, setAssigningLeadId] = useState<string | null>(null);
+  const [assignTargetRepId, setAssignTargetRepId] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canImport = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
+  const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
+
+  // Fetch users for SUPERVISOR+ to assign leads
+  const { data: allUsers } = useQuery<User[]>({
+    queryKey: ["/api/users"],
+    enabled: canAssignToOthers,
+  });
 
   const buildQueryUrl = () => {
     const params = new URLSearchParams();
@@ -157,6 +169,43 @@ export default function Leads() {
     }
   };
 
+  const assignLeadMutation = useMutation({
+    mutationFn: async ({ leadId, targetRepId }: { leadId: string; targetRepId: string }) => {
+      const res = await fetch(`/api/leads/${leadId}/assign`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ targetRepId }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to assign lead");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      setShowAssignDialog(false);
+      setAssigningLeadId(null);
+      setAssignTargetRepId("");
+      toast({ title: "Lead assigned successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to assign lead", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const openAssignDialog = (leadId: string) => {
+    setAssigningLeadId(leadId);
+    setAssignTargetRepId("");
+    setShowAssignDialog(true);
+  };
+
+  const handleAssignLead = () => {
+    if (assigningLeadId && assignTargetRepId) {
+      assignLeadMutation.mutate({ leadId: assigningLeadId, targetRepId: assignTargetRepId });
+    }
+  };
+
   const handleImport = async () => {
     if (!importFile) return;
     
@@ -168,7 +217,13 @@ export default function Leads() {
       formData.append("file", importFile);
       
       const authHeaders = getAuthHeaders() as { Authorization: string };
-      const res = await fetch("/api/leads/import", {
+      // Include targetRepId in URL for SUPERVISOR+ roles if selected
+      let importUrl = "/api/leads/import";
+      if (canAssignToOthers && targetRepId) {
+        importUrl += `?targetRepId=${encodeURIComponent(targetRepId)}`;
+      }
+      
+      const res = await fetch(importUrl, {
         method: "POST",
         headers: {
           Authorization: authHeaders.Authorization,
@@ -206,7 +261,15 @@ export default function Leads() {
     setShowImportDialog(false);
     setImportFile(null);
     setImportResult(null);
+    setTargetRepId("");
   };
+
+  // Filter users for lead assignment - only REPs and SUPERVISORs with repId can be assigned leads
+  const assignableUsers = allUsers?.filter(u => 
+    u.status === "ACTIVE" && 
+    u.repId && 
+    ["REP", "SUPERVISOR"].includes(u.role)
+  ) || [];
 
   return (
     <div className="p-6 space-y-6">
@@ -460,6 +523,17 @@ export default function Leads() {
                       >
                         Reject
                       </Button>
+                      {canAssignToOthers && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openAssignDialog(lead.id)}
+                          data-testid={`button-assign-lead-${lead.id}`}
+                        >
+                          <UserCog className="h-4 w-4 mr-1" />
+                          Assign
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -494,6 +568,28 @@ export default function Leads() {
           </DialogHeader>
           
           <div className="space-y-4">
+            {canAssignToOthers && (
+              <div className="space-y-2">
+                <Label>Import leads for</Label>
+                <Select value={targetRepId} onValueChange={setTargetRepId}>
+                  <SelectTrigger data-testid="select-target-user">
+                    <SelectValue placeholder="Myself (or select a user)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Myself</SelectItem>
+                    {assignableUsers.map(u => (
+                      <SelectItem key={u.id} value={u.repId}>
+                        {u.name} ({u.repId}) - {u.role}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Leave as "Myself" to import leads to your own page, or select a user to import leads into their page.
+                </p>
+              </div>
+            )}
+            
             <div className="border-2 border-dashed rounded-lg p-6 text-center">
               <input
                 ref={fileInputRef}
@@ -569,6 +665,51 @@ export default function Leads() {
                 {isImporting ? "Importing..." : "Import"}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCog className="h-5 w-5" />
+              Assign Lead to User
+            </DialogTitle>
+            <DialogDescription>
+              Select a user to assign this lead to. The lead will be moved to their leads page.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Assign to</Label>
+              <Select value={assignTargetRepId} onValueChange={setAssignTargetRepId}>
+                <SelectTrigger data-testid="select-assign-target-user">
+                  <SelectValue placeholder="Select a user" />
+                </SelectTrigger>
+                <SelectContent>
+                  {assignableUsers.map(u => (
+                    <SelectItem key={u.id} value={u.repId}>
+                      {u.name} ({u.repId}) - {u.role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowAssignDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAssignLead}
+              disabled={!assignTargetRepId || assignLeadMutation.isPending}
+              data-testid="button-confirm-assign"
+            >
+              {assignLeadMutation.isPending ? "Assigning..." : "Assign"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

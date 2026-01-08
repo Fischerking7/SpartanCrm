@@ -1775,6 +1775,14 @@ export const storage = {
     return lead;
   },
   
+  async updateLead(id: string, data: Partial<InsertLead>) {
+    const [lead] = await db.update(leads).set({ 
+      ...data,
+      updatedAt: new Date() 
+    }).where(eq(leads.id, id)).returning();
+    return lead;
+  },
+  
   async getAllLeadsForReporting(filters?: { repId?: string; disposition?: string; dateFrom?: string; dateTo?: string }) {
     const conditions = [];
     
