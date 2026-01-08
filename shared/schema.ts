@@ -517,6 +517,42 @@ export const insertLeadSchema = createInsertSchema(leads).omit({
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = z.infer<typeof insertLeadSchema>;
 
+// Knowledge Documents table - for reference files (PDFs, Word docs, images)
+export const knowledgeDocumentTypeEnum = pgEnum("knowledge_document_type", ["PDF", "WORD", "IMAGE", "OTHER"]);
+
+export const knowledgeDocuments = pgTable("knowledge_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  description: text("description"),
+  fileName: text("file_name").notNull(),
+  fileType: knowledgeDocumentTypeEnum("file_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  mimeType: text("mime_type").notNull(),
+  objectPath: text("object_path").notNull(),
+  category: text("category"),
+  tags: text("tags").array(),
+  uploadedById: varchar("uploaded_by_id").references(() => users.id).notNull(),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: varchar("deleted_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const knowledgeDocumentsRelations = relations(knowledgeDocuments, ({ one }) => ({
+  uploadedBy: one(users, { fields: [knowledgeDocuments.uploadedById], references: [users.id] }),
+  deletedBy: one(users, { fields: [knowledgeDocuments.deletedByUserId], references: [users.id] }),
+}));
+
+export const insertKnowledgeDocumentSchema = createInsertSchema(knowledgeDocuments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+  deletedByUserId: true,
+});
+export type KnowledgeDocument = typeof knowledgeDocuments.$inferSelect;
+export type InsertKnowledgeDocument = z.infer<typeof insertKnowledgeDocumentSchema>;
+
 // Login schema
 export const loginSchema = z.object({
   repId: z.string().min(1, "Rep ID is required"),
