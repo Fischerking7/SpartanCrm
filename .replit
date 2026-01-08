@@ -45,7 +45,7 @@ integrations = ["javascript_database:1.0.0", "javascript_object_storage:2.0.0"]
 
 [userenv.shared]
 BOOTSTRAP_FOUNDER_REPID = "SF7"
-BOOTSTRAP_FOUNDER_PASSWORD = "test123"
+BOOTSTRAP_FOUNDER_PASSWORD = "Founder2026!"
 BOOTSTRAP_FOUNDER_NAME = "System Founder"
 BOOTSTRAP_ADMIN_REPID = "A01"
 BOOTSTRAP_ADMIN_PASSWORD = "Test123"
