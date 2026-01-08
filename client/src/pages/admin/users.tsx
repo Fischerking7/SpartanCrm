@@ -119,7 +119,7 @@ export default function AdminUsers() {
   
   const resetPasswordMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const res = await fetch(`/api/admin/users/${userId}/password-reset`, {
+      const res = await fetch(`/api/users/${userId}/password-reset`, {
         method: "POST",
         headers: getAuthHeaders(),
       });
