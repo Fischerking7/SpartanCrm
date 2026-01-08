@@ -106,6 +106,8 @@ export default function KnowledgeDatabase() {
       if (!res.ok) throw new Error("Failed to fetch documents");
       return res.json();
     },
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const createMutation = useMutation({
