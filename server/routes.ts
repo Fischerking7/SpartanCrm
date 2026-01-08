@@ -2285,19 +2285,35 @@ export async function registerRoutes(
         await storage.updateOrder(order.id, { exportedToAccounting: true, exportBatchId: batch.id, exportedAt: new Date() });
       }
 
-      const csvData = orders.map((o: any) => ({
-        "Rep ID": o.repId,
-        "Client": o.client?.name || "",
-        "Provider": o.provider?.name || "",
-        "Date Sold": o.dateSold,
-        "Install Date": o.installDate || "",
-        "Account Number": o.accountNumber || "",
-        "Service": o.service?.name || "",
-        "TV/Video?": o.tvSold ? "Yes" : "No",
-        "Mobile sold?": o.mobileSold ? "Yes" : "No",
-        "Mobile Lines Sold Quantity": o.mobileLinesQty || 0,
-        "Commission Earned": (parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned)).toFixed(2),
-        "Customer Name": o.customerName,
+      // Build CSV data with override deduction info
+      const csvData = await Promise.all(orders.map(async (o: any) => {
+        // Calculate gross commission (before override deduction)
+        const grossCommission = parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0");
+        
+        // Get override deductions for this order from the pool
+        const poolEntries = await storage.getOverrideDeductionPoolByOrderId(o.id);
+        const totalOverrideDeduction = poolEntries.reduce((sum, entry) => sum + parseFloat(entry.amount || "0"), 0);
+        
+        // Net commission after override deduction
+        const netCommission = grossCommission - totalOverrideDeduction;
+        
+        return {
+          "Invoice Number": o.invoiceNumber || "",
+          "Rep ID": o.repId,
+          "Customer Name": o.customerName,
+          "Client": o.client?.name || "",
+          "Provider": o.provider?.name || "",
+          "Service": o.service?.name || "",
+          "Date Sold": o.dateSold,
+          "Install Date": o.installDate || "",
+          "Account Number": o.accountNumber || "",
+          "TV/Video?": o.tvSold ? "Yes" : "No",
+          "Mobile sold?": o.mobileSold ? "Yes" : "No",
+          "Mobile Lines Qty": o.mobileLinesQty || 0,
+          "Commission Before Override": grossCommission.toFixed(2),
+          "Override Deduction": totalOverrideDeduction.toFixed(2),
+          "Commission After Override": netCommission.toFixed(2),
+        };
       }));
 
       const csv = stringify(csvData, { header: true });
