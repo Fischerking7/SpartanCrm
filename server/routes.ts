@@ -1733,7 +1733,8 @@ export async function registerRoutes(
   app.patch("/api/admin/users/:id", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const { password, name, role, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
+      const { password, name, role, repId, status, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
+      const isFounder = req.user!.role === "FOUNDER";
       
       // Get existing user for before snapshot
       const existingUser = await storage.getUserById(id);
@@ -1744,11 +1745,24 @@ export async function registerRoutes(
       const updateData: any = {};
       if (name !== undefined) updateData.name = name;
       if (role !== undefined) updateData.role = role;
+      if (status !== undefined) updateData.status = status;
       if (assignedSupervisorId !== undefined) updateData.assignedSupervisorId = assignedSupervisorId || null;
       if (assignedManagerId !== undefined) updateData.assignedManagerId = assignedManagerId || null;
       if (assignedExecutiveId !== undefined) updateData.assignedExecutiveId = assignedExecutiveId || null;
       if (password) {
         updateData.passwordHash = await hashPassword(password);
+      }
+      
+      // FOUNDER-only: Allow editing repId
+      if (repId !== undefined && isFounder) {
+        // Check if new repId is already taken by another user
+        if (repId !== existingUser.repId) {
+          const existingWithRepId = await storage.getUserByRepId(repId);
+          if (existingWithRepId && existingWithRepId.id !== id) {
+            return res.status(400).json({ message: `Rep ID "${repId}" is already in use` });
+          }
+        }
+        updateData.repId = repId;
       }
       
       // Validate org hierarchy unless admin explicitly skips
