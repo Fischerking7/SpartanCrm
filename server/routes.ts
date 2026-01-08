@@ -2,6 +2,8 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
+import { eq, and, sql } from "drizzle-orm";
+import { users } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -415,11 +417,39 @@ async function bootstrapAdmin(): Promise<void> {
   }
 }
 
+// One-time migration to free up Rep IDs from deleted users
+async function migrateDeletedUserRepIds(): Promise<void> {
+  try {
+    // Find deleted users whose repId hasn't been modified yet
+    const deletedUsers = await db.query.users.findMany({
+      where: and(
+        sql`${users.deletedAt} IS NOT NULL`,
+        sql`${users.repId} NOT LIKE '%_DELETED_%'`
+      )
+    });
+    
+    for (const user of deletedUsers) {
+      const newRepId = `${user.repId}_DELETED_${Date.now()}`;
+      await db.update(users).set({ repId: newRepId }).where(eq(users.id, user.id));
+      console.log(`Migrated deleted user repId: ${user.repId} -> ${newRepId}`);
+    }
+    
+    if (deletedUsers.length > 0) {
+      console.log(`Freed up ${deletedUsers.length} Rep IDs from deleted users`);
+    }
+  } catch (error) {
+    console.error("Error migrating deleted user Rep IDs:", error);
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   const auth = authMiddleware(db);
+  
+  // One-time migration to free up Rep IDs from deleted users
+  await migrateDeletedUserRepIds();
   
   // Bootstrap FOUNDER and ADMIN on first run
   await bootstrapFounder();

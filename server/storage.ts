@@ -67,8 +67,16 @@ export const storage = {
     return db.query.users.findMany({ where: and(eq(users.assignedManagerId, managerId), eq(users.status, "ACTIVE")) });
   },
   async softDeleteUser(id: string, deletedByUserId: string) {
+    // First get the current user to modify their repId
+    const currentUser = await db.query.users.findFirst({ where: eq(users.id, id) });
+    if (!currentUser) return null;
+    
+    // Append timestamp to repId to free it up for reuse
+    const deletedRepId = `${currentUser.repId}_DELETED_${Date.now()}`;
+    
     const [user] = await db.update(users).set({ 
       status: "DEACTIVATED",
+      repId: deletedRepId,
       deletedAt: new Date(), 
       deletedByUserId,
       updatedAt: new Date() 
