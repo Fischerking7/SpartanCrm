@@ -69,8 +69,8 @@ export default function Commissions() {
   });
 
   const isRep = user?.role === "REP";
-  // Only ADMIN, FOUNDER can see override earnings - executives and below only see their final commission
-  const canSeeOverrides = ["ADMIN", "FOUNDER"].includes(user?.role || "");
+  // EXECUTIVE, ADMIN, FOUNDER can see override earnings they receive from their teams
+  const canSeeOverrides = ["EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
   const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`;
 
   if (isLoading) {

@@ -77,6 +77,12 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
     return existingEarnings; // Already generated, return existing
   }
   
+  // Executives do not have overrides applied to their sales
+  const salesRep = await storage.getUserByRepId(approvedOrder.repId);
+  if (salesRep?.role === "EXECUTIVE") {
+    return []; // No overrides for executive sales
+  }
+  
   const earnings: OverrideEarning[] = [];
   
   // --- RATE CARD OVERRIDE DEDUCTIONS (BASE/INTERNET & TV) ---
@@ -3739,8 +3745,8 @@ export async function registerRoutes(
           .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
         
         const mobileLines = repOrders.reduce((sum, o) => sum + (o.mobileLinesQty || 0), 0);
-        const tvSold = repOrders.filter(o => o.serviceType === "TV").length;
-        const internetSold = repOrders.filter(o => o.serviceType === "INTERNET").length;
+        const tvSold = repOrders.filter(o => o.tvSold).length;
+        const internetSold = repOrders.length - tvSold; // Orders without TV as proxy for internet
         
         const avgOrderValue = ordersSold > 0 ? earned / ordersConnected || 0 : 0;
         const approvalRate = ordersSold > 0 ? (ordersApproved / ordersSold) * 100 : 0;
@@ -3758,8 +3764,8 @@ export async function registerRoutes(
         
         // Find supervisor name
         let supervisorName: string | null = null;
-        if (repUser.supervisorId) {
-          const supervisor = allUsers.find(u => u.id === repUser.supervisorId);
+        if (repUser.assignedSupervisorId) {
+          const supervisor = allUsers.find(u => u.id === repUser.assignedSupervisorId);
           supervisorName = supervisor?.name || null;
         }
         
