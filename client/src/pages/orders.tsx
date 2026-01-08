@@ -1011,13 +1011,13 @@ export default function Orders() {
       </Dialog>
 
       <Dialog open={showNewOrderDialog} onOpenChange={(open) => { setShowNewOrderDialog(open); if (!open) resetNewOrderForm(); }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-visible flex flex-col">
           <DialogHeader>
             <DialogTitle>Create New Order</DialogTitle>
             <DialogDescription>Enter the order details below</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-4 overflow-y-auto flex-1 pr-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {isAdmin && (
                 <div className="space-y-2">
                   <Label>Assign To *</Label>
