@@ -505,6 +505,8 @@ export const leads = pgTable("leads", {
   importedAt: timestamp("imported_at").defaultNow().notNull(),
   importedBy: varchar("imported_by").references(() => users.id),
   status: text("status").notNull().default("NEW"),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: varchar("deleted_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -514,6 +516,8 @@ export const insertLeadSchema = createInsertSchema(leads).omit({
   createdAt: true,
   updatedAt: true,
   importedAt: true,
+  deletedAt: true,
+  deletedByUserId: true,
 });
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = z.infer<typeof insertLeadSchema>;
