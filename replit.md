@@ -44,7 +44,15 @@ Key tables defined in `shared/schema.ts`:
 - MobileLineItems (individual mobile lines per order with product type and ported status)
 - CommissionLineItems (per-service commission breakdown)
 - UnmatchedPayments, UnmatchedChargebacks, RateIssues (exception queues)
+- KnowledgeDocuments (reference files - PDFs, Word docs, images stored in object storage)
 - AuditLogs, ExportBatches, Counters
+
+### Knowledge Database
+- Reference document storage for training materials, policies, procedures, and resources
+- Supports PDF, Word documents, and images uploaded to Replit Object Storage
+- Documents organized by categories: Training, Policies, Procedures, Product Info, Sales Materials, Templates, Other
+- All users can view and upload documents; Managers+ can delete
+- Accessible from sidebar navigation for all user roles
 
 ### Mobile Line Tracking
 - Each mobile line sold is tracked individually in the `mobile_line_items` table

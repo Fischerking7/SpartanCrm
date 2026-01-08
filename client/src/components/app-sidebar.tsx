@@ -34,6 +34,7 @@ import {
   UserPlus,
   BarChart3,
   Calculator,
+  BookOpen,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 
@@ -44,6 +45,7 @@ const repMenuItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
+  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
 ];
 
 // SUPERVISOR, MANAGER - includes Reports and Adjustments
@@ -54,6 +56,7 @@ const salesLeaderMenuItems = [
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
+  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
 ];
 
 // EXECUTIVE - can approve adjustments
@@ -64,6 +67,7 @@ const executiveMenuItems = [
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
+  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
 ];
 
 // Admin/Founder get additional accounting and management options
@@ -79,6 +83,7 @@ const adminMenuItems = [
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Recalculate", url: "/recalculate", icon: Calculator },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
+  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
   { title: "Audit Log", url: "/audit", icon: History },
 ];

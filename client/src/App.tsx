@@ -33,6 +33,7 @@ import AdminOverrides from "@/pages/admin/overrides";
 import ExportHistory from "@/pages/export-history";
 import Reports from "@/pages/reports";
 import Recalculate from "@/pages/recalculate";
+import Knowledge from "@/pages/knowledge";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -147,6 +148,7 @@ function Router() {
         <Route path="/leads" component={Leads} />
         <Route path="/commissions" component={Commissions} />
         <Route path="/adjustments" component={Adjustments} />
+        <Route path="/knowledge" component={Knowledge} />
         <Route path="/change-password" component={ChangePassword} />
         
         {canViewReports && <Route path="/reports" component={Reports} />}
