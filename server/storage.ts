@@ -1769,6 +1769,13 @@ export const storage = {
     return db.query.leads.findFirst({ where: eq(leads.id, id) });
   },
   
+  async getAllLeadsForAdmin() {
+    return db.query.leads.findMany({
+      where: isNull(leads.deletedAt),
+      orderBy: [desc(leads.importedAt)]
+    });
+  },
+  
   async createLead(data: InsertLead) {
     const [lead] = await db.insert(leads).values(data).returning();
     return lead;

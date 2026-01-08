@@ -12,7 +12,7 @@ import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users } from "lucide-react";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
 import type { Lead } from "@shared/schema";
@@ -53,6 +53,7 @@ export default function Leads() {
   const canImport = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
   const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
   const canBulkManage = canAssignToOthers; // SUPERVISOR+ can multi-select and bulk manage
+  const isAdmin = ["ADMIN", "FOUNDER"].includes(user?.role || "");
 
   const buildWhitepagesUrl = (lead: Lead): string | null => {
     // Build full street address with house number
@@ -340,6 +341,28 @@ export default function Leads() {
     },
   });
 
+  // Admin fix addresses mutation
+  const fixAddressesMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/leads/fix-addresses", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to fix addresses");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: data.message || `Fixed ${data.count} addresses` });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to fix addresses", description: error.message, variant: "destructive" });
+    },
+  });
+
   // Multi-select handlers
   const toggleLeadSelection = (leadId: string) => {
     setSelectedLeadIds(prev => {
@@ -474,6 +497,17 @@ export default function Leads() {
             <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-leads">
               <Upload className="h-4 w-4 mr-2" />
               Import Leads
+            </Button>
+          )}
+          {isAdmin && (
+            <Button 
+              variant="outline" 
+              onClick={() => fixAddressesMutation.mutate()} 
+              disabled={fixAddressesMutation.isPending}
+              data-testid="button-fix-addresses"
+            >
+              <Wrench className="h-4 w-4 mr-2" />
+              {fixAddressesMutation.isPending ? "Fixing..." : "Fix Addresses"}
             </Button>
           )}
           <div className="flex items-center gap-2">

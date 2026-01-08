@@ -3080,6 +3080,55 @@ export async function registerRoutes(
     }
   });
 
+  // Admin fix leads with building numbers in wrong position
+  app.post("/api/admin/leads/fix-addresses", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      // Get all leads
+      const allLeads = await storage.getAllLeadsForAdmin();
+      let fixed = 0;
+      const fixedLeads: { id: string; before: string; after: string }[] = [];
+      
+      for (const lead of allLeads) {
+        // Skip if already has houseNumber populated
+        if (lead.houseNumber) continue;
+        
+        // Check if streetName or street has a number at the end
+        const addrToCheck = lead.streetName || lead.street || lead.customerAddress;
+        if (!addrToCheck) continue;
+        
+        const match = addrToCheck.trim().match(/^(.+)\s+(\d+[A-Za-z]?)$/);
+        if (match) {
+          const newStreetName = match[1];
+          const newHouseNumber = match[2];
+          
+          // Update the lead
+          await storage.updateLead(lead.id, {
+            houseNumber: newHouseNumber,
+            streetName: newStreetName,
+          });
+          
+          fixedLeads.push({
+            id: lead.id,
+            before: addrToCheck,
+            after: `${newHouseNumber} ${newStreetName}`
+          });
+          fixed++;
+        }
+      }
+      
+      await storage.createAuditLog({ 
+        action: "fix_lead_addresses", 
+        tableName: "leads", 
+        afterJson: JSON.stringify({ count: fixed, samples: fixedLeads.slice(0, 10) }),
+        userId: req.user!.id 
+      });
+      
+      res.json({ message: `Fixed ${fixed} leads`, count: fixed, fixed: fixedLeads });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fix leads" });
+    }
+  });
+
   // Admin delete single lead
   app.delete("/api/admin/leads/:id", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
