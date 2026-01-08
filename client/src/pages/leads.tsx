@@ -75,12 +75,13 @@ export default function Leads() {
     const street = getStreetAddress(lead);
     if (!street) return null;
     
-    const cityStateZip = [lead.city, lead.state, lead.zipCode?.split('-')[0]].filter(Boolean).join(' ');
-    if (!cityStateZip) return null;
+    // Use state and 5-digit ZIP only (no city, no ZIP+4)
+    const stateZip = [lead.state, lead.zipCode?.split('-')[0]].filter(Boolean).join(' ');
+    if (!stateZip) return null;
     
     const streetParam = encodeURIComponent(street);
-    const cityStateZipParam = encodeURIComponent(cityStateZip);
-    return `https://www.truepeoplesearch.com/resultaddress?streetaddress=${streetParam}&citystatezip=${cityStateZipParam}`;
+    const stateZipParam = encodeURIComponent(stateZip);
+    return `https://www.truepeoplesearch.com/resultaddress?streetaddress=${streetParam}&citystatezip=${stateZipParam}`;
   };
 
   const buildWhitepagesUrl = (lead: Lead): string | null => {
