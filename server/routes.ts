@@ -2920,6 +2920,32 @@ export async function registerRoutes(
         .filter((o: SalesOrder) => o.approvedAt && new Date(o.approvedAt) >= monthStart)
         .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       
+      // Get pending orders (not yet completed) for this rep
+      const pendingOrders = allOrders.filter((o: SalesOrder) => 
+        o.repId === user.repId && 
+        o.jobStatus !== "COMPLETED" &&
+        !o.deletedAt
+      );
+      
+      // Calculate pending commissions (estimated from baseCommissionEarned which is pre-calculated)
+      const pendingWeekly = pendingOrders
+        .filter((o: SalesOrder) => new Date(o.dateSold) >= weekStart)
+        .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0"), 0);
+      
+      const pendingMtd = pendingOrders
+        .filter((o: SalesOrder) => new Date(o.dateSold) >= monthStart)
+        .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0"), 0);
+      
+      // Calculate 30-day rolling average for connected commissions
+      const thirtyDaysAgo = new Date(nyNow);
+      thirtyDaysAgo.setDate(nyNow.getDate() - 30);
+      
+      const last30DaysConnected = myOrders
+        .filter((o: SalesOrder) => o.approvedAt && new Date(o.approvedAt) >= thirtyDaysAgo)
+        .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      
+      const rollingAverage30Days = last30DaysConnected / 30;
+      
       // Generate daily data for charts (last 7 days for weekly, current month for MTD)
       const weeklyChartData: { day: string; amount: number }[] = [];
       for (let i = 6; i >= 0; i--) {
@@ -2977,6 +3003,9 @@ export async function registerRoutes(
         serviceTotals,
         weeklyEarned,
         mtdEarned,
+        pendingWeekly,
+        pendingMtd,
+        rollingAverage30Days,
         weeklyChartData,
         mtdChartData,
         overrideEarnings: isRep ? null : overrideEarnings,
