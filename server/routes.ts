@@ -987,14 +987,20 @@ export async function registerRoutes(
         const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
         appliedRateCardId = rateCard.id;
         
-        // Subtract override deductions for net commission
+        // Check if sales rep is an EXECUTIVE (exempt from override deductions)
+        const salesRepUser = await storage.getUserByRepId(repId);
+        const isExecutiveSale = salesRepUser?.role === "EXECUTIVE";
+        
+        // Subtract override deductions for net commission (NOT for executives)
         let totalDeductions = 0;
-        totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
-        if (order.tvSold) {
-          totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
-        }
-        if (order.mobileSold) {
-          totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+        if (!isExecutiveSale) {
+          totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+          if (order.tvSold) {
+            totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
+          }
+          if (order.mobileSold) {
+            totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+          }
         }
         baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
       }
@@ -1232,9 +1238,13 @@ export async function registerRoutes(
         await storage.createRateIssue({ salesOrderId: id, type: "MISSING_RATE", details: "No matching rate card found for this order" });
       }
 
-      // Calculate override deductions to subtract from rep's commission
+      // Check if sales rep is an EXECUTIVE (exempt from override deductions)
+      const salesRep = await storage.getUserByRepId(order.repId);
+      const isExecutiveSale = salesRep?.role === "EXECUTIVE";
+      
+      // Calculate override deductions to subtract from rep's commission (NOT for executives)
       let totalDeductions = 0;
-      if (rateCard) {
+      if (rateCard && !isExecutiveSale) {
         // BASE deduction always applies
         const baseDeduction = parseFloat(rateCard.overrideDeduction || "0");
         totalDeductions += baseDeduction;
@@ -2375,14 +2385,20 @@ export async function registerRoutes(
             const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
             appliedRateCardId = rateCard.id;
             
-            // Calculate override deductions to subtract from rep's commission (always apply for all orders)
+            // Check if sales rep is an EXECUTIVE (exempt from override deductions)
+            const salesRep = await storage.getUserByRepId(order.repId);
+            const isExecutiveSale = salesRep?.role === "EXECUTIVE";
+            
+            // Calculate override deductions to subtract from rep's commission (NOT for executives)
             let totalDeductions = 0;
-            totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
-            if (order.tvSold) {
-              totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
-            }
-            if (order.mobileSold) {
-              totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+            if (!isExecutiveSale) {
+              totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+              if (order.tvSold) {
+                totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
+              }
+              if (order.mobileSold) {
+                totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+              }
             }
             baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
           }
