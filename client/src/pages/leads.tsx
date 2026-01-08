@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink } from "lucide-react";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
 import type { Lead } from "@shared/schema";
@@ -41,9 +43,16 @@ export default function Leads() {
   const [assigningLeadId, setAssigningLeadId] = useState<string | null>(null);
   const [assignTargetRepId, setAssignTargetRepId] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Multi-select state for bulk operations
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
+  const [bulkAssignTargetRepId, setBulkAssignTargetRepId] = useState<string>("");
 
   const canImport = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
   const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
+  const canBulkManage = canAssignToOthers; // SUPERVISOR+ can multi-select and bulk manage
 
   const buildWhitepagesUrl = (lead: Lead): string | null => {
     // Build full street address with house number
@@ -278,6 +287,93 @@ export default function Leads() {
     }
   };
 
+  // Bulk delete mutation
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await fetch("/api/leads/bulk-delete", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to delete leads");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/counts"] });
+      setSelectedLeadIds(new Set());
+      setShowBulkDeleteDialog(false);
+      toast({ title: `Deleted ${data.count} leads` });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete leads", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Bulk assign mutation
+  const bulkAssignMutation = useMutation({
+    mutationFn: async ({ ids, newRepId }: { ids: string[]; newRepId: string }) => {
+      const res = await fetch("/api/leads/bulk-assign", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, newRepId }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to assign leads");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/counts"] });
+      setSelectedLeadIds(new Set());
+      setShowBulkAssignDialog(false);
+      setBulkAssignTargetRepId("");
+      toast({ title: data.message });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to assign leads", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Multi-select handlers
+  const toggleLeadSelection = (leadId: string) => {
+    setSelectedLeadIds(prev => {
+      const next = new Set(prev);
+      if (next.has(leadId)) {
+        next.delete(leadId);
+      } else {
+        next.add(leadId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!leads) return;
+    if (selectedLeadIds.size === leads.length) {
+      setSelectedLeadIds(new Set());
+    } else {
+      setSelectedLeadIds(new Set(leads.map(l => l.id)));
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedLeadIds.size > 0) {
+      bulkDeleteMutation.mutate(Array.from(selectedLeadIds));
+    }
+  };
+
+  const handleBulkAssign = () => {
+    if (selectedLeadIds.size > 0 && bulkAssignTargetRepId) {
+      bulkAssignMutation.mutate({ ids: Array.from(selectedLeadIds), newRepId: bulkAssignTargetRepId });
+    }
+  };
+
   const handleImport = async () => {
     if (!importFile) return;
     
@@ -468,6 +564,50 @@ export default function Leads() {
         </CardContent>
       </Card>
 
+      {/* Bulk Actions Toolbar - SUPERVISOR+ only */}
+      {canBulkManage && leads && leads.length > 0 && (
+        <Card className="bg-muted/50">
+          <CardContent className="py-3">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <Checkbox
+                  checked={selectedLeadIds.size === leads.length && leads.length > 0}
+                  onCheckedChange={toggleSelectAll}
+                  data-testid="checkbox-select-all"
+                />
+                <span className="text-sm text-muted-foreground">
+                  {selectedLeadIds.size > 0 
+                    ? `${selectedLeadIds.size} of ${leads.length} selected`
+                    : `Select all (${leads.length})`}
+                </span>
+              </div>
+              {selectedLeadIds.size > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowBulkAssignDialog(true)}
+                    data-testid="button-bulk-assign"
+                  >
+                    <Users className="h-4 w-4 mr-1" />
+                    Assign Selected
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => setShowBulkDeleteDialog(true)}
+                    data-testid="button-bulk-delete"
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete Selected
+                  </Button>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="space-y-4">
         {isLoading ? (
           <Card>
@@ -479,10 +619,21 @@ export default function Leads() {
           leads.map((lead) => {
             const isClosedLead = ["SOLD", "REJECT"].includes(lead.disposition || "");
             const isViewingOtherRep = viewingRepId && canAssignToOthers;
+            const isSelected = selectedLeadIds.has(lead.id);
             return (
-            <Card key={lead.id} data-testid={`card-lead-${lead.id}`} className={isClosedLead ? "opacity-75" : ""}>
+            <Card key={lead.id} data-testid={`card-lead-${lead.id}`} className={`${isClosedLead ? "opacity-75" : ""} ${isSelected ? "ring-2 ring-primary" : ""}`}>
               <CardContent className="py-4">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="flex gap-4">
+                  {canBulkManage && (
+                    <div className="flex-shrink-0 pt-1">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleLeadSelection(lead.id)}
+                        data-testid={`checkbox-lead-${lead.id}`}
+                      />
+                    </div>
+                  )}
+                  <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-medium" data-testid={`text-lead-name-${lead.id}`}>
@@ -668,6 +819,7 @@ export default function Leads() {
                       )}
                     </div>
                   </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -842,6 +994,75 @@ export default function Leads() {
               data-testid="button-confirm-assign"
             >
               {assignLeadMutation.isPending ? "Assigning..." : "Assign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedLeadIds.size} leads?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action will remove the selected leads from the system. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-bulk-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={bulkDeleteMutation.isPending}
+              data-testid="button-confirm-bulk-delete"
+            >
+              {bulkDeleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Assign Dialog */}
+      <Dialog open={showBulkAssignDialog} onOpenChange={setShowBulkAssignDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Assign {selectedLeadIds.size} Leads
+            </DialogTitle>
+            <DialogDescription>
+              Select a user to assign all selected leads to.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Assign to</Label>
+              <Select value={bulkAssignTargetRepId} onValueChange={setBulkAssignTargetRepId}>
+                <SelectTrigger data-testid="select-bulk-assign-target">
+                  <SelectValue placeholder="Select a user" />
+                </SelectTrigger>
+                <SelectContent>
+                  {assignableUsers.map(u => (
+                    <SelectItem key={u.id} value={u.repId}>
+                      {u.name} ({u.repId}) - {u.role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowBulkAssignDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBulkAssign}
+              disabled={!bulkAssignTargetRepId || bulkAssignMutation.isPending}
+              data-testid="button-confirm-bulk-assign"
+            >
+              {bulkAssignMutation.isPending ? "Assigning..." : "Assign"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -3092,6 +3092,7 @@ export async function registerRoutes(
   });
 
   // Bulk soft delete leads (SUPERVISOR+)
+  // Enforces hierarchy: caller can only delete leads owned by users at or below their role level
   app.post("/api/leads/bulk-delete", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
     try {
       const { ids } = req.body;
@@ -3099,22 +3100,58 @@ export async function registerRoutes(
         return res.status(400).json({ message: "ids array required" });
       }
       
-      const deletedLeads = await storage.softDeleteLeads(ids, req.user!.id);
+      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+      const users = await storage.getUsers();
+      const usersByRepId: Record<string, typeof users[0]> = {};
+      users.forEach(u => { if (u.repId) usersByRepId[u.repId] = u; });
+      
+      // Validate each lead's ownership is within caller's authority
+      const allowedIds: string[] = [];
+      const deniedIds: string[] = [];
+      
+      for (const leadId of ids) {
+        const lead = await storage.getLeadById(leadId);
+        if (!lead || lead.deletedAt) {
+          deniedIds.push(leadId);
+          continue;
+        }
+        
+        const leadOwner = usersByRepId[lead.repId];
+        const ownerLevel = leadOwner ? (ROLE_HIERARCHY[leadOwner.role] || 0) : 0;
+        
+        if (ownerLevel > callerLevel) {
+          deniedIds.push(leadId);
+        } else {
+          allowedIds.push(leadId);
+        }
+      }
+      
+      if (allowedIds.length === 0) {
+        return res.status(403).json({ message: "You don't have permission to delete any of the selected leads" });
+      }
+      
+      const deletedLeads = await storage.softDeleteLeads(allowedIds, req.user!.id);
       
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "bulk_soft_delete_leads",
         tableName: "leads",
-        afterJson: JSON.stringify({ count: deletedLeads.length, ids }),
+        afterJson: JSON.stringify({ count: deletedLeads.length, ids: allowedIds, denied: deniedIds.length }),
       });
       
-      res.json({ message: `Soft deleted ${deletedLeads.length} leads`, count: deletedLeads.length });
+      const message = deniedIds.length > 0 
+        ? `Deleted ${deletedLeads.length} leads (${deniedIds.length} skipped due to permissions)`
+        : `Deleted ${deletedLeads.length} leads`;
+      
+      res.json({ message, count: deletedLeads.length, skipped: deniedIds.length });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to delete leads" });
     }
   });
 
   // Bulk assign leads to a different rep (SUPERVISOR+)
+  // Enforces hierarchy: caller can only assign leads owned by users at or below their role level
+  // and can only assign to users at or below their role level
   app.post("/api/leads/bulk-assign", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
     try {
       const { ids, newRepId } = req.body;
@@ -3125,25 +3162,63 @@ export async function registerRoutes(
         return res.status(400).json({ message: "newRepId required" });
       }
       
+      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+      
       // Verify target rep exists and is active
       const targetRep = await storage.getUserByRepId(newRepId);
       if (!targetRep || targetRep.status !== "ACTIVE") {
         return res.status(400).json({ message: "Target rep not found or inactive" });
       }
       
-      const assignedLeads = await storage.assignLeadsToRep(ids, newRepId);
+      // Verify caller can assign to target (target role at or below caller role)
+      const targetLevel = ROLE_HIERARCHY[targetRep.role] || 0;
+      if (targetLevel > callerLevel) {
+        return res.status(403).json({ message: "You can only assign leads to users at or below your role level" });
+      }
+      
+      const users = await storage.getUsers();
+      const usersByRepId: Record<string, typeof users[0]> = {};
+      users.forEach(u => { if (u.repId) usersByRepId[u.repId] = u; });
+      
+      // Validate each lead's ownership is within caller's authority
+      const allowedIds: string[] = [];
+      const deniedIds: string[] = [];
+      
+      for (const leadId of ids) {
+        const lead = await storage.getLeadById(leadId);
+        if (!lead || lead.deletedAt) {
+          deniedIds.push(leadId);
+          continue;
+        }
+        
+        const leadOwner = usersByRepId[lead.repId];
+        const ownerLevel = leadOwner ? (ROLE_HIERARCHY[leadOwner.role] || 0) : 0;
+        
+        if (ownerLevel > callerLevel) {
+          deniedIds.push(leadId);
+        } else {
+          allowedIds.push(leadId);
+        }
+      }
+      
+      if (allowedIds.length === 0) {
+        return res.status(403).json({ message: "You don't have permission to assign any of the selected leads" });
+      }
+      
+      const assignedLeads = await storage.assignLeadsToRep(allowedIds, newRepId);
       
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "bulk_assign_leads",
         tableName: "leads",
-        afterJson: JSON.stringify({ count: assignedLeads.length, ids, newRepId }),
+        afterJson: JSON.stringify({ count: assignedLeads.length, ids: allowedIds, newRepId, denied: deniedIds.length }),
       });
       
-      res.json({ 
-        message: `Assigned ${assignedLeads.length} leads to ${targetRep.name}`, 
-        count: assignedLeads.length 
-      });
+      const message = deniedIds.length > 0
+        ? `Assigned ${assignedLeads.length} leads to ${targetRep.name} (${deniedIds.length} skipped due to permissions)`
+        : `Assigned ${assignedLeads.length} leads to ${targetRep.name}`;
+      
+      res.json({ message, count: assignedLeads.length, skipped: deniedIds.length });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to assign leads" });
     }
