@@ -3682,29 +3682,11 @@ export async function registerRoutes(
       const allOrders = await storage.getOrders({});
       const allUsers = await storage.getUsers();
       
-      // Determine which rep IDs are in scope FIRST (independent of orders)
-      let scopedRepIds: string[] = [];
-      let scopeDescription = "";
-      
-      if (user.role === "ADMIN" || user.role === "FOUNDER") {
-        // Full access - all reps
-        scopedRepIds = allUsers
-          .filter(u => !u.deletedAt && ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role))
-          .map(u => u.repId);
-        scopeDescription = "All Reps";
-      } else if (user.role === "EXECUTIVE") {
-        const scope = await storage.getExecutiveScope(user.id);
-        scopedRepIds = scope.allRepRepIds;
-        scopeDescription = "Your Organization";
-      } else if (user.role === "MANAGER") {
-        const scope = await storage.getManagerScope(user.id);
-        scopedRepIds = scope.allRepRepIds;
-        scopeDescription = "Your Team";
-      } else if (user.role === "SUPERVISOR") {
-        const supervisedReps = await storage.getSupervisedReps(user.id);
-        scopedRepIds = [user.repId, ...supervisedReps.map(r => r.repId)];
-        scopeDescription = "Your Direct Reports";
-      }
+      // Show all reps to all users with access (SUPERVISOR+)
+      const scopedRepIds = allUsers
+        .filter(u => !u.deletedAt && ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role))
+        .map(u => u.repId);
+      const scopeDescription = "All Reps";
       
       // Filter orders by date range AND scope
       const periodOrders = allOrders.filter(o => {
