@@ -98,6 +98,7 @@ export default function KnowledgeDatabase() {
 
   const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
   const canDelete = isAdmin || user?.role === "MANAGER" || user?.role === "EXECUTIVE";
+  const canUpload = user?.role !== "REP" && user?.role !== "SUPERVISOR";
 
   const { data: documents = [], isLoading } = useQuery<KnowledgeDocument[]>({
     queryKey: ["/api/knowledge-documents"],
@@ -270,10 +271,12 @@ export default function KnowledgeDatabase() {
             Reference documents, training materials, and resources
           </p>
         </div>
-        <Button onClick={() => setShowUploadDialog(true)} data-testid="button-upload-document">
-          <Upload className="h-4 w-4 mr-2" />
-          Upload Document
-        </Button>
+        {canUpload && (
+          <Button onClick={() => setShowUploadDialog(true)} data-testid="button-upload-document">
+            <Upload className="h-4 w-4 mr-2" />
+            Upload Document
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4">

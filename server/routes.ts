@@ -3783,8 +3783,8 @@ export async function registerRoutes(
     }
   });
 
-  // Create knowledge document (after file is uploaded to object storage)
-  app.post("/api/knowledge-documents", auth, async (req: AuthRequest, res) => {
+  // Create knowledge document (after file is uploaded to object storage) - Manager+ only
+  app.post("/api/knowledge-documents", auth, managerOrAdmin, async (req: AuthRequest, res) => {
     try {
       const validatedData = insertKnowledgeDocumentSchema.parse({
         ...req.body,
