@@ -108,6 +108,8 @@ export default function SupervisorDashboard() {
         </div>
       ) : summary ? (
         <>
+          <NextDayInstallsCard />
+
           <ProductionMetricsModule
             personalWeekly={summary.weekly.personal}
             personalMtd={summary.mtd.personal}
@@ -121,8 +123,6 @@ export default function SupervisorDashboard() {
             teamWeekly={summary.weekly.team?.sparklineSeries || null}
             teamMtd={summary.mtd.team?.sparklineSeries || null}
           />
-
-          <NextDayInstallsCard />
 
           {summary.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && (
             <TeamBreakdownByRepTable

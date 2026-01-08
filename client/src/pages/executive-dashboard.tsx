@@ -270,6 +270,7 @@ export default function ExecutiveDashboard() {
         </div>
       ) : summary ? (
         <>
+          <NextDayInstallsCard />
           <ProductionMetricsModule
             personalWeekly={summary.weekly.personal}
             personalMtd={summary.mtd.personal}
@@ -282,7 +283,6 @@ export default function ExecutiveDashboard() {
             teamWeekly={summary.weekly.team?.sparklineSeries || null}
             teamMtd={summary.mtd.team?.sparklineSeries || null}
           />
-          <NextDayInstallsCard />
         </>
       ) : null}
 

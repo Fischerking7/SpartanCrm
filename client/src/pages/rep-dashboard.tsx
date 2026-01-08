@@ -152,6 +152,7 @@ export default function RepDashboard() {
         </div>
       ) : summary ? (
         <>
+          <NextDayInstallsCard />
           <ProductionMetricsModule
             personalWeekly={summary.weekly.personal}
             personalMtd={summary.mtd.personal}
@@ -164,7 +165,6 @@ export default function RepDashboard() {
             teamWeekly={null}
             teamMtd={null}
           />
-          <NextDayInstallsCard />
         </>
       ) : null}
 

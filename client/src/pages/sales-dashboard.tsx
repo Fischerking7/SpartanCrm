@@ -111,6 +111,8 @@ export default function SalesDashboard() {
         </div>
       ) : summary ? (
         <>
+          <NextDayInstallsCard />
+
           <ProductionMetricsModule
             personalWeekly={summary.weekly.personal}
             personalMtd={summary.mtd.personal}
@@ -124,8 +126,6 @@ export default function SalesDashboard() {
             teamWeekly={isRep ? null : (summary.weekly.team?.sparklineSeries || null)}
             teamMtd={isRep ? null : (summary.mtd.team?.sparklineSeries || null)}
           />
-
-          <NextDayInstallsCard />
 
           {!isRep && summary.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && (
             <TeamBreakdownByRepTable
