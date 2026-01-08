@@ -903,20 +903,41 @@ export default function Orders() {
                 </div>
                 <div className="space-y-2">
                   {(() => {
-                    // Calculate gross total and determine proportional net amounts
-                    // This ensures displayed net amounts sum to baseCommissionEarned exactly
-                    const grossTotal = commissionLines?.reduce((sum, line) => sum + parseFloat(line.totalAmount), 0) || 0;
-                    const netTotal = parseFloat(selectedOrder.baseCommissionEarned);
-                    const totalDeduction = grossTotal > 0 ? grossTotal - netTotal : 0;
+                    // Executives are exempt from override deductions
+                    const orderRepRole = reps?.find(r => r.repId === selectedOrder.repId)?.role;
+                    const isExecutiveSale = orderRepRole === "EXECUTIVE";
                     
-                    // Calculate proportional net for each line so they sum to netTotal
+                    // Get the applied rate card to determine per-category deductions
+                    const appliedRateCard = rateCards?.find(rc => rc.id === selectedOrder.appliedRateCardId);
+                    const baseDeduction = isExecutiveSale ? 0 : parseFloat(appliedRateCard?.overrideDeduction || "0");
+                    const tvDeduction = isExecutiveSale ? 0 : parseFloat(appliedRateCard?.tvOverrideDeduction || "0");
+                    const mobileDeductionTotal = isExecutiveSale ? 0 : parseFloat((appliedRateCard as any)?.mobileOverrideDeduction || "0");
+                    
+                    // Count mobile lines for distributing mobile deduction
+                    const mobileLines = commissionLines?.filter(l => l.serviceCategory === "MOBILE") || [];
+                    const mobileLineCount = mobileLines.length;
+                    
+                    // Track deductions applied (each category only once, except mobile which is per-line)
+                    let baseDeductionApplied = false;
+                    let tvDeductionApplied = false;
+                    
+                    // Calculate net for each line using category-specific deductions
                     const getNetAmount = (line: CommissionLineItem): number => {
-                      if (grossTotal <= 0) return 0;
                       const grossAmount = parseFloat(line.totalAmount);
-                      // Distribute deduction proportionally based on each line's contribution to gross
-                      const proportion = grossAmount / grossTotal;
-                      const lineDeduction = totalDeduction * proportion;
-                      return Math.max(0, grossAmount - lineDeduction);
+                      if (line.serviceCategory === "INTERNET" && !baseDeductionApplied) {
+                        baseDeductionApplied = true;
+                        return Math.max(0, grossAmount - baseDeduction);
+                      }
+                      if (line.serviceCategory === "VIDEO" && !tvDeductionApplied) {
+                        tvDeductionApplied = true;
+                        return Math.max(0, grossAmount - tvDeduction);
+                      }
+                      if (line.serviceCategory === "MOBILE") {
+                        // Mobile deduction split across all mobile lines
+                        const perLineDeduction = mobileLineCount > 0 ? mobileDeductionTotal / mobileLineCount : 0;
+                        return Math.max(0, grossAmount - perLineDeduction);
+                      }
+                      return grossAmount;
                     };
                     
                     return (
