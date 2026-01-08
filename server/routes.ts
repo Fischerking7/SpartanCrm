@@ -1553,6 +1553,40 @@ export async function registerRoutes(
     }
   });
 
+  // Get assignable users for leads - SUPERVISOR+ can access this for lead assignment
+  app.get("/api/users/assignable", auth, async (req: AuthRequest, res) => {
+    try {
+      const currentUser = req.user!;
+      const canAssign = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(currentUser.role);
+      if (!canAssign) {
+        return res.status(403).json({ message: "Only supervisors and above can access assignable users" });
+      }
+      
+      const users = await storage.getUsers();
+      const currentUserLevel = ROLE_HIERARCHY[currentUser.role] || 0;
+      
+      // Filter to active users at or below caller's role level with valid repId
+      const assignableUsers = users
+        .filter(u => 
+          u.status === "ACTIVE" && 
+          !u.deletedAt && 
+          u.repId && 
+          (ROLE_HIERARCHY[u.role] || 0) <= currentUserLevel
+        )
+        .map(u => ({ 
+          id: u.id,
+          name: u.name,
+          repId: u.repId,
+          role: u.role,
+          status: u.status,
+        }));
+      
+      res.json(assignableUsers);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get assignable users" });
+    }
+  });
+
   app.post("/api/admin/users", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const { password, name, repId, role, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;

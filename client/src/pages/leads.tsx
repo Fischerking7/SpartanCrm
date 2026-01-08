@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog } from "lucide-react";
 import { useLocation } from "wouter";
-import type { Lead, User } from "@shared/schema";
+import type { Lead } from "@shared/schema";
 
 export default function Leads() {
   const { user } = useAuth();
@@ -43,9 +43,9 @@ export default function Leads() {
   const canImport = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
   const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
 
-  // Fetch users for SUPERVISOR+ to assign leads
-  const { data: allUsers } = useQuery<User[]>({
-    queryKey: ["/api/users"],
+  // Fetch assignable users for SUPERVISOR+ to assign leads
+  const { data: assignableUsersList } = useQuery<{ id: string; name: string; repId: string; role: string; status: string }[]>({
+    queryKey: ["/api/users/assignable"],
     enabled: canAssignToOthers,
   });
 
@@ -264,23 +264,8 @@ export default function Leads() {
     setTargetRepId("");
   };
 
-  // Role hierarchy for filtering assignable users
-  const ROLE_LEVELS: Record<string, number> = {
-    REP: 1,
-    SUPERVISOR: 2,
-    MANAGER: 3,
-    EXECUTIVE: 4,
-    ADMIN: 5,
-    FOUNDER: 6,
-  };
-  const currentUserLevel = ROLE_LEVELS[user?.role || "REP"] || 1;
-  
-  // Filter users for lead assignment - users at or below current user's role level with valid repId
-  const assignableUsers = allUsers?.filter(u => 
-    u.status === "ACTIVE" && 
-    u.repId && 
-    (ROLE_LEVELS[u.role] || 0) <= currentUserLevel
-  ) || [];
+  // Assignable users already filtered by backend based on role hierarchy
+  const assignableUsers = assignableUsersList || [];
 
   return (
     <div className="p-6 space-y-6">
