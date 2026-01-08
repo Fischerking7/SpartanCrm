@@ -84,7 +84,7 @@ export default function Leads() {
     return `https://www.truepeoplesearch.com/resultaddress?streetaddress=${streetParam}&citystatezip=${stateZipParam}`;
   };
 
-  const buildWhitepagesUrl = (lead: Lead): string | null => {
+  const buildFastPeopleSearchUrl = (lead: Lead): string | null => {
     const street = getStreetAddress(lead);
     if (!street) return null;
     
@@ -93,14 +93,14 @@ export default function Leads() {
     const city = lead.city || "";
     const state = lead.state || "";
     
-    // Build full address: "123 Main St, Sharon Hill, PA 19079"
-    const locationParts = [city, state].filter(Boolean).join(', ');
-    const fullAddress = locationParts 
-      ? `${street}, ${locationParts} ${zip}`.trim()
-      : `${street}, ${zip}`.trim();
+    // FastPeopleSearch format: /address/street_city-state-zip
+    // e.g., /address/123-main-st_sharon-hill-pa-19079
+    const streetPart = street.toLowerCase().replace(/\s+/g, '-');
+    const locationParts = [city, state, zip].filter(Boolean).join('-').toLowerCase().replace(/\s+/g, '-');
     
-    // Use simple search query format
-    return `https://www.whitepages.com/address?q=${encodeURIComponent(fullAddress)}`;
+    if (!locationParts) return null;
+    
+    return `https://www.fastpeoplesearch.com/address/${streetPart}_${locationParts}`;
   };
   
   const formatAddress = (lead: Lead): { line1: string; line2: string } => {
@@ -710,7 +710,7 @@ export default function Leads() {
                     </div>
                     {(() => {
                       const tpsUrl = buildTruePeopleSearchUrl(lead);
-                      const wpUrl = buildWhitepagesUrl(lead);
+                      const fpsUrl = buildFastPeopleSearchUrl(lead);
                       const hasAddress = lead.houseNumber || lead.street || lead.streetName || lead.customerAddress;
                       if (!hasAddress) return null;
                       
@@ -740,16 +740,16 @@ export default function Leads() {
                                 </a>
                               </Button>
                             )}
-                            {wpUrl && (
+                            {fpsUrl && (
                               <Button
                                 size="sm"
                                 variant="outline"
                                 asChild
-                                data-testid={`link-whitepages-${lead.id}`}
+                                data-testid={`link-fastpeoplesearch-${lead.id}`}
                               >
-                                <a href={wpUrl} target="_blank" rel="noopener noreferrer">
+                                <a href={fpsUrl} target="_blank" rel="noopener noreferrer">
                                   <ExternalLink className="h-3 w-3 mr-1" />
-                                  Whitepages
+                                  FastPeopleSearch
                                 </a>
                               </Button>
                             )}
