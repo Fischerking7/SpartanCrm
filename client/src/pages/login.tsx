@@ -10,7 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Building2, Lock, User } from "lucide-react";
+import { Lock, User } from "lucide-react";
+import logoImage from "@assets/image_1767725638779.png";
 
 export default function Login() {
   const { login } = useAuth();
@@ -41,19 +42,25 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <header className="flex items-center justify-between gap-4 p-4 border-b">
-        <div className="flex items-center gap-2">
-          <Building2 className="h-6 w-6 text-primary" />
-          <span className="font-semibold text-lg">SalesOps Pro</span>
-        </div>
+      <header className="flex items-center justify-end p-4 border-b">
         <ThemeToggle />
       </header>
       
       <main className="flex-1 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl font-semibold">Welcome Back</CardTitle>
-            <CardDescription>Sign in to access your commissions dashboard</CardDescription>
+          <CardHeader className="text-center space-y-4">
+            <div className="flex justify-center">
+              <img 
+                src={logoImage} 
+                alt="Iron Crest Solutions" 
+                className="w-48 h-auto object-contain"
+                data-testid="img-logo"
+              />
+            </div>
+            <div>
+              <CardTitle className="text-2xl font-semibold">Iron Crest CRM</CardTitle>
+              <CardDescription className="mt-2">Sign in to access your dashboard</CardDescription>
+            </div>
           </CardHeader>
           <CardContent>
             <Form {...form}>
