@@ -69,6 +69,8 @@ export default function Commissions() {
   });
 
   const isRep = user?.role === "REP";
+  // Only EXECUTIVE, ADMIN, FOUNDER can see override earnings - managers and below only see their final commission
+  const canSeeOverrides = ["EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
   const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`;
 
   if (isLoading) {
@@ -223,7 +225,7 @@ export default function Commissions() {
           </CardContent>
         </Card>
 
-        {!isRep && (
+        {canSeeOverrides && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Override Earnings</CardTitle>
@@ -239,7 +241,7 @@ export default function Commissions() {
         )}
       </div>
 
-      {!isRep && (
+      {canSeeOverrides && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Grand Total</CardTitle>
@@ -391,7 +393,7 @@ export default function Commissions() {
         </CardContent>
       </Card>
 
-      {!isRep && data?.overrideEarnings && (
+      {canSeeOverrides && data?.overrideEarnings && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Override Earnings</CardTitle>
