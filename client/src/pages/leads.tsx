@@ -67,11 +67,21 @@ export default function Leads() {
   const formatAddress = (lead: Lead): { line1: string; line2: string } => {
     let line1 = "";
     if (lead.houseNumber) {
+      // Structured address with separate house number
       line1 = lead.houseNumber;
       if (lead.streetName) line1 += " " + lead.streetName;
       if (lead.aptUnit) line1 += " " + lead.aptUnit;
     } else if (lead.street) {
+      // street field may contain full address with house number
       line1 = lead.street;
+      if (lead.aptUnit) line1 += " " + lead.aptUnit;
+    } else if (lead.streetName) {
+      // Only street name without house number
+      line1 = lead.streetName;
+      if (lead.aptUnit) line1 += " " + lead.aptUnit;
+    } else if (lead.customerAddress) {
+      // Fallback to full customer address
+      line1 = lead.customerAddress;
     }
     const line2 = [lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ");
     return { line1, line2 };
