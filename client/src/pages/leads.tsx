@@ -55,8 +55,7 @@ export default function Leads() {
   const canBulkManage = canAssignToOthers; // SUPERVISOR+ can multi-select and bulk manage
   const isAdmin = ["ADMIN", "FOUNDER"].includes(user?.role || "");
 
-  const buildAddressLookupUrl = (lead: Lead): string | null => {
-    // Build full street address with house number
+  const getStreetAddress = (lead: Lead): string => {
     let street = "";
     if (lead.houseNumber) {
       street = lead.houseNumber;
@@ -69,15 +68,29 @@ export default function Leads() {
     } else if (lead.customerAddress) {
       street = lead.customerAddress;
     }
+    return street;
+  };
+
+  const buildTruePeopleSearchUrl = (lead: Lead): string | null => {
+    const street = getStreetAddress(lead);
     if (!street) return null;
     
-    // Build city/state/zip for TruePeopleSearch
     const cityStateZip = [lead.city, lead.state, lead.zipCode?.split('-')[0]].filter(Boolean).join(' ');
     if (!cityStateZip) return null;
     
     const streetParam = encodeURIComponent(street);
     const cityStateZipParam = encodeURIComponent(cityStateZip);
     return `https://www.truepeoplesearch.com/resultaddress?streetaddress=${streetParam}&citystatezip=${cityStateZipParam}`;
+  };
+
+  const buildWhitepagesUrl = (lead: Lead): string | null => {
+    const street = getStreetAddress(lead);
+    if (!street) return null;
+    
+    const parts = [street, lead.city, lead.state, lead.zipCode?.split('-')[0]].filter(Boolean);
+    if (parts.length < 2) return null;
+    const encoded = parts.map(p => encodeURIComponent(p?.replace(/\s+/g, '-') || '')).join('/');
+    return `https://www.whitepages.com/address/${encoded}`;
   };
   
   const formatAddress = (lead: Lead): { line1: string; line2: string } => {
@@ -686,51 +699,51 @@ export default function Leads() {
                       )}
                     </div>
                     {(() => {
-                      const lookupUrl = buildAddressLookupUrl(lead);
+                      const tpsUrl = buildTruePeopleSearchUrl(lead);
+                      const wpUrl = buildWhitepagesUrl(lead);
                       const hasAddress = lead.houseNumber || lead.street || lead.streetName || lead.customerAddress;
                       if (!hasAddress) return null;
                       
-                      // Build comprehensive address display
-                      let streetLine = "";
-                      if (lead.houseNumber) {
-                        streetLine = lead.houseNumber;
-                        if (lead.street) streetLine += " " + lead.street;
-                        else if (lead.streetName) streetLine += " " + lead.streetName;
-                      } else if (lead.street) {
-                        streetLine = lead.street;
-                      } else if (lead.streetName) {
-                        streetLine = lead.streetName;
-                      } else if (lead.customerAddress) {
-                        streetLine = lead.customerAddress;
-                      }
+                      const streetLine = getStreetAddress(lead);
                       
                       return (
-                        <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                          <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                          {lookupUrl ? (
-                            <a 
-                              href={lookupUrl} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="hover:text-foreground hover:underline"
-                              data-testid={`link-address-lookup-${lead.id}`}
-                            >
-                              <div className="flex items-start gap-1">
-                                <div>
-                                  <div className="font-medium text-foreground">{streetLine}</div>
-                                  {lead.aptUnit && <div>Unit {lead.aptUnit}</div>}
-                                  <div>{[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}</div>
-                                </div>
-                                <ExternalLink className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                              </div>
-                            </a>
-                          ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                            <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
                             <div>
                               <div className="font-medium text-foreground">{streetLine}</div>
                               {lead.aptUnit && <div>Unit {lead.aptUnit}</div>}
                               <div>{[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}</div>
                             </div>
-                          )}
+                          </div>
+                          <div className="flex gap-2 flex-wrap">
+                            {tpsUrl && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                asChild
+                                data-testid={`link-truepeoplesearch-${lead.id}`}
+                              >
+                                <a href={tpsUrl} target="_blank" rel="noopener noreferrer">
+                                  <ExternalLink className="h-3 w-3 mr-1" />
+                                  TruePeopleSearch
+                                </a>
+                              </Button>
+                            )}
+                            {wpUrl && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                asChild
+                                data-testid={`link-whitepages-${lead.id}`}
+                              >
+                                <a href={wpUrl} target="_blank" rel="noopener noreferrer">
+                                  <ExternalLink className="h-3 w-3 mr-1" />
+                                  Whitepages
+                                </a>
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       );
                     })()}
