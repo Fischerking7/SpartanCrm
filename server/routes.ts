@@ -2920,11 +2920,12 @@ export async function registerRoutes(
         .filter((o: SalesOrder) => o.approvedAt && new Date(o.approvedAt) >= monthStart)
         .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       
-      // Get pending orders (not yet completed) for this rep
+      // Get pending orders (not yet completed but still active) for this rep
       const pendingOrders = allOrders.filter((o: SalesOrder) => 
         o.repId === user.repId && 
         o.jobStatus !== "COMPLETED" &&
-        !o.deletedAt
+        o.jobStatus !== "CANCELLED" &&
+        o.approvalStatus !== "DENIED"
       );
       
       // Calculate pending commissions (estimated from baseCommissionEarned which is pre-calculated)

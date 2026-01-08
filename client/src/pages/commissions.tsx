@@ -3,7 +3,7 @@ import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DollarSign, TrendingUp, Users, FileText, Calendar, CalendarDays, Wifi, Smartphone, Tv } from "lucide-react";
+import { DollarSign, TrendingUp, Users, FileText, Calendar, CalendarDays, Wifi, Smartphone, Tv, Clock, Target } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 interface ServiceBreakdown {
@@ -46,6 +46,9 @@ interface CommissionsData {
   serviceTotals: ServiceBreakdown;
   weeklyEarned: number;
   mtdEarned: number;
+  pendingWeekly: number;
+  pendingMtd: number;
+  rollingAverage30Days: number;
   weeklyChartData: ChartDataPoint[];
   mtdChartData: ChartDataPoint[];
   overrideEarnings: OverrideEarning[] | null;
@@ -96,6 +99,77 @@ export default function Commissions() {
           Track your commission earnings and performance
         </p>
       </div>
+
+      {isRep && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-medium flex items-center gap-2">
+                <Clock className="h-4 w-4 text-amber-500" />
+                Pending Orders
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">This Week</p>
+                  <p className="text-xl font-bold text-amber-600 dark:text-amber-400" data-testid="text-pending-weekly">
+                    {formatCurrency(data?.pendingWeekly || 0)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Month to Date</p>
+                  <p className="text-xl font-bold text-amber-600 dark:text-amber-400" data-testid="text-pending-mtd">
+                    {formatCurrency(data?.pendingMtd || 0)}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-medium flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-green-500" />
+                Connected Orders
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">This Week</p>
+                  <p className="text-xl font-bold text-green-600 dark:text-green-400" data-testid="text-connected-weekly">
+                    {formatCurrency(data?.weeklyEarned || 0)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Month to Date</p>
+                  <p className="text-xl font-bold text-green-600 dark:text-green-400" data-testid="text-connected-mtd">
+                    {formatCurrency(data?.mtdEarned || 0)}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {isRep && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Target className="h-4 w-4 text-blue-500" />
+              30-Day Average
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400" data-testid="text-30-day-avg">
+              {formatCurrency(data?.rollingAverage30Days || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground">Daily average over last 30 days</p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className={`grid grid-cols-1 gap-4 ${isRep ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
         <Card>
