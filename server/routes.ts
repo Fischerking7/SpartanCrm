@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, type AuthRequest } from "./auth";
+import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
@@ -3088,6 +3088,64 @@ export async function registerRoutes(
       res.json({ message: "Lead deleted" });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to delete lead" });
+    }
+  });
+
+  // Bulk soft delete leads (SUPERVISOR+)
+  app.post("/api/leads/bulk-delete", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const { ids } = req.body;
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "ids array required" });
+      }
+      
+      const deletedLeads = await storage.softDeleteLeads(ids, req.user!.id);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "bulk_soft_delete_leads",
+        tableName: "leads",
+        afterJson: JSON.stringify({ count: deletedLeads.length, ids }),
+      });
+      
+      res.json({ message: `Soft deleted ${deletedLeads.length} leads`, count: deletedLeads.length });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete leads" });
+    }
+  });
+
+  // Bulk assign leads to a different rep (SUPERVISOR+)
+  app.post("/api/leads/bulk-assign", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const { ids, newRepId } = req.body;
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "ids array required" });
+      }
+      if (!newRepId) {
+        return res.status(400).json({ message: "newRepId required" });
+      }
+      
+      // Verify target rep exists and is active
+      const targetRep = await storage.getUserByRepId(newRepId);
+      if (!targetRep || targetRep.status !== "ACTIVE") {
+        return res.status(400).json({ message: "Target rep not found or inactive" });
+      }
+      
+      const assignedLeads = await storage.assignLeadsToRep(ids, newRepId);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "bulk_assign_leads",
+        tableName: "leads",
+        afterJson: JSON.stringify({ count: assignedLeads.length, ids, newRepId }),
+      });
+      
+      res.json({ 
+        message: `Assigned ${assignedLeads.length} leads to ${targetRep.name}`, 
+        count: assignedLeads.length 
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to assign leads" });
     }
   });
 
