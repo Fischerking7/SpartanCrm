@@ -231,8 +231,9 @@ export default function KnowledgeDatabase() {
   };
 
   const handleViewDocument = (doc: KnowledgeDocument) => {
-    const publicUrl = `https://storage.cloud.google.com/${doc.objectPath}`;
-    window.open(publicUrl, "_blank");
+    // Serve files through the local object storage route
+    const objectUrl = `/objects/${doc.objectPath}`;
+    window.open(objectUrl, "_blank");
   };
 
   const filteredDocuments = documents.filter((doc) => {
