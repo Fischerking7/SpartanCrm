@@ -2946,8 +2946,14 @@ export async function registerRoutes(
           }
 
           // Address fields - houseNumber, aptUnit, and streetName, or combined address/street
-          let houseNumber = getRowValue(row, "houseNumber", "house_number", "House Number", "HouseNumber", "House #", "House", "Bldg No.", "Bldg No", "Building No", "Building Number", "Bldg");
-          const aptUnit = getRowValue(row, "apt", "Apt", "Apt.", "Apartment", "Unit", "Unit #", "Suite", "Ste", "Basement", "Bsmt", "apt_unit", "aptUnit");
+          // Check for building/house number with many possible column name variations
+          let houseNumber = getRowValue(row, 
+            "houseNumber", "house_number", "House Number", "HouseNumber", "House #", "House",
+            "Bldg No.", "Bldg No", "Bldg No ", "BldgNo", "Bldg#", "Bldg #", "Bldg",
+            "Building No.", "Building No", "Building Number", "Building #", "Building",
+            "Address No", "Address Number", "Street No", "Street Number", "No.", "No"
+          );
+          const aptUnit = getRowValue(row, "apt", "Apt", "Apt.", "Apt #", "Apartment", "Unit", "Unit #", "Suite", "Ste", "Basement", "Bsmt", "apt_unit", "aptUnit");
           
           let streetName = getRowValue(row, "streetName", "street_name", "Street Name", "StreetName");
           const customerAddress = getRowValue(row, "customerAddress", "customer_address", "Address", "Full Address");
