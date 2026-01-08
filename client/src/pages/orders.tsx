@@ -265,6 +265,11 @@ export default function Orders() {
   // Helper to calculate override amount for an order
   const getOverrideAmount = (order: SalesOrder): number => {
     if (!rateCards || !order.appliedRateCardId) return 0;
+    
+    // Executives are exempt from override deductions
+    const orderRep = reps?.find(r => r.repId === order.repId);
+    if (orderRep?.role === "EXECUTIVE") return 0;
+    
     const rateCard = rateCards.find(rc => rc.id === order.appliedRateCardId);
     if (!rateCard) return 0;
     
@@ -902,6 +907,9 @@ export default function Orders() {
                     const grossFromLines = commissionLines?.reduce((sum, line) => sum + parseFloat(line.totalAmount), 0) || 0;
                     const netCommission = parseFloat(selectedOrder.baseCommissionEarned);
                     const overrideDeduction = grossFromLines > 0 ? grossFromLines - netCommission : 0;
+                    // Executives are exempt from override deductions
+                    const orderRepRole = reps?.find(r => r.repId === selectedOrder.repId)?.role;
+                    const isExecutiveSale = orderRepRole === "EXECUTIVE";
                     
                     return (
                       <>
@@ -926,7 +934,7 @@ export default function Orders() {
                                 </div>
                               );
                             })}
-                            {isAdmin && overrideDeduction > 0.01 && (
+                            {isAdmin && !isExecutiveSale && overrideDeduction > 0.01 && (
                               <div className="flex justify-between gap-2 text-muted-foreground">
                                 <span>Override Deduction</span>
                                 <span className="font-mono">-${overrideDeduction.toFixed(2)}</span>
