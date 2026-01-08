@@ -10,7 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog } from "lucide-react";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
 import type { Lead } from "@shared/schema";
 
@@ -110,6 +111,7 @@ export default function Leads() {
     },
     onSuccess: (_, { disposition }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/counts"] });
       const messages: Record<string, string> = {
         SOLD: "Lead marked as sold and removed from your list",
         NOT_HOME: "Lead marked as not home",
@@ -120,6 +122,26 @@ export default function Leads() {
     },
     onError: () => {
       toast({ title: "Failed to update disposition", variant: "destructive" });
+    },
+  });
+
+  // Reverse disposition mutation for SUPERVISOR+ when viewing other reps
+  const reverseDispositionMutation = useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      const res = await fetch(`/api/leads/${id}/reverse-disposition`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error("Failed to reverse disposition");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/counts"] });
+      toast({ title: "Disposition reversed - lead is active again" });
+    },
+    onError: () => {
+      toast({ title: "Failed to reverse disposition", variant: "destructive" });
     },
   });
 
@@ -412,14 +434,24 @@ export default function Leads() {
             </CardContent>
           </Card>
         ) : leads && leads.length > 0 ? (
-          leads.map((lead) => (
-            <Card key={lead.id} data-testid={`card-lead-${lead.id}`}>
+          leads.map((lead) => {
+            const isClosedLead = ["SOLD", "REJECT"].includes(lead.disposition || "");
+            const isViewingOtherRep = viewingRepId && canAssignToOthers;
+            return (
+            <Card key={lead.id} data-testid={`card-lead-${lead.id}`} className={isClosedLead ? "opacity-75" : ""}>
               <CardContent className="py-4">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <h3 className="font-medium" data-testid={`text-lead-name-${lead.id}`}>
-                      {lead.customerName}
-                    </h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-medium" data-testid={`text-lead-name-${lead.id}`}>
+                        {lead.customerName}
+                      </h3>
+                      {isClosedLead && (
+                        <Badge variant={lead.disposition === "SOLD" ? "default" : "destructive"} className="text-xs">
+                          {lead.disposition === "SOLD" ? "SOLD" : "REJECTED"}
+                        </Badge>
+                      )}
+                    </div>
                     {(lead.houseNumber || lead.streetName || lead.street || lead.city || lead.state || lead.zipCode) && (
                       <div className="flex items-start gap-2 text-sm text-muted-foreground">
                         <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -565,12 +597,25 @@ export default function Leads() {
                           Assign
                         </Button>
                       )}
+                      {isClosedLead && isViewingOtherRep && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => reverseDispositionMutation.mutate({ id: lead.id })}
+                          disabled={reverseDispositionMutation.isPending}
+                          data-testid={`button-reverse-disposition-${lead.id}`}
+                        >
+                          <RotateCcw className="h-4 w-4 mr-1" />
+                          Reverse
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
-          ))
+          );
+          })
         ) : (
           <Card>
             <CardContent className="py-12 text-center">

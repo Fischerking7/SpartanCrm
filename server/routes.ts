@@ -2621,7 +2621,14 @@ export async function registerRoutes(
         }
       }
       
-      const leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
+      let leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
+      
+      // When SUPERVISOR+ is viewing another rep's leads, include SOLD/REJECTED leads
+      // Otherwise filter them out (for own leads view)
+      if (!viewRepId || !canViewOthers) {
+        leads = leads.filter(l => !["SOLD", "REJECT"].includes(l.disposition || ""));
+      }
+      
       res.json(leads);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch leads" });
@@ -2723,6 +2730,57 @@ export async function registerRoutes(
       res.json(updated);
     } catch (error) {
       res.status(500).json({ message: "Failed to update lead disposition" });
+    }
+  });
+
+  // Reverse disposition (SUPERVISOR+ only) - clears SOLD/REJECT status
+  app.patch("/api/leads/:id/reverse-disposition", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Only SUPERVISOR+ can reverse dispositions
+      const canReverse = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(req.user!.role);
+      if (!canReverse) {
+        return res.status(403).json({ message: "Only supervisors and above can reverse dispositions" });
+      }
+      
+      const lead = await storage.getLeadById(id);
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      
+      // Only allow reversing SOLD or REJECT dispositions
+      if (!["SOLD", "REJECT"].includes(lead.disposition || "")) {
+        return res.status(400).json({ message: "Can only reverse SOLD or REJECTED leads" });
+      }
+      
+      // Verify caller can manage this lead's rep (target must be at or below caller's level)
+      const users = await storage.getUsers();
+      const leadOwner = users.find(u => u.repId === lead.repId && !u.deletedAt);
+      if (leadOwner) {
+        const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+        const ownerLevel = ROLE_HIERARCHY[leadOwner.role] || 0;
+        if (ownerLevel > callerLevel) {
+          return res.status(403).json({ message: "Cannot reverse dispositions for users above your role level" });
+        }
+      }
+      
+      const previousDisposition = lead.disposition;
+      const updated = await storage.updateLeadDisposition(id, "NONE");
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "lead_disposition_reversed",
+        tableName: "leads",
+        recordId: id,
+        beforeJson: JSON.stringify({ disposition: previousDisposition, repId: lead.repId }),
+        afterJson: JSON.stringify({ disposition: "NONE" }),
+      });
+      
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to reverse lead disposition" });
     }
   });
 
