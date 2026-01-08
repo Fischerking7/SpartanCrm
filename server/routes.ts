@@ -556,14 +556,15 @@ export async function registerRoutes(
     try {
       const user = req.user!;
       const cadence = (req.query.cadence as "DAY" | "WEEK" | "MONTH") || "WEEK";
-      const role = user.role as "SUPERVISOR" | "MANAGER" | "EXECUTIVE";
-      
-      // Only SUPERVISOR, MANAGER, EXECUTIVE can use this endpoint
-      if (!["SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(user.role)) {
+      // Only SUPERVISOR, MANAGER, EXECUTIVE, ADMIN can use this endpoint
+      if (!["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      const result = await storage.getProductionAggregation(user.id, role, cadence);
+      // ADMIN gets EXECUTIVE-level access to the production dashboard
+      const effectiveRole = user.role === "ADMIN" ? "EXECUTIVE" : user.role as "SUPERVISOR" | "MANAGER" | "EXECUTIVE";
+      
+      const result = await storage.getProductionAggregation(user.id, effectiveRole, cadence);
       res.json(result);
     } catch (error) {
       console.error("Production aggregation error:", error);
