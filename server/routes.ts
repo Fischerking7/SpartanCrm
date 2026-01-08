@@ -1971,7 +1971,7 @@ export async function registerRoutes(
   });
 
   // Pay Runs
-  app.get("/api/admin/payruns", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/payruns", auth, executiveOrAdmin, async (req, res) => {
     try { res.json(await storage.getPayRuns()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
   app.post("/api/admin/payruns", auth, adminOnly, async (req: AuthRequest, res) => {
@@ -1989,7 +1989,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.get("/api/admin/payruns/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payruns/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -2487,14 +2487,14 @@ export async function registerRoutes(
   });
 
   // Export Batches
-  app.get("/api/admin/accounting/export-batches", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/accounting/export-batches", auth, executiveOrAdmin, async (req, res) => {
     try {
       const batches = await storage.getExportBatches();
       res.json(batches);
     } catch (error) { res.status(500).json({ message: "Failed to get export batches" }); }
   });
 
-  app.get("/api/admin/accounting/export-batches/:id", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/accounting/export-batches/:id", auth, executiveOrAdmin, async (req, res) => {
     try {
       const batch = await storage.getExportBatchById(req.params.id);
       if (!batch) return res.status(404).json({ message: "Batch not found" });
@@ -2519,13 +2519,13 @@ export async function registerRoutes(
   });
 
   // Exception Queues
-  app.get("/api/admin/queues/unmatched-payments", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/queues/unmatched-payments", auth, executiveOrAdmin, async (req, res) => {
     try { res.json(await storage.getUnmatchedPayments()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
-  app.get("/api/admin/queues/unmatched-chargebacks", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/queues/unmatched-chargebacks", auth, executiveOrAdmin, async (req, res) => {
     try { res.json(await storage.getUnmatchedChargebacks()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
-  app.get("/api/admin/queues/rate-issues", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/queues/rate-issues", auth, executiveOrAdmin, async (req, res) => {
     try { res.json(await storage.getRateIssues()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
   app.post("/api/admin/queues/:type/:id/resolve", auth, adminOnly, async (req: AuthRequest, res) => {
@@ -2546,7 +2546,7 @@ export async function registerRoutes(
   });
 
   // Audit Log
-  app.get("/api/admin/audit", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/audit", auth, executiveOrAdmin, async (req, res) => {
     try { res.json(await storage.getAuditLogs()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
 

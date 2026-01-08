@@ -59,16 +59,20 @@ const salesLeaderMenuItems = [
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
 ];
 
-// EXECUTIVE - can approve orders and adjustments
+// EXECUTIVE - can approve orders and adjustments, view operational data
 const executiveMenuItems = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "Approvals Queue", url: "/approvals", icon: CheckSquare },
+  { title: "Pay Runs", url: "/payruns", icon: Calendar },
+  { title: "Export History", url: "/export-history", icon: Download },
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
+  { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
+  { title: "Audit Log", url: "/audit", icon: History },
 ];
 
 // Admin/Founder get additional accounting and management options
