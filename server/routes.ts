@@ -1688,6 +1688,13 @@ export async function registerRoutes(
       }
       
       const userRole = role || "REP";
+      
+      // Check if repId is already in use by an active (non-deleted) user
+      const existingWithRepId = await storage.getActiveUserByRepId(repId);
+      if (existingWithRepId) {
+        return res.status(400).json({ message: `Rep ID "${repId}" is already in use` });
+      }
+      
       const userData = {
         name,
         repId,
@@ -1755,9 +1762,9 @@ export async function registerRoutes(
       
       // FOUNDER-only: Allow editing repId
       if (repId !== undefined && isFounder) {
-        // Check if new repId is already taken by another user
+        // Check if new repId is already taken by another active (non-deleted) user
         if (repId !== existingUser.repId) {
-          const existingWithRepId = await storage.getUserByRepId(repId);
+          const existingWithRepId = await storage.getActiveUserByRepId(repId);
           if (existingWithRepId && existingWithRepId.id !== id) {
             return res.status(400).json({ message: `Rep ID "${repId}" is already in use` });
           }

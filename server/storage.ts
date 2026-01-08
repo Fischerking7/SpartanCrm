@@ -31,6 +31,11 @@ export const storage = {
   async getUserByRepId(repId: string) {
     return db.query.users.findFirst({ where: eq(users.repId, repId) });
   },
+  async getActiveUserByRepId(repId: string) {
+    return db.query.users.findFirst({ 
+      where: and(eq(users.repId, repId), isNull(users.deletedAt)) 
+    });
+  },
   async createUser(data: InsertUser) {
     const [user] = await db.insert(users).values(data).returning();
     return user;
