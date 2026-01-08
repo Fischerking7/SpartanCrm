@@ -3667,22 +3667,17 @@ export async function registerRoutes(
     }
   });
 
-  // Detailed Rep Leaderboard - Individual rep metrics for SUPERVISOR+ to see their team members
+  // Detailed Rep Leaderboard - All users can view (company-wide visibility)
   app.get("/api/reports/rep-leaderboard", auth, async (req: AuthRequest, res) => {
     try {
       const { period = "this_month", startDate, endDate } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      // REPs cannot access this report - need SUPERVISOR or higher
-      if (user.role === "REP") {
-        return res.status(403).json({ message: "Access denied" });
-      }
-      
       const allOrders = await storage.getOrders({});
       const allUsers = await storage.getUsers();
       
-      // Show all reps to all users with access (SUPERVISOR+)
+      // Show all reps to all authenticated users
       const scopedRepIds = allUsers
         .filter(u => !u.deletedAt && ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role))
         .map(u => u.repId);

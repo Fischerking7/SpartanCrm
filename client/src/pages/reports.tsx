@@ -295,7 +295,6 @@ export default function Reports() {
       if (!res.ok) return { data: [], totals: { totalOrders: 0, totalConnected: 0, totalEarned: 0, totalPaid: 0, totalMobileLines: 0, totalLeads: 0, totalConverted: 0 }, scopeInfo: { role: "", scopeDescription: "", repCount: 0 } };
       return res.json();
     },
-    enabled: summary?.scopeInfo?.role !== "REP",
   });
 
   const { data: overrideInvoices } = useQuery<{ data: OverrideInvoiceData[]; totals: { totalOverrides: string; invoiceCount: number }; recipients: Array<{ id: string; name: string; role: string }> }>({
@@ -587,9 +586,7 @@ export default function Reports() {
             <TabsTrigger value="performance" data-testid="tab-performance">Rep Performance</TabsTrigger>
             <TabsTrigger value="breakdown" data-testid="tab-breakdown">Sales Breakdown</TabsTrigger>
             <TabsTrigger value="commission" data-testid="tab-commission">Commission Summary</TabsTrigger>
-            {summary?.scopeInfo?.role !== "REP" && (
-              <TabsTrigger value="rep-leaderboard" data-testid="tab-rep-leaderboard">Rep Leaderboard</TabsTrigger>
-            )}
+            <TabsTrigger value="rep-leaderboard" data-testid="tab-rep-leaderboard">Rep Leaderboard</TabsTrigger>
             {summary?.scopeInfo?.role !== "REP" && (
               <TabsTrigger value="team-production" data-testid="tab-team-production">Team Production</TabsTrigger>
             )}
@@ -1024,8 +1021,7 @@ export default function Reports() {
           </Card>
         </TabsContent>
 
-        {summary?.scopeInfo?.role !== "REP" && (
-          <TabsContent value="rep-leaderboard" className="space-y-4">
+        <TabsContent value="rep-leaderboard" className="space-y-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
                 <div>
@@ -1137,8 +1133,7 @@ export default function Reports() {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-        )}
+        </TabsContent>
 
         {summary?.scopeInfo?.role !== "REP" && (
           <TabsContent value="team-production" className="space-y-4">
