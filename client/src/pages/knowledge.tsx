@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
@@ -89,12 +89,16 @@ export default function KnowledgeDatabase() {
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showViewDialog, setShowViewDialog] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument | null>(null);
   const [uploadedFile, setUploadedFile] = useState<{ objectPath: string; metadata: { name: string; size: number; contentType: string } } | null>(null);
   
   const [newDocTitle, setNewDocTitle] = useState("");
   const [newDocDescription, setNewDocDescription] = useState("");
   const [newDocCategory, setNewDocCategory] = useState("");
+  
+  // Store the objectPath from the upload URL request
+  const pendingObjectPathRef = useRef<string | null>(null);
 
   const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
   const canDelete = isAdmin || user?.role === "MANAGER" || user?.role === "EXECUTIVE";
@@ -179,14 +183,15 @@ export default function KnowledgeDatabase() {
       const fileName = uploaded.name || "document";
       const fileSize = uploaded.size || 0;
       const contentType = uploaded.type || "application/octet-stream";
-      const response = uploaded.response as { body?: { objectPath?: string } } | undefined;
-      const objectPath = response?.body?.objectPath || `uploads/${fileName}`;
+      // Use the objectPath stored during the request-url call
+      const objectPath = pendingObjectPathRef.current || `uploads/${fileName}`;
       
       setUploadedFile({
         objectPath,
         metadata: { name: fileName, size: fileSize, contentType },
       });
       setNewDocTitle(fileName.replace(/\.[^/.]+$/, ""));
+      pendingObjectPathRef.current = null;
     }
   };
 
@@ -232,9 +237,17 @@ export default function KnowledgeDatabase() {
   };
 
   const handleViewDocument = (doc: KnowledgeDocument) => {
+    setSelectedDocument(doc);
+    setShowViewDialog(true);
+  };
+  
+  const getDocumentUrl = (doc: KnowledgeDocument) => {
     // Serve files through the local object storage route
-    const objectUrl = `/objects/${doc.objectPath}`;
-    window.open(objectUrl, "_blank");
+    // objectPath should already start with /objects/ from the upload
+    if (doc.objectPath.startsWith("/objects/")) {
+      return doc.objectPath;
+    }
+    return `/objects/${doc.objectPath}`;
   };
 
   const filteredDocuments = documents.filter((doc) => {
@@ -415,6 +428,8 @@ export default function KnowledgeDatabase() {
                     });
                     if (!res.ok) throw new Error("Failed to get upload URL");
                     const data = await res.json();
+                    // Store the objectPath for use in handleUploadComplete
+                    pendingObjectPathRef.current = data.objectPath;
                     return {
                       method: "PUT" as const,
                       url: data.uploadURL,
@@ -581,6 +596,77 @@ export default function KnowledgeDatabase() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedDocument && getFileIcon(selectedDocument.fileType)}
+              <span className="truncate">{selectedDocument?.title}</span>
+            </DialogTitle>
+            {selectedDocument?.description && (
+              <DialogDescription>{selectedDocument.description}</DialogDescription>
+            )}
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <Badge variant="outline">{selectedDocument?.category}</Badge>
+              <span>{selectedDocument && formatFileSize(selectedDocument.fileSize)}</span>
+              <span>{selectedDocument?.fileName}</span>
+            </div>
+            
+            {selectedDocument?.fileType === "IMAGE" ? (
+              <div className="border rounded-lg overflow-hidden">
+                <img 
+                  src={selectedDocument && getDocumentUrl(selectedDocument)} 
+                  alt={selectedDocument?.title}
+                  className="w-full h-auto max-h-[50vh] object-contain"
+                />
+              </div>
+            ) : selectedDocument?.mimeType === "application/pdf" ? (
+              <div className="border rounded-lg overflow-hidden h-[50vh]">
+                <iframe
+                  src={selectedDocument && getDocumentUrl(selectedDocument)}
+                  className="w-full h-full"
+                  title={selectedDocument?.title}
+                />
+              </div>
+            ) : (
+              <div className="border rounded-lg p-8 text-center">
+                <div className="mb-4">
+                  {selectedDocument && getFileIcon(selectedDocument.fileType)}
+                </div>
+                <p className="text-muted-foreground mb-4">
+                  This file type cannot be previewed in the browser.
+                </p>
+                <Button asChild data-testid="button-download-document">
+                  <a 
+                    href={selectedDocument ? getDocumentUrl(selectedDocument) : undefined} 
+                    download={selectedDocument?.fileName}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download File
+                  </a>
+                </Button>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowViewDialog(false)} data-testid="button-close-view">
+              Close
+            </Button>
+            <Button asChild data-testid="button-download-from-view">
+              <a 
+                href={selectedDocument ? getDocumentUrl(selectedDocument) : undefined} 
+                download={selectedDocument?.fileName}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download
+              </a>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
