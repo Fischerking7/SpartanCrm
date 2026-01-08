@@ -264,11 +264,22 @@ export default function Leads() {
     setTargetRepId("");
   };
 
-  // Filter users for lead assignment - only REPs and SUPERVISORs with repId can be assigned leads
+  // Role hierarchy for filtering assignable users
+  const ROLE_LEVELS: Record<string, number> = {
+    REP: 1,
+    SUPERVISOR: 2,
+    MANAGER: 3,
+    EXECUTIVE: 4,
+    ADMIN: 5,
+    FOUNDER: 6,
+  };
+  const currentUserLevel = ROLE_LEVELS[user?.role || "REP"] || 1;
+  
+  // Filter users for lead assignment - users at or below current user's role level with valid repId
   const assignableUsers = allUsers?.filter(u => 
     u.status === "ACTIVE" && 
     u.repId && 
-    ["REP", "SUPERVISOR"].includes(u.role)
+    (ROLE_LEVELS[u.role] || 0) <= currentUserLevel
   ) || [];
 
   return (

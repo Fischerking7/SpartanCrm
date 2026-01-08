@@ -2661,9 +2661,11 @@ export async function registerRoutes(
       if (!targetUser) {
         return res.status(400).json({ message: `User with rep ID '${targetRepId}' not found` });
       }
-      // Leads should only be assigned to REPs and SUPERVISORs who work with leads
-      if (!["REP", "SUPERVISOR"].includes(targetUser.role)) {
-        return res.status(400).json({ message: "Leads can only be assigned to REPs or Supervisors" });
+      // Users can only assign leads to users at or below their role level
+      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+      const targetLevel = ROLE_HIERARCHY[targetUser.role] || 0;
+      if (targetLevel > callerLevel) {
+        return res.status(400).json({ message: "You can only assign leads to users at or below your role level" });
       }
       
       const oldRepId = lead.repId;
@@ -2721,15 +2723,17 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Only supervisors and above can import leads for other users" });
       }
       
-      // Validate targetRepId if provided - only allow assigning to REP/SUPERVISOR roles
+      // Validate targetRepId if provided - allow assigning to users at or below caller's role level
       if (targetRepId) {
         const targetUser = users.find(u => u.repId === targetRepId && !u.deletedAt && u.status === "ACTIVE");
         if (!targetUser) {
           return res.status(400).json({ message: `Target rep '${targetRepId}' not found` });
         }
-        // Leads should only be assigned to REPs and SUPERVISORs who work with leads
-        if (!["REP", "SUPERVISOR"].includes(targetUser.role)) {
-          return res.status(400).json({ message: "Leads can only be assigned to REPs or Supervisors" });
+        // Users can only assign leads to users at or below their role level
+        const callerLevel = ROLE_HIERARCHY[currentUser.role] || 0;
+        const targetLevel = ROLE_HIERARCHY[targetUser.role] || 0;
+        if (targetLevel > callerLevel) {
+          return res.status(400).json({ message: "You can only assign leads to users at or below your role level" });
         }
       }
 
