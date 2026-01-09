@@ -35,6 +35,7 @@ import {
   BarChart3,
   Calculator,
   BookOpen,
+  Link2,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 
@@ -106,6 +107,7 @@ const adminReferenceItems = [
   { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
   { title: "Overrides", url: "/admin/overrides", icon: Users },
   { title: "Payroll Settings", url: "/admin/payroll", icon: Calendar },
+  { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
 ];
 
 export function AppSidebar() {
