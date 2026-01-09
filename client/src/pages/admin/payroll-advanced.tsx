@@ -134,7 +134,7 @@ function TaxDocumentsTab() {
 
   const generateMutation = useMutation({
     mutationFn: async (year: number) => {
-      return apiRequest(`/api/admin/tax-documents/bulk-generate/${year}`, "POST", {});
+      return apiRequest("POST", `/api/admin/tax-documents/bulk-generate/${year}`, {});
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/tax-documents"] });
@@ -250,7 +250,7 @@ function AchExportsTab() {
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      return apiRequest(`/api/admin/ach-exports/${id}/status`, "PATCH", { status });
+      return apiRequest("PATCH", `/api/admin/ach-exports/${id}/status`, { status });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/ach-exports"] });
@@ -378,7 +378,7 @@ function BonusesTab() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof newBonus) => {
-      return apiRequest("/api/admin/bonuses", "POST", data);
+      return apiRequest("POST", "/api/admin/bonuses", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/bonuses"] });
@@ -393,7 +393,7 @@ function BonusesTab() {
 
   const approveMutation = useMutation({
     mutationFn: async (id: string) => {
-      return apiRequest(`/api/admin/bonuses/${id}/approve`, "POST", {});
+      return apiRequest("POST", `/api/admin/bonuses/${id}/approve`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/bonuses"] });
@@ -591,7 +591,7 @@ function DrawAccountsTab() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof newDraw) => {
-      return apiRequest("/api/admin/draw-accounts", "POST", data);
+      return apiRequest("POST", "/api/admin/draw-accounts", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/draw-accounts"] });
