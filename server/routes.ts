@@ -7619,6 +7619,174 @@ export async function registerRoutes(
     }
   });
 
+  // ========== Employee Credentials ==========
+
+  // Get current user's credentials
+  app.get("/api/my-credentials", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const credentials = await storage.getEmployeeCredentials(user.id);
+      res.json(credentials || null);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update current user's credentials
+  app.patch("/api/my-credentials", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const {
+        peopleSoftNumber, networkId, tempPassword, workEmail, rtr, rtrPassword,
+        authenticatorUsername, authenticatorPassword, ipadPin, deviceNumber,
+        gmail, gmailPassword, notes
+      } = req.body;
+
+      const updates: any = {};
+      if (peopleSoftNumber !== undefined) updates.peopleSoftNumber = peopleSoftNumber;
+      if (networkId !== undefined) updates.networkId = networkId;
+      if (tempPassword !== undefined) updates.tempPassword = tempPassword;
+      if (workEmail !== undefined) updates.workEmail = workEmail;
+      if (rtr !== undefined) updates.rtr = rtr;
+      if (rtrPassword !== undefined) updates.rtrPassword = rtrPassword;
+      if (authenticatorUsername !== undefined) updates.authenticatorUsername = authenticatorUsername;
+      if (authenticatorPassword !== undefined) updates.authenticatorPassword = authenticatorPassword;
+      if (ipadPin !== undefined) updates.ipadPin = ipadPin;
+      if (deviceNumber !== undefined) updates.deviceNumber = deviceNumber;
+      if (gmail !== undefined) updates.gmail = gmail;
+      if (gmailPassword !== undefined) updates.gmailPassword = gmailPassword;
+      if (notes !== undefined) updates.notes = notes;
+
+      const credentials = await storage.upsertEmployeeCredentials(user.id, updates, user.id);
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "UPDATE",
+        tableName: "employee_credentials",
+        recordId: credentials.id,
+        newData: { fields: Object.keys(updates) },
+      });
+
+      res.json(credentials);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin/Executive: Get all employee credentials
+  app.get("/api/admin/employee-credentials", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const credentials = await storage.getAllEmployeeCredentials();
+      res.json(credentials);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin/Executive: Get specific user's credentials
+  app.get("/api/admin/employee-credentials/:userId", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const { userId } = req.params;
+      const targetUser = await storage.getUserById(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const credentials = await storage.getEmployeeCredentials(userId);
+      res.json({ user: targetUser, credentials: credentials || null });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin/Executive: Update any user's credentials
+  app.patch("/api/admin/employee-credentials/:userId", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const { userId } = req.params;
+      const targetUser = await storage.getUserById(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const {
+        peopleSoftNumber, networkId, tempPassword, workEmail, rtr, rtrPassword,
+        authenticatorUsername, authenticatorPassword, ipadPin, deviceNumber,
+        gmail, gmailPassword, notes
+      } = req.body;
+
+      const updates: any = {};
+      if (peopleSoftNumber !== undefined) updates.peopleSoftNumber = peopleSoftNumber;
+      if (networkId !== undefined) updates.networkId = networkId;
+      if (tempPassword !== undefined) updates.tempPassword = tempPassword;
+      if (workEmail !== undefined) updates.workEmail = workEmail;
+      if (rtr !== undefined) updates.rtr = rtr;
+      if (rtrPassword !== undefined) updates.rtrPassword = rtrPassword;
+      if (authenticatorUsername !== undefined) updates.authenticatorUsername = authenticatorUsername;
+      if (authenticatorPassword !== undefined) updates.authenticatorPassword = authenticatorPassword;
+      if (ipadPin !== undefined) updates.ipadPin = ipadPin;
+      if (deviceNumber !== undefined) updates.deviceNumber = deviceNumber;
+      if (gmail !== undefined) updates.gmail = gmail;
+      if (gmailPassword !== undefined) updates.gmailPassword = gmailPassword;
+      if (notes !== undefined) updates.notes = notes;
+
+      const credentials = await storage.upsertEmployeeCredentials(userId, updates, user.id);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "UPDATE",
+        tableName: "employee_credentials",
+        recordId: credentials.id,
+        newData: { targetUserId: userId, fields: Object.keys(updates) },
+      });
+
+      res.json(credentials);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin/Executive: Delete user's credentials
+  app.delete("/api/admin/employee-credentials/:userId", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const { userId } = req.params;
+      const deleted = await storage.deleteEmployeeCredentials(userId);
+      
+      if (deleted) {
+        await storage.createAuditLog({
+          userId: user.id,
+          action: "DELETE",
+          tableName: "employee_credentials",
+          recordId: deleted.id,
+          oldData: { targetUserId: userId },
+        });
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }
 
