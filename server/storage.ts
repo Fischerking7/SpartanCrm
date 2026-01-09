@@ -839,6 +839,14 @@ export const storage = {
   async unlinkOrdersFromPayRun(payRunId: string) {
     return db.update(salesOrders).set({ payRunId: null }).where(eq(salesOrders.payRunId, payRunId)).returning();
   },
+  async unlinkSpecificOrders(orderIds: string[]) {
+    const results = [];
+    for (const orderId of orderIds) {
+      const [order] = await db.update(salesOrders).set({ payRunId: null }).where(eq(salesOrders.id, orderId)).returning();
+      results.push(order);
+    }
+    return results;
+  },
 
   // Exception Queues
   async getUnmatchedPayments() {

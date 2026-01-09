@@ -2205,11 +2205,14 @@ export async function registerRoutes(
   });
   app.post("/api/admin/payruns", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const { name, weekEndingDate } = req.body;
-      const payRun = await storage.createPayRun({ name, weekEndingDate, createdByUserId: req.user!.id });
+      const validated = insertPayRunSchema.parse({ ...req.body, createdByUserId: req.user!.id });
+      const payRun = await storage.createPayRun(validated);
       await storage.createAuditLog({ action: "create_payrun", tableName: "pay_runs", recordId: payRun.id, afterJson: JSON.stringify(payRun), userId: req.user!.id });
       res.json(payRun);
-    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+    } catch (error: any) { 
+      if (error.name === "ZodError") return res.status(400).json({ message: "Validation failed", errors: error.errors });
+      res.status(500).json({ message: error.message || "Failed" }); 
+    }
   });
   app.delete("/api/admin/payruns/:id", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
@@ -2220,8 +2223,8 @@ export async function registerRoutes(
       // Unlink any orders first
       await storage.unlinkOrdersFromPayRun(req.params.id);
       // Soft delete
-      await storage.updatePayRun(req.params.id, { deletedAt: new Date() });
-      await storage.createAuditLog({ action: "delete_payrun", tableName: "pay_runs", recordId: req.params.id, userId: req.user!.id });
+      const deleted = await storage.updatePayRun(req.params.id, { deletedAt: new Date() });
+      await storage.createAuditLog({ action: "delete_payrun", tableName: "pay_runs", recordId: req.params.id, beforeJson: JSON.stringify(payRun), afterJson: JSON.stringify(deleted), userId: req.user!.id });
       res.json({ success: true });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
@@ -2293,10 +2296,9 @@ export async function registerRoutes(
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
       if (payRun.status === "FINALIZED") return res.status(400).json({ message: "Cannot unlink from finalized pay runs" });
       
-      // Unlink each order
-      for (const orderId of orderIds) {
-        await db.update(salesOrders).set({ payRunId: null }).where(eq(salesOrders.id, orderId));
-      }
+      // Unlink specified orders using storage method
+      await storage.unlinkSpecificOrders(orderIds);
+      
       await storage.createAuditLog({ 
         action: "unlink_orders_from_payrun", 
         tableName: "pay_runs", 
