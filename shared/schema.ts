@@ -1344,6 +1344,42 @@ export const backgroundJobs = pgTable("background_jobs", {
 
 export type BackgroundJob = typeof backgroundJobs.$inferSelect;
 
+// Employee Credentials - Access & Device Credentials Sheet
+export const employeeCredentials = pgTable("employee_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull().unique(),
+  peopleSoftNumber: text("people_soft_number"),
+  networkId: text("network_id"),
+  tempPassword: text("temp_password"),
+  workEmail: text("work_email"),
+  rtr: text("rtr"),
+  rtrPassword: text("rtr_password"),
+  authenticatorUsername: text("authenticator_username"),
+  authenticatorPassword: text("authenticator_password"),
+  ipadPin: text("ipad_pin"),
+  deviceNumber: text("device_number"),
+  gmail: text("gmail"),
+  gmailPassword: text("gmail_password"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  lastUpdatedByUserId: varchar("last_updated_by_user_id").references(() => users.id),
+});
+
+export const employeeCredentialsRelations = relations(employeeCredentials, ({ one }) => ({
+  user: one(users, { fields: [employeeCredentials.userId], references: [users.id] }),
+  lastUpdatedBy: one(users, { fields: [employeeCredentials.lastUpdatedByUserId], references: [users.id], relationName: "credentialUpdater" }),
+}));
+
+export const insertEmployeeCredentialsSchema = createInsertSchema(employeeCredentials).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+
+export type EmployeeCredential = typeof employeeCredentials.$inferSelect;
+export type InsertEmployeeCredential = z.infer<typeof insertEmployeeCredentialsSchema>;
+
 // Login schema
 export const loginSchema = z.object({
   repId: z.string().min(1, "Rep ID is required"),

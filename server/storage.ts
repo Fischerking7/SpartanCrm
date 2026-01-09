@@ -14,7 +14,7 @@ import {
   splitCommissionAgreements, splitCommissionRecipients, splitCommissionLedger,
   commissionTiers, commissionTierLevels, repTierAssignments, repVolumeTracking,
   scheduledPayRuns, commissionForecasts,
-  emailNotifications, notificationPreferences, backgroundJobs,
+  emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -52,6 +52,7 @@ import {
   type EmailNotification, type InsertEmailNotification,
   type NotificationPreference, type InsertNotificationPreference,
   type BackgroundJob,
+  type EmployeeCredential, type InsertEmployeeCredential,
 } from "@shared/schema";
 
 export const storage = {
@@ -3088,5 +3089,60 @@ export const storage = {
     return db.query.unmatchedChargebacks.findMany({
       where: isNull(unmatchedChargebacks.resolvedAt),
     });
+  },
+
+  // Employee Credentials
+  async getEmployeeCredentials(userId: string) {
+    return db.query.employeeCredentials.findFirst({
+      where: eq(employeeCredentials.userId, userId),
+    });
+  },
+
+  async getAllEmployeeCredentials() {
+    return db.select({
+      credentials: employeeCredentials,
+      user: {
+        id: users.id,
+        name: users.name,
+        repId: users.repId,
+        role: users.role,
+        status: users.status,
+      },
+    })
+      .from(employeeCredentials)
+      .leftJoin(users, eq(employeeCredentials.userId, users.id))
+      .orderBy(users.name);
+  },
+
+  async upsertEmployeeCredentials(userId: string, data: Partial<InsertEmployeeCredential>, lastUpdatedByUserId?: string) {
+    const existing = await db.query.employeeCredentials.findFirst({
+      where: eq(employeeCredentials.userId, userId),
+    });
+
+    const updateData = {
+      ...data,
+      updatedAt: new Date(),
+      lastUpdatedByUserId,
+    };
+
+    if (existing) {
+      const [updated] = await db.update(employeeCredentials)
+        .set(updateData)
+        .where(eq(employeeCredentials.userId, userId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(employeeCredentials)
+        .values({ userId, ...updateData } as any)
+        .returning();
+      return created;
+    }
+  },
+
+  async deleteEmployeeCredentials(userId: string) {
+    const [deleted] = await db.delete(employeeCredentials)
+      .where(eq(employeeCredentials.userId, userId))
+      .returning();
+    return deleted;
   },
 };
