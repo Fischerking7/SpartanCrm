@@ -2337,8 +2337,7 @@ export async function registerRoutes(
         return {
           "Invoice Number": o.invoiceNumber || "",
           "Rep ID": o.repId,
-          "Customer Name": o.customerName,
-          "Client": o.client?.name || "",
+          "Customer": o.client?.name || "",
           "Provider": o.provider?.name || "",
           "Service": o.service?.name || "",
           "Date Sold": o.dateSold,
