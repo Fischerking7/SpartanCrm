@@ -101,6 +101,44 @@ Key tables defined in `shared/schema.ts`:
 - Legacy aggregate fields (mobileProductType, mobilePortedStatus, mobileLinesQty) maintained on orders for backward compatibility
 - Order form auto-detects when mobile rates are available based on rate card configuration
 
+### Advanced Payroll Features (January 2026)
+- **1099-NEC Tax Documents**: Generate and manage year-end contractor tax forms
+  - Bulk generation from finalized pay statements for a tax year
+  - Status tracking: DRAFT → GENERATED → SENT → FILED
+  - Integration with UserTaxProfiles for recipient information
+- **ACH/Direct Deposit Exports**: Export payment batches for bank processing
+  - Generate NACHA-format files from finalized pay runs
+  - Track batch status: PENDING → SENT → COMPLETED
+  - Link individual payments to bank accounts
+- **Bonuses & SPIFFs**: Flexible bonus payment system
+  - Types: SPIFF, Performance, Referral, Retention, Signing, Contest, Other
+  - Approval workflow before inclusion in pay runs
+  - Full audit trail of bonus creation and approval
+- **Draw Against Commission**: Guaranteed minimum payment system
+  - Per-user draw accounts with guaranteed amounts
+  - Automatic balance tracking and reconciliation
+  - Transaction ledger for all draw activities
+- **Split Commission Agreements**: Multi-party commission sharing
+  - Define split agreements between multiple reps
+  - Support for percentage and fixed amount splits
+  - Automatic ledger tracking of split distributions
+- **Commission Tiers & Caps**: Volume-based commission accelerators
+  - Define tiered bonus structures based on sales volume
+  - Assign reps to tier structures with effective dates
+  - Track rep volume for tier level determination
+- **Scheduled Pay Runs**: Automated pay run creation
+  - Define recurring schedules (weekly, bi-weekly, monthly)
+  - Auto-create pay runs based on schedule configuration
+- **Commission Forecasting**: Pipeline-based commission projections
+  - Calculate projected commissions for future periods
+  - Compare forecasted vs actual earnings
+- **Payroll Reports Dashboard**: Comprehensive payroll analytics
+  - YTD gross, deductions, and net pay summaries
+  - Monthly trend analysis
+  - Top earners leaderboard
+  - Deduction breakdown by type
+- **Admin UI**: Accessible at /admin/payroll-advanced with tabs for all features
+
 ### QuickBooks Online Integration (January 2026)
 - **OAuth 2.0 Connection**: Full OAuth flow with automatic token refresh handling
 - **Invoice Sync**: Create/update QuickBooks invoices when orders are approved (qbInvoiceId, qbInvoiceSyncStatus tracked on sales_orders)
