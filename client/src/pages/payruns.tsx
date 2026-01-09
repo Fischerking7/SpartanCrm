@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
@@ -11,7 +11,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle } from "lucide-react";
+import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import type { PayRun, SalesOrder } from "@shared/schema";
 
@@ -42,6 +44,40 @@ interface VarianceReport {
   repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; hasNegative: boolean }[];
 }
 
+interface PoolEntry {
+  id: string;
+  payRunId: string | null;
+  salesOrderId: string;
+  rateCardId: string;
+  amount: string;
+  status: "PENDING" | "DISTRIBUTED" | "NO_UPLINE";
+  invoiceNumber?: string;
+  repId?: string;
+  dateSold?: string;
+  distributions?: PoolDistribution[];
+  distributedTotal?: string;
+  remainingAmount?: string;
+}
+
+interface PoolDistribution {
+  id: string;
+  poolEntryId: string;
+  recipientUserId: string;
+  allocationType: "PERCENT" | "FIXED";
+  allocationValue: string;
+  calculatedAmount: string;
+  status: "PENDING" | "APPLIED";
+  recipientName?: string;
+  recipientRepId?: string;
+}
+
+interface User {
+  id: string;
+  name: string;
+  repId: string;
+  role: string;
+}
+
 export default function PayRuns() {
   const { toast } = useToast();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -58,6 +94,12 @@ export default function PayRuns() {
   const [payRunName, setPayRunName] = useState("");
   const [payRunToDelete, setPayRunToDelete] = useState<PayRun | null>(null);
   const [variancePayRunId, setVariancePayRunId] = useState<string | null>(null);
+  const [showDistributionDialog, setShowDistributionDialog] = useState(false);
+  const [distributionPayRunId, setDistributionPayRunId] = useState<string | null>(null);
+  const [selectedPoolEntry, setSelectedPoolEntry] = useState<PoolEntry | null>(null);
+  const [newDistRecipientId, setNewDistRecipientId] = useState("");
+  const [newDistType, setNewDistType] = useState<"PERCENT" | "FIXED">("PERCENT");
+  const [newDistValue, setNewDistValue] = useState("");
 
   const { data: payRuns, isLoading } = useQuery<EnrichedPayRun[]>({
     queryKey: ["/api/admin/payruns"],
@@ -77,6 +119,86 @@ export default function PayRuns() {
     },
     enabled: showLinkDialog,
   });
+
+  const { data: poolEntries, refetch: refetchPool } = useQuery<PoolEntry[]>({
+    queryKey: ["/api/admin/payruns", distributionPayRunId, "override-pool"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/payruns/${distributionPayRunId}/override-pool`, { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: showDistributionDialog && !!distributionPayRunId,
+  });
+
+  const { data: eligibleRecipients } = useQuery<User[]>({
+    queryKey: ["/api/admin/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      const users = await res.json();
+      return users.filter((u: User) => ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(u.role));
+    },
+    enabled: showDistributionDialog,
+  });
+
+  const createDistributionMutation = useMutation({
+    mutationFn: async ({ poolEntryId, recipientUserId, allocationType, allocationValue }: {
+      poolEntryId: string;
+      recipientUserId: string;
+      allocationType: "PERCENT" | "FIXED";
+      allocationValue: string;
+    }) => {
+      const res = await fetch(`/api/admin/payruns/${distributionPayRunId}/distributions`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ poolEntryId, recipientUserId, allocationType, allocationValue }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create distribution");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchPool();
+      setNewDistRecipientId("");
+      setNewDistValue("");
+      toast({ title: "Distribution added" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to add distribution", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteDistributionMutation = useMutation({
+    mutationFn: async (distributionId: string) => {
+      const res = await fetch(`/api/admin/payruns/${distributionPayRunId}/distributions/${distributionId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to delete distribution");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchPool();
+      toast({ title: "Distribution removed" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to remove distribution", description: error.message, variant: "destructive" });
+    },
+  });
+
+  useEffect(() => {
+    if (selectedPoolEntry && poolEntries) {
+      const updatedEntry = poolEntries.find(e => e.id === selectedPoolEntry.id);
+      if (updatedEntry) {
+        setSelectedPoolEntry(updatedEntry);
+      }
+    }
+  }, [poolEntries]);
 
   const createMutation = useMutation({
     mutationFn: async ({ name, weekEndingDate }: { name: string; weekEndingDate: string }) => {
@@ -531,6 +653,18 @@ export default function PayRuns() {
                 data-testid={`button-variance-finalize-${row.id}`}
               >
                 <FileSearch className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setDistributionPayRunId(row.id);
+                  setShowDistributionDialog(true);
+                }}
+                data-testid={`button-distribute-${row.id}`}
+              >
+                <Split className="h-4 w-4 mr-1" />
+                Distribute
               </Button>
               <Button
                 size="sm"
@@ -1044,6 +1178,226 @@ export default function PayRuns() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowVarianceDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDistributionDialog} onOpenChange={(open) => {
+        setShowDistributionDialog(open);
+        if (!open) {
+          setDistributionPayRunId(null);
+          setSelectedPoolEntry(null);
+          setNewDistRecipientId("");
+          setNewDistValue("");
+        }
+      }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Split className="h-5 w-5" />
+              Override Distribution Manager
+            </DialogTitle>
+            <DialogDescription>
+              Configure how override earnings are distributed to supervisors, managers, and executives for this pay run.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-hidden flex gap-4">
+            <div className="w-1/2 border rounded-lg overflow-hidden flex flex-col">
+              <div className="bg-muted px-4 py-2 border-b">
+                <h4 className="font-medium">Override Pool</h4>
+                <p className="text-xs text-muted-foreground">Orders with eligible override amounts</p>
+              </div>
+              <ScrollArea className="flex-1">
+                <div className="divide-y">
+                  {poolEntries?.length === 0 && (
+                    <div className="p-4 text-center text-muted-foreground text-sm">
+                      No override-eligible orders in this pay run.
+                    </div>
+                  )}
+                  {poolEntries?.map((entry) => {
+                    const remaining = parseFloat(entry.remainingAmount || entry.amount);
+                    
+                    return (
+                      <div
+                        key={entry.id}
+                        className={`p-3 cursor-pointer hover-elevate ${selectedPoolEntry?.id === entry.id ? "bg-accent" : ""}`}
+                        onClick={() => setSelectedPoolEntry(entry)}
+                        data-testid={`pool-entry-${entry.id}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="font-mono text-sm">{entry.invoiceNumber || "Unknown"}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-mono text-sm font-medium">${parseFloat(entry.amount).toFixed(2)}</span>
+                            {entry.distributions && entry.distributions.length > 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                ${remaining.toFixed(2)} remaining
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant={entry.status === "DISTRIBUTED" ? "default" : entry.status === "NO_UPLINE" ? "secondary" : "outline"} className="text-xs">
+                            {entry.status}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            Rep: {entry.repId || "Unknown"}
+                          </span>
+                          {entry.distributions && entry.distributions.length > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              ({entry.distributions.length} dist.)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            </div>
+
+            <div className="w-1/2 border rounded-lg overflow-hidden flex flex-col">
+              <div className="bg-muted px-4 py-2 border-b">
+                <h4 className="font-medium">
+                  {selectedPoolEntry ? "Configure Distribution" : "Select an Entry"}
+                </h4>
+              </div>
+              
+              {!selectedPoolEntry ? (
+                <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-4">
+                  Select an order from the pool to configure its distribution.
+                </div>
+              ) : (
+                <div className="flex-1 overflow-auto p-4 space-y-4">
+                  <div className="bg-muted/30 p-3 rounded-lg">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-medium">{selectedPoolEntry.invoiceNumber}</span>
+                      <span className="font-mono font-medium">${parseFloat(selectedPoolEntry.amount).toFixed(2)}</span>
+                    </div>
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <p>Rep: {selectedPoolEntry.repId}</p>
+                      {selectedPoolEntry.remainingAmount && (
+                        <p>Remaining: <span className="font-mono">${selectedPoolEntry.remainingAmount}</span></p>
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedPoolEntry.distributions && selectedPoolEntry.distributions.length > 0 && (
+                    <div className="space-y-2">
+                      <h5 className="text-sm font-medium">Current Distributions</h5>
+                      {selectedPoolEntry.distributions.map((dist) => (
+                        <div key={dist.id} className="flex items-center justify-between p-2 border rounded">
+                          <div>
+                            <span className="text-sm font-medium">{dist.recipientName || "Unknown"}</span>
+                            <p className="text-xs text-muted-foreground">
+                              {dist.allocationType === "PERCENT" ? `${dist.allocationValue}%` : `$${dist.allocationValue}`}
+                              {" → "}
+                              <span className="font-mono">${parseFloat(dist.calculatedAmount).toFixed(2)}</span>
+                            </p>
+                          </div>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteDistributionMutation.mutate(dist.id)}
+                            disabled={deleteDistributionMutation.isPending || dist.status === "APPLIED"}
+                            data-testid={`button-delete-dist-${dist.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {selectedPoolEntry.status !== "NO_UPLINE" && (
+                    <div className="space-y-3 border-t pt-3">
+                      <h5 className="text-sm font-medium">Add Distribution</h5>
+                      <div className="space-y-2">
+                        <Label className="text-xs">Recipient</Label>
+                        <Select value={newDistRecipientId} onValueChange={setNewDistRecipientId}>
+                          <SelectTrigger data-testid="select-recipient">
+                            <SelectValue placeholder="Select recipient..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {eligibleRecipients?.map((user) => (
+                              <SelectItem key={user.id} value={user.id}>
+                                {user.name} ({user.repId}) - {user.role}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs">Type</Label>
+                          <Select value={newDistType} onValueChange={(v) => setNewDistType(v as "PERCENT" | "FIXED")}>
+                            <SelectTrigger data-testid="select-dist-type">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="PERCENT">Percentage</SelectItem>
+                              <SelectItem value="FIXED">Fixed Amount</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">{newDistType === "PERCENT" ? "%" : "$"}</Label>
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              step={newDistType === "PERCENT" ? "1" : "0.01"}
+                              value={newDistValue}
+                              onChange={(e) => setNewDistValue(e.target.value)}
+                              placeholder={newDistType === "PERCENT" ? "e.g. 60" : "e.g. 25.00"}
+                              className="pr-8"
+                              data-testid="input-dist-value"
+                            />
+                            {newDistType === "PERCENT" ? (
+                              <Percent className="h-4 w-4 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                            ) : (
+                              <DollarSign className="h-4 w-4 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        className="w-full"
+                        onClick={() => {
+                          if (!newDistRecipientId || !newDistValue) return;
+                          createDistributionMutation.mutate({
+                            poolEntryId: selectedPoolEntry.id,
+                            recipientUserId: newDistRecipientId,
+                            allocationType: newDistType,
+                            allocationValue: newDistValue,
+                          });
+                        }}
+                        disabled={!newDistRecipientId || !newDistValue || createDistributionMutation.isPending}
+                        data-testid="button-add-distribution"
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add Distribution
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <DialogFooter className="gap-2">
+            <div className="flex-1 text-sm text-muted-foreground">
+              {poolEntries && (
+                <>
+                  {poolEntries.filter(p => p.status === "PENDING").length} pending,{" "}
+                  {poolEntries.filter(p => p.status === "DISTRIBUTED").length} distributed
+                </>
+              )}
+            </div>
+            <Button variant="outline" onClick={() => setShowDistributionDialog(false)}>
               Close
             </Button>
           </DialogFooter>

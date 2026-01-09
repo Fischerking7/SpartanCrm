@@ -414,6 +414,40 @@ export const insertOverrideDeductionPoolSchema = createInsertSchema(overrideDedu
 export type OverrideDeductionPool = typeof overrideDeductionPool.$inferSelect;
 export type InsertOverrideDeductionPool = z.infer<typeof insertOverrideDeductionPoolSchema>;
 
+// Override Distributions - Manual allocation of pooled overrides to recipients
+export const overrideDistributionAllocTypeEnum = pgEnum("override_distribution_alloc_type", ["PERCENT", "FIXED"]);
+export const overrideDistributionStatusEnum = pgEnum("override_distribution_status", ["PENDING", "APPLIED"]);
+
+export const overrideDistributions = pgTable("override_distributions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payRunId: varchar("pay_run_id").notNull().references(() => payRuns.id),
+  poolEntryId: varchar("pool_entry_id").notNull().references(() => overrideDeductionPool.id),
+  recipientUserId: varchar("recipient_user_id").notNull().references(() => users.id),
+  allocationType: overrideDistributionAllocTypeEnum("allocation_type").notNull().default("FIXED"),
+  allocationValue: decimal("allocation_value", { precision: 10, scale: 2 }).notNull(),
+  calculatedAmount: decimal("calculated_amount", { precision: 10, scale: 2 }).notNull(),
+  status: overrideDistributionStatusEnum("status").notNull().default("PENDING"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  appliedAt: timestamp("applied_at"),
+});
+
+export const overrideDistributionsRelations = relations(overrideDistributions, ({ one }) => ({
+  payRun: one(payRuns, { fields: [overrideDistributions.payRunId], references: [payRuns.id] }),
+  poolEntry: one(overrideDeductionPool, { fields: [overrideDistributions.poolEntryId], references: [overrideDeductionPool.id] }),
+  recipient: one(users, { fields: [overrideDistributions.recipientUserId], references: [users.id] }),
+  createdBy: one(users, { fields: [overrideDistributions.createdByUserId], references: [users.id] }),
+}));
+
+export const insertOverrideDistributionSchema = createInsertSchema(overrideDistributions).omit({
+  id: true,
+  createdAt: true,
+  appliedAt: true,
+});
+
+export type OverrideDistribution = typeof overrideDistributions.$inferSelect;
+export type InsertOverrideDistribution = z.infer<typeof insertOverrideDistributionSchema>;
+
 // Rate Issues table
 export const rateIssues = pgTable("rate_issues", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

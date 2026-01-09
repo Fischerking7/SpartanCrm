@@ -2362,116 +2362,87 @@ export async function registerRoutes(
         }
       }
       
-      // ========== DISTRIBUTE OVERRIDE POOL DEDUCTIONS ==========
-      // 1. Get all pending pool entries for orders in this pay run
+      // ========== DISTRIBUTE OVERRIDE POOL DEDUCTIONS (Manual Distribution) ==========
       const orderIds = orders.map(o => o.id);
       const pendingPoolEntries = await storage.getOverrideDeductionPoolByOrderIds(orderIds);
       
-      // 2. For each pool entry, create override earnings for supervisors/managers in the hierarchy
-      const distributionResults: { recipientId: string; amount: string; orderId: string; type: string }[] = [];
+      // Get manual distributions configured for this pay run
+      const manualDistributions = await storage.getOverrideDistributionsByPayRun(req.params.id);
       
-      for (const poolEntry of pendingPoolEntries) {
+      // Check if all pool entries have distributions configured
+      const distributedPoolIds = new Set(manualDistributions.map(d => d.poolEntryId));
+      const undistributedEntries = pendingPoolEntries.filter(e => !distributedPoolIds.has(e.id));
+      
+      // If there are undistributed pool entries, warn but allow finalization
+      // (Pool amounts without distributions will remain in pool for next pay run)
+      
+      const distributionResults: { recipientId: string; amount: number; orderId: string }[] = [];
+      
+      // Process manual distributions
+      for (const dist of manualDistributions) {
+        const poolEntry = pendingPoolEntries.find(e => e.id === dist.poolEntryId);
+        if (!poolEntry) continue;
+        
         const order = orders.find(o => o.id === poolEntry.salesOrderId);
         if (!order) continue;
         
-        // Get hierarchy for the rep who made the sale
-        const hierarchy = await storage.getRepHierarchy(order.repId);
-        const poolAmount = parseFloat(poolEntry.amount || "0");
+        // Create override earning for this distribution
+        const recipient = await storage.getUserById(dist.recipientUserId);
+        const earning = await storage.createOverrideEarning({
+          salesOrderId: order.id,
+          recipientUserId: dist.recipientUserId,
+          sourceRepId: order.repId,
+          sourceLevelUsed: recipient?.role as any || "SUPERVISOR",
+          amount: dist.calculatedAmount,
+          payRunId: req.params.id,
+        });
         
-        // Distribute proportionally: 60% supervisor, 40% manager (if both exist)
-        // If only supervisor, they get 100%; if only manager, they get 100%
-        let supervisorShare = 0;
-        let managerShare = 0;
+        distributionResults.push({
+          recipientId: dist.recipientUserId,
+          amount: parseFloat(dist.calculatedAmount),
+          orderId: order.id,
+        });
         
-        if (hierarchy.supervisor && hierarchy.manager) {
-          supervisorShare = poolAmount * 0.6;
-          managerShare = poolAmount * 0.4;
-        } else if (hierarchy.supervisor) {
-          supervisorShare = poolAmount;
-        } else if (hierarchy.manager) {
-          managerShare = poolAmount;
-        }
-        
-        // Create override earnings for supervisor
-        if (hierarchy.supervisor && supervisorShare > 0) {
-          const earning = await storage.createOverrideEarning({
-            salesOrderId: order.id,
-            recipientUserId: hierarchy.supervisor.id,
-            sourceRepId: order.repId,
-            sourceLevelUsed: "SUPERVISOR",
-            amount: supervisorShare.toFixed(2),
-            payRunId: req.params.id,
-          });
-          distributionResults.push({ 
-            recipientId: hierarchy.supervisor.id, 
-            amount: supervisorShare.toFixed(2), 
-            orderId: order.id,
-            type: poolEntry.deductionType || "BASE"
-          });
-          await storage.createAuditLog({ 
-            action: "distribute_override_pool", 
-            tableName: "override_earnings", 
-            recordId: earning.id, 
-            afterJson: JSON.stringify({ ...earning, poolEntryId: poolEntry.id }), 
-            userId: req.user!.id 
-          });
-        }
-        
-        // Create override earnings for manager
-        if (hierarchy.manager && managerShare > 0) {
-          const earning = await storage.createOverrideEarning({
-            salesOrderId: order.id,
-            recipientUserId: hierarchy.manager.id,
-            sourceRepId: order.repId,
-            sourceLevelUsed: "MANAGER",
-            amount: managerShare.toFixed(2),
-            payRunId: req.params.id,
-          });
-          distributionResults.push({ 
-            recipientId: hierarchy.manager.id, 
-            amount: managerShare.toFixed(2), 
-            orderId: order.id,
-            type: poolEntry.deductionType || "BASE"
-          });
-          await storage.createAuditLog({ 
-            action: "distribute_override_pool", 
-            tableName: "override_earnings", 
-            recordId: earning.id, 
-            afterJson: JSON.stringify({ ...earning, poolEntryId: poolEntry.id }), 
-            userId: req.user!.id 
-          });
-        }
+        await storage.createAuditLog({
+          action: "apply_override_distribution",
+          tableName: "override_earnings",
+          recordId: earning.id,
+          afterJson: JSON.stringify({ ...earning, distributionId: dist.id, poolEntryId: dist.poolEntryId }),
+          userId: req.user!.id,
+        });
       }
       
-      // 3. Mark all pool entries as DISTRIBUTED
-      if (pendingPoolEntries.length > 0) {
-        await storage.markPoolEntriesDistributedByOrderIds(orderIds, req.params.id);
+      // Mark distributions as applied
+      if (manualDistributions.length > 0) {
+        await storage.applyOverrideDistributions(req.params.id);
       }
       
-      // 4. Update or create pay statements for recipients of override earnings
-      // Aggregate distributed amounts by recipient
+      // Mark distributed pool entries as DISTRIBUTED
+      const distributedPoolEntryIds = Array.from(distributedPoolIds);
+      if (distributedPoolEntryIds.length > 0) {
+        await storage.markPoolEntriesDistributedByIds(distributedPoolEntryIds, req.params.id);
+      }
+      
+      // Update or create pay statements for recipients of override earnings
       const recipientTotals: Record<string, number> = {};
       for (const dist of distributionResults) {
-        recipientTotals[dist.recipientId] = (recipientTotals[dist.recipientId] || 0) + parseFloat(dist.amount);
+        recipientTotals[dist.recipientId] = (recipientTotals[dist.recipientId] || 0) + dist.amount;
       }
       
-      // Update or create pay statements for each recipient
       for (const [recipientId, addedOverride] of Object.entries(recipientTotals)) {
         const existingStatement = statements.find(s => s.userId === recipientId);
         if (existingStatement) {
-          // Update existing statement - only add incremental override amount
           const currentOverride = parseFloat(existingStatement.overrideEarningsTotal);
           const newOverrideTotal = currentOverride + addedOverride;
-          // Recalculate net pay correctly: gross + override + incentives - deductions
           const grossBase = parseFloat(existingStatement.grossCommission) + parseFloat(existingStatement.incentivesTotal);
-          const newNetPay = grossBase + newOverrideTotal - parseFloat(existingStatement.chargebacksTotal) - parseFloat(existingStatement.deductionsTotal) - parseFloat(existingStatement.advancesApplied);
+          const adjustments = parseFloat(existingStatement.adjustmentsTotal || "0");
+          const newNetPay = grossBase + newOverrideTotal + adjustments - parseFloat(existingStatement.chargebacksTotal) - parseFloat(existingStatement.deductionsTotal) - parseFloat(existingStatement.advancesApplied);
           
           await storage.updatePayStatement(existingStatement.id, {
             overrideEarningsTotal: newOverrideTotal.toFixed(2),
             netPay: newNetPay.toFixed(2),
           });
         } else {
-          // Create new pay statement for supervisor/manager who doesn't have one
           const currentYear = new Date().getFullYear();
           const ytd = await storage.getYTDTotalsForUser(recipientId, currentYear);
           
@@ -2674,6 +2645,134 @@ export async function registerRoutes(
       const total = await storage.getPendingPoolTotal();
       res.json({ total });
     } catch (error) { res.status(500).json({ message: "Failed to fetch pool total" }); }
+  });
+
+  // Override Distribution Management (Manual Distribution)
+  app.get("/api/admin/payruns/:id/override-pool", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const orders = await storage.getOrdersByPayRunId(req.params.id);
+      if (orders.length === 0) return res.json([]);
+      
+      const orderIds = orders.map(o => o.id);
+      const poolEntries = await storage.getOverrideDeductionPoolByOrderIds(orderIds);
+      
+      // Enrich with order details and existing distributions
+      const enrichedEntries = await Promise.all(poolEntries.map(async (entry) => {
+        const order = orders.find(o => o.id === entry.salesOrderId);
+        const distributions = await storage.getOverrideDistributionsByPoolEntry(entry.id);
+        const distributedTotal = distributions.reduce((sum, d) => sum + parseFloat(d.calculatedAmount), 0);
+        
+        // Enrich distributions with recipient names
+        const enrichedDistributions = await Promise.all(distributions.map(async (dist) => {
+          const recipient = await storage.getUserById(dist.recipientUserId);
+          return {
+            ...dist,
+            recipientName: recipient?.name || "Unknown",
+            recipientRepId: recipient?.repId || "Unknown",
+          };
+        }));
+        
+        return {
+          ...entry,
+          invoiceNumber: order?.invoiceNumber,
+          repId: order?.repId,
+          dateSold: order?.dateSold,
+          distributions: enrichedDistributions,
+          distributedTotal: distributedTotal.toFixed(2),
+          remainingAmount: (parseFloat(entry.amount) - distributedTotal).toFixed(2),
+        };
+      }));
+      
+      res.json(enrichedEntries);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  app.get("/api/admin/payruns/:id/distributions", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const distributions = await storage.getOverrideDistributionsByPayRun(req.params.id);
+      
+      // Enrich with recipient names and pool entry details
+      const enriched = await Promise.all(distributions.map(async (dist) => {
+        const recipient = await storage.getUserById(dist.recipientUserId);
+        const poolEntry = await storage.getOverrideDeductionPoolByOrderId(dist.poolEntryId);
+        return {
+          ...dist,
+          recipientName: recipient?.name || "Unknown",
+          recipientRepId: recipient?.repId || "Unknown",
+        };
+      }));
+      
+      res.json(enriched);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  app.post("/api/admin/payruns/:id/distributions", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { poolEntryId, recipientUserId, allocationType, allocationValue } = req.body;
+      
+      // Get pool entry to validate and calculate amount
+      const poolEntries = await storage.getOverrideDeductionPoolByOrderId(poolEntryId);
+      const poolEntry = poolEntries.find(e => e.id === poolEntryId);
+      if (!poolEntry) {
+        // Try to get by ID directly
+        const allEntries = await storage.getOverrideDeductionPoolEntries();
+        const entry = allEntries.find(e => e.id === poolEntryId);
+        if (!entry) return res.status(404).json({ message: "Pool entry not found" });
+      }
+      
+      const poolAmount = parseFloat(poolEntry?.amount || "0");
+      let calculatedAmount = 0;
+      
+      if (allocationType === "PERCENT") {
+        calculatedAmount = poolAmount * (parseFloat(allocationValue) / 100);
+      } else {
+        calculatedAmount = parseFloat(allocationValue);
+      }
+      
+      // Check if distribution would exceed pool amount
+      const existingDistributions = await storage.getOverrideDistributionsByPoolEntry(poolEntryId);
+      const existingTotal = existingDistributions.reduce((sum, d) => sum + parseFloat(d.calculatedAmount), 0);
+      
+      if (existingTotal + calculatedAmount > poolAmount + 0.01) {
+        return res.status(400).json({ 
+          message: `Distribution exceeds pool amount. Available: $${(poolAmount - existingTotal).toFixed(2)}` 
+        });
+      }
+      
+      const distribution = await storage.createOverrideDistribution({
+        payRunId: req.params.id,
+        poolEntryId,
+        recipientUserId,
+        allocationType,
+        allocationValue: allocationValue.toString(),
+        calculatedAmount: calculatedAmount.toFixed(2),
+        status: "PENDING",
+        createdByUserId: req.user!.id,
+      });
+      
+      await storage.createAuditLog({
+        action: "create_override_distribution",
+        tableName: "override_distributions",
+        recordId: distribution.id,
+        afterJson: JSON.stringify(distribution),
+        userId: req.user!.id,
+      });
+      
+      res.json(distribution);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  app.delete("/api/admin/payruns/:payRunId/distributions/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteOverrideDistribution(req.params.id);
+      await storage.createAuditLog({
+        action: "delete_override_distribution",
+        tableName: "override_distributions",
+        recordId: req.params.id,
+        userId: req.user!.id,
+      });
+      res.json({ success: true });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
   // Accounting Export/Import

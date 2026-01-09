@@ -71,6 +71,21 @@ Key tables defined in `shared/schema.ts`:
 - **Rejection**: Any non-Draft status can be rejected, returning to Draft
 - **UI Features**: Visual workflow progress indicator, status-specific action buttons
 
+### Manual Override Distribution System (January 2026)
+- **Override Pool**: When orders are linked to pay runs, override-eligible amounts are tracked in `override_deduction_pool` table
+- **Pool Entries**: Each order with override agreements creates a pool entry with `overrideEligibleAmount` based on applicable rate cards
+- **Distribution Status**: Pool entries have status PENDING, DISTRIBUTED, or NO_UPLINE (when rep has no upline)
+- **Manual Distributions**: Admins can create `override_distributions` records specifying:
+  - `recipientUserId`: Who receives the override (supervisor, manager, executive, etc.)
+  - `allocationType`: PERCENT (percentage of pool entry) or FIXED (flat dollar amount)
+  - `allocationValue`: The percentage or dollar amount to allocate
+  - `calculatedAmount`: Auto-computed actual dollar amount based on allocation
+- **Distribution UI**: In APPROVED status, a "Distribute" button opens the Override Distribution Manager dialog
+- **Two-Panel Interface**: Left panel shows pool entries, right panel shows distribution configuration for selected entry
+- **Finalization**: When pay run is finalized, distributions are applied creating `override_earnings` records and updating pay statements
+- **Validation**: Distributions cannot exceed the pool entry's total override-eligible amount
+- **Flexibility**: Allows splitting override earnings to any eligible user (not just the rep's direct upline)
+
 ### Knowledge Database
 - Reference document storage for training materials, policies, procedures, and resources
 - Supports PDF, Word documents, and images uploaded to Replit Object Storage

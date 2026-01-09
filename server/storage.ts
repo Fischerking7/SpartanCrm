@@ -5,7 +5,7 @@ import {
   incentives, overrideAgreements, chargebacks, adjustments,
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues,
   auditLogs, exportBatches, counters, overrideEarnings, leads, commissionLineItems, mobileLineItems,
-  overrideDeductionPool, knowledgeDocuments,
+  overrideDeductionPool, overrideDistributions, knowledgeDocuments,
   payrollSchedules, payRunApprovals, deductionTypes, userDeductions,
   advances, advanceRepayments, userTaxProfiles, userPaymentMethods,
   payStatements, payStatementLineItems, payStatementDeductions,
@@ -20,6 +20,7 @@ import {
   type CommissionLineItem, type InsertCommissionLineItem,
   type MobileLineItem, type InsertMobileLineItem,
   type OverrideDeductionPool, type InsertOverrideDeductionPool,
+  type OverrideDistribution, type InsertOverrideDistribution,
   type KnowledgeDocument, type InsertKnowledgeDocument,
   type PayrollSchedule, type InsertPayrollSchedule,
   type PayRunApproval, type InsertPayRunApproval,
@@ -1079,6 +1080,60 @@ export const storage = {
       .where(and(
         inArray(overrideDeductionPool.salesOrderId, orderIds),
         eq(overrideDeductionPool.status, "PENDING")
+      ))
+      .returning();
+  },
+  async markPoolEntriesDistributedByIds(poolEntryIds: string[], payRunId: string) {
+    if (poolEntryIds.length === 0) return [];
+    return db.update(overrideDeductionPool)
+      .set({ 
+        status: "DISTRIBUTED", 
+        payRunId, 
+        distributedAt: new Date() 
+      })
+      .where(inArray(overrideDeductionPool.id, poolEntryIds))
+      .returning();
+  },
+
+  // Override Distributions
+  async getOverrideDistributionsByPayRun(payRunId: string) {
+    return db.query.overrideDistributions.findMany({
+      where: eq(overrideDistributions.payRunId, payRunId),
+      orderBy: [desc(overrideDistributions.createdAt)],
+    });
+  },
+  async getOverrideDistributionsByPoolEntry(poolEntryId: string) {
+    return db.query.overrideDistributions.findMany({
+      where: eq(overrideDistributions.poolEntryId, poolEntryId),
+    });
+  },
+  async createOverrideDistribution(data: InsertOverrideDistribution) {
+    const [distribution] = await db.insert(overrideDistributions).values(data).returning();
+    return distribution;
+  },
+  async createOverrideDistributions(data: InsertOverrideDistribution[]) {
+    if (data.length === 0) return [];
+    return db.insert(overrideDistributions).values(data).returning();
+  },
+  async updateOverrideDistribution(id: string, data: Partial<InsertOverrideDistribution>) {
+    const [distribution] = await db.update(overrideDistributions)
+      .set(data)
+      .where(eq(overrideDistributions.id, id))
+      .returning();
+    return distribution;
+  },
+  async deleteOverrideDistribution(id: string) {
+    return db.delete(overrideDistributions).where(eq(overrideDistributions.id, id));
+  },
+  async deleteOverrideDistributionsByPayRun(payRunId: string) {
+    return db.delete(overrideDistributions).where(eq(overrideDistributions.payRunId, payRunId));
+  },
+  async applyOverrideDistributions(payRunId: string) {
+    return db.update(overrideDistributions)
+      .set({ status: "APPLIED", appliedAt: new Date() })
+      .where(and(
+        eq(overrideDistributions.payRunId, payRunId),
+        eq(overrideDistributions.status, "PENDING")
       ))
       .returning();
   },
