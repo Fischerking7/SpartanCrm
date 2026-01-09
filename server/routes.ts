@@ -2,8 +2,8 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { eq, and, sql } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders } from "@shared/schema";
+import { eq, and, sql, gte, lte, inArray } from "drizzle-orm";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -6229,6 +6229,784 @@ export async function registerRoutes(
       res.json(results);
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ========== NEW PAYROLL FEATURES ROUTES ==========
+
+  // Tax Documents (1099s)
+  app.get("/api/admin/tax-documents", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.userId) filters.userId = req.query.userId as string;
+      if (req.query.taxYear) filters.taxYear = parseInt(req.query.taxYear as string);
+      if (req.query.status) filters.status = req.query.status as string;
+      const docs = await storage.getTaxDocuments(filters);
+      res.json(docs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/tax-documents/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const doc = await storage.getTaxDocumentById(req.params.id);
+      if (!doc) return res.status(404).json({ message: "Tax document not found" });
+      res.json(doc);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/tax-documents/generate-data/:year", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const taxYear = parseInt(req.params.year);
+      const data = await storage.generate1099DataForYear(taxYear);
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tax-documents", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const doc = await storage.createTaxDocument({
+        ...req.body,
+        createdByUserId: req.user!.id,
+      });
+      await storage.createAuditLog({
+        action: "tax_document_created",
+        tableName: "tax_documents",
+        recordId: doc.id,
+        afterJson: JSON.stringify(doc),
+        userId: req.user!.id,
+      });
+      res.status(201).json(doc);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/tax-documents/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const doc = await storage.updateTaxDocument(req.params.id, req.body);
+      await storage.createAuditLog({
+        action: "tax_document_updated",
+        tableName: "tax_documents",
+        recordId: req.params.id,
+        afterJson: JSON.stringify(doc),
+        userId: req.user!.id,
+      });
+      res.json(doc);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Bulk generate 1099s for a tax year
+  app.post("/api/admin/tax-documents/bulk-generate/:year", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const taxYear = parseInt(req.params.year);
+      const data = await storage.generate1099DataForYear(taxYear);
+      const results = { created: 0, skipped: 0, errors: [] as string[] };
+
+      for (const row of data) {
+        try {
+          const existing = await storage.getTaxDocuments({ userId: row.userId, taxYear });
+          if (existing.length > 0) {
+            results.skipped++;
+            continue;
+          }
+
+          const taxProfile = await storage.getUserTaxProfile(row.userId);
+          
+          await storage.createTaxDocument({
+            userId: row.userId,
+            taxYear,
+            documentType: "1099_NEC",
+            status: "DRAFT",
+            totalEarnings: row.totalEarnings,
+            recipientName: row.userName,
+            recipientTin: taxProfile?.taxIdLastFour || null,
+            recipientAddress: taxProfile?.businessAddress || null,
+            recipientCity: null,
+            recipientState: null,
+            recipientZip: null,
+            createdByUserId: req.user!.id,
+          });
+          results.created++;
+        } catch (err: any) {
+          results.errors.push(`${row.userName}: ${err.message}`);
+        }
+      }
+
+      res.json(results);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // User Bank Accounts (ACH)
+  app.get("/api/admin/bank-accounts", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.query.userId as string;
+      if (!userId) return res.status(400).json({ message: "userId required" });
+      const accounts = await storage.getUserBankAccounts(userId);
+      res.json(accounts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/bank-accounts", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const account = await storage.createUserBankAccount(req.body);
+      await storage.createAuditLog({
+        action: "bank_account_created",
+        tableName: "user_bank_accounts",
+        recordId: account.id,
+        userId: req.user!.id,
+      });
+      res.status(201).json(account);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/bank-accounts/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      await storage.deactivateUserBankAccount(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ACH Exports
+  app.get("/api/admin/ach-exports", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.status) filters.status = req.query.status;
+      if (req.query.payRunId) filters.payRunId = req.query.payRunId;
+      const exports = await storage.getAchExports(filters);
+      res.json(exports);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/ach-exports/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const exp = await storage.getAchExportById(req.params.id);
+      if (!exp) return res.status(404).json({ message: "ACH export not found" });
+      const items = await storage.getAchExportItems(req.params.id);
+      res.json({ ...exp, items });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/ach-exports/generate/:payRunId", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.payRunId);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (payRun.status !== "FINALIZED") return res.status(400).json({ message: "Pay run must be finalized" });
+
+      const statements = await storage.getPayStatements(req.params.payRunId);
+      
+      let totalAmount = 0;
+      const validStatements = [];
+
+      for (const stmt of statements) {
+        const bankAccount = await storage.getPrimaryBankAccount(stmt.userId);
+        if (bankAccount) {
+          totalAmount += parseFloat(stmt.netPay);
+          validStatements.push({ statement: stmt, bankAccount });
+        }
+      }
+
+      if (validStatements.length === 0) {
+        return res.status(400).json({ message: "No users with bank accounts found" });
+      }
+
+      const batchNumber = await storage.generateAchBatchNumber();
+      const effectiveDate = new Date();
+      effectiveDate.setDate(effectiveDate.getDate() + 2);
+
+      const achExport = await storage.createAchExport({
+        payRunId: req.params.payRunId,
+        batchNumber,
+        status: "PENDING",
+        totalAmount: totalAmount.toFixed(2),
+        transactionCount: validStatements.length,
+        effectiveDate: effectiveDate.toISOString().slice(0, 10),
+        createdByUserId: req.user!.id,
+      });
+
+      for (const { statement, bankAccount } of validStatements) {
+        await storage.createAchExportItem({
+          achExportId: achExport.id,
+          payStatementId: statement.id,
+          userId: statement.userId,
+          bankAccountId: bankAccount.id,
+          amount: statement.netPay,
+          status: "PENDING",
+        });
+      }
+
+      await storage.createAuditLog({
+        action: "ach_export_created",
+        tableName: "ach_exports",
+        recordId: achExport.id,
+        afterJson: JSON.stringify({ batchNumber, totalAmount, count: validStatements.length }),
+        userId: req.user!.id,
+      });
+
+      res.status(201).json(achExport);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/ach-exports/:id/status", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { status } = req.body;
+      const exp = await storage.updateAchExport(req.params.id, { 
+        status,
+        ...(status === "SENT" && { sentAt: new Date() }),
+        ...(status === "COMPLETED" && { completedAt: new Date() }),
+      });
+      res.json(exp);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Payment Reconciliation
+  app.get("/api/admin/payment-reconciliations", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.status) filters.status = req.query.status;
+      if (req.query.userId) filters.userId = req.query.userId;
+      const recs = await storage.getPaymentReconciliations(filters);
+      res.json(recs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/payment-reconciliations", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const rec = await storage.createPaymentReconciliation(req.body);
+      res.status(201).json(rec);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/payment-reconciliations/:id/match", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { paidAmount, paymentReference } = req.body;
+      const rec = await storage.matchPaymentReconciliation(
+        req.params.id, 
+        paidAmount, 
+        paymentReference,
+        req.user!.id
+      );
+      res.json(rec);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Bonuses/SPIFFs
+  app.get("/api/admin/bonuses", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.userId) filters.userId = req.query.userId;
+      if (req.query.status) filters.status = req.query.status;
+      if (req.query.bonusType) filters.bonusType = req.query.bonusType;
+      const bonusList = await storage.getBonuses(filters);
+      res.json(bonusList);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/bonuses/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const bonus = await storage.getBonusById(req.params.id);
+      if (!bonus) return res.status(404).json({ message: "Bonus not found" });
+      res.json(bonus);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/bonuses", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const bonus = await storage.createBonus({
+        ...req.body,
+        createdByUserId: req.user!.id,
+      });
+      await storage.createAuditLog({
+        action: "bonus_created",
+        tableName: "bonuses",
+        recordId: bonus.id,
+        afterJson: JSON.stringify(bonus),
+        userId: req.user!.id,
+      });
+      res.status(201).json(bonus);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/bonuses/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const bonus = await storage.approveBonus(req.params.id, req.user!.id);
+      await storage.createAuditLog({
+        action: "bonus_approved",
+        tableName: "bonuses",
+        recordId: req.params.id,
+        userId: req.user!.id,
+      });
+      res.json(bonus);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/bonuses/:id/cancel", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { reason } = req.body;
+      const bonus = await storage.cancelBonus(req.params.id, reason);
+      res.json(bonus);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Draw Accounts
+  app.get("/api/admin/draw-accounts", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.userId) filters.userId = req.query.userId;
+      if (req.query.status) filters.status = req.query.status;
+      const accounts = await storage.getDrawAccounts(filters);
+      res.json(accounts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/draw-accounts/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const account = await storage.getDrawAccountById(req.params.id);
+      if (!account) return res.status(404).json({ message: "Draw account not found" });
+      const transactions = await storage.getDrawTransactions(req.params.id);
+      res.json({ ...account, transactions });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/draw-accounts", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const account = await storage.createDrawAccount({
+        ...req.body,
+        createdByUserId: req.user!.id,
+      });
+      await storage.createAuditLog({
+        action: "draw_account_created",
+        tableName: "draw_accounts",
+        recordId: account.id,
+        afterJson: JSON.stringify(account),
+        userId: req.user!.id,
+      });
+      res.status(201).json(account);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/draw-accounts/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const account = await storage.updateDrawAccount(req.params.id, req.body);
+      res.json(account);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Split Commission Agreements
+  app.get("/api/admin/split-agreements", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.primaryRepId) filters.primaryRepId = req.query.primaryRepId;
+      if (req.query.isActive !== undefined) filters.isActive = req.query.isActive === "true";
+      const agreements = await storage.getSplitAgreements(filters);
+      res.json(agreements);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/split-agreements/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const agreement = await storage.getSplitAgreementById(req.params.id);
+      if (!agreement) return res.status(404).json({ message: "Agreement not found" });
+      const recipients = await storage.getSplitRecipients(req.params.id);
+      res.json({ ...agreement, recipients });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/split-agreements", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { recipients, ...agreementData } = req.body;
+      const agreement = await storage.createSplitAgreement({
+        ...agreementData,
+        createdByUserId: req.user!.id,
+      });
+
+      if (recipients && Array.isArray(recipients)) {
+        for (const recipient of recipients) {
+          await storage.createSplitRecipient({
+            agreementId: agreement.id,
+            userId: recipient.userId,
+            splitType: recipient.splitType,
+            splitValue: recipient.splitValue,
+          });
+        }
+      }
+
+      await storage.createAuditLog({
+        action: "split_agreement_created",
+        tableName: "split_commission_agreements",
+        recordId: agreement.id,
+        afterJson: JSON.stringify({ ...agreement, recipients }),
+        userId: req.user!.id,
+      });
+
+      res.status(201).json(agreement);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/split-agreements/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { recipients, ...agreementData } = req.body;
+      const agreement = await storage.updateSplitAgreement(req.params.id, agreementData);
+
+      if (recipients && Array.isArray(recipients)) {
+        await storage.deleteSplitRecipients(req.params.id);
+        for (const recipient of recipients) {
+          await storage.createSplitRecipient({
+            agreementId: req.params.id,
+            userId: recipient.userId,
+            splitType: recipient.splitType,
+            splitValue: recipient.splitValue,
+          });
+        }
+      }
+
+      res.json(agreement);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Commission Tiers
+  app.get("/api/admin/commission-tiers", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.providerId) filters.providerId = req.query.providerId;
+      if (req.query.isActive !== undefined) filters.isActive = req.query.isActive === "true";
+      const tiers = await storage.getCommissionTiers(filters);
+      res.json(tiers);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/commission-tiers/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const tier = await storage.getCommissionTierById(req.params.id);
+      if (!tier) return res.status(404).json({ message: "Tier not found" });
+      const levels = await storage.getTierLevels(req.params.id);
+      res.json({ ...tier, levels });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/commission-tiers", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { levels, ...tierData } = req.body;
+      const tier = await storage.createCommissionTier({
+        ...tierData,
+        createdByUserId: req.user!.id,
+      });
+
+      if (levels && Array.isArray(levels)) {
+        for (const level of levels) {
+          await storage.createTierLevel({
+            tierId: tier.id,
+            minVolume: level.minVolume,
+            maxVolume: level.maxVolume,
+            bonusPercentage: level.bonusPercentage,
+            bonusFlat: level.bonusFlat,
+            multiplier: level.multiplier,
+          });
+        }
+      }
+
+      await storage.createAuditLog({
+        action: "commission_tier_created",
+        tableName: "commission_tiers",
+        recordId: tier.id,
+        afterJson: JSON.stringify({ ...tier, levels }),
+        userId: req.user!.id,
+      });
+
+      res.status(201).json(tier);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/commission-tiers/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { levels, ...tierData } = req.body;
+      const tier = await storage.updateCommissionTier(req.params.id, tierData);
+
+      if (levels && Array.isArray(levels)) {
+        await storage.deleteTierLevels(req.params.id);
+        for (const level of levels) {
+          await storage.createTierLevel({
+            tierId: req.params.id,
+            minVolume: level.minVolume,
+            maxVolume: level.maxVolume,
+            bonusPercentage: level.bonusPercentage,
+            bonusFlat: level.bonusFlat,
+            multiplier: level.multiplier,
+          });
+        }
+      }
+
+      res.json(tier);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Rep Tier Assignments
+  app.get("/api/admin/rep-tier-assignments/:userId", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const assignments = await storage.getRepTierAssignments(req.params.userId);
+      res.json(assignments);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/rep-tier-assignments", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const assignment = await storage.createRepTierAssignment({
+        ...req.body,
+        createdByUserId: req.user!.id,
+      });
+      res.status(201).json(assignment);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/rep-tier-assignments/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteRepTierAssignment(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Scheduled Pay Runs
+  app.get("/api/admin/scheduled-pay-runs", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const schedules = await storage.getScheduledPayRuns();
+      res.json(schedules);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/scheduled-pay-runs/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const schedule = await storage.getScheduledPayRunById(req.params.id);
+      if (!schedule) return res.status(404).json({ message: "Schedule not found" });
+      res.json(schedule);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/scheduled-pay-runs", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const schedule = await storage.createScheduledPayRun({
+        ...req.body,
+        createdByUserId: req.user!.id,
+      });
+      await storage.createAuditLog({
+        action: "scheduled_pay_run_created",
+        tableName: "scheduled_pay_runs",
+        recordId: schedule.id,
+        afterJson: JSON.stringify(schedule),
+        userId: req.user!.id,
+      });
+      res.status(201).json(schedule);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/scheduled-pay-runs/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const schedule = await storage.updateScheduledPayRun(req.params.id, req.body);
+      res.json(schedule);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/scheduled-pay-runs/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteScheduledPayRun(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Commission Forecasts
+  app.get("/api/admin/commission-forecasts", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.userId) filters.userId = req.query.userId;
+      if (req.query.forecastPeriod) filters.forecastPeriod = req.query.forecastPeriod;
+      const forecasts = await storage.getCommissionForecasts(filters);
+      res.json(forecasts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/commission-forecasts/calculate/:userId", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { periodType = "MONTH", periodStart, periodEnd } = req.query as any;
+      const now = new Date();
+      const start = periodStart || now.toISOString().slice(0, 10);
+      const endDate = new Date(now);
+      endDate.setMonth(endDate.getMonth() + 1);
+      const end = periodEnd || endDate.toISOString().slice(0, 10);
+
+      const forecast = await storage.calculateCommissionForecast(req.params.userId, periodType, start, end);
+      res.json(forecast);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Payroll Reports Dashboard
+  app.get("/api/admin/payroll-reports/summary", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const startOfYear = `${year}-01-01`;
+      const endOfYear = `${year}-12-31`;
+
+      const monthlyTotals = await db.select({
+        month: sql<number>`EXTRACT(MONTH FROM ${payStatements.periodEnd})`,
+        totalGross: sql<string>`COALESCE(SUM(${payStatements.grossCommission} + ${payStatements.overrideEarningsTotal} + ${payStatements.incentivesTotal}), 0)`,
+        totalDeductions: sql<string>`COALESCE(SUM(${payStatements.deductionsTotal}), 0)`,
+        totalNetPay: sql<string>`COALESCE(SUM(${payStatements.netPay}), 0)`,
+        statementCount: sql<number>`COUNT(*)`,
+      })
+      .from(payStatements)
+      .where(and(
+        gte(payStatements.periodEnd, startOfYear),
+        lte(payStatements.periodEnd, endOfYear),
+        inArray(payStatements.status, ["ISSUED", "PAID"])
+      ))
+      .groupBy(sql`EXTRACT(MONTH FROM ${payStatements.periodEnd})`)
+      .orderBy(sql`EXTRACT(MONTH FROM ${payStatements.periodEnd})`);
+
+      const topEarners = await db.select({
+        userId: payStatements.userId,
+        userName: users.name,
+        totalNetPay: sql<string>`COALESCE(SUM(${payStatements.netPay}), 0)`,
+      })
+      .from(payStatements)
+      .innerJoin(users, eq(payStatements.userId, users.id))
+      .where(and(
+        gte(payStatements.periodEnd, startOfYear),
+        lte(payStatements.periodEnd, endOfYear),
+        inArray(payStatements.status, ["ISSUED", "PAID"])
+      ))
+      .groupBy(payStatements.userId, users.name)
+      .orderBy(sql`SUM(${payStatements.netPay}) DESC`)
+      .limit(10);
+
+      const ytdTotals = await db.select({
+        totalGross: sql<string>`COALESCE(SUM(${payStatements.grossCommission} + ${payStatements.overrideEarningsTotal} + ${payStatements.incentivesTotal}), 0)`,
+        totalDeductions: sql<string>`COALESCE(SUM(${payStatements.deductionsTotal}), 0)`,
+        totalNetPay: sql<string>`COALESCE(SUM(${payStatements.netPay}), 0)`,
+        totalBonuses: sql<string>`COALESCE(SUM(${payStatements.adjustmentsTotal}), 0)`,
+        statementCount: sql<number>`COUNT(*)`,
+      })
+      .from(payStatements)
+      .where(and(
+        gte(payStatements.periodEnd, startOfYear),
+        lte(payStatements.periodEnd, endOfYear),
+        inArray(payStatements.status, ["ISSUED", "PAID"])
+      ));
+
+      res.json({
+        year,
+        monthlyTotals,
+        topEarners,
+        ytdTotals: ytdTotals[0],
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/payroll-reports/deductions", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const startOfYear = `${year}-01-01`;
+      const endOfYear = `${year}-12-31`;
+
+      const deductionsByType = await db.select({
+        deductionTypeName: payStatementDeductions.deductionTypeName,
+        totalAmount: sql<string>`COALESCE(SUM(${payStatementDeductions.amount}), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(payStatementDeductions)
+      .innerJoin(payStatements, eq(payStatementDeductions.payStatementId, payStatements.id))
+      .where(and(
+        gte(payStatements.periodEnd, startOfYear),
+        lte(payStatements.periodEnd, endOfYear)
+      ))
+      .groupBy(payStatementDeductions.deductionTypeName)
+      .orderBy(sql`SUM(${payStatementDeductions.amount}) DESC`);
+
+      res.json({ year, deductionsByType });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
     }
   });
 

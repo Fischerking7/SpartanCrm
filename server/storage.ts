@@ -9,6 +9,11 @@ import {
   payrollSchedules, payRunApprovals, deductionTypes, userDeductions,
   advances, advanceRepayments, userTaxProfiles, userPaymentMethods,
   payStatements, payStatementLineItems, payStatementDeductions,
+  taxDocuments, userBankAccounts, achExports, achExportItems,
+  paymentReconciliations, bonuses, drawAccounts, drawTransactions,
+  splitCommissionAgreements, splitCommissionRecipients, splitCommissionLedger,
+  commissionTiers, commissionTierLevels, repTierAssignments, repVolumeTracking,
+  scheduledPayRuns, commissionForecasts,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -31,6 +36,18 @@ import {
   type UserPaymentMethod, type InsertUserPaymentMethod,
   type PayStatement, type InsertPayStatement,
   type PayStatementLineItem, type PayStatementDeduction,
+  type TaxDocument, type InsertTaxDocument,
+  type UserBankAccount, type InsertUserBankAccount,
+  type AchExport, type InsertAchExport, type AchExportItem,
+  type PaymentReconciliation, type InsertPaymentReconciliation,
+  type Bonus, type InsertBonus,
+  type DrawAccount, type InsertDrawAccount, type DrawTransaction,
+  type SplitCommissionAgreement, type InsertSplitCommissionAgreement,
+  type SplitCommissionRecipient, type SplitCommissionLedgerEntry,
+  type CommissionTier, type InsertCommissionTier,
+  type CommissionTierLevel, type RepTierAssignment, type RepVolumeTracking,
+  type ScheduledPayRun, type InsertScheduledPayRun,
+  type CommissionForecast,
 } from "@shared/schema";
 
 export const storage = {
@@ -2450,5 +2467,540 @@ export const storage = {
       inArray(payStatements.status, ["ISSUED", "PAID"])
     ));
     return results[0] || { totalGross: "0", totalDeductions: "0", totalNetPay: "0" };
+  },
+
+  // ========== NEW PAYROLL FEATURES ==========
+
+  // Tax Documents (1099s)
+  async getTaxDocuments(filters?: { userId?: string; taxYear?: number; status?: string }) {
+    const conditions = [];
+    if (filters?.userId) conditions.push(eq(taxDocuments.userId, filters.userId));
+    if (filters?.taxYear) conditions.push(eq(taxDocuments.taxYear, filters.taxYear));
+    if (filters?.status) conditions.push(eq(taxDocuments.status, filters.status as any));
+    
+    return db.select().from(taxDocuments)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(taxDocuments.taxYear), desc(taxDocuments.createdAt));
+  },
+  async getTaxDocumentById(id: string) {
+    const [doc] = await db.select().from(taxDocuments).where(eq(taxDocuments.id, id));
+    return doc;
+  },
+  async createTaxDocument(data: InsertTaxDocument) {
+    const [doc] = await db.insert(taxDocuments).values(data).returning();
+    return doc;
+  },
+  async updateTaxDocument(id: string, data: Partial<InsertTaxDocument>) {
+    const [doc] = await db.update(taxDocuments)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(taxDocuments.id, id))
+      .returning();
+    return doc;
+  },
+  async generate1099DataForYear(taxYear: number) {
+    const startOfYear = `${taxYear}-01-01`;
+    const endOfYear = `${taxYear}-12-31`;
+    
+    return db.select({
+      userId: payStatements.userId,
+      userName: users.name,
+      totalEarnings: sql<string>`COALESCE(SUM(${payStatements.netPay}), 0)`,
+      statementCount: sql<number>`COUNT(${payStatements.id})`,
+    })
+    .from(payStatements)
+    .innerJoin(users, eq(payStatements.userId, users.id))
+    .where(and(
+      gte(payStatements.periodEnd, startOfYear),
+      lte(payStatements.periodEnd, endOfYear),
+      inArray(payStatements.status, ["ISSUED", "PAID"])
+    ))
+    .groupBy(payStatements.userId, users.name)
+    .having(sql`SUM(${payStatements.netPay}) >= 600`);
+  },
+
+  // User Bank Accounts (ACH)
+  async getUserBankAccounts(userId: string) {
+    return db.select().from(userBankAccounts)
+      .where(and(eq(userBankAccounts.userId, userId), eq(userBankAccounts.isActive, true)))
+      .orderBy(desc(userBankAccounts.isPrimary));
+  },
+  async getUserBankAccountById(id: string) {
+    const [account] = await db.select().from(userBankAccounts).where(eq(userBankAccounts.id, id));
+    return account;
+  },
+  async getPrimaryBankAccount(userId: string) {
+    const [account] = await db.select().from(userBankAccounts)
+      .where(and(eq(userBankAccounts.userId, userId), eq(userBankAccounts.isPrimary, true), eq(userBankAccounts.isActive, true)));
+    return account;
+  },
+  async createUserBankAccount(data: InsertUserBankAccount) {
+    if (data.isPrimary) {
+      await db.update(userBankAccounts)
+        .set({ isPrimary: false })
+        .where(eq(userBankAccounts.userId, data.userId));
+    }
+    const [account] = await db.insert(userBankAccounts).values(data).returning();
+    return account;
+  },
+  async updateUserBankAccount(id: string, data: Partial<InsertUserBankAccount>) {
+    const [account] = await db.update(userBankAccounts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(userBankAccounts.id, id))
+      .returning();
+    return account;
+  },
+  async deactivateUserBankAccount(id: string) {
+    const [account] = await db.update(userBankAccounts)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(userBankAccounts.id, id))
+      .returning();
+    return account;
+  },
+
+  // ACH Exports
+  async getAchExports(filters?: { status?: string; payRunId?: string }) {
+    const conditions = [];
+    if (filters?.status) conditions.push(eq(achExports.status, filters.status as any));
+    if (filters?.payRunId) conditions.push(eq(achExports.payRunId, filters.payRunId));
+    
+    return db.select().from(achExports)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(achExports.createdAt));
+  },
+  async getAchExportById(id: string) {
+    const [exp] = await db.select().from(achExports).where(eq(achExports.id, id));
+    return exp;
+  },
+  async createAchExport(data: InsertAchExport) {
+    const [exp] = await db.insert(achExports).values(data).returning();
+    return exp;
+  },
+  async updateAchExport(id: string, data: Partial<InsertAchExport>) {
+    const [exp] = await db.update(achExports)
+      .set(data)
+      .where(eq(achExports.id, id))
+      .returning();
+    return exp;
+  },
+  async generateAchBatchNumber() {
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+    const [result] = await db.select({ count: sql<number>`COUNT(*)` })
+      .from(achExports)
+      .where(sql`DATE(${achExports.createdAt}) = CURRENT_DATE`);
+    const sequence = (result?.count || 0) + 1;
+    return `ACH-${dateStr}-${String(sequence).padStart(3, "0")}`;
+  },
+
+  // ACH Export Items
+  async getAchExportItems(achExportId: string) {
+    return db.select({
+      item: achExportItems,
+      user: users,
+    })
+    .from(achExportItems)
+    .innerJoin(users, eq(achExportItems.userId, users.id))
+    .where(eq(achExportItems.achExportId, achExportId));
+  },
+  async createAchExportItem(data: { achExportId: string; payStatementId?: string; userId: string; bankAccountId?: string; amount: string; status?: string }) {
+    const [item] = await db.insert(achExportItems).values(data as any).returning();
+    return item;
+  },
+  async updateAchExportItem(id: string, data: { status?: string; traceNumber?: string; errorMessage?: string }) {
+    const [item] = await db.update(achExportItems)
+      .set(data as any)
+      .where(eq(achExportItems.id, id))
+      .returning();
+    return item;
+  },
+
+  // Payment Reconciliation
+  async getPaymentReconciliations(filters?: { status?: string; userId?: string }) {
+    const conditions = [];
+    if (filters?.status) conditions.push(eq(paymentReconciliations.status, filters.status as any));
+    if (filters?.userId) conditions.push(eq(paymentReconciliations.userId, filters.userId));
+    
+    return db.select({
+      reconciliation: paymentReconciliations,
+      user: users,
+    })
+    .from(paymentReconciliations)
+    .innerJoin(users, eq(paymentReconciliations.userId, users.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(paymentReconciliations.createdAt));
+  },
+  async getPaymentReconciliationById(id: string) {
+    const [rec] = await db.select().from(paymentReconciliations).where(eq(paymentReconciliations.id, id));
+    return rec;
+  },
+  async createPaymentReconciliation(data: InsertPaymentReconciliation) {
+    const [rec] = await db.insert(paymentReconciliations).values(data).returning();
+    return rec;
+  },
+  async updatePaymentReconciliation(id: string, data: Partial<InsertPaymentReconciliation>) {
+    const [rec] = await db.update(paymentReconciliations)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(paymentReconciliations.id, id))
+      .returning();
+    return rec;
+  },
+  async matchPaymentReconciliation(id: string, paidAmount: string, paymentReference?: string, reconciledByUserId?: string) {
+    const [rec] = await db.update(paymentReconciliations)
+      .set({ 
+        status: "MATCHED", 
+        paidAmount, 
+        paymentReference, 
+        matchedAt: new Date(),
+        reconciledByUserId,
+        updatedAt: new Date() 
+      })
+      .where(eq(paymentReconciliations.id, id))
+      .returning();
+    return rec;
+  },
+
+  // Bonuses/SPIFFs
+  async getBonuses(filters?: { userId?: string; status?: string; bonusType?: string }) {
+    const conditions = [];
+    if (filters?.userId) conditions.push(eq(bonuses.userId, filters.userId));
+    if (filters?.status) conditions.push(eq(bonuses.status, filters.status as any));
+    if (filters?.bonusType) conditions.push(eq(bonuses.bonusType, filters.bonusType as any));
+    
+    return db.select({
+      bonus: bonuses,
+      user: users,
+    })
+    .from(bonuses)
+    .innerJoin(users, eq(bonuses.userId, users.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(bonuses.effectiveDate));
+  },
+  async getBonusById(id: string) {
+    const [bonus] = await db.select().from(bonuses).where(eq(bonuses.id, id));
+    return bonus;
+  },
+  async createBonus(data: InsertBonus) {
+    const [bonus] = await db.insert(bonuses).values(data).returning();
+    return bonus;
+  },
+  async updateBonus(id: string, data: Partial<InsertBonus>) {
+    const [bonus] = await db.update(bonuses)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(bonuses.id, id))
+      .returning();
+    return bonus;
+  },
+  async approveBonus(id: string, approvedByUserId: string) {
+    const [bonus] = await db.update(bonuses)
+      .set({ status: "APPROVED", approvedByUserId, approvedAt: new Date(), updatedAt: new Date() })
+      .where(eq(bonuses.id, id))
+      .returning();
+    return bonus;
+  },
+  async cancelBonus(id: string, cancelReason: string) {
+    const [bonus] = await db.update(bonuses)
+      .set({ status: "CANCELLED", cancelReason, cancelledAt: new Date(), updatedAt: new Date() })
+      .where(eq(bonuses.id, id))
+      .returning();
+    return bonus;
+  },
+  async getPendingBonusesForPayRun(periodEnd: string) {
+    return db.select({
+      bonus: bonuses,
+      user: users,
+    })
+    .from(bonuses)
+    .innerJoin(users, eq(bonuses.userId, users.id))
+    .where(and(
+      eq(bonuses.status, "APPROVED"),
+      isNull(bonuses.payRunId),
+      lte(bonuses.effectiveDate, periodEnd)
+    ));
+  },
+  async linkBonusToPayRun(id: string, payRunId: string) {
+    const [bonus] = await db.update(bonuses)
+      .set({ payRunId, status: "PAID", paidAt: new Date(), updatedAt: new Date() })
+      .where(eq(bonuses.id, id))
+      .returning();
+    return bonus;
+  },
+
+  // Draw Accounts
+  async getDrawAccounts(filters?: { userId?: string; status?: string }) {
+    const conditions = [];
+    if (filters?.userId) conditions.push(eq(drawAccounts.userId, filters.userId));
+    if (filters?.status) conditions.push(eq(drawAccounts.status, filters.status as any));
+    
+    return db.select({
+      drawAccount: drawAccounts,
+      user: users,
+    })
+    .from(drawAccounts)
+    .innerJoin(users, eq(drawAccounts.userId, users.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(drawAccounts.createdAt));
+  },
+  async getDrawAccountById(id: string) {
+    const [account] = await db.select().from(drawAccounts).where(eq(drawAccounts.id, id));
+    return account;
+  },
+  async getActiveDrawAccount(userId: string) {
+    const [account] = await db.select().from(drawAccounts)
+      .where(and(eq(drawAccounts.userId, userId), eq(drawAccounts.status, "ACTIVE")));
+    return account;
+  },
+  async createDrawAccount(data: InsertDrawAccount) {
+    const [account] = await db.insert(drawAccounts).values(data).returning();
+    return account;
+  },
+  async updateDrawAccount(id: string, data: Partial<InsertDrawAccount>) {
+    const [account] = await db.update(drawAccounts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(drawAccounts.id, id))
+      .returning();
+    return account;
+  },
+  async updateDrawAccountBalance(id: string, newBalance: string) {
+    const status = parseFloat(newBalance) <= 0 ? "SETTLED" : "RECOVERING";
+    const [account] = await db.update(drawAccounts)
+      .set({ currentBalance: newBalance, status, settledAt: status === "SETTLED" ? new Date() : null, updatedAt: new Date() })
+      .where(eq(drawAccounts.id, id))
+      .returning();
+    return account;
+  },
+
+  // Draw Transactions
+  async getDrawTransactions(drawAccountId: string) {
+    return db.select().from(drawTransactions)
+      .where(eq(drawTransactions.drawAccountId, drawAccountId))
+      .orderBy(desc(drawTransactions.periodStart));
+  },
+  async createDrawTransaction(data: { drawAccountId: string; payRunId?: string; periodStart: string; periodEnd: string; commissionEarned: string; guaranteeAmount: string; drawPaid?: string; recoveryApplied?: string; netPayout: string; balanceAfter: string }) {
+    const [transaction] = await db.insert(drawTransactions).values(data as any).returning();
+    return transaction;
+  },
+
+  // Split Commission Agreements
+  async getSplitAgreements(filters?: { primaryRepId?: string; isActive?: boolean }) {
+    const conditions = [];
+    if (filters?.primaryRepId) conditions.push(eq(splitCommissionAgreements.primaryRepId, filters.primaryRepId));
+    if (filters?.isActive !== undefined) conditions.push(eq(splitCommissionAgreements.isActive, filters.isActive));
+    
+    return db.select({
+      agreement: splitCommissionAgreements,
+      primaryRep: users,
+    })
+    .from(splitCommissionAgreements)
+    .innerJoin(users, eq(splitCommissionAgreements.primaryRepId, users.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(splitCommissionAgreements.createdAt));
+  },
+  async getSplitAgreementById(id: string) {
+    const [agreement] = await db.select().from(splitCommissionAgreements).where(eq(splitCommissionAgreements.id, id));
+    return agreement;
+  },
+  async createSplitAgreement(data: InsertSplitCommissionAgreement) {
+    const [agreement] = await db.insert(splitCommissionAgreements).values(data).returning();
+    return agreement;
+  },
+  async updateSplitAgreement(id: string, data: Partial<InsertSplitCommissionAgreement>) {
+    const [agreement] = await db.update(splitCommissionAgreements)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(splitCommissionAgreements.id, id))
+      .returning();
+    return agreement;
+  },
+
+  // Split Commission Recipients
+  async getSplitRecipients(agreementId: string) {
+    return db.select({
+      recipient: splitCommissionRecipients,
+      user: users,
+    })
+    .from(splitCommissionRecipients)
+    .innerJoin(users, eq(splitCommissionRecipients.userId, users.id))
+    .where(eq(splitCommissionRecipients.agreementId, agreementId));
+  },
+  async createSplitRecipient(data: { agreementId: string; userId: string; splitType: string; splitValue: string }) {
+    const [recipient] = await db.insert(splitCommissionRecipients).values(data as any).returning();
+    return recipient;
+  },
+  async deleteSplitRecipients(agreementId: string) {
+    await db.delete(splitCommissionRecipients).where(eq(splitCommissionRecipients.agreementId, agreementId));
+  },
+
+  // Split Commission Ledger
+  async getSplitLedgerEntries(filters?: { salesOrderId?: string; recipientUserId?: string }) {
+    const conditions = [];
+    if (filters?.salesOrderId) conditions.push(eq(splitCommissionLedger.salesOrderId, filters.salesOrderId));
+    if (filters?.recipientUserId) conditions.push(eq(splitCommissionLedger.recipientUserId, filters.recipientUserId));
+    
+    return db.select().from(splitCommissionLedger)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(splitCommissionLedger.createdAt));
+  },
+  async createSplitLedgerEntry(data: { salesOrderId: string; agreementId: string; recipientUserId: string; originalAmount: string; splitAmount: string }) {
+    const [entry] = await db.insert(splitCommissionLedger).values(data as any).returning();
+    return entry;
+  },
+
+  // Commission Tiers
+  async getCommissionTiers(filters?: { providerId?: string; isActive?: boolean }) {
+    const conditions = [];
+    if (filters?.providerId) conditions.push(eq(commissionTiers.providerId, filters.providerId));
+    if (filters?.isActive !== undefined) conditions.push(eq(commissionTiers.isActive, filters.isActive));
+    
+    return db.select().from(commissionTiers)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(commissionTiers.createdAt));
+  },
+  async getCommissionTierById(id: string) {
+    const [tier] = await db.select().from(commissionTiers).where(eq(commissionTiers.id, id));
+    return tier;
+  },
+  async createCommissionTier(data: InsertCommissionTier) {
+    const [tier] = await db.insert(commissionTiers).values(data).returning();
+    return tier;
+  },
+  async updateCommissionTier(id: string, data: Partial<InsertCommissionTier>) {
+    const [tier] = await db.update(commissionTiers)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(commissionTiers.id, id))
+      .returning();
+    return tier;
+  },
+
+  // Commission Tier Levels
+  async getTierLevels(tierId: string) {
+    return db.select().from(commissionTierLevels)
+      .where(eq(commissionTierLevels.tierId, tierId))
+      .orderBy(commissionTierLevels.minVolume);
+  },
+  async createTierLevel(data: { tierId: string; minVolume: string; maxVolume?: string; bonusPercentage?: string; bonusFlat?: string; multiplier?: string }) {
+    const [level] = await db.insert(commissionTierLevels).values(data as any).returning();
+    return level;
+  },
+  async deleteTierLevels(tierId: string) {
+    await db.delete(commissionTierLevels).where(eq(commissionTierLevels.tierId, tierId));
+  },
+
+  // Rep Tier Assignments
+  async getRepTierAssignments(userId: string) {
+    return db.select({
+      assignment: repTierAssignments,
+      tier: commissionTiers,
+    })
+    .from(repTierAssignments)
+    .innerJoin(commissionTiers, eq(repTierAssignments.tierId, commissionTiers.id))
+    .where(eq(repTierAssignments.userId, userId));
+  },
+  async createRepTierAssignment(data: { userId: string; tierId: string; effectiveStart: string; effectiveEnd?: string; createdByUserId?: string }) {
+    const [assignment] = await db.insert(repTierAssignments).values(data as any).returning();
+    return assignment;
+  },
+  async deleteRepTierAssignment(id: string) {
+    await db.delete(repTierAssignments).where(eq(repTierAssignments.id, id));
+  },
+
+  // Volume Tracking
+  async getRepVolumeTracking(userId: string, periodType: string, periodStart: string) {
+    const [tracking] = await db.select().from(repVolumeTracking)
+      .where(and(
+        eq(repVolumeTracking.userId, userId),
+        eq(repVolumeTracking.periodType, periodType),
+        eq(repVolumeTracking.periodStart, periodStart)
+      ));
+    return tracking;
+  },
+  async upsertRepVolumeTracking(data: { userId: string; periodType: string; periodStart: string; periodEnd: string; orderCount: number; totalVolume: string; totalCommission: string; tierBonusEarned?: string; currentTierId?: string }) {
+    const existing = await this.getRepVolumeTracking(data.userId, data.periodType, data.periodStart);
+    if (existing) {
+      const [tracking] = await db.update(repVolumeTracking)
+        .set({ ...data, calculatedAt: new Date() } as any)
+        .where(eq(repVolumeTracking.id, existing.id))
+        .returning();
+      return tracking;
+    }
+    const [tracking] = await db.insert(repVolumeTracking).values(data as any).returning();
+    return tracking;
+  },
+
+  // Scheduled Pay Runs
+  async getScheduledPayRuns() {
+    return db.select().from(scheduledPayRuns).orderBy(scheduledPayRuns.name);
+  },
+  async getScheduledPayRunById(id: string) {
+    const [schedule] = await db.select().from(scheduledPayRuns).where(eq(scheduledPayRuns.id, id));
+    return schedule;
+  },
+  async getActiveScheduledPayRuns() {
+    return db.select().from(scheduledPayRuns)
+      .where(eq(scheduledPayRuns.isActive, true));
+  },
+  async createScheduledPayRun(data: InsertScheduledPayRun) {
+    const [schedule] = await db.insert(scheduledPayRuns).values(data).returning();
+    return schedule;
+  },
+  async updateScheduledPayRun(id: string, data: Partial<InsertScheduledPayRun>) {
+    const [schedule] = await db.update(scheduledPayRuns)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(scheduledPayRuns.id, id))
+      .returning();
+    return schedule;
+  },
+  async deleteScheduledPayRun(id: string) {
+    await db.delete(scheduledPayRuns).where(eq(scheduledPayRuns.id, id));
+  },
+
+  // Commission Forecasts
+  async getCommissionForecasts(filters?: { userId?: string; forecastPeriod?: string }) {
+    const conditions = [];
+    if (filters?.userId) conditions.push(eq(commissionForecasts.userId, filters.userId));
+    if (filters?.forecastPeriod) conditions.push(eq(commissionForecasts.forecastPeriod, filters.forecastPeriod));
+    
+    return db.select().from(commissionForecasts)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(commissionForecasts.periodStart));
+  },
+  async createCommissionForecast(data: { userId?: string; forecastPeriod: string; periodStart: string; periodEnd: string; pendingOrders?: number; pendingCommission?: string; projectedOrders?: number; projectedCommission?: string; historicalAverage?: string; confidenceScore?: string }) {
+    const [forecast] = await db.insert(commissionForecasts).values(data as any).returning();
+    return forecast;
+  },
+  async calculateCommissionForecast(userId: string, periodType: string, periodStart: string, periodEnd: string) {
+    const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+    if (!user) return { pendingOrders: 0, pendingCommission: "0", historicalAverage: "0", projectedOrders: 0 };
+    
+    const pendingOrdersResult = await db.select({
+      count: sql<number>`COUNT(*)`,
+      total: sql<string>`COALESCE(SUM(${salesOrders.baseCommissionEarned}), 0)`,
+    })
+    .from(salesOrders)
+    .where(and(
+      eq(salesOrders.repId, user.repId),
+      eq(salesOrders.approvalStatus, "APPROVED"),
+      isNull(salesOrders.payRunId),
+      gte(salesOrders.dateSold, periodStart),
+      lte(salesOrders.dateSold, periodEnd)
+    ));
+    
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    const historicalResult = await db.select({
+      avgCommission: sql<string>`COALESCE(AVG(${salesOrders.baseCommissionEarned}::numeric), 0)`,
+      avgOrders: sql<string>`COALESCE(COUNT(*) / 3.0, 0)`,
+    })
+    .from(salesOrders)
+    .where(and(
+      eq(salesOrders.repId, user.repId),
+      eq(salesOrders.approvalStatus, "APPROVED"),
+      gte(salesOrders.dateSold, threeMonthsAgo.toISOString().slice(0, 10))
+    ));
+    
+    return {
+      pendingOrders: pendingOrdersResult[0]?.count || 0,
+      pendingCommission: pendingOrdersResult[0]?.total || "0",
+      historicalAverage: historicalResult[0]?.avgCommission || "0",
+      projectedOrders: Math.round(parseFloat(historicalResult[0]?.avgOrders || "0")),
+    };
   },
 };
