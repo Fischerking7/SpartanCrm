@@ -6,6 +6,23 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+function useIsTouchDevice() {
+  const [isTouch, setIsTouch] = React.useState(false)
+  
+  React.useEffect(() => {
+    const checkTouch = () => {
+      setIsTouch(
+        'ontouchstart' in window || 
+        navigator.maxTouchPoints > 0 ||
+        window.matchMedia('(pointer: coarse)').matches
+      )
+    }
+    checkTouch()
+  }, [])
+  
+  return isTouch
+}
+
 const Select = SelectPrimitive.Root
 
 const SelectGroup = SelectPrimitive.Group
@@ -146,6 +163,50 @@ const SelectSeparator = React.forwardRef<
 ))
 SelectSeparator.displayName = SelectPrimitive.Separator.displayName
 
+interface NativeSelectOption {
+  value: string
+  label: string
+}
+
+interface NativeSelectProps {
+  value?: string
+  onValueChange?: (value: string) => void
+  placeholder?: string
+  options: NativeSelectOption[]
+  className?: string
+  disabled?: boolean
+  "data-testid"?: string
+}
+
+const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(
+  ({ value, onValueChange, placeholder, options, className, disabled, "data-testid": testId }, ref) => (
+    <select
+      ref={ref}
+      value={value || ""}
+      onChange={(e) => onValueChange?.(e.target.value)}
+      disabled={disabled}
+      data-testid={testId}
+      className={cn(
+        "flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+        !value && "text-muted-foreground",
+        className
+      )}
+    >
+      {placeholder && (
+        <option value="" disabled>
+          {placeholder}
+        </option>
+      )}
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  )
+)
+NativeSelect.displayName = "NativeSelect"
+
 export {
   Select,
   SelectGroup,
@@ -157,4 +218,6 @@ export {
   SelectSeparator,
   SelectScrollUpButton,
   SelectScrollDownButton,
+  NativeSelect,
+  useIsTouchDevice,
 }

@@ -7,7 +7,7 @@ import { JobStatusBadge, ApprovalStatusBadge, PaymentStatusBadge } from "@/compo
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, NativeSelect, useIsTouchDevice } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -81,6 +81,7 @@ export default function Orders() {
   };
 
   const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
+  const isTouchDevice = useIsTouchDevice();
 
   // Handle pre-filling form from lead query params
   useEffect(() => {
@@ -1035,29 +1036,55 @@ export default function Orders() {
               )}
               <div className="space-y-2">
                 <Label>Client</Label>
-                <Select value={newOrderForm.clientId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v }))}>
-                  <SelectTrigger data-testid="select-client">
-                    <SelectValue placeholder="Select client" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients?.filter(c => c.active !== false && c.id).map((client) => (
-                      <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {isTouchDevice ? (
+                  <NativeSelect
+                    value={newOrderForm.clientId}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v }))}
+                    placeholder="Select client"
+                    options={clients?.filter(c => c.active !== false && c.id).map((client) => ({
+                      value: client.id,
+                      label: client.name
+                    })) || []}
+                    data-testid="select-client"
+                  />
+                ) : (
+                  <Select value={newOrderForm.clientId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v }))}>
+                    <SelectTrigger data-testid="select-client">
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients?.filter(c => c.active !== false && c.id).map((client) => (
+                        <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Provider</Label>
-                <Select value={newOrderForm.providerId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v }))}>
-                  <SelectTrigger data-testid="select-provider">
-                    <SelectValue placeholder="Select provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {providers?.filter(p => p.active !== false && p.id).map((provider) => (
-                      <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {isTouchDevice ? (
+                  <NativeSelect
+                    value={newOrderForm.providerId}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v }))}
+                    placeholder="Select provider"
+                    options={providers?.filter(p => p.active !== false && p.id).map((provider) => ({
+                      value: provider.id,
+                      label: provider.name
+                    })) || []}
+                    data-testid="select-provider"
+                  />
+                ) : (
+                  <Select value={newOrderForm.providerId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v }))}>
+                    <SelectTrigger data-testid="select-provider">
+                      <SelectValue placeholder="Select provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {providers?.filter(p => p.active !== false && p.id).map((provider) => (
+                        <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Date Sold *</Label>
@@ -1088,16 +1115,29 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label>Service</Label>
-                <Select value={newOrderForm.serviceId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}>
-                  <SelectTrigger data-testid="select-service">
-                    <SelectValue placeholder="Select service" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {services?.filter(s => s.active !== false && s.id).map((service) => (
-                      <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {isTouchDevice ? (
+                  <NativeSelect
+                    value={newOrderForm.serviceId}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}
+                    placeholder="Select service"
+                    options={services?.filter(s => s.active !== false && s.id).map((service) => ({
+                      value: service.id,
+                      label: service.name
+                    })) || []}
+                    data-testid="select-service"
+                  />
+                ) : (
+                  <Select value={newOrderForm.serviceId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}>
+                    <SelectTrigger data-testid="select-service">
+                      <SelectValue placeholder="Select service" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {services?.filter(s => s.active !== false && s.id).map((service) => (
+                        <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Customer Name *</Label>
