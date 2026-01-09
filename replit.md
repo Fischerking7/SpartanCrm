@@ -75,6 +75,16 @@ Key tables defined in `shared/schema.ts`:
 - Legacy aggregate fields (mobileProductType, mobilePortedStatus, mobileLinesQty) maintained on orders for backward compatibility
 - Order form auto-detects when mobile rates are available based on rate card configuration
 
+### QuickBooks Online Integration (January 2026)
+- **OAuth 2.0 Connection**: Full OAuth flow with automatic token refresh handling
+- **Invoice Sync**: Create/update QuickBooks invoices when orders are approved (qbInvoiceId, qbInvoiceSyncStatus tracked on sales_orders)
+- **Journal Entry Posting**: Post commission expenses to QuickBooks when pay runs are finalized (qbJournalEntryId, qbSyncStatus tracked on pay_runs)
+- **Account Mapping**: Admin-configurable mapping for Commission Expense and Accounts Payable accounts
+- **Sync Logging**: All QuickBooks operations logged in quickbooks_sync_log with retry capabilities
+- **Admin UI**: Accessible at /admin/quickbooks with connection management, account mapping, and sync status dashboard
+- **Environment Variables**: QB_CLIENT_ID, QB_CLIENT_SECRET, QB_REDIRECT_URI, QB_ENVIRONMENT (sandbox/production)
+- **Service Module**: server/quickbooks.ts contains all QuickBooks API interactions
+
 ### API Design
 RESTful endpoints with JWT authentication middleware. All sensitive operations create audit log entries. Key endpoint patterns:
 - `/api/auth/*` - Authentication endpoints
@@ -128,3 +138,7 @@ RESTful endpoints with JWT authentication middleware. All sensitive operations c
 - `DATABASE_URL`: PostgreSQL connection string (required)
 - `SESSION_SECRET`: Session encryption key (required in production)
 - `JWT_SECRET`: Authentication token signing secret (required - no fallback)
+- `QB_CLIENT_ID`: QuickBooks OAuth client ID (required for QB integration)
+- `QB_CLIENT_SECRET`: QuickBooks OAuth client secret (required for QB integration)
+- `QB_REDIRECT_URI`: QuickBooks OAuth callback URL (optional, defaults to app URL)
+- `QB_ENVIRONMENT`: QuickBooks environment - "sandbox" or "production" (defaults to sandbox)

@@ -97,6 +97,7 @@ export default function AdminQuickBooks() {
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === "QUICKBOOKS_CONNECTED") {
         queryClient.invalidateQueries({ queryKey: ["/api/admin/quickbooks/status"] });
         toast({ title: "QuickBooks Connected", description: "Successfully connected to QuickBooks Online" });
