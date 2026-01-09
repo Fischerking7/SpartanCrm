@@ -44,6 +44,7 @@ const repMenuItems = [
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
 ];
@@ -54,6 +55,7 @@ const salesLeaderMenuItems = [
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
@@ -65,6 +67,7 @@ const executiveMenuItems = [
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "Approvals Queue", url: "/approvals", icon: CheckSquare },
   { title: "Pay Runs", url: "/payruns", icon: Calendar },
   { title: "Export History", url: "/export-history", icon: Download },
@@ -81,6 +84,7 @@ const adminMenuItems = [
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "Approvals Queue", url: "/approvals", icon: CheckSquare },
   { title: "Pay Runs", url: "/payruns", icon: Calendar },
   { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
@@ -101,6 +105,7 @@ const adminReferenceItems = [
   { title: "Rate Cards", url: "/admin/rate-cards", icon: DollarSign },
   { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
   { title: "Overrides", url: "/admin/overrides", icon: Users },
+  { title: "Payroll Settings", url: "/admin/payroll", icon: Calendar },
 ];
 
 export function AppSidebar() {

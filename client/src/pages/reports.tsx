@@ -57,6 +57,10 @@ const PERIOD_OPTIONS = [
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
 
+function formatCurrency(value: number): string {
+  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 interface ReportSummary {
   period: { start: string; end: string };
   scopeInfo: {
@@ -337,8 +341,6 @@ export default function Reports() {
     toast({ title: "Report exported successfully" });
   };
 
-  const formatCurrency = (value: number) => `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
   const getTrendIcon = (value: string) => {
     const num = parseFloat(value);
     if (num > 0) return <TrendingUp className="h-4 w-4 text-green-600" />;
@@ -592,6 +594,9 @@ export default function Reports() {
             )}
             {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
               <TabsTrigger value="override-invoices" data-testid="tab-override-invoices">Override by Invoice</TabsTrigger>
+            )}
+            {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
+              <TabsTrigger value="payroll" data-testid="tab-payroll">Payroll Summary</TabsTrigger>
             )}
           </TabsList>
           <div className="flex items-center gap-3 flex-wrap">
@@ -1296,7 +1301,164 @@ export default function Reports() {
             </Card>
           </TabsContent>
         )}
+
+        {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
+          <TabsContent value="payroll" className="space-y-4">
+            <PayrollSummaryTab period={period} customStartDate={customStartDate} customEndDate={customEndDate} />
+          </TabsContent>
+        )}
       </Tabs>
+    </div>
+  );
+}
+
+function PayrollSummaryTab({ period, customStartDate, customEndDate }: { period: string; customStartDate: string; customEndDate: string }) {
+  const { data: payrollSummary, isLoading } = useQuery<{
+    totalGross: number;
+    totalDeductions: number;
+    totalNet: number;
+    statementsCount: number;
+    advancesOutstanding: number;
+    repBreakdown: Array<{ repId: string; name: string; gross: number; deductions: number; net: number; statementsCount: number }>;
+  }>({
+    queryKey: ["/api/admin/payroll/reports/summary", period, customStartDate, customEndDate],
+    queryFn: async () => {
+      const params = new URLSearchParams({ period });
+      if (period === "custom" && customStartDate) params.set("startDate", customStartDate);
+      if (period === "custom" && customEndDate) params.set("endDate", customEndDate);
+      const res = await fetch(`/api/admin/payroll/reports/summary?${params}`, { 
+        headers: getAuthHeaders(),
+        credentials: "include" 
+      });
+      if (!res.ok) throw new Error("Failed to fetch payroll summary");
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 md:grid-cols-4">
+        {[1, 2, 3, 4].map(i => (
+          <Card key={i}>
+            <CardContent className="p-6">
+              <Skeleton className="h-4 w-24 mb-2" />
+              <Skeleton className="h-8 w-32" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card data-testid="payroll-stat-gross">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Gross</p>
+                <p className="text-3xl font-bold font-mono mt-2 text-green-600">{formatCurrency(payrollSummary?.totalGross || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-green-500/10">
+                <DollarSign className="h-5 w-5 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card data-testid="payroll-stat-deductions">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Deductions</p>
+                <p className="text-3xl font-bold font-mono mt-2 text-red-600">{formatCurrency(payrollSummary?.totalDeductions || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-red-500/10">
+                <TrendingDown className="h-5 w-5 text-red-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card data-testid="payroll-stat-net">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Net Pay</p>
+                <p className="text-3xl font-bold font-mono mt-2">{formatCurrency(payrollSummary?.totalNet || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-primary/10">
+                <DollarSign className="h-5 w-5 text-primary" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card data-testid="payroll-stat-advances">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Advances Outstanding</p>
+                <p className="text-3xl font-bold font-mono mt-2 text-amber-600">{formatCurrency(payrollSummary?.advancesOutstanding || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-amber-500/10">
+                <TrendingUp className="h-5 w-5 text-amber-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Payroll by Rep</CardTitle>
+          <CardDescription>Breakdown of payroll costs per team member</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {payrollSummary?.repBreakdown?.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left py-3 px-2 font-medium">Rep</th>
+                    <th className="text-right py-3 px-2 font-medium">Gross</th>
+                    <th className="text-right py-3 px-2 font-medium">Deductions</th>
+                    <th className="text-right py-3 px-2 font-medium">Net Pay</th>
+                    <th className="text-right py-3 px-2 font-medium">Statements</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payrollSummary.repBreakdown.map((rep) => (
+                    <tr key={rep.repId} className="border-b last:border-0 hover-elevate">
+                      <td className="py-3 px-2">
+                        <div>
+                          <span className="font-medium">{rep.name}</span>
+                          <span className="text-muted-foreground ml-2 text-xs">({rep.repId})</span>
+                        </div>
+                      </td>
+                      <td className="text-right py-3 px-2 font-mono text-green-600">{formatCurrency(rep.gross)}</td>
+                      <td className="text-right py-3 px-2 font-mono text-red-600">{formatCurrency(rep.deductions)}</td>
+                      <td className="text-right py-3 px-2 font-mono font-semibold">{formatCurrency(rep.net)}</td>
+                      <td className="text-right py-3 px-2">{rep.statementsCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-muted/50 font-medium">
+                    <td className="py-3 px-2">Total</td>
+                    <td className="text-right py-3 px-2 font-mono text-green-600">{formatCurrency(payrollSummary?.totalGross || 0)}</td>
+                    <td className="text-right py-3 px-2 font-mono text-red-600">{formatCurrency(payrollSummary?.totalDeductions || 0)}</td>
+                    <td className="text-right py-3 px-2 font-mono font-semibold">{formatCurrency(payrollSummary?.totalNet || 0)}</td>
+                    <td className="text-right py-3 px-2">{payrollSummary?.statementsCount || 0}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : (
+            <div className="py-12 text-center text-muted-foreground">
+              No payroll data found for this period
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

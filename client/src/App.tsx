@@ -30,10 +30,12 @@ import AdminServices from "@/pages/admin/services";
 import AdminRateCards from "@/pages/admin/rate-cards";
 import AdminIncentives from "@/pages/admin/incentives";
 import AdminOverrides from "@/pages/admin/overrides";
+import AdminPayroll from "@/pages/admin/payroll";
 import ExportHistory from "@/pages/export-history";
 import Reports from "@/pages/reports";
 import Recalculate from "@/pages/recalculate";
 import Knowledge from "@/pages/knowledge";
+import MyPayHistory from "@/pages/my-pay-history";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -149,6 +151,7 @@ function Router() {
         <Route path="/commissions" component={Commissions} />
         <Route path="/adjustments" component={Adjustments} />
         <Route path="/knowledge" component={Knowledge} />
+        <Route path="/my-pay" component={MyPayHistory} />
         <Route path="/change-password" component={ChangePassword} />
         
         {canViewReports && <Route path="/reports" component={Reports} />}
@@ -169,6 +172,7 @@ function Router() {
             <Route path="/admin/rate-cards" component={AdminRateCards} />
             <Route path="/admin/incentives" component={AdminIncentives} />
             <Route path="/admin/overrides" component={AdminOverrides} />
+            <Route path="/admin/payroll" component={AdminPayroll} />
           </>
         )}
         
