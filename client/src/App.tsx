@@ -31,6 +31,7 @@ import AdminRateCards from "@/pages/admin/rate-cards";
 import AdminIncentives from "@/pages/admin/incentives";
 import AdminOverrides from "@/pages/admin/overrides";
 import AdminPayroll from "@/pages/admin/payroll";
+import AdminPayrollAdvanced from "@/pages/admin/payroll-advanced";
 import AdminQuickBooks from "@/pages/admin/quickbooks";
 import ExportHistory from "@/pages/export-history";
 import Reports from "@/pages/reports";
@@ -174,6 +175,7 @@ function Router() {
             <Route path="/admin/incentives" component={AdminIncentives} />
             <Route path="/admin/overrides" component={AdminOverrides} />
             <Route path="/admin/payroll" component={AdminPayroll} />
+            <Route path="/admin/payroll-advanced" component={AdminPayrollAdvanced} />
             <Route path="/admin/quickbooks" component={AdminQuickBooks} />
           </>
         )}

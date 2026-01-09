@@ -123,6 +123,7 @@ const adminSettings: MenuItem[] = [
   { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
   { title: "Overrides", url: "/admin/overrides", icon: Users },
   { title: "Payroll", url: "/admin/payroll", icon: Calendar },
+  { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
   { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
 ];
 
