@@ -722,7 +722,10 @@ export const storage = {
   },
   async getPendingApprovals() {
     return db.query.salesOrders.findMany({
-      where: eq(salesOrders.approvalStatus, "UNAPPROVED"),
+      where: and(
+        eq(salesOrders.approvalStatus, "UNAPPROVED"),
+        eq(salesOrders.jobStatus, "COMPLETED")
+      ),
       orderBy: [desc(salesOrders.createdAt)],
     });
   },
