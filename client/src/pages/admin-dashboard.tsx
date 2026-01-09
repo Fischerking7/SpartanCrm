@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { StatsCard } from "@/components/stats-card";
 import { DataTable } from "@/components/data-table";
 import { ApprovalStatusBadge, JobStatusBadge } from "@/components/status-badge";
@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   DollarSign,
   Users,
@@ -16,6 +17,7 @@ import {
   Clock,
   CheckCircle,
   XCircle,
+  Download,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { SalesOrder } from "@shared/schema";
@@ -32,6 +34,29 @@ interface AdminStats {
 }
 
 export default function AdminDashboard() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const isFounder = user?.role === "FOUNDER";
+
+  const handleExportReferenceData = async () => {
+    try {
+      const res = await fetch("/api/admin/export-reference-data", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to export");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "reference-data-export.sql";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast({ title: "Export downloaded", description: "Paste this SQL in the Production database panel" });
+    } catch {
+      toast({ title: "Export failed", variant: "destructive" });
+    }
+  };
+
   const { data: stats, isLoading: statsLoading } = useQuery<AdminStats>({
     queryKey: ["/api/dashboard/admin-stats"],
     queryFn: async () => {
@@ -256,6 +281,17 @@ export default function AdminDashboard() {
                   Manage Pay Runs
                 </Link>
               </Button>
+              {isFounder && (
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start" 
+                  onClick={handleExportReferenceData}
+                  data-testid="button-export-reference-data"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export Reference Data (SQL)
+                </Button>
+              )}
             </CardContent>
           </Card>
         </div>

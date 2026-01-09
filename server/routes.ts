@@ -4642,6 +4642,71 @@ export async function registerRoutes(
     }
   });
 
+  // Export reference data as SQL (FOUNDER only) - for syncing to production
+  app.get("/api/admin/export-reference-data", auth, async (req: AuthRequest, res) => {
+    try {
+      if (req.user?.role !== "FOUNDER") {
+        return res.status(403).json({ message: "Only FOUNDER can export reference data" });
+      }
+
+      const providers = await storage.getProviders();
+      const clients = await storage.getClients();
+      const services = await storage.getServices();
+      const rateCards = await storage.getRateCards();
+
+      // Helper to escape SQL strings
+      const esc = (val: string | null | undefined): string => {
+        if (val === null || val === undefined) return '';
+        return val.replace(/'/g, "''");
+      };
+
+      let sql = "-- Iron Crest CRM Reference Data Export\n";
+      sql += `-- Generated: ${new Date().toISOString()}\n\n`;
+
+      // Providers (omit timestamps - let target DB set them)
+      sql += "-- PROVIDERS\n";
+      for (const p of providers) {
+        sql += `INSERT INTO providers (id, name, active) VALUES ('${p.id}', '${esc(p.name)}', ${p.active}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, active = EXCLUDED.active;\n`;
+      }
+
+      // Clients
+      sql += "\n-- CLIENTS\n";
+      for (const c of clients) {
+        sql += `INSERT INTO clients (id, name, active) VALUES ('${c.id}', '${esc(c.name)}', ${c.active}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, active = EXCLUDED.active;\n`;
+      }
+
+      // Services
+      sql += "\n-- SERVICES\n";
+      for (const s of services) {
+        sql += `INSERT INTO services (id, code, name, category, unit_type, active) VALUES ('${s.id}', '${esc(s.code)}', '${esc(s.name)}', '${esc(s.category)}', '${esc(s.unitType)}', ${s.active}) ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name, category = EXCLUDED.category, unit_type = EXCLUDED.unit_type, active = EXCLUDED.active;\n`;
+      }
+
+      // Rate Cards - use DO UPDATE to sync changes from dev to prod
+      sql += "\n-- RATE CARDS\n";
+      for (const r of rateCards) {
+        const serviceId = r.serviceId ? `'${r.serviceId}'` : 'NULL';
+        const mobileProductType = r.mobileProductType ? `'${esc(r.mobileProductType)}'` : 'NULL';
+        const mobilePortedStatus = r.mobilePortedStatus ? `'${esc(r.mobilePortedStatus)}'` : 'NULL';
+        sql += `INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction) VALUES ('${r.id}', '${r.providerId}', '${r.clientId}', ${serviceId}, '${r.effectiveStart}', ${r.active}, ${r.baseAmount}, ${r.tvAddonAmount}, ${r.mobilePerLineAmount}, ${mobileProductType}, ${mobilePortedStatus}, ${r.overrideDeduction}, ${r.tvOverrideDeduction}, ${r.mobileOverrideDeduction}) ON CONFLICT (id) DO UPDATE SET service_id = EXCLUDED.service_id, effective_start = EXCLUDED.effective_start, active = EXCLUDED.active, base_amount = EXCLUDED.base_amount, tv_addon_amount = EXCLUDED.tv_addon_amount, mobile_per_line_amount = EXCLUDED.mobile_per_line_amount, mobile_product_type = EXCLUDED.mobile_product_type, mobile_ported_status = EXCLUDED.mobile_ported_status, override_deduction = EXCLUDED.override_deduction, tv_override_deduction = EXCLUDED.tv_override_deduction, mobile_override_deduction = EXCLUDED.mobile_override_deduction;\n`;
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "EXPORT",
+        tableName: "reference_data",
+        recordId: "all",
+        afterJson: JSON.stringify({ providers: providers.length, clients: clients.length, services: services.length, rateCards: rateCards.length }),
+      });
+
+      res.setHeader("Content-Type", "text/plain");
+      res.setHeader("Content-Disposition", "attachment; filename=reference-data-export.sql");
+      res.send(sql);
+    } catch (error) {
+      console.error("Export reference data error:", error);
+      res.status(500).json({ message: "Failed to export reference data" });
+    }
+  });
+
   // Soft delete knowledge document (Admin/Manager only)
   app.delete("/api/knowledge-documents/:id", auth, managerOrAdmin, async (req: AuthRequest, res) => {
     try {
