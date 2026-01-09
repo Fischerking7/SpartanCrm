@@ -4650,77 +4650,176 @@ export async function registerRoutes(
       }
 
       const referenceData = await import("./reference-data.json");
-      const results = { providers: 0, clients: 0, services: 0, rateCards: 0 };
+      const results = { providers: 0, clients: 0, services: 0, rateCards: 0, errors: [] as string[] };
 
-      // Insert in order: providers -> clients -> services -> rate cards
+      // Build lookup maps for names -> IDs (to handle UUID mismatches between dev/prod)
+      const providerNameToId: Record<string, string> = {};
+      const clientNameToId: Record<string, string> = {};
+      const serviceCodeToId: Record<string, string> = {};
+
+      // Step 1: Upsert providers by name, track their IDs
       for (const p of referenceData.providers) {
-        await db.insert(providers).values({
-          id: p.id,
-          name: p.name,
-          active: p.active,
-        }).onConflictDoUpdate({
-          target: providers.id,
-          set: { name: sql`EXCLUDED.name`, active: sql`EXCLUDED.active` }
-        });
-        results.providers++;
-      }
-
-      for (const c of referenceData.clients) {
-        await db.insert(clients).values({
-          id: c.id,
-          name: c.name,
-          active: c.active,
-        }).onConflictDoUpdate({
-          target: clients.id,
-          set: { name: sql`EXCLUDED.name`, active: sql`EXCLUDED.active` }
-        });
-        results.clients++;
-      }
-
-      for (const s of referenceData.services) {
-        await db.insert(services).values({
-          id: s.id,
-          code: s.code,
-          name: s.name,
-          category: s.category,
-          unitType: s.unitType,
-          active: s.active,
-        }).onConflictDoUpdate({
-          target: services.id,
-          set: { code: sql`EXCLUDED.code`, name: sql`EXCLUDED.name`, active: sql`EXCLUDED.active` }
-        });
-        results.services++;
-      }
-
-      for (const r of referenceData.rateCards) {
-        await db.insert(rateCards).values({
-          id: r.id,
-          providerId: r.providerId,
-          clientId: r.clientId,
-          serviceId: r.serviceId,
-          effectiveStart: r.effectiveStart,
-          active: r.active,
-          baseAmount: String(r.baseAmount),
-          tvAddonAmount: String(r.tvAddonAmount),
-          mobilePerLineAmount: String(r.mobilePerLineAmount),
-          mobileProductType: r.mobileProductType as any,
-          mobilePortedStatus: r.mobilePortedStatus as any,
-          overrideDeduction: String(r.overrideDeduction),
-          tvOverrideDeduction: String(r.tvOverrideDeduction),
-          mobileOverrideDeduction: String(r.mobileOverrideDeduction),
-        }).onConflictDoUpdate({
-          target: rateCards.id,
-          set: { 
-            active: sql`EXCLUDED.active`, 
-            baseAmount: sql`EXCLUDED.base_amount`,
-            tvAddonAmount: sql`EXCLUDED.tv_addon_amount`,
-            mobilePerLineAmount: sql`EXCLUDED.mobile_per_line_amount`,
-            overrideDeduction: sql`EXCLUDED.override_deduction`,
-            tvOverrideDeduction: sql`EXCLUDED.tv_override_deduction`,
-            mobileOverrideDeduction: sql`EXCLUDED.mobile_override_deduction`,
+        try {
+          // Check if provider exists by name
+          const existing = await db.select().from(providers).where(eq(providers.name, p.name)).limit(1);
+          let providerId: string;
+          
+          if (existing.length > 0) {
+            // Update existing provider
+            await db.update(providers).set({ active: p.active }).where(eq(providers.id, existing[0].id));
+            providerId = existing[0].id;
+          } else {
+            // Insert new provider with specified ID
+            await db.insert(providers).values({ id: p.id, name: p.name, active: p.active });
+            providerId = p.id;
           }
-        });
-        results.rateCards++;
+          providerNameToId[p.name] = providerId;
+          results.providers++;
+        } catch (e) {
+          results.errors.push(`Provider ${p.name}: ${e}`);
+        }
+      }
+
+      // Step 2: Upsert clients by name
+      for (const c of referenceData.clients) {
+        try {
+          const existing = await db.select().from(clients).where(eq(clients.name, c.name)).limit(1);
+          let clientId: string;
+          
+          if (existing.length > 0) {
+            await db.update(clients).set({ active: c.active }).where(eq(clients.id, existing[0].id));
+            clientId = existing[0].id;
+          } else {
+            await db.insert(clients).values({ id: c.id, name: c.name, active: c.active });
+            clientId = c.id;
+          }
+          clientNameToId[c.name] = clientId;
+          results.clients++;
+        } catch (e) {
+          results.errors.push(`Client ${c.name}: ${e}`);
+        }
+      }
+
+      // Step 3: Upsert services by code
+      for (const s of referenceData.services) {
+        try {
+          const existing = await db.select().from(services).where(eq(services.code, s.code)).limit(1);
+          let serviceId: string;
+          
+          if (existing.length > 0) {
+            await db.update(services).set({ 
+              name: s.name, 
+              category: s.category,
+              unitType: s.unitType,
+              active: s.active 
+            }).where(eq(services.id, existing[0].id));
+            serviceId = existing[0].id;
+          } else {
+            await db.insert(services).values({ 
+              id: s.id, 
+              code: s.code, 
+              name: s.name, 
+              category: s.category,
+              unitType: s.unitType,
+              active: s.active 
+            });
+            serviceId = s.id;
+          }
+          serviceCodeToId[s.code] = serviceId;
+          results.services++;
+        } catch (e) {
+          results.errors.push(`Service ${s.code}: ${e}`);
+        }
+      }
+
+      // Build reverse lookups from reference data to resolve foreign keys
+      const refProviderIdToName: Record<string, string> = {};
+      const refClientIdToName: Record<string, string> = {};
+      const refServiceIdToCode: Record<string, string> = {};
+      
+      for (const p of referenceData.providers) refProviderIdToName[p.id] = p.name;
+      for (const c of referenceData.clients) refClientIdToName[c.id] = c.name;
+      for (const s of referenceData.services) refServiceIdToCode[s.id] = s.code;
+
+      // Step 4: Insert rate cards with resolved foreign keys
+      for (const r of referenceData.rateCards) {
+        try {
+          // Resolve foreign keys using name-based lookups
+          const providerName = refProviderIdToName[r.providerId];
+          const clientName = r.clientId ? refClientIdToName[r.clientId] : null;
+          const serviceCode = r.serviceId ? refServiceIdToCode[r.serviceId] : null;
+          
+          const resolvedProviderId = providerName ? providerNameToId[providerName] : null;
+          const resolvedClientId = clientName ? clientNameToId[clientName] : null;
+          const resolvedServiceId = serviceCode ? serviceCodeToId[serviceCode] : null;
+          
+          if (!resolvedProviderId) {
+            results.errors.push(`Rate card skipped: missing provider ${providerName}`);
+            continue;
+          }
+
+          // Create unique key for upsert matching
+          const rateCardData = {
+            providerId: resolvedProviderId,
+            clientId: resolvedClientId,
+            serviceId: resolvedServiceId,
+            mobileProductType: r.mobileProductType as any,
+            mobilePortedStatus: r.mobilePortedStatus as any,
+            effectiveStart: r.effectiveStart,
+            active: r.active,
+            baseAmount: String(r.baseAmount),
+            tvAddonAmount: String(r.tvAddonAmount),
+            mobilePerLineAmount: String(r.mobilePerLineAmount),
+            overrideDeduction: String(r.overrideDeduction),
+            tvOverrideDeduction: String(r.tvOverrideDeduction),
+            mobileOverrideDeduction: String(r.mobileOverrideDeduction),
+          };
+
+          // Check for existing rate card with same key combination
+          let whereConditions = [eq(rateCards.providerId, resolvedProviderId)];
+          if (resolvedClientId) {
+            whereConditions.push(eq(rateCards.clientId, resolvedClientId));
+          } else {
+            whereConditions.push(sql`${rateCards.clientId} IS NULL`);
+          }
+          if (resolvedServiceId) {
+            whereConditions.push(eq(rateCards.serviceId, resolvedServiceId));
+          } else {
+            whereConditions.push(sql`${rateCards.serviceId} IS NULL`);
+          }
+          if (r.mobileProductType) {
+            whereConditions.push(eq(rateCards.mobileProductType, r.mobileProductType as any));
+          } else {
+            whereConditions.push(sql`${rateCards.mobileProductType} IS NULL`);
+          }
+          if (r.mobilePortedStatus) {
+            whereConditions.push(eq(rateCards.mobilePortedStatus, r.mobilePortedStatus as any));
+          } else {
+            whereConditions.push(sql`${rateCards.mobilePortedStatus} IS NULL`);
+          }
+
+          const existing = await db.select().from(rateCards).where(and(...whereConditions)).limit(1);
+          
+          if (existing.length > 0) {
+            // Update existing rate card
+            await db.update(rateCards).set({
+              effectiveStart: r.effectiveStart,
+              active: r.active,
+              baseAmount: String(r.baseAmount),
+              tvAddonAmount: String(r.tvAddonAmount),
+              mobilePerLineAmount: String(r.mobilePerLineAmount),
+              overrideDeduction: String(r.overrideDeduction),
+              tvOverrideDeduction: String(r.tvOverrideDeduction),
+              mobileOverrideDeduction: String(r.mobileOverrideDeduction),
+            }).where(eq(rateCards.id, existing[0].id));
+          } else {
+            // Insert new rate card
+            await db.insert(rateCards).values(rateCardData);
+          }
+          results.rateCards++;
+        } catch (e) {
+          results.errors.push(`Rate card: ${e}`);
+        }
       }
 
       await storage.createAuditLog({
