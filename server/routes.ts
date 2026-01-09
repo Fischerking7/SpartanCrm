@@ -4681,13 +4681,16 @@ export async function registerRoutes(
         sql += `INSERT INTO services (id, code, name, category, unit_type, active) VALUES ('${s.id}', '${esc(s.code)}', '${esc(s.name)}', '${esc(s.category)}', '${esc(s.unitType)}', ${s.active}) ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name, category = EXCLUDED.category, unit_type = EXCLUDED.unit_type, active = EXCLUDED.active;\n`;
       }
 
-      // Rate Cards - use DO UPDATE to sync changes from dev to prod
-      sql += "\n-- RATE CARDS\n";
+      // Rate Cards - include ALL rate cards (active and deleted) with full metadata
+      sql += "\n-- RATE CARDS (including deleted)\n";
       for (const r of rateCards) {
         const serviceId = r.serviceId ? `'${r.serviceId}'` : 'NULL';
+        const clientId = r.clientId ? `'${r.clientId}'` : 'NULL';
         const mobileProductType = r.mobileProductType ? `'${esc(r.mobileProductType)}'` : 'NULL';
         const mobilePortedStatus = r.mobilePortedStatus ? `'${esc(r.mobilePortedStatus)}'` : 'NULL';
-        sql += `INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction) VALUES ('${r.id}', '${r.providerId}', '${r.clientId}', ${serviceId}, '${r.effectiveStart}', ${r.active}, ${r.baseAmount}, ${r.tvAddonAmount}, ${r.mobilePerLineAmount}, ${mobileProductType}, ${mobilePortedStatus}, ${r.overrideDeduction}, ${r.tvOverrideDeduction}, ${r.mobileOverrideDeduction}) ON CONFLICT (id) DO UPDATE SET service_id = EXCLUDED.service_id, effective_start = EXCLUDED.effective_start, active = EXCLUDED.active, base_amount = EXCLUDED.base_amount, tv_addon_amount = EXCLUDED.tv_addon_amount, mobile_per_line_amount = EXCLUDED.mobile_per_line_amount, mobile_product_type = EXCLUDED.mobile_product_type, mobile_ported_status = EXCLUDED.mobile_ported_status, override_deduction = EXCLUDED.override_deduction, tv_override_deduction = EXCLUDED.tv_override_deduction, mobile_override_deduction = EXCLUDED.mobile_override_deduction;\n`;
+        const deletedAt = r.deletedAt ? `'${new Date(r.deletedAt).toISOString()}'` : 'NULL';
+        const deletedByUserId = r.deletedByUserId ? `'${r.deletedByUserId}'` : 'NULL';
+        sql += `INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction, deleted_at, deleted_by_user_id) VALUES ('${r.id}', '${r.providerId}', ${clientId}, ${serviceId}, '${r.effectiveStart}', ${r.active}, ${r.baseAmount}, ${r.tvAddonAmount}, ${r.mobilePerLineAmount}, ${mobileProductType}, ${mobilePortedStatus}, ${r.overrideDeduction}, ${r.tvOverrideDeduction}, ${r.mobileOverrideDeduction}, ${deletedAt}, ${deletedByUserId}) ON CONFLICT (id) DO UPDATE SET service_id = EXCLUDED.service_id, client_id = EXCLUDED.client_id, effective_start = EXCLUDED.effective_start, active = EXCLUDED.active, base_amount = EXCLUDED.base_amount, tv_addon_amount = EXCLUDED.tv_addon_amount, mobile_per_line_amount = EXCLUDED.mobile_per_line_amount, mobile_product_type = EXCLUDED.mobile_product_type, mobile_ported_status = EXCLUDED.mobile_ported_status, override_deduction = EXCLUDED.override_deduction, tv_override_deduction = EXCLUDED.tv_override_deduction, mobile_override_deduction = EXCLUDED.mobile_override_deduction, deleted_at = EXCLUDED.deleted_at, deleted_by_user_id = EXCLUDED.deleted_by_user_id;\n`;
       }
 
       await storage.createAuditLog({
