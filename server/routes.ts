@@ -6360,7 +6360,30 @@ export async function registerRoutes(
 
   app.post("/api/admin/bank-accounts", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const account = await storage.createUserBankAccount(req.body);
+      const { userId, accountHolderName, bankName, accountType, routingNumber, accountNumber, isPrimary } = req.body;
+      
+      if (!userId || !accountHolderName || !bankName || !accountType || !routingNumber || !accountNumber) {
+        return res.status(400).json({ message: "All fields are required" });
+      }
+      
+      if (routingNumber.length !== 9) {
+        return res.status(400).json({ message: "Routing number must be 9 digits" });
+      }
+      
+      const accountNumberLast4 = accountNumber.slice(-4);
+      const accountNumberEncrypted = accountNumber;
+      
+      const account = await storage.createUserBankAccount({
+        userId,
+        accountHolderName,
+        bankName,
+        accountType,
+        routingNumber,
+        accountNumberLast4,
+        accountNumberEncrypted,
+        isPrimary: isPrimary !== false,
+      });
+      
       await storage.createAuditLog({
         action: "bank_account_created",
         tableName: "user_bank_accounts",

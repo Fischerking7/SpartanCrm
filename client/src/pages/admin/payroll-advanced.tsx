@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { 
   FileText, CreditCard, Gift, PiggyBank, Users, TrendingUp, BarChart3, 
-  Plus, Download, Check, X, Clock, DollarSign, AlertCircle, RefreshCw
+  Plus, Download, Check, X, Clock, DollarSign, AlertCircle, RefreshCw, Building2, Trash2
 } from "lucide-react";
 import { useState } from "react";
 import { format } from "date-fns";
@@ -105,6 +105,19 @@ interface User {
   name: string;
   repId: string;
   role: string;
+}
+
+interface BankAccount {
+  id: string;
+  userId: string;
+  bankName: string;
+  accountType: string;
+  routingNumber: string;
+  accountNumberLast4: string;
+  isPrimary: boolean;
+  isActive: boolean;
+  createdAt: string;
+  user?: { name: string; repId: string };
 }
 
 function formatCurrency(amount: string | number) {
@@ -884,6 +897,269 @@ function CommissionTiersTab() {
   );
 }
 
+function BankAccountsTab() {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [newAccount, setNewAccount] = useState({
+    userId: "",
+    accountHolderName: "",
+    bankName: "",
+    accountType: "CHECKING",
+    routingNumber: "",
+    accountNumber: "",
+    isPrimary: true,
+  });
+
+  const { data: users } = useQuery<User[]>({
+    queryKey: ["/api/admin/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/users", { headers: getAuthHeaders(), credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch users");
+      return res.json();
+    },
+  });
+
+  const { data: accounts, isLoading, refetch } = useQuery<BankAccount[]>({
+    queryKey: ["/api/admin/bank-accounts", selectedUserId],
+    queryFn: async () => {
+      if (!selectedUserId) return [];
+      const res = await fetch(`/api/admin/bank-accounts?userId=${selectedUserId}`, { 
+        headers: getAuthHeaders(),
+        credentials: "include" 
+      });
+      if (!res.ok) throw new Error("Failed to fetch bank accounts");
+      return res.json();
+    },
+    enabled: !!selectedUserId,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: typeof newAccount) => {
+      return apiRequest("POST", "/api/admin/bank-accounts", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/bank-accounts"] });
+      setDialogOpen(false);
+      setNewAccount({
+        userId: "",
+        accountHolderName: "",
+        bankName: "",
+        accountType: "CHECKING",
+        routingNumber: "",
+        accountNumber: "",
+        isPrimary: true,
+      });
+      refetch();
+      toast({ title: "Bank account added successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to add bank account", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/admin/bank-accounts/${id}`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/bank-accounts"] });
+      refetch();
+      toast({ title: "Bank account removed" });
+    },
+    onError: () => {
+      toast({ title: "Failed to remove bank account", variant: "destructive" });
+    },
+  });
+
+  const maskAccountNumber = (last4: string) => {
+    return `****${last4}`;
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-primary" />
+                Direct Deposit / Bank Accounts
+              </CardTitle>
+              <CardDescription>Manage rep bank account details for ACH payments</CardDescription>
+            </div>
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button data-testid="button-add-bank-account">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Bank Account
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Bank Account</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Rep / Employee</Label>
+                    <Select 
+                      value={newAccount.userId} 
+                      onValueChange={(v) => setNewAccount(prev => ({ ...prev, userId: v }))}
+                    >
+                      <SelectTrigger data-testid="select-bank-user">
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {users?.map(u => (
+                          <SelectItem key={u.id} value={u.id}>{u.name} ({u.repId})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Account Holder Name</Label>
+                    <Input 
+                      value={newAccount.accountHolderName}
+                      onChange={(e) => setNewAccount(prev => ({ ...prev, accountHolderName: e.target.value }))}
+                      placeholder="e.g., John Smith"
+                      data-testid="input-account-holder-name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Bank Name</Label>
+                    <Input 
+                      value={newAccount.bankName}
+                      onChange={(e) => setNewAccount(prev => ({ ...prev, bankName: e.target.value }))}
+                      placeholder="e.g., Chase, Bank of America"
+                      data-testid="input-bank-name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Account Type</Label>
+                    <Select 
+                      value={newAccount.accountType} 
+                      onValueChange={(v) => setNewAccount(prev => ({ ...prev, accountType: v }))}
+                    >
+                      <SelectTrigger data-testid="select-account-type">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CHECKING">Checking</SelectItem>
+                        <SelectItem value="SAVINGS">Savings</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Routing Number (9 digits)</Label>
+                    <Input 
+                      value={newAccount.routingNumber}
+                      onChange={(e) => setNewAccount(prev => ({ ...prev, routingNumber: e.target.value.replace(/\D/g, '').slice(0, 9) }))}
+                      placeholder="123456789"
+                      maxLength={9}
+                      data-testid="input-routing-number"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Account Number</Label>
+                    <Input 
+                      value={newAccount.accountNumber}
+                      onChange={(e) => setNewAccount(prev => ({ ...prev, accountNumber: e.target.value.replace(/\D/g, '') }))}
+                      placeholder="Enter account number"
+                      data-testid="input-account-number"
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                  <Button 
+                    onClick={() => createMutation.mutate(newAccount)}
+                    disabled={!newAccount.userId || !newAccount.accountHolderName || !newAccount.bankName || newAccount.routingNumber.length !== 9 || !newAccount.accountNumber || createMutation.isPending}
+                    data-testid="button-submit-bank-account"
+                  >
+                    Add Account
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
+              <Label>View accounts for:</Label>
+              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                <SelectTrigger className="w-64" data-testid="select-view-user">
+                  <SelectValue placeholder="Select a user to view their accounts" />
+                </SelectTrigger>
+                <SelectContent>
+                  {users?.map(u => (
+                    <SelectItem key={u.id} value={u.id}>{u.name} ({u.repId})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {!selectedUserId ? (
+              <p className="text-center text-muted-foreground py-8">
+                Select a user above to view their bank accounts.
+              </p>
+            ) : isLoading ? (
+              <Skeleton className="h-32" />
+            ) : !accounts || accounts.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">
+                No bank accounts on file for this user. Click "Add Bank Account" to add one.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Bank</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Routing #</TableHead>
+                    <TableHead>Account #</TableHead>
+                    <TableHead>Primary</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {accounts.map((account) => (
+                    <TableRow key={account.id} data-testid={`row-bank-account-${account.id}`}>
+                      <TableCell className="font-medium">{account.bankName}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{account.accountType}</Badge>
+                      </TableCell>
+                      <TableCell className="font-mono">{account.routingNumber}</TableCell>
+                      <TableCell className="font-mono">{maskAccountNumber(account.accountNumberLast4)}</TableCell>
+                      <TableCell>
+                        {account.isPrimary ? (
+                          <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Primary</Badge>
+                        ) : (
+                          <Badge variant="secondary">Secondary</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={() => deleteMutation.mutate(account.id)}
+                          disabled={deleteMutation.isPending}
+                          data-testid={`button-delete-account-${account.id}`}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function PayrollReportsTab() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
@@ -1012,6 +1288,10 @@ export default function AdminPayrollAdvanced() {
             <FileText className="h-4 w-4 mr-2" />
             1099s
           </TabsTrigger>
+          <TabsTrigger value="bank-accounts" data-testid="tab-bank-accounts">
+            <Building2 className="h-4 w-4 mr-2" />
+            Bank Accounts
+          </TabsTrigger>
           <TabsTrigger value="ach-exports" data-testid="tab-ach-exports">
             <CreditCard className="h-4 w-4 mr-2" />
             ACH Exports
@@ -1040,6 +1320,9 @@ export default function AdminPayrollAdvanced() {
 
         <TabsContent value="tax-documents">
           <TaxDocumentsTab />
+        </TabsContent>
+        <TabsContent value="bank-accounts">
+          <BankAccountsTab />
         </TabsContent>
         <TabsContent value="ach-exports">
           <AchExportsTab />
