@@ -213,6 +213,20 @@ export default function Orders() {
     },
   });
 
+  // Available services filtered by client and provider (for order form)
+  const { data: availableServices } = useQuery<Service[]>({
+    queryKey: ["/api/services/available", newOrderForm.clientId, newOrderForm.providerId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (newOrderForm.clientId) params.append("clientId", newOrderForm.clientId);
+      if (newOrderForm.providerId) params.append("providerId", newOrderForm.providerId);
+      const res = await fetch(`/api/services/available?${params}`, { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: showNewOrderDialog && !!newOrderForm.clientId && !!newOrderForm.providerId,
+  });
+
   const { data: reps } = useQuery<User[]>({
     queryKey: ["/api/admin/users"],
     queryFn: async () => {
@@ -1052,7 +1066,7 @@ export default function Orders() {
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.clientId}
-                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v }))}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}
                     placeholder="Select client"
                     options={(clients || []).map((client) => ({
                       value: client.id,
@@ -1061,7 +1075,7 @@ export default function Orders() {
                     data-testid="select-client"
                   />
                 ) : (
-                  <Select value={newOrderForm.clientId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v }))}>
+                  <Select value={newOrderForm.clientId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}>
                     <SelectTrigger data-testid="select-client">
                       <SelectValue placeholder="Select client" />
                     </SelectTrigger>
@@ -1078,7 +1092,7 @@ export default function Orders() {
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.providerId}
-                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v }))}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}
                     placeholder="Select provider"
                     options={(providers || []).map((provider) => ({
                       value: provider.id,
@@ -1087,7 +1101,7 @@ export default function Orders() {
                     data-testid="select-provider"
                   />
                 ) : (
-                  <Select value={newOrderForm.providerId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v }))}>
+                  <Select value={newOrderForm.providerId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}>
                     <SelectTrigger data-testid="select-provider">
                       <SelectValue placeholder="Select provider" />
                     </SelectTrigger>
@@ -1128,12 +1142,14 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label>Service</Label>
-                {isTouchDevice ? (
+                {!newOrderForm.clientId || !newOrderForm.providerId ? (
+                  <p className="text-sm text-muted-foreground">Select client and provider first</p>
+                ) : isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.serviceId}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}
                     placeholder="Select service"
-                    options={(services || []).map((service) => ({
+                    options={(availableServices || []).map((service) => ({
                       value: service.id,
                       label: service.name
                     }))}
@@ -1142,10 +1158,10 @@ export default function Orders() {
                 ) : (
                   <Select value={newOrderForm.serviceId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}>
                     <SelectTrigger data-testid="select-service">
-                      <SelectValue placeholder="Select service" />
+                      <SelectValue placeholder={availableServices?.length ? "Select service" : "No services available"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {(services || []).map((service) => (
+                      {(availableServices || []).map((service) => (
                         <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
                       ))}
                     </SelectContent>

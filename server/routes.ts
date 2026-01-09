@@ -1972,6 +1972,36 @@ export async function registerRoutes(
       res.json(services.filter(s => s.active).map(s => ({ id: s.id, code: s.code, name: s.name }))); 
     } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
+  
+  // Get available services filtered by client and provider (based on rate cards)
+  app.get("/api/services/available", auth, async (req, res) => {
+    try {
+      const { clientId, providerId } = req.query as { clientId?: string; providerId?: string };
+      
+      // Get all rate cards and filter by client/provider
+      const rateCards = await storage.getRateCards();
+      const activeRateCards = rateCards.filter(rc => 
+        rc.active && 
+        !rc.deletedAt &&
+        rc.serviceId && // Only internet service rate cards (not mobile-only)
+        (!clientId || rc.clientId === clientId) &&
+        (!providerId || rc.providerId === providerId)
+      );
+      
+      // Get unique service IDs from matching rate cards
+      const serviceIds = [...new Set(activeRateCards.map(rc => rc.serviceId).filter(Boolean))] as string[];
+      
+      // Get all services and filter to only those with matching rate cards
+      const allServices = await storage.getServices();
+      const availableServices = allServices
+        .filter(s => s.active && serviceIds.includes(s.id))
+        .map(s => ({ id: s.id, code: s.code, name: s.name }));
+      
+      res.json(availableServices);
+    } catch (error) { 
+      res.status(500).json({ message: "Failed to get available services" }); 
+    }
+  });
   app.post("/api/admin/services", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const service = await storage.createService(req.body);
