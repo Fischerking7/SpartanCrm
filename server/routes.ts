@@ -4650,7 +4650,44 @@ export async function registerRoutes(
       }
 
       const referenceData = await import("./reference-data.json");
-      const results = { providers: 0, clients: 0, services: 0, rateCards: 0, errors: [] as string[] };
+      const results = { users: 0, providers: 0, clients: 0, services: 0, rateCards: 0, errors: [] as string[] };
+
+      // Step 0: Upsert users by repId (only sales roles, skip if already exists to preserve passwords)
+      if (referenceData.users) {
+        for (const u of referenceData.users) {
+          try {
+            // Only sync REP, SUPERVISOR, MANAGER, EXECUTIVE roles
+            const salesRoles = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"];
+            if (!salesRoles.includes(u.role)) continue;
+            
+            // Check if user exists by repId
+            const existing = await db.select().from(users).where(eq(users.repId, u.repId)).limit(1);
+            
+            if (existing.length > 0) {
+              // User exists - only update name and status, preserve password
+              await db.update(users).set({ 
+                name: u.name, 
+                status: u.status as any,
+                deletedAt: null, // Reactivate if soft-deleted
+              }).where(eq(users.id, existing[0].id));
+            } else {
+              // Create new user with specified password hash
+              await db.insert(users).values({
+                id: u.id,
+                name: u.name,
+                repId: u.repId,
+                role: u.role as any,
+                status: u.status as any,
+                passwordHash: u.passwordHash,
+                mustChangePassword: u.mustChangePassword,
+              });
+            }
+            results.users++;
+          } catch (e) {
+            results.errors.push(`User ${u.repId}: ${e}`);
+          }
+        }
+      }
 
       // Build lookup maps for names -> IDs (to handle UUID mismatches between dev/prod)
       const providerNameToId: Record<string, string> = {};

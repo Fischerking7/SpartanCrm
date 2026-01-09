@@ -1,4 +1,11 @@
 {
+  "users": [
+    {"id":"b1a2c3d4-e5f6-4a5b-8c9d-1234567890ab","name":"Test Rep 1","repId":"R01","role":"REP","status":"ACTIVE","passwordHash":"$2b$10$Eza64wF9nJxKkMDIEpGjl.T79gH8Mkr7idnH3b/DWmbpX.FuAXpQ2","mustChangePassword":false},
+    {"id":"c2b3d4e5-f6a7-5b6c-9d0e-2345678901bc","name":"Test Rep 2","repId":"R02","role":"REP","status":"ACTIVE","passwordHash":"$2b$10$Eza64wF9nJxKkMDIEpGjl.T79gH8Mkr7idnH3b/DWmbpX.FuAXpQ2","mustChangePassword":false},
+    {"id":"d3c4e5f6-a7b8-6c7d-0e1f-3456789012cd","name":"Test Supervisor","repId":"S01","role":"SUPERVISOR","status":"ACTIVE","passwordHash":"$2b$10$Eza64wF9nJxKkMDIEpGjl.T79gH8Mkr7idnH3b/DWmbpX.FuAXpQ2","mustChangePassword":false},
+    {"id":"e4d5f6a7-b8c9-7d8e-1f20-4567890123de","name":"Test Manager","repId":"M01","role":"MANAGER","status":"ACTIVE","passwordHash":"$2b$10$Eza64wF9nJxKkMDIEpGjl.T79gH8Mkr7idnH3b/DWmbpX.FuAXpQ2","mustChangePassword":false},
+    {"id":"f5e6a7b8-c9d0-8e9f-2031-5678901234ef","name":"Test Executive","repId":"X01","role":"EXECUTIVE","status":"ACTIVE","passwordHash":"$2b$10$Eza64wF9nJxKkMDIEpGjl.T79gH8Mkr7idnH3b/DWmbpX.FuAXpQ2","mustChangePassword":false}
+  ],
   "providers": [
     {"id":"521e9835-f812-46c9-b355-2a6a96a64d9f","name":"Verizon","active":false},
     {"id":"f4dabdc0-d0cd-4e05-8b3c-e2592b1005ff","name":"AT&T","active":false},

@@ -53,7 +53,7 @@ export default function AdminDashboard() {
       const data = await res.json();
       toast({ 
         title: "Reference data synced!", 
-        description: `${data.results.providers} providers, ${data.results.clients} clients, ${data.results.services} services, ${data.results.rateCards} rate cards` 
+        description: `${data.results.users || 0} users, ${data.results.providers} providers, ${data.results.clients} clients, ${data.results.services} services, ${data.results.rateCards} rate cards` 
       });
     } catch {
       toast({ title: "Seed failed", variant: "destructive" });
