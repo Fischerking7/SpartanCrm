@@ -3091,10 +3091,17 @@ export const storage = {
     });
   },
 
-  // Employee Credentials
-  async getEmployeeCredentials(userId: string) {
-    return db.query.employeeCredentials.findFirst({
+  // Employee Credentials - Multiple entries per user
+  async getEmployeeCredentialsByUser(userId: string) {
+    return db.query.employeeCredentials.findMany({
       where: eq(employeeCredentials.userId, userId),
+      orderBy: [employeeCredentials.entryLabel],
+    });
+  },
+
+  async getEmployeeCredentialById(credentialId: string) {
+    return db.query.employeeCredentials.findFirst({
+      where: eq(employeeCredentials.id, credentialId),
     });
   },
 
@@ -3111,37 +3118,36 @@ export const storage = {
     })
       .from(employeeCredentials)
       .leftJoin(users, eq(employeeCredentials.userId, users.id))
-      .orderBy(users.name);
+      .orderBy(users.name, employeeCredentials.entryLabel);
   },
 
-  async upsertEmployeeCredentials(userId: string, data: Partial<InsertEmployeeCredential>, lastUpdatedByUserId?: string) {
-    const existing = await db.query.employeeCredentials.findFirst({
-      where: eq(employeeCredentials.userId, userId),
-    });
-
-    const updateData = {
-      ...data,
-      updatedAt: new Date(),
-      lastUpdatedByUserId,
-    };
-
-    if (existing) {
-      const [updated] = await db.update(employeeCredentials)
-        .set(updateData)
-        .where(eq(employeeCredentials.userId, userId))
-        .returning();
-      return updated;
-    } else {
-      const [created] = await db.insert(employeeCredentials)
-        .values({ userId, ...updateData } as any)
-        .returning();
-      return created;
-    }
+  async createEmployeeCredential(userId: string, data: Partial<InsertEmployeeCredential>, lastUpdatedByUserId?: string) {
+    const [created] = await db.insert(employeeCredentials)
+      .values({ 
+        userId, 
+        ...data,
+        updatedAt: new Date(),
+        lastUpdatedByUserId,
+      } as any)
+      .returning();
+    return created;
   },
 
-  async deleteEmployeeCredentials(userId: string) {
+  async updateEmployeeCredential(credentialId: string, data: Partial<InsertEmployeeCredential>, lastUpdatedByUserId?: string) {
+    const [updated] = await db.update(employeeCredentials)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+        lastUpdatedByUserId,
+      })
+      .where(eq(employeeCredentials.id, credentialId))
+      .returning();
+    return updated;
+  },
+
+  async deleteEmployeeCredential(credentialId: string) {
     const [deleted] = await db.delete(employeeCredentials)
-      .where(eq(employeeCredentials.userId, userId))
+      .where(eq(employeeCredentials.id, credentialId))
       .returning();
     return deleted;
   },
