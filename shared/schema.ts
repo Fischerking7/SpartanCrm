@@ -141,6 +141,11 @@ export const payRuns = pgTable("pay_runs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   finalizedAt: timestamp("finalized_at"),
   deletedAt: timestamp("deleted_at"),
+  // QuickBooks sync fields
+  qbJournalEntryId: text("qb_journal_entry_id"),
+  qbSyncStatus: text("qb_sync_status"), // PENDING, SYNCED, FAILED
+  qbSyncedAt: timestamp("qb_synced_at"),
+  qbSyncError: text("qb_sync_error"),
 });
 
 // Sales Orders table
@@ -182,6 +187,11 @@ export const salesOrders = pgTable("sales_orders", {
   paidDate: date("paid_date"),
   quickbooksRefId: text("quickbooks_ref_id"),
   payRunId: varchar("pay_run_id").references(() => payRuns.id),
+  // QuickBooks sync fields for invoice sync
+  qbInvoiceId: text("qb_invoice_id"),
+  qbInvoiceSyncStatus: text("qb_invoice_sync_status"), // PENDING, SYNCED, FAILED, NOT_APPLICABLE
+  qbInvoiceSyncedAt: timestamp("qb_invoice_synced_at"),
+  qbInvoiceSyncError: text("qb_invoice_sync_error"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -820,6 +830,65 @@ export const payStatementDeductionsRelations = relations(payStatementDeductions,
 }));
 
 export type PayStatementDeduction = typeof payStatementDeductions.$inferSelect;
+
+// QuickBooks Integration Enums
+export const qbSyncStatusEnum = pgEnum("qb_sync_status", ["PENDING", "SYNCED", "FAILED", "SKIPPED"]);
+export const qbEntityTypeEnum = pgEnum("qb_entity_type", ["INVOICE", "JOURNAL_ENTRY", "PAYMENT", "VENDOR_BILL"]);
+
+// QuickBooks Connection - OAuth token storage (encrypted)
+export const quickbooksConnection = pgTable("quickbooks_connection", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  realmId: text("realm_id").notNull(),
+  companyName: text("company_name"),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at").notNull(),
+  isConnected: boolean("is_connected").notNull().default(true),
+  lastSyncAt: timestamp("last_sync_at"),
+  connectedByUserId: varchar("connected_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type QuickBooksConnection = typeof quickbooksConnection.$inferSelect;
+
+// QuickBooks Account Mappings - Configure which QB accounts to use
+export const quickbooksAccountMappings = pgTable("quickbooks_account_mappings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  mappingType: text("mapping_type").notNull(), // 'COMMISSION_EXPENSE', 'ACCOUNTS_PAYABLE', 'CASH', 'INCOME'
+  qbAccountId: text("qb_account_id").notNull(),
+  qbAccountName: text("qb_account_name").notNull(),
+  qbAccountType: text("qb_account_type"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertQBAccountMappingSchema = createInsertSchema(quickbooksAccountMappings).omit({ id: true, createdAt: true, updatedAt: true });
+export type QuickBooksAccountMapping = typeof quickbooksAccountMappings.$inferSelect;
+export type InsertQuickBooksAccountMapping = z.infer<typeof insertQBAccountMappingSchema>;
+
+// QuickBooks Sync Log - Audit trail for all QB operations
+export const quickbooksSyncLog = pgTable("quickbooks_sync_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  entityType: qbEntityTypeEnum("entity_type").notNull(),
+  entityId: varchar("entity_id").notNull(),
+  qbEntityId: text("qb_entity_id"),
+  qbDocNumber: text("qb_doc_number"),
+  action: text("action").notNull(), // 'CREATE', 'UPDATE', 'DELETE'
+  status: qbSyncStatusEnum("status").notNull().default("PENDING"),
+  requestPayload: text("request_payload"),
+  responsePayload: text("response_payload"),
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  syncedAt: timestamp("synced_at"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type QuickBooksSyncLog = typeof quickbooksSyncLog.$inferSelect;
 
 // Login schema
 export const loginSchema = z.object({

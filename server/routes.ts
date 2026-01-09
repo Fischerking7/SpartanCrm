@@ -5627,5 +5627,229 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to update approval" }); }
   });
 
+  // ============ QuickBooks Integration Routes ============
+  
+  // Get QuickBooks connection status
+  app.get("/api/admin/quickbooks/status", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const connection = await qb.getConnection();
+      const mappings = await qb.getAccountMappings();
+      
+      res.json({
+        isConnected: connection?.isConnected || false,
+        companyName: connection?.companyName || null,
+        realmId: connection?.realmId || null,
+        lastSyncAt: connection?.lastSyncAt || null,
+        accessTokenExpiresAt: connection?.accessTokenExpiresAt || null,
+        accountMappings: mappings,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get QuickBooks status" });
+    }
+  });
+
+  // Get QuickBooks OAuth authorization URL
+  app.get("/api/admin/quickbooks/authorize", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const state = crypto.randomBytes(16).toString("hex");
+      const authUrl = qb.getAuthorizationUrl(state);
+      res.json({ authUrl, state });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get authorization URL" });
+    }
+  });
+
+  // QuickBooks OAuth callback
+  app.get("/api/quickbooks/callback", async (req, res) => {
+    try {
+      const { code, realmId, state } = req.query;
+      
+      if (!code || !realmId) {
+        return res.status(400).send("Missing authorization code or realm ID");
+      }
+
+      const qb = await import("./quickbooks");
+      await qb.exchangeCodeForTokens(code as string, realmId as string, "system");
+      
+      res.send(`
+        <html>
+          <body>
+            <h2>QuickBooks Connected Successfully!</h2>
+            <p>You can close this window and return to Iron Crest CRM.</p>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: 'QUICKBOOKS_CONNECTED' }, '*');
+                setTimeout(() => window.close(), 2000);
+              }
+            </script>
+          </body>
+        </html>
+      `);
+    } catch (error: any) {
+      console.error("QuickBooks callback error:", error);
+      res.status(500).send(`QuickBooks connection failed: ${error.message}`);
+    }
+  });
+
+  // Disconnect QuickBooks
+  app.post("/api/admin/quickbooks/disconnect", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      await qb.disconnectQuickBooks();
+      await storage.createAuditLog({
+        action: "quickbooks_disconnected",
+        tableName: "quickbooks_connection",
+        recordId: "system",
+        userId: req.user!.id,
+      });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to disconnect" });
+    }
+  });
+
+  // Get QuickBooks accounts for mapping
+  app.get("/api/admin/quickbooks/accounts", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const accounts = await qb.fetchQBAccounts();
+      res.json(accounts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch accounts" });
+    }
+  });
+
+  // Save account mapping
+  app.post("/api/admin/quickbooks/mappings", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { mappingType, qbAccountId, qbAccountName, qbAccountType } = req.body;
+      
+      if (!mappingType || !qbAccountId || !qbAccountName) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      const qb = await import("./quickbooks");
+      await qb.saveAccountMapping(mappingType, qbAccountId, qbAccountName, qbAccountType || "");
+      
+      await storage.createAuditLog({
+        action: "quickbooks_mapping_saved",
+        tableName: "quickbooks_account_mappings",
+        recordId: mappingType,
+        afterJson: JSON.stringify({ mappingType, qbAccountId, qbAccountName }),
+        userId: req.user!.id,
+      });
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to save mapping" });
+    }
+  });
+
+  // Sync order invoice to QuickBooks
+  app.post("/api/admin/quickbooks/sync-invoice/:orderId", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const result = await qb.syncInvoiceToQuickBooks(req.params.orderId, req.user!.id);
+      
+      if (result.success) {
+        await storage.createAuditLog({
+          action: "quickbooks_invoice_synced",
+          tableName: "sales_orders",
+          recordId: req.params.orderId,
+          afterJson: JSON.stringify({ qbInvoiceId: result.qbInvoiceId }),
+          userId: req.user!.id,
+        });
+      }
+      
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Post pay run journal entry to QuickBooks
+  app.post("/api/admin/quickbooks/post-journal/:payRunId", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const result = await qb.postPayRunJournalEntry(req.params.payRunId, req.user!.id);
+      
+      if (result.success) {
+        await storage.createAuditLog({
+          action: "quickbooks_journal_posted",
+          tableName: "pay_runs",
+          recordId: req.params.payRunId,
+          afterJson: JSON.stringify({ qbJournalEntryId: result.qbJournalEntryId }),
+          userId: req.user!.id,
+        });
+      }
+      
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get QuickBooks sync logs
+  app.get("/api/admin/quickbooks/sync-logs", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const entityType = req.query.entityType as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const logs = await qb.getSyncLogs(entityType, limit);
+      res.json(logs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get sync logs" });
+    }
+  });
+
+  // Retry failed sync
+  app.post("/api/admin/quickbooks/retry/:syncLogId", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const result = await qb.retryFailedSync(req.params.syncLogId, req.user!.id);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Bulk sync approved orders to QuickBooks
+  app.post("/api/admin/quickbooks/bulk-sync-invoices", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      
+      // Get all approved orders without QB invoice ID
+      const ordersToSync = await db.query.salesOrders.findMany({
+        where: and(
+          eq(salesOrders.approvalStatus, "APPROVED"),
+          sql`${salesOrders.qbInvoiceId} IS NULL`
+        ),
+      });
+      
+      const results = {
+        total: ordersToSync.length,
+        synced: 0,
+        failed: 0,
+        errors: [] as string[],
+      };
+      
+      for (const order of ordersToSync) {
+        const result = await qb.syncInvoiceToQuickBooks(order.id, req.user!.id);
+        if (result.success) {
+          results.synced++;
+        } else {
+          results.failed++;
+          results.errors.push(`Order ${order.invoiceNumber}: ${result.error}`);
+        }
+      }
+      
+      res.json(results);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   return httpServer;
 }
