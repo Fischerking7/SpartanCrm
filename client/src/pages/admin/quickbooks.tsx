@@ -71,9 +71,13 @@ export default function AdminQuickBooks() {
   const [selectedExpenseAccount, setSelectedExpenseAccount] = useState<string>("");
   const [selectedAPAccount, setSelectedAPAccount] = useState<string>("");
 
-  const { data: status, isLoading: statusLoading } = useQuery<QBStatus>({
+  const { data: status, isLoading: statusLoading, error: statusError } = useQuery<QBStatus>({
     queryKey: ["/api/admin/quickbooks/status"],
+    retry: false,
   });
+
+  const credentialsNotConfigured = statusError?.message?.includes("credentials not configured") || 
+    statusError?.message?.includes("QB_CLIENT_ID");
 
   const { data: accounts, isLoading: accountsLoading } = useQuery<QBAccount[]>({
     queryKey: ["/api/admin/quickbooks/accounts"],
@@ -202,6 +206,68 @@ export default function AdminQuickBooks() {
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-48 w-full" />
         <Skeleton className="h-48 w-full" />
+      </div>
+    );
+  }
+
+  if (credentialsNotConfigured) {
+    return (
+      <div className="p-6 space-y-6">
+        <h1 className="text-2xl font-semibold" data-testid="text-page-title">QuickBooks Integration</h1>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Setup Required
+            </CardTitle>
+            <CardDescription>
+              QuickBooks integration requires developer credentials from Intuit.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Credentials Not Configured</AlertTitle>
+              <AlertDescription>
+                To enable QuickBooks integration, you need to set up the following environment variables:
+              </AlertDescription>
+            </Alert>
+
+            <div className="bg-muted p-4 rounded-lg space-y-3">
+              <h4 className="font-medium">Required Environment Variables:</h4>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2">
+                  <code className="bg-background px-2 py-0.5 rounded text-xs">QB_CLIENT_ID</code>
+                  <span className="text-muted-foreground">Your QuickBooks OAuth Client ID</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <code className="bg-background px-2 py-0.5 rounded text-xs">QB_CLIENT_SECRET</code>
+                  <span className="text-muted-foreground">Your QuickBooks OAuth Client Secret</span>
+                </li>
+              </ul>
+              
+              <h4 className="font-medium pt-2">Optional:</h4>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2">
+                  <code className="bg-background px-2 py-0.5 rounded text-xs">QB_ENVIRONMENT</code>
+                  <span className="text-muted-foreground">"sandbox" or "production" (defaults to sandbox)</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="pt-2">
+              <h4 className="font-medium mb-2">How to get credentials:</h4>
+              <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
+                <li>Go to the Intuit Developer Portal (developer.intuit.com)</li>
+                <li>Create or sign in to your developer account</li>
+                <li>Create a new app and select "QuickBooks Online and Payments"</li>
+                <li>Copy the Client ID and Client Secret from the app's Keys & credentials</li>
+                <li>Add them to your Replit Secrets</li>
+              </ol>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
