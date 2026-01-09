@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthHeaders } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Key, User, Users, Shield, Eye, EyeOff, Save, Trash2, Search, ChevronRight } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Key, User, Users, Shield, Eye, EyeOff, Save, Trash2, Search, ChevronRight, Plus, Edit2 } from "lucide-react";
+import { useState } from "react";
 
 interface UserInfo {
   id: string;
@@ -22,9 +22,10 @@ interface UserInfo {
   status: string;
 }
 
-interface EmployeeCredentials {
-  id?: string;
+interface EmployeeCredential {
+  id: string;
   userId: string;
+  entryLabel: string;
   peopleSoftNumber: string | null;
   networkId: string | null;
   tempPassword: string | null;
@@ -38,56 +39,161 @@ interface EmployeeCredentials {
   gmail: string | null;
   gmailPassword: string | null;
   notes: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface CredentialEntry {
-  credentials: EmployeeCredentials | null;
+  credentials: EmployeeCredential;
   user: UserInfo | null;
 }
 
-function PasswordField({ value, onChange, id }: { value: string; onChange: (v: string) => void; id: string }) {
+interface CredentialFormData {
+  entryLabel: string;
+  peopleSoftNumber: string;
+  networkId: string;
+  tempPassword: string;
+  workEmail: string;
+  rtr: string;
+  rtrPassword: string;
+  authenticatorUsername: string;
+  authenticatorPassword: string;
+  ipadPin: string;
+  deviceNumber: string;
+  gmail: string;
+  gmailPassword: string;
+  notes: string;
+}
+
+const emptyFormData: CredentialFormData = {
+  entryLabel: "",
+  peopleSoftNumber: "",
+  networkId: "",
+  tempPassword: "",
+  workEmail: "",
+  rtr: "",
+  rtrPassword: "",
+  authenticatorUsername: "",
+  authenticatorPassword: "",
+  ipadPin: "",
+  deviceNumber: "",
+  gmail: "",
+  gmailPassword: "",
+  notes: "",
+};
+
+function PasswordField({ value, onChange, label, id }: { value: string; onChange: (v: string) => void; label: string; id: string }) {
   const [visible, setVisible] = useState(false);
   
   return (
-    <div className="relative">
-      <Input
-        type={visible ? "text" : "password"}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="pr-10"
-        data-testid={`input-${id}`}
-      />
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="absolute right-0 top-0 h-full"
-        onClick={() => setVisible(!visible)}
-        data-testid={`button-toggle-${id}`}
-      >
-        {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </Button>
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="relative">
+        <Input
+          id={id}
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="pr-10"
+          data-testid={`input-${id}`}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="absolute right-0 top-0 h-full"
+          onClick={() => setVisible(!visible)}
+          data-testid={`button-toggle-${id}`}
+        >
+          {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </Button>
+      </div>
     </div>
   );
 }
 
-function CredentialRow({ label, value, onChange, isPassword = false }: { 
-  label: string; 
-  value: string; 
-  onChange: (v: string) => void; 
-  isPassword?: boolean 
+function CredentialCard({ credential, onEdit, onDelete }: { 
+  credential: EmployeeCredential; 
+  onEdit: () => void; 
+  onDelete: () => void;
 }) {
+  const [showPasswords, setShowPasswords] = useState(false);
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 divide-x border-b">
-      <div className="p-3 bg-zinc-100 dark:bg-zinc-800 font-medium text-sm">{label}</div>
-      <div className="p-3">
-        {isPassword ? (
-          <PasswordField value={value} onChange={onChange} id={label.toLowerCase().replace(/\s+/g, '-')} />
-        ) : (
-          <Input value={value} onChange={(e) => onChange(e.target.value)} data-testid={`input-${label.toLowerCase().replace(/\s+/g, '-')}`} />
+    <Card className="mb-3">
+      <CardHeader className="py-3 pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Key className="h-4 w-4" />
+            {credential.entryLabel}
+          </CardTitle>
+          <div className="flex gap-1">
+            <Button variant="ghost" size="icon" onClick={onEdit} data-testid={`button-edit-${credential.id}`}>
+              <Edit2 className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={onDelete} data-testid={`button-delete-${credential.id}`}>
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="py-2 space-y-2">
+        <div className="flex justify-end">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setShowPasswords(!showPasswords)}
+            data-testid={`button-toggle-passwords-${credential.id}`}
+          >
+            {showPasswords ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+            {showPasswords ? "Hide" : "Show"}
+          </Button>
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          {credential.peopleSoftNumber && (
+            <div><span className="text-muted-foreground">PeopleSoft #:</span> {credential.peopleSoftNumber}</div>
+          )}
+          {credential.networkId && (
+            <div><span className="text-muted-foreground">Network ID:</span> {credential.networkId}</div>
+          )}
+          {credential.tempPassword && (
+            <div><span className="text-muted-foreground">Temp Pwd:</span> {showPasswords ? credential.tempPassword : "••••"}</div>
+          )}
+          {credential.workEmail && (
+            <div><span className="text-muted-foreground">Work Email:</span> {credential.workEmail}</div>
+          )}
+          {credential.rtr && (
+            <div><span className="text-muted-foreground">RTR:</span> {credential.rtr}</div>
+          )}
+          {credential.rtrPassword && (
+            <div><span className="text-muted-foreground">RTR Pwd:</span> {showPasswords ? credential.rtrPassword : "••••"}</div>
+          )}
+          {credential.authenticatorUsername && (
+            <div><span className="text-muted-foreground">Auth User:</span> {credential.authenticatorUsername}</div>
+          )}
+          {credential.authenticatorPassword && (
+            <div><span className="text-muted-foreground">Auth Pwd:</span> {showPasswords ? credential.authenticatorPassword : "••••"}</div>
+          )}
+          {credential.ipadPin && (
+            <div><span className="text-muted-foreground">iPad PIN:</span> {showPasswords ? credential.ipadPin : "••••"}</div>
+          )}
+          {credential.deviceNumber && (
+            <div><span className="text-muted-foreground">Device #:</span> {credential.deviceNumber}</div>
+          )}
+          {credential.gmail && (
+            <div><span className="text-muted-foreground">Gmail:</span> {credential.gmail}</div>
+          )}
+          {credential.gmailPassword && (
+            <div><span className="text-muted-foreground">Gmail Pwd:</span> {showPasswords ? credential.gmailPassword : "••••"}</div>
+          )}
+        </div>
+        {credential.notes && (
+          <div className="text-sm pt-1 border-t">
+            <span className="text-muted-foreground">Notes:</span> {credential.notes}
+          </div>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -95,23 +201,10 @@ export default function AdminEmployeeCredentials() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-
-  const [formData, setFormData] = useState({
-    peopleSoftNumber: "",
-    networkId: "",
-    tempPassword: "",
-    workEmail: "",
-    rtr: "",
-    rtrPassword: "",
-    authenticatorUsername: "",
-    authenticatorPassword: "",
-    ipadPin: "",
-    deviceNumber: "",
-    gmail: "",
-    gmailPassword: "",
-    notes: "",
-  });
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingCredential, setEditingCredential] = useState<EmployeeCredential | null>(null);
+  const [formData, setFormData] = useState<CredentialFormData>(emptyFormData);
+  const [deleteCredentialId, setDeleteCredentialId] = useState<string | null>(null);
 
   const { data: allCredentials, isLoading } = useQuery<CredentialEntry[]>({
     queryKey: ["/api/admin/employee-credentials"],
@@ -137,10 +230,10 @@ export default function AdminEmployeeCredentials() {
     },
   });
 
-  const { data: selectedUserData, isLoading: isLoadingUser } = useQuery<{ user: UserInfo; credentials: EmployeeCredentials | null }>({
-    queryKey: ["/api/admin/employee-credentials", selectedUserId],
+  const { data: selectedUserData, isLoading: isLoadingUser } = useQuery<{ user: UserInfo; credentials: EmployeeCredential[] }>({
+    queryKey: ["/api/admin/employee-credentials/user", selectedUserId],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/employee-credentials/${selectedUserId}`, {
+      const res = await fetch(`/api/admin/employee-credentials/user/${selectedUserId}`, {
         headers: getAuthHeaders(),
         credentials: "include",
       });
@@ -150,73 +243,107 @@ export default function AdminEmployeeCredentials() {
     enabled: !!selectedUserId,
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async (data: typeof formData) => {
-      return apiRequest("PATCH", `/api/admin/employee-credentials/${selectedUserId}`, data);
+  const createMutation = useMutation({
+    mutationFn: async (data: CredentialFormData) => {
+      return apiRequest("POST", `/api/admin/employee-credentials/user/${selectedUserId}`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/employee-credentials"] });
-      toast({ title: "Credentials saved successfully" });
+      toast({ title: "Credential entry created successfully" });
+      handleCloseDialog();
     },
     onError: () => {
-      toast({ title: "Failed to save credentials", variant: "destructive" });
+      toast({ title: "Failed to create credential entry", variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: CredentialFormData }) => {
+      return apiRequest("PATCH", `/api/admin/employee-credentials/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/employee-credentials"] });
+      toast({ title: "Credential entry updated successfully" });
+      handleCloseDialog();
+    },
+    onError: () => {
+      toast({ title: "Failed to update credential entry", variant: "destructive" });
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest("DELETE", `/api/admin/employee-credentials/${selectedUserId}`, {});
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/admin/employee-credentials/${id}`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/employee-credentials"] });
-      setShowDeleteDialog(false);
-      setSelectedUserId(null);
-      toast({ title: "Credentials deleted successfully" });
+      toast({ title: "Credential entry deleted successfully" });
+      setDeleteCredentialId(null);
     },
     onError: () => {
-      toast({ title: "Failed to delete credentials", variant: "destructive" });
+      toast({ title: "Failed to delete credential entry", variant: "destructive" });
     },
   });
 
-  const handleSelectUser = (userId: string) => {
-    setSelectedUserId(userId);
+  const handleOpenCreate = () => {
+    if (!selectedUserId) return;
+    setEditingCredential(null);
+    const existingCount = selectedUserData?.credentials?.length || 0;
+    setFormData({ ...emptyFormData, entryLabel: `Entry ${existingCount + 1}` });
+    setIsDialogOpen(true);
   };
 
-  useEffect(() => {
-    if (selectedUserData) {
-      loadFormFromCredentials(selectedUserData.credentials);
-    }
-  }, [selectedUserData]);
-
-  const loadFormFromCredentials = (creds: EmployeeCredentials | null) => {
+  const handleOpenEdit = (credential: EmployeeCredential) => {
+    setEditingCredential(credential);
     setFormData({
-      peopleSoftNumber: creds?.peopleSoftNumber || "",
-      networkId: creds?.networkId || "",
-      tempPassword: creds?.tempPassword || "",
-      workEmail: creds?.workEmail || "",
-      rtr: creds?.rtr || "",
-      rtrPassword: creds?.rtrPassword || "",
-      authenticatorUsername: creds?.authenticatorUsername || "",
-      authenticatorPassword: creds?.authenticatorPassword || "",
-      ipadPin: creds?.ipadPin || "",
-      deviceNumber: creds?.deviceNumber || "",
-      gmail: creds?.gmail || "",
-      gmailPassword: creds?.gmailPassword || "",
-      notes: creds?.notes || "",
+      entryLabel: credential.entryLabel || "",
+      peopleSoftNumber: credential.peopleSoftNumber || "",
+      networkId: credential.networkId || "",
+      tempPassword: credential.tempPassword || "",
+      workEmail: credential.workEmail || "",
+      rtr: credential.rtr || "",
+      rtrPassword: credential.rtrPassword || "",
+      authenticatorUsername: credential.authenticatorUsername || "",
+      authenticatorPassword: credential.authenticatorPassword || "",
+      ipadPin: credential.ipadPin || "",
+      deviceNumber: credential.deviceNumber || "",
+      gmail: credential.gmail || "",
+      gmailPassword: credential.gmailPassword || "",
+      notes: credential.notes || "",
     });
+    setIsDialogOpen(true);
   };
 
-  const usersWithCredentialsMap = new Map<string, CredentialEntry>();
+  const handleCloseDialog = () => {
+    setIsDialogOpen(false);
+    setEditingCredential(null);
+    setFormData(emptyFormData);
+  };
+
+  const handleSubmit = () => {
+    if (!formData.entryLabel.trim()) {
+      toast({ title: "Entry label is required", variant: "destructive" });
+      return;
+    }
+    if (editingCredential) {
+      updateMutation.mutate({ id: editingCredential.id, data: formData });
+    } else {
+      createMutation.mutate(formData);
+    }
+  };
+
+  const credentialsByUser = new Map<string, EmployeeCredential[]>();
   allCredentials?.forEach(entry => {
     if (entry.user) {
-      usersWithCredentialsMap.set(entry.user.id, entry);
+      const existing = credentialsByUser.get(entry.user.id) || [];
+      existing.push(entry.credentials);
+      credentialsByUser.set(entry.user.id, existing);
     }
   });
 
   const allUsersWithCredentialStatus = allUsers?.map(user => ({
     ...user,
-    hasCredentials: usersWithCredentialsMap.has(user.id),
-    credentials: usersWithCredentialsMap.get(user.id)?.credentials || null,
+    credentialCount: credentialsByUser.get(user.id)?.length || 0,
   })) || [];
 
   const filteredUsers = allUsersWithCredentialStatus.filter(user => 
@@ -253,7 +380,7 @@ export default function AdminEmployeeCredentials() {
               <Users className="h-5 w-5" />
               Employees
             </CardTitle>
-            <CardDescription>Select an employee to view or edit their credentials</CardDescription>
+            <CardDescription>Select an employee to manage their credentials</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="relative">
@@ -270,7 +397,7 @@ export default function AdminEmployeeCredentials() {
               {filteredUsers.map(user => (
                 <button
                   key={user.id}
-                  onClick={() => handleSelectUser(user.id)}
+                  onClick={() => setSelectedUserId(user.id)}
                   className={`w-full flex items-center justify-between p-3 rounded-md text-left transition-colors hover-elevate ${
                     selectedUserId === user.id ? "bg-accent" : ""
                   }`}
@@ -281,8 +408,10 @@ export default function AdminEmployeeCredentials() {
                     <div className="text-sm text-muted-foreground">{user.repId} - {user.role}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {user.hasCredentials && (
-                      <Badge variant="outline" className="text-xs">Has Credentials</Badge>
+                    {user.credentialCount > 0 && (
+                      <Badge variant="outline" className="text-xs">
+                        {user.credentialCount} {user.credentialCount === 1 ? "entry" : "entries"}
+                      </Badge>
                     )}
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   </div>
@@ -300,7 +429,7 @@ export default function AdminEmployeeCredentials() {
             <div className="flex items-center justify-center h-full min-h-[400px] text-muted-foreground">
               <div className="text-center">
                 <User className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p>Select an employee from the list to view or edit their credentials</p>
+                <p>Select an employee from the list to manage their credentials</p>
               </div>
             </div>
           ) : isLoadingUser ? (
@@ -309,152 +438,227 @@ export default function AdminEmployeeCredentials() {
             </div>
           ) : (
             <>
-              <CardHeader className="bg-zinc-900 text-white rounded-t-lg flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <span className="text-amber-500">Name</span>
-                    <span className="ml-2 font-normal">{selectedUserData?.user.name}</span>
-                  </CardTitle>
-                  <CardDescription className="text-zinc-400">
-                    {selectedUserData?.user.repId} - {selectedUserData?.user.role}
-                  </CardDescription>
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="text-red-500 hover:bg-red-500/10"
-                  onClick={() => setShowDeleteDialog(true)}
-                  disabled={!selectedUserData?.credentials}
-                  data-testid="button-delete-credentials"
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Delete
-                </Button>
-              </CardHeader>
-              <CardContent className="p-0">
-                <form onSubmit={(e) => { e.preventDefault(); loadFormFromCredentials(selectedUserData?.credentials || null); }}>
-                  <CredentialRow 
-                    label="PeopleSoft #" 
-                    value={formData.peopleSoftNumber}
-                    onChange={(v) => setFormData(prev => ({ ...prev, peopleSoftNumber: v }))}
-                  />
-                  <CredentialRow 
-                    label="Network ID" 
-                    value={formData.networkId}
-                    onChange={(v) => setFormData(prev => ({ ...prev, networkId: v }))}
-                  />
-                  <CredentialRow 
-                    label="Temp Password" 
-                    value={formData.tempPassword}
-                    onChange={(v) => setFormData(prev => ({ ...prev, tempPassword: v }))}
-                    isPassword
-                  />
-                  <CredentialRow 
-                    label="Work Email" 
-                    value={formData.workEmail}
-                    onChange={(v) => setFormData(prev => ({ ...prev, workEmail: v }))}
-                  />
-                  <CredentialRow 
-                    label="RTR" 
-                    value={formData.rtr}
-                    onChange={(v) => setFormData(prev => ({ ...prev, rtr: v }))}
-                  />
-                  <CredentialRow 
-                    label="RTR Password" 
-                    value={formData.rtrPassword}
-                    onChange={(v) => setFormData(prev => ({ ...prev, rtrPassword: v }))}
-                    isPassword
-                  />
-                  <CredentialRow 
-                    label="Authenticator Username" 
-                    value={formData.authenticatorUsername}
-                    onChange={(v) => setFormData(prev => ({ ...prev, authenticatorUsername: v }))}
-                  />
-                  <CredentialRow 
-                    label="Authenticator Password" 
-                    value={formData.authenticatorPassword}
-                    onChange={(v) => setFormData(prev => ({ ...prev, authenticatorPassword: v }))}
-                    isPassword
-                  />
-                  <CredentialRow 
-                    label="iPad PIN" 
-                    value={formData.ipadPin}
-                    onChange={(v) => setFormData(prev => ({ ...prev, ipadPin: v }))}
-                    isPassword
-                  />
-                  <CredentialRow 
-                    label="Device #" 
-                    value={formData.deviceNumber}
-                    onChange={(v) => setFormData(prev => ({ ...prev, deviceNumber: v }))}
-                  />
-                  <CredentialRow 
-                    label="Gmail" 
-                    value={formData.gmail}
-                    onChange={(v) => setFormData(prev => ({ ...prev, gmail: v }))}
-                  />
-                  <CredentialRow 
-                    label="Gmail Password" 
-                    value={formData.gmailPassword}
-                    onChange={(v) => setFormData(prev => ({ ...prev, gmailPassword: v }))}
-                    isPassword
-                  />
-                  <div className="p-4 border-b">
-                    <Label className="text-sm font-medium mb-2 block">Notes</Label>
-                    <Textarea 
-                      value={formData.notes} 
-                      onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                      placeholder="Additional notes..."
-                      rows={2}
-                      data-testid="input-admin-notes"
-                    />
+              <CardHeader className="bg-zinc-900 text-white rounded-t-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <span className="text-amber-500">Employee:</span>
+                      <span className="font-normal">{selectedUserData?.user.name}</span>
+                    </CardTitle>
+                    <CardDescription className="text-zinc-400">
+                      {selectedUserData?.user.repId} - {selectedUserData?.user.role}
+                    </CardDescription>
                   </div>
-                </form>
+                  <Button onClick={handleOpenCreate} data-testid="button-add-credential">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Entry
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 max-h-[600px] overflow-y-auto">
+                {selectedUserData?.credentials && selectedUserData.credentials.length > 0 ? (
+                  selectedUserData.credentials.map(credential => (
+                    <CredentialCard
+                      key={credential.id}
+                      credential={credential}
+                      onEdit={() => handleOpenEdit(credential)}
+                      onDelete={() => setDeleteCredentialId(credential.id)}
+                    />
+                  ))
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Key className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                    <p>No credential entries for this employee.</p>
+                    <p className="text-sm">Click "Add Entry" to create one.</p>
+                  </div>
+                )}
               </CardContent>
-              <div className="p-4 border-t flex justify-between items-center">
-                <Button 
-                  variant="outline"
-                  onClick={() => loadFormFromCredentials(selectedUserData?.credentials || null)}
-                  data-testid="button-reset-form"
-                >
-                  Reset
-                </Button>
-                <Button 
-                  onClick={() => updateMutation.mutate(formData)}
-                  disabled={updateMutation.isPending}
-                  data-testid="button-save-admin-credentials"
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  {updateMutation.isPending ? "Saving..." : "Save Credentials"}
-                </Button>
-              </div>
             </>
           )}
         </Card>
       </div>
 
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Delete Credentials</DialogTitle>
+            <DialogTitle>{editingCredential ? "Edit Credential Entry" : "Add New Credential Entry"}</DialogTitle>
+            <DialogDescription>
+              {selectedUserData?.user.name} - Store access credentials and device information.
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-muted-foreground">
-            Are you sure you want to delete the credentials for {selectedUserData?.user.name}? This action cannot be undone.
-          </p>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowDeleteDialog(false)} data-testid="button-cancel-delete">
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="entryLabel">Entry Label *</Label>
+              <Input
+                id="entryLabel"
+                value={formData.entryLabel}
+                onChange={(e) => setFormData({ ...formData, entryLabel: e.target.value })}
+                placeholder="e.g., Primary, Secondary, Device 2..."
+                data-testid="input-entry-label"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="peopleSoftNumber">PeopleSoft #</Label>
+                <Input
+                  id="peopleSoftNumber"
+                  value={formData.peopleSoftNumber}
+                  onChange={(e) => setFormData({ ...formData, peopleSoftNumber: e.target.value })}
+                  data-testid="input-peoplesoft"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="networkId">Network ID</Label>
+                <Input
+                  id="networkId"
+                  value={formData.networkId}
+                  onChange={(e) => setFormData({ ...formData, networkId: e.target.value })}
+                  data-testid="input-network-id"
+                />
+              </div>
+            </div>
+
+            <PasswordField
+              id="tempPassword"
+              label="Temp Password"
+              value={formData.tempPassword}
+              onChange={(v) => setFormData({ ...formData, tempPassword: v })}
+            />
+
+            <div className="space-y-1.5">
+              <Label htmlFor="workEmail">Work Email</Label>
+              <Input
+                id="workEmail"
+                type="email"
+                value={formData.workEmail}
+                onChange={(e) => setFormData({ ...formData, workEmail: e.target.value })}
+                data-testid="input-work-email"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="rtr">RTR</Label>
+                <Input
+                  id="rtr"
+                  value={formData.rtr}
+                  onChange={(e) => setFormData({ ...formData, rtr: e.target.value })}
+                  data-testid="input-rtr"
+                />
+              </div>
+              <PasswordField
+                id="rtrPassword"
+                label="RTR Password"
+                value={formData.rtrPassword}
+                onChange={(v) => setFormData({ ...formData, rtrPassword: v })}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="authenticatorUsername">Authenticator Username</Label>
+                <Input
+                  id="authenticatorUsername"
+                  value={formData.authenticatorUsername}
+                  onChange={(e) => setFormData({ ...formData, authenticatorUsername: e.target.value })}
+                  data-testid="input-auth-username"
+                />
+              </div>
+              <PasswordField
+                id="authenticatorPassword"
+                label="Authenticator Password"
+                value={formData.authenticatorPassword}
+                onChange={(v) => setFormData({ ...formData, authenticatorPassword: v })}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <PasswordField
+                id="ipadPin"
+                label="iPad PIN"
+                value={formData.ipadPin}
+                onChange={(v) => setFormData({ ...formData, ipadPin: v })}
+              />
+              <div className="space-y-1.5">
+                <Label htmlFor="deviceNumber">Device #</Label>
+                <Input
+                  id="deviceNumber"
+                  value={formData.deviceNumber}
+                  onChange={(e) => setFormData({ ...formData, deviceNumber: e.target.value })}
+                  data-testid="input-device-number"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="gmail">Gmail</Label>
+                <Input
+                  id="gmail"
+                  type="email"
+                  value={formData.gmail}
+                  onChange={(e) => setFormData({ ...formData, gmail: e.target.value })}
+                  data-testid="input-gmail"
+                />
+              </div>
+              <PasswordField
+                id="gmailPassword"
+                label="Gmail Password"
+                value={formData.gmailPassword}
+                onChange={(v) => setFormData({ ...formData, gmailPassword: v })}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="notes">Notes</Label>
+              <Textarea
+                id="notes"
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                rows={3}
+                data-testid="input-notes"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseDialog} data-testid="button-cancel">
               Cancel
             </Button>
             <Button 
-              variant="destructive" 
-              onClick={() => deleteMutation.mutate()}
-              disabled={deleteMutation.isPending}
-              data-testid="button-confirm-delete"
+              onClick={handleSubmit} 
+              disabled={createMutation.isPending || updateMutation.isPending}
+              data-testid="button-save"
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              <Save className="h-4 w-4 mr-2" />
+              {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteCredentialId} onOpenChange={() => setDeleteCredentialId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Credential Entry?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this credential entry. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteCredentialId && deleteMutation.mutate(deleteCredentialId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
