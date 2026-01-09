@@ -15,13 +15,13 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   LayoutDashboard,
   FileText,
   DollarSign,
   Users,
   CheckSquare,
-  Upload,
   Download,
   AlertTriangle,
   Settings,
@@ -36,11 +36,18 @@ import {
   Calculator,
   BookOpen,
   Link2,
+  ChevronDown,
+  Briefcase,
+  Wallet,
+  TrendingUp,
+  Cog,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
+import { useState } from "react";
 
-// REP role only
-const repMenuItems = [
+type MenuItem = { title: string; url: string; icon: React.ComponentType<{ className?: string }> };
+
+const repMenuItems: MenuItem[] = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
@@ -50,8 +57,7 @@ const repMenuItems = [
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
 ];
 
-// SUPERVISOR, MANAGER - includes Reports and Adjustments
-const salesLeaderMenuItems = [
+const salesLeaderMenuItems: MenuItem[] = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
@@ -62,8 +68,7 @@ const salesLeaderMenuItems = [
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
 ];
 
-// EXECUTIVE - can approve orders and adjustments, view operational data
-const executiveMenuItems = [
+const executiveMenuItems: MenuItem[] = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
@@ -79,26 +84,37 @@ const executiveMenuItems = [
   { title: "Audit Log", url: "/audit", icon: History },
 ];
 
-// Admin/Founder get additional accounting and management options
-const adminMenuItems = [
-  { title: "All Orders", url: "/orders", icon: FileText },
-  { title: "My Leads", url: "/leads", icon: UserPlus },
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "My Commissions", url: "/commissions", icon: DollarSign },
-  { title: "My Pay", url: "/my-pay", icon: Calendar },
-  { title: "Approvals Queue", url: "/approvals", icon: CheckSquare },
+const adminOperations: MenuItem[] = [
+  { title: "Orders", url: "/orders", icon: FileText },
+  { title: "Approvals", url: "/approvals", icon: CheckSquare },
   { title: "Pay Runs", url: "/payruns", icon: Calendar },
+  { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
+];
+
+const adminAccounting: MenuItem[] = [
   { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
   { title: "Export History", url: "/export-history", icon: Download },
-  { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Recalculate", url: "/recalculate", icon: Calculator },
-  { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
-  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
   { title: "Audit Log", url: "/audit", icon: History },
 ];
 
-const adminReferenceItems = [
+const adminInsights: MenuItem[] = [
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "Reports", url: "/reports", icon: BarChart3 },
+];
+
+const adminPersonal: MenuItem[] = [
+  { title: "My Leads", url: "/leads", icon: UserPlus },
+  { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "My Pay", url: "/my-pay", icon: Calendar },
+];
+
+const adminResources: MenuItem[] = [
+  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
+];
+
+const adminSettings: MenuItem[] = [
   { title: "Users", url: "/admin/users", icon: Users },
   { title: "Providers", url: "/admin/providers", icon: Building2 },
   { title: "Clients", url: "/admin/clients", icon: Building2 },
@@ -106,9 +122,64 @@ const adminReferenceItems = [
   { title: "Rate Cards", url: "/admin/rate-cards", icon: DollarSign },
   { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
   { title: "Overrides", url: "/admin/overrides", icon: Users },
-  { title: "Payroll Settings", url: "/admin/payroll", icon: Calendar },
+  { title: "Payroll", url: "/admin/payroll", icon: Calendar },
   { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
 ];
+
+function MenuItems({ items, location }: { items: MenuItem[]; location: string }) {
+  return (
+    <SidebarMenu>
+      {items.map((item) => (
+        <SidebarMenuItem key={item.url}>
+          <SidebarMenuButton asChild isActive={location === item.url}>
+            <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
+              <item.icon className="h-4 w-4" />
+              <span>{item.title}</span>
+            </Link>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ))}
+    </SidebarMenu>
+  );
+}
+
+function CollapsibleSection({ 
+  title, 
+  icon: Icon, 
+  items, 
+  location,
+  defaultOpen = false 
+}: { 
+  title: string; 
+  icon: React.ComponentType<{ className?: string }>; 
+  items: MenuItem[]; 
+  location: string;
+  defaultOpen?: boolean;
+}) {
+  const hasActiveItem = items.some(item => location === item.url);
+  const [isOpen, setIsOpen] = useState(defaultOpen || hasActiveItem);
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <SidebarGroup className="py-0">
+        <CollapsibleTrigger asChild>
+          <SidebarGroupLabel className="cursor-pointer hover-elevate rounded-md px-2 py-1.5 flex items-center justify-between w-full">
+            <span className="flex items-center gap-2">
+              <Icon className="h-4 w-4" />
+              {title}
+            </span>
+            <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+          </SidebarGroupLabel>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarGroupContent className="pl-2">
+            <MenuItems items={items} location={location} />
+          </SidebarGroupContent>
+        </CollapsibleContent>
+      </SidebarGroup>
+    </Collapsible>
+  );
+}
 
 export function AppSidebar() {
   const { user, logout } = useAuth();
@@ -119,8 +190,6 @@ export function AppSidebar() {
   const isAdmin = user.role === "ADMIN" || user.role === "FOUNDER";
   const isExecutive = user.role === "EXECUTIVE";
   const isSalesLeader = ["SUPERVISOR", "MANAGER"].includes(user.role);
-
-  const menuItems = isAdmin ? adminMenuItems : (isExecutive ? executiveMenuItems : (isSalesLeader ? salesLeaderMenuItems : repMenuItems));
 
   const getInitials = (name: string) => {
     return name
@@ -144,6 +213,60 @@ export function AppSidebar() {
     }
   };
 
+  const renderNonAdminSidebar = () => {
+    const menuItems = isExecutive ? executiveMenuItems : (isSalesLeader ? salesLeaderMenuItems : repMenuItems);
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <MenuItems items={menuItems} location={location} />
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  };
+
+  const renderAdminSidebar = () => (
+    <>
+      <CollapsibleSection 
+        title="Operations" 
+        icon={Briefcase} 
+        items={adminOperations} 
+        location={location}
+        defaultOpen={true}
+      />
+      <CollapsibleSection 
+        title="Accounting" 
+        icon={Wallet} 
+        items={adminAccounting} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="Insights" 
+        icon={TrendingUp} 
+        items={adminInsights} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="My Workspace" 
+        icon={UserPlus} 
+        items={adminPersonal} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="Resources" 
+        icon={BookOpen} 
+        items={adminResources} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="System Settings" 
+        icon={Cog} 
+        items={adminSettings} 
+        location={location}
+      />
+    </>
+  );
+
   return (
     <Sidebar>
       <SidebarHeader className="p-2 border-b border-sidebar-border">
@@ -152,44 +275,8 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {menuItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={location === item.url}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {isAdmin && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Reference Data</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {adminReferenceItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={location === item.url}>
-                      <Link href={item.url} data-testid={`link-admin-${item.title.toLowerCase()}`}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+      <SidebarContent className="gap-1">
+        {isAdmin ? renderAdminSidebar() : renderNonAdminSidebar()}
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border">
