@@ -1022,16 +1022,29 @@ export default function Orders() {
               {isAdmin && (
                 <div className="space-y-2">
                   <Label>Assign To *</Label>
-                  <Select value={newOrderForm.repId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}>
-                    <SelectTrigger data-testid="select-rep">
-                      <SelectValue placeholder="Select user" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {reps?.map((rep) => (
-                        <SelectItem key={rep.id} value={rep.repId}>{rep.name} ({rep.repId}) - {rep.role}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isTouchDevice ? (
+                    <NativeSelect
+                      value={newOrderForm.repId}
+                      onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}
+                      placeholder="Select user"
+                      options={reps?.map((rep) => ({
+                        value: rep.repId,
+                        label: `${rep.name} (${rep.repId}) - ${rep.role}`
+                      })) || []}
+                      data-testid="select-rep"
+                    />
+                  ) : (
+                    <Select value={newOrderForm.repId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}>
+                      <SelectTrigger data-testid="select-rep">
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reps?.map((rep) => (
+                          <SelectItem key={rep.id} value={rep.repId}>{rep.name} ({rep.repId}) - {rep.role}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               )}
               <div className="space-y-2">

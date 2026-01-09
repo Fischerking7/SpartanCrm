@@ -7,17 +7,30 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 function useIsTouchDevice() {
-  const [isTouch, setIsTouch] = React.useState(false)
-  
-  React.useEffect(() => {
-    const checkTouch = () => {
-      setIsTouch(
+  const [isTouch, setIsTouch] = React.useState(() => {
+    if (typeof window !== 'undefined') {
+      return (
         'ontouchstart' in window || 
         navigator.maxTouchPoints > 0 ||
         window.matchMedia('(pointer: coarse)').matches
       )
     }
+    return false
+  })
+  
+  React.useEffect(() => {
+    const checkTouch = () => {
+      const isTouchDevice = 
+        'ontouchstart' in window || 
+        navigator.maxTouchPoints > 0 ||
+        window.matchMedia('(pointer: coarse)').matches
+      setIsTouch(isTouchDevice)
+    }
     checkTouch()
+    
+    const mediaQuery = window.matchMedia('(pointer: coarse)')
+    mediaQuery.addEventListener?.('change', checkTouch)
+    return () => mediaQuery.removeEventListener?.('change', checkTouch)
   }, [])
   
   return isTouch
