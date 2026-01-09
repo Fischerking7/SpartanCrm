@@ -926,6 +926,354 @@ export const quickbooksSyncLog = pgTable("quickbooks_sync_log", {
 
 export type QuickBooksSyncLog = typeof quickbooksSyncLog.$inferSelect;
 
+// ========== NEW PAYROLL FEATURES (January 2026) ==========
+
+// Enums for new payroll features
+export const taxDocumentTypeEnum = pgEnum("tax_document_type", ["1099_NEC", "1099_MISC", "W2"]);
+export const taxDocumentStatusEnum = pgEnum("tax_document_status", ["DRAFT", "GENERATED", "SENT", "CORRECTED"]);
+export const achStatusEnum = pgEnum("ach_status", ["PENDING", "EXPORTED", "SENT", "COMPLETED", "FAILED"]);
+export const paymentMethodEnum = pgEnum("payment_method", ["ACH", "CHECK", "WIRE", "CASH", "OTHER"]);
+export const reconciliationStatusEnum = pgEnum("reconciliation_status", ["PENDING", "MATCHED", "UNMATCHED", "DISPUTED"]);
+export const bonusTypeEnum = pgEnum("bonus_type", ["SPIFF", "BONUS", "CONTEST", "REFERRAL", "OTHER"]);
+export const bonusStatusEnum = pgEnum("bonus_status", ["PENDING", "APPROVED", "PAID", "CANCELLED"]);
+export const drawTypeEnum = pgEnum("draw_type", ["RECOVERABLE", "NON_RECOVERABLE"]);
+export const drawStatusEnum = pgEnum("draw_status", ["ACTIVE", "RECOVERING", "SETTLED", "FORGIVEN"]);
+export const splitTypeEnum = pgEnum("split_type", ["PERCENTAGE", "FIXED"]);
+export const tierBasisEnum = pgEnum("tier_basis", ["MONTHLY_VOLUME", "QUARTERLY_VOLUME", "YEARLY_VOLUME", "ORDER_VALUE"]);
+
+// Tax Documents (1099s, W2s)
+export const taxDocuments = pgTable("tax_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  taxYear: integer("tax_year").notNull(),
+  documentType: taxDocumentTypeEnum("document_type").notNull(),
+  status: taxDocumentStatusEnum("status").notNull().default("DRAFT"),
+  totalEarnings: decimal("total_earnings", { precision: 12, scale: 2 }).notNull().default("0"),
+  totalWithholdings: decimal("total_withholdings", { precision: 12, scale: 2 }).notNull().default("0"),
+  federalTaxWithheld: decimal("federal_tax_withheld", { precision: 12, scale: 2 }).notNull().default("0"),
+  stateTaxWithheld: decimal("state_tax_withheld", { precision: 12, scale: 2 }).notNull().default("0"),
+  recipientTin: text("recipient_tin"), // Last 4 only for display, full stored encrypted
+  recipientName: text("recipient_name").notNull(),
+  recipientAddress: text("recipient_address"),
+  recipientCity: text("recipient_city"),
+  recipientState: text("recipient_state"),
+  recipientZip: text("recipient_zip"),
+  generatedAt: timestamp("generated_at"),
+  sentAt: timestamp("sent_at"),
+  sentMethod: text("sent_method"), // EMAIL, MAIL, PORTAL
+  correctionOf: varchar("correction_of").references((): any => taxDocuments.id),
+  pdfPath: text("pdf_path"), // Object storage path
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTaxDocumentSchema = createInsertSchema(taxDocuments).omit({ id: true, createdAt: true, updatedAt: true });
+export type TaxDocument = typeof taxDocuments.$inferSelect;
+export type InsertTaxDocument = z.infer<typeof insertTaxDocumentSchema>;
+
+// ACH/Direct Deposit Bank Details
+export const userBankAccounts = pgTable("user_bank_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  accountHolderName: text("account_holder_name").notNull(),
+  bankName: text("bank_name").notNull(),
+  routingNumber: text("routing_number").notNull(), // Should be encrypted
+  accountNumberLast4: text("account_number_last_4").notNull(),
+  accountNumberEncrypted: text("account_number_encrypted").notNull(), // Encrypted full number
+  accountType: text("account_type").notNull(), // CHECKING, SAVINGS
+  isPrimary: boolean("is_primary").notNull().default(false),
+  isVerified: boolean("is_verified").notNull().default(false),
+  verifiedAt: timestamp("verified_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertUserBankAccountSchema = createInsertSchema(userBankAccounts).omit({ id: true, createdAt: true, updatedAt: true });
+export type UserBankAccount = typeof userBankAccounts.$inferSelect;
+export type InsertUserBankAccount = z.infer<typeof insertUserBankAccountSchema>;
+
+// ACH Export Batches
+export const achExports = pgTable("ach_exports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payRunId: varchar("pay_run_id").references(() => payRuns.id),
+  batchNumber: text("batch_number").notNull().unique(),
+  status: achStatusEnum("status").notNull().default("PENDING"),
+  totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),
+  transactionCount: integer("transaction_count").notNull(),
+  effectiveDate: date("effective_date").notNull(),
+  filePath: text("file_path"), // NACHA file path in object storage
+  sentAt: timestamp("sent_at"),
+  completedAt: timestamp("completed_at"),
+  failureReason: text("failure_reason"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAchExportSchema = createInsertSchema(achExports).omit({ id: true, createdAt: true });
+export type AchExport = typeof achExports.$inferSelect;
+export type InsertAchExport = z.infer<typeof insertAchExportSchema>;
+
+// ACH Export Line Items
+export const achExportItems = pgTable("ach_export_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  achExportId: varchar("ach_export_id").notNull().references(() => achExports.id),
+  payStatementId: varchar("pay_statement_id").references(() => payStatements.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  bankAccountId: varchar("bank_account_id").references(() => userBankAccounts.id),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  status: achStatusEnum("status").notNull().default("PENDING"),
+  traceNumber: text("trace_number"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type AchExportItem = typeof achExportItems.$inferSelect;
+
+// Payment Reconciliation
+export const paymentReconciliations = pgTable("payment_reconciliations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payStatementId: varchar("pay_statement_id").references(() => payStatements.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  paymentMethod: paymentMethodEnum("payment_method").notNull(),
+  expectedAmount: decimal("expected_amount", { precision: 12, scale: 2 }).notNull(),
+  paidAmount: decimal("paid_amount", { precision: 12, scale: 2 }),
+  status: reconciliationStatusEnum("status").notNull().default("PENDING"),
+  paymentDate: date("payment_date"),
+  paymentReference: text("payment_reference"), // Check number, ACH trace, etc.
+  bankReference: text("bank_reference"),
+  matchedAt: timestamp("matched_at"),
+  disputeReason: text("dispute_reason"),
+  notes: text("notes"),
+  reconciledByUserId: varchar("reconciled_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPaymentReconciliationSchema = createInsertSchema(paymentReconciliations).omit({ id: true, createdAt: true, updatedAt: true });
+export type PaymentReconciliation = typeof paymentReconciliations.$inferSelect;
+export type InsertPaymentReconciliation = z.infer<typeof insertPaymentReconciliationSchema>;
+
+// Bonuses/SPIFFs
+export const bonuses = pgTable("bonuses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  bonusType: bonusTypeEnum("bonus_type").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  status: bonusStatusEnum("status").notNull().default("PENDING"),
+  effectiveDate: date("effective_date").notNull(),
+  payRunId: varchar("pay_run_id").references(() => payRuns.id),
+  salesOrderId: varchar("sales_order_id").references(() => salesOrders.id), // Link to triggering order if applicable
+  approvedByUserId: varchar("approved_by_user_id").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  paidAt: timestamp("paid_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelReason: text("cancel_reason"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBonusSchema = createInsertSchema(bonuses).omit({ id: true, createdAt: true, updatedAt: true });
+export type Bonus = typeof bonuses.$inferSelect;
+export type InsertBonus = z.infer<typeof insertBonusSchema>;
+
+// Draw Against Commission
+export const drawAccounts = pgTable("draw_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  drawType: drawTypeEnum("draw_type").notNull(),
+  monthlyGuarantee: decimal("monthly_guarantee", { precision: 12, scale: 2 }).notNull(),
+  currentBalance: decimal("current_balance", { precision: 12, scale: 2 }).notNull().default("0"), // Amount owed back
+  recoveryPercentage: decimal("recovery_percentage", { precision: 5, scale: 2 }).notNull().default("100"), // % of excess to apply to balance
+  maxRecoveryPerPeriod: decimal("max_recovery_per_period", { precision: 12, scale: 2 }), // Cap on recovery per pay period
+  status: drawStatusEnum("status").notNull().default("ACTIVE"),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date"),
+  settledAt: timestamp("settled_at"),
+  forgivenAt: timestamp("forgiven_at"),
+  forgivenByUserId: varchar("forgiven_by_user_id").references(() => users.id),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertDrawAccountSchema = createInsertSchema(drawAccounts).omit({ id: true, createdAt: true, updatedAt: true });
+export type DrawAccount = typeof drawAccounts.$inferSelect;
+export type InsertDrawAccount = z.infer<typeof insertDrawAccountSchema>;
+
+// Draw Transactions
+export const drawTransactions = pgTable("draw_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  drawAccountId: varchar("draw_account_id").notNull().references(() => drawAccounts.id),
+  payRunId: varchar("pay_run_id").references(() => payRuns.id),
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  commissionEarned: decimal("commission_earned", { precision: 12, scale: 2 }).notNull(),
+  guaranteeAmount: decimal("guarantee_amount", { precision: 12, scale: 2 }).notNull(),
+  drawPaid: decimal("draw_paid", { precision: 12, scale: 2 }).notNull().default("0"), // Shortfall covered
+  recoveryApplied: decimal("recovery_applied", { precision: 12, scale: 2 }).notNull().default("0"), // Excess applied to balance
+  netPayout: decimal("net_payout", { precision: 12, scale: 2 }).notNull(),
+  balanceAfter: decimal("balance_after", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type DrawTransaction = typeof drawTransactions.$inferSelect;
+
+// Split Commission Agreements
+export const splitCommissionAgreements = pgTable("split_commission_agreements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  primaryRepId: varchar("primary_rep_id").notNull().references(() => users.id),
+  isActive: boolean("is_active").notNull().default(true),
+  effectiveStart: date("effective_start").notNull(),
+  effectiveEnd: date("effective_end"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSplitAgreementSchema = createInsertSchema(splitCommissionAgreements).omit({ id: true, createdAt: true, updatedAt: true });
+export type SplitCommissionAgreement = typeof splitCommissionAgreements.$inferSelect;
+export type InsertSplitCommissionAgreement = z.infer<typeof insertSplitAgreementSchema>;
+
+// Split Commission Recipients
+export const splitCommissionRecipients = pgTable("split_commission_recipients", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  agreementId: varchar("agreement_id").notNull().references(() => splitCommissionAgreements.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  splitType: splitTypeEnum("split_type").notNull(),
+  splitValue: decimal("split_value", { precision: 10, scale: 4 }).notNull(), // Percentage or fixed amount
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type SplitCommissionRecipient = typeof splitCommissionRecipients.$inferSelect;
+
+// Split Commission Ledger (actual splits from orders)
+export const splitCommissionLedger = pgTable("split_commission_ledger", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  salesOrderId: varchar("sales_order_id").notNull().references(() => salesOrders.id),
+  agreementId: varchar("agreement_id").notNull().references(() => splitCommissionAgreements.id),
+  recipientUserId: varchar("recipient_user_id").notNull().references(() => users.id),
+  originalAmount: decimal("original_amount", { precision: 12, scale: 2 }).notNull(),
+  splitAmount: decimal("split_amount", { precision: 12, scale: 2 }).notNull(),
+  payRunId: varchar("pay_run_id").references(() => payRuns.id),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type SplitCommissionLedgerEntry = typeof splitCommissionLedger.$inferSelect;
+
+// Commission Tiers
+export const commissionTiers = pgTable("commission_tiers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  tierBasis: tierBasisEnum("tier_basis").notNull(),
+  providerId: varchar("provider_id").references(() => providers.id), // Optional: tier for specific provider
+  clientId: varchar("client_id").references(() => clients.id), // Optional: tier for specific client
+  isActive: boolean("is_active").notNull().default(true),
+  effectiveStart: date("effective_start").notNull(),
+  effectiveEnd: date("effective_end"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCommissionTierSchema = createInsertSchema(commissionTiers).omit({ id: true, createdAt: true, updatedAt: true });
+export type CommissionTier = typeof commissionTiers.$inferSelect;
+export type InsertCommissionTier = z.infer<typeof insertCommissionTierSchema>;
+
+// Commission Tier Levels
+export const commissionTierLevels = pgTable("commission_tier_levels", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tierId: varchar("tier_id").notNull().references(() => commissionTiers.id),
+  minVolume: decimal("min_volume", { precision: 12, scale: 2 }).notNull(),
+  maxVolume: decimal("max_volume", { precision: 12, scale: 2 }), // Null = unlimited
+  bonusPercentage: decimal("bonus_percentage", { precision: 5, scale: 2 }), // Additional % on top of base
+  bonusFlat: decimal("bonus_flat", { precision: 12, scale: 2 }), // Or flat bonus
+  multiplier: decimal("multiplier", { precision: 5, scale: 4 }), // Or multiplier on base
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type CommissionTierLevel = typeof commissionTierLevels.$inferSelect;
+
+// Rep Tier Assignments (assign reps to specific tiers)
+export const repTierAssignments = pgTable("rep_tier_assignments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  tierId: varchar("tier_id").notNull().references(() => commissionTiers.id),
+  effectiveStart: date("effective_start").notNull(),
+  effectiveEnd: date("effective_end"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type RepTierAssignment = typeof repTierAssignments.$inferSelect;
+
+// Volume Tracking (for tier calculations)
+export const repVolumeTracking = pgTable("rep_volume_tracking", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  periodType: text("period_type").notNull(), // MONTHLY, QUARTERLY, YEARLY
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  orderCount: integer("order_count").notNull().default(0),
+  totalVolume: decimal("total_volume", { precision: 14, scale: 2 }).notNull().default("0"),
+  totalCommission: decimal("total_commission", { precision: 14, scale: 2 }).notNull().default("0"),
+  tierBonusEarned: decimal("tier_bonus_earned", { precision: 12, scale: 2 }).notNull().default("0"),
+  currentTierId: varchar("current_tier_id").references(() => commissionTierLevels.id),
+  calculatedAt: timestamp("calculated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type RepVolumeTracking = typeof repVolumeTracking.$inferSelect;
+
+// Scheduled Pay Runs
+export const scheduledPayRuns = pgTable("scheduled_pay_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  frequency: text("frequency").notNull(), // WEEKLY, BIWEEKLY, SEMIMONTHLY, MONTHLY
+  dayOfWeek: integer("day_of_week"), // 0-6 for weekly
+  dayOfMonth: integer("day_of_month"), // 1-31 for monthly
+  secondDayOfMonth: integer("second_day_of_month"), // For semi-monthly
+  isActive: boolean("is_active").notNull().default(true),
+  lastRunAt: timestamp("last_run_at"),
+  nextRunAt: timestamp("next_run_at"),
+  autoCreatePayRun: boolean("auto_create_pay_run").notNull().default(true),
+  autoLinkOrders: boolean("auto_link_orders").notNull().default(true),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertScheduledPayRunSchema = createInsertSchema(scheduledPayRuns).omit({ id: true, createdAt: true, updatedAt: true });
+export type ScheduledPayRun = typeof scheduledPayRuns.$inferSelect;
+export type InsertScheduledPayRun = z.infer<typeof insertScheduledPayRunSchema>;
+
+// Commission Forecasts
+export const commissionForecasts = pgTable("commission_forecasts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id), // Null = company-wide
+  forecastPeriod: text("forecast_period").notNull(), // WEEK, MONTH, QUARTER
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  pendingOrders: integer("pending_orders").notNull().default(0),
+  pendingCommission: decimal("pending_commission", { precision: 14, scale: 2 }).notNull().default("0"),
+  projectedOrders: integer("projected_orders").notNull().default(0), // Based on trends
+  projectedCommission: decimal("projected_commission", { precision: 14, scale: 2 }).notNull().default("0"),
+  historicalAverage: decimal("historical_average", { precision: 14, scale: 2 }).notNull().default("0"),
+  confidenceScore: decimal("confidence_score", { precision: 5, scale: 2 }), // 0-100
+  calculatedAt: timestamp("calculated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type CommissionForecast = typeof commissionForecasts.$inferSelect;
+
 // Login schema
 export const loginSchema = z.object({
   repId: z.string().min(1, "Rep ID is required"),
