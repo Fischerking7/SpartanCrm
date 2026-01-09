@@ -505,6 +505,7 @@ export const leads = pgTable("leads", {
   notes: text("notes"),
   disposition: text("disposition").notNull().default("NONE"),
   dispositionAt: timestamp("disposition_at"),
+  notHomeCount: integer("not_home_count").notNull().default(0),
   importedAt: timestamp("imported_at").defaultNow().notNull(),
   importedBy: varchar("imported_by").references(() => users.id),
   status: text("status").notNull().default("NEW"),
