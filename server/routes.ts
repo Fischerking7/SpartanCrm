@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
-import { users } from "@shared/schema";
+import { users, providers, clients, services, rateCards } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -4639,6 +4639,102 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Update knowledge document error:", error);
       res.status(500).json({ message: "Failed to update document" });
+    }
+  });
+
+  // Seed reference data from bundled JSON (FOUNDER only) - one-click sync
+  app.post("/api/admin/seed-reference-data", auth, async (req: AuthRequest, res) => {
+    try {
+      if (req.user?.role !== "FOUNDER") {
+        return res.status(403).json({ message: "Only FOUNDER can seed reference data" });
+      }
+
+      const referenceData = await import("./reference-data.json");
+      const results = { providers: 0, clients: 0, services: 0, rateCards: 0 };
+
+      // Insert in order: providers -> clients -> services -> rate cards
+      for (const p of referenceData.providers) {
+        await db.insert(providers).values({
+          id: p.id,
+          name: p.name,
+          active: p.active,
+        }).onConflictDoUpdate({
+          target: providers.id,
+          set: { name: sql`EXCLUDED.name`, active: sql`EXCLUDED.active` }
+        });
+        results.providers++;
+      }
+
+      for (const c of referenceData.clients) {
+        await db.insert(clients).values({
+          id: c.id,
+          name: c.name,
+          active: c.active,
+        }).onConflictDoUpdate({
+          target: clients.id,
+          set: { name: sql`EXCLUDED.name`, active: sql`EXCLUDED.active` }
+        });
+        results.clients++;
+      }
+
+      for (const s of referenceData.services) {
+        await db.insert(services).values({
+          id: s.id,
+          code: s.code,
+          name: s.name,
+          category: s.category,
+          unitType: s.unitType,
+          active: s.active,
+        }).onConflictDoUpdate({
+          target: services.id,
+          set: { code: sql`EXCLUDED.code`, name: sql`EXCLUDED.name`, active: sql`EXCLUDED.active` }
+        });
+        results.services++;
+      }
+
+      for (const r of referenceData.rateCards) {
+        await db.insert(rateCards).values({
+          id: r.id,
+          providerId: r.providerId,
+          clientId: r.clientId,
+          serviceId: r.serviceId,
+          effectiveStart: r.effectiveStart,
+          active: r.active,
+          baseAmount: String(r.baseAmount),
+          tvAddonAmount: String(r.tvAddonAmount),
+          mobilePerLineAmount: String(r.mobilePerLineAmount),
+          mobileProductType: r.mobileProductType as any,
+          mobilePortedStatus: r.mobilePortedStatus as any,
+          overrideDeduction: String(r.overrideDeduction),
+          tvOverrideDeduction: String(r.tvOverrideDeduction),
+          mobileOverrideDeduction: String(r.mobileOverrideDeduction),
+        }).onConflictDoUpdate({
+          target: rateCards.id,
+          set: { 
+            active: sql`EXCLUDED.active`, 
+            baseAmount: sql`EXCLUDED.base_amount`,
+            tvAddonAmount: sql`EXCLUDED.tv_addon_amount`,
+            mobilePerLineAmount: sql`EXCLUDED.mobile_per_line_amount`,
+            overrideDeduction: sql`EXCLUDED.override_deduction`,
+            tvOverrideDeduction: sql`EXCLUDED.tv_override_deduction`,
+            mobileOverrideDeduction: sql`EXCLUDED.mobile_override_deduction`,
+          }
+        });
+        results.rateCards++;
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "SEED",
+        tableName: "reference_data",
+        recordId: "all",
+        afterJson: JSON.stringify(results),
+      });
+
+      res.json({ message: "Reference data seeded successfully", results });
+    } catch (error) {
+      console.error("Seed reference data error:", error);
+      res.status(500).json({ message: "Failed to seed reference data", error: String(error) });
     }
   });
 

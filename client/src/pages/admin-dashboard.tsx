@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { StatsCard } from "@/components/stats-card";
@@ -18,6 +19,7 @@ import {
   CheckCircle,
   XCircle,
   Download,
+  RefreshCw,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { SalesOrder } from "@shared/schema";
@@ -37,6 +39,28 @@ export default function AdminDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const isFounder = user?.role === "FOUNDER";
+
+  const [isSeeding, setIsSeeding] = useState(false);
+
+  const handleSeedReferenceData = async () => {
+    setIsSeeding(true);
+    try {
+      const res = await fetch("/api/admin/seed-reference-data", { 
+        method: "POST",
+        headers: getAuthHeaders() 
+      });
+      if (!res.ok) throw new Error("Failed to seed");
+      const data = await res.json();
+      toast({ 
+        title: "Reference data synced!", 
+        description: `${data.results.providers} providers, ${data.results.clients} clients, ${data.results.services} services, ${data.results.rateCards} rate cards` 
+      });
+    } catch {
+      toast({ title: "Seed failed", variant: "destructive" });
+    } finally {
+      setIsSeeding(false);
+    }
+  };
 
   const handleExportReferenceData = async () => {
     try {
@@ -285,11 +309,12 @@ export default function AdminDashboard() {
                 <Button 
                   variant="outline" 
                   className="w-full justify-start" 
-                  onClick={handleExportReferenceData}
-                  data-testid="button-export-reference-data"
+                  onClick={handleSeedReferenceData}
+                  disabled={isSeeding}
+                  data-testid="button-seed-reference-data"
                 >
-                  <Download className="h-4 w-4 mr-2" />
-                  Export Reference Data (SQL)
+                  <RefreshCw className={`h-4 w-4 mr-2 ${isSeeding ? 'animate-spin' : ''}`} />
+                  {isSeeding ? "Syncing..." : "Sync Reference Data"}
                 </Button>
               )}
             </CardContent>
