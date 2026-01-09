@@ -33,6 +33,7 @@ import AdminOverrides from "@/pages/admin/overrides";
 import AdminPayroll from "@/pages/admin/payroll";
 import AdminPayrollAdvanced from "@/pages/admin/payroll-advanced";
 import AdminQuickBooks from "@/pages/admin/quickbooks";
+import ExecutiveReports from "@/pages/executive-reports";
 import ExportHistory from "@/pages/export-history";
 import Reports from "@/pages/reports";
 import Recalculate from "@/pages/recalculate";
@@ -157,6 +158,7 @@ function Router() {
         <Route path="/change-password" component={ChangePassword} />
         
         {canViewReports && <Route path="/reports" component={Reports} />}
+        {canViewReports && <Route path="/executive-reports" component={ExecutiveReports} />}
         
         {isAdmin && (
           <>

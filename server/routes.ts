@@ -7033,5 +7033,233 @@ export async function registerRoutes(
     }
   });
 
+  // Executive Reports - Sales Overview
+  app.get("/api/executive/sales-overview", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      // EXECUTIVE, ADMIN, FOUNDER, MANAGER access
+      if (!["EXECUTIVE", "ADMIN", "FOUNDER", "MANAGER"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthStartStr = monthStart.toISOString().split('T')[0];
+
+      // Role-based order scoping
+      let allOrders;
+      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+        allOrders = await storage.getOrders({});
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        const teamRepIds = [...scope.allRepRepIds, user.repId];
+        allOrders = await storage.getOrders({ teamRepIds });
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        const teamRepIds = [user.repId, ...scope.directReps.map((r: any) => r.repId), ...scope.supervisorReps.map((r: any) => r.repId)];
+        allOrders = await storage.getOrders({ teamRepIds });
+      } else {
+        allOrders = [];
+      }
+      const monthOrders = allOrders.filter(o => new Date(o.dateSold) >= monthStart);
+
+      // Company totals
+      const totalSales = monthOrders.length;
+      const connectedSales = monthOrders.filter(o => o.jobStatus === "COMPLETED").length;
+      const pendingSales = monthOrders.filter(o => o.jobStatus === "PENDING").length;
+
+      // Commission totals
+      const pendingCommissions = monthOrders
+        .filter(o => o.approvalStatus === "UNAPPROVED" || o.jobStatus === "PENDING")
+        .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0);
+      const connectedCommissions = monthOrders
+        .filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED")
+        .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0);
+
+      // Get services and providers for breakdown
+      const allServices = await storage.getServices();
+      const allProviders = await storage.getProviders();
+
+      // Service type breakdown
+      const serviceBreakdown: Record<string, { sales: number; connected: number; pending: number; commission: number }> = {};
+      for (const order of monthOrders) {
+        const service = allServices.find(s => s.id === order.serviceId);
+        const category = service?.category || service?.name || "Other";
+        if (!serviceBreakdown[category]) {
+          serviceBreakdown[category] = { sales: 0, connected: 0, pending: 0, commission: 0 };
+        }
+        serviceBreakdown[category].sales++;
+        if (order.jobStatus === "COMPLETED") serviceBreakdown[category].connected++;
+        if (order.jobStatus === "PENDING") serviceBreakdown[category].pending++;
+        serviceBreakdown[category].commission += parseFloat(order.baseCommissionEarned || "0");
+      }
+
+      // Provider breakdown
+      const providerBreakdown: Record<string, { name: string; sales: number; connected: number; pending: number; commission: number }> = {};
+      for (const order of monthOrders) {
+        const provider = allProviders.find(p => p.id === order.providerId);
+        const providerName = provider?.name || "Unknown";
+        if (!providerBreakdown[order.providerId]) {
+          providerBreakdown[order.providerId] = { name: providerName, sales: 0, connected: 0, pending: 0, commission: 0 };
+        }
+        providerBreakdown[order.providerId].sales++;
+        if (order.jobStatus === "COMPLETED") providerBreakdown[order.providerId].connected++;
+        if (order.jobStatus === "PENDING") providerBreakdown[order.providerId].pending++;
+        providerBreakdown[order.providerId].commission += parseFloat(order.baseCommissionEarned || "0");
+      }
+
+      // Get managers and their teams
+      const allUsers = await storage.getUsers();
+      const managers = allUsers.filter(u => u.role === "MANAGER" && u.status === "ACTIVE");
+      
+      const teamBreakdown = await Promise.all(managers.map(async (manager) => {
+        const teamMembers = await storage.getTeamMembers(manager.id);
+        const teamRepIds = [manager.repId, ...teamMembers.map(m => m.repId)];
+        const teamOrders = monthOrders.filter(o => teamRepIds.includes(o.repId));
+        
+        return {
+          managerId: manager.id,
+          managerName: manager.name,
+          teamSize: teamMembers.length,
+          totalSales: teamOrders.length,
+          connectedSales: teamOrders.filter(o => o.jobStatus === "COMPLETED").length,
+          pendingSales: teamOrders.filter(o => o.jobStatus === "PENDING").length,
+          pendingCommissions: teamOrders
+            .filter(o => o.approvalStatus === "UNAPPROVED" || o.jobStatus === "PENDING")
+            .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
+          connectedCommissions: teamOrders
+            .filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED")
+            .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
+        };
+      }));
+
+      res.json({
+        period: { start: monthStartStr, end: now.toISOString().split('T')[0] },
+        companyTotals: {
+          totalSales,
+          connectedSales,
+          pendingSales,
+          pendingCommissions,
+          connectedCommissions,
+        },
+        serviceBreakdown: Object.entries(serviceBreakdown).map(([category, data]) => ({
+          category,
+          ...data,
+        })),
+        providerBreakdown: Object.values(providerBreakdown),
+        teamBreakdown,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Executive Reports - Rep Listing
+  app.get("/api/executive/rep-listing", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["EXECUTIVE", "ADMIN", "FOUNDER", "MANAGER"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const allUsers = await storage.getUsers();
+      const allServices = await storage.getServices();
+      const allProviders = await storage.getProviders();
+
+      // Role-based order and rep scoping
+      let allOrders;
+      let scopedRepIds: string[] = [];
+      
+      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+        allOrders = await storage.getOrders({});
+        scopedRepIds = allUsers.filter(u => ["REP", "SUPERVISOR"].includes(u.role) && u.status === "ACTIVE").map(u => u.repId);
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        const teamRepIds = [...scope.allRepRepIds, user.repId];
+        allOrders = await storage.getOrders({ teamRepIds });
+        scopedRepIds = teamRepIds;
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        const teamRepIds = [user.repId, ...scope.directReps.map((r: any) => r.repId), ...scope.supervisorReps.map((r: any) => r.repId)];
+        allOrders = await storage.getOrders({ teamRepIds });
+        scopedRepIds = teamRepIds;
+      } else {
+        allOrders = [];
+        scopedRepIds = [];
+      }
+      
+      const monthOrders = allOrders.filter(o => new Date(o.dateSold) >= monthStart);
+      const reps = allUsers.filter(u => ["REP", "SUPERVISOR"].includes(u.role) && u.status === "ACTIVE" && scopedRepIds.includes(u.repId));
+
+      const repListing = await Promise.all(reps.map(async (rep) => {
+        const repOrders = monthOrders.filter(o => o.repId === rep.repId);
+        
+        // Service breakdown for this rep
+        const serviceBreakdown: Record<string, { sales: number; connected: number; commission: number }> = {};
+        for (const order of repOrders) {
+          const service = allServices.find(s => s.id === order.serviceId);
+          const category = service?.category || service?.name || "Other";
+          if (!serviceBreakdown[category]) {
+            serviceBreakdown[category] = { sales: 0, connected: 0, commission: 0 };
+          }
+          serviceBreakdown[category].sales++;
+          if (order.jobStatus === "COMPLETED") serviceBreakdown[category].connected++;
+          serviceBreakdown[category].commission += parseFloat(order.baseCommissionEarned || "0");
+        }
+
+        // Provider breakdown for this rep
+        const providerBreakdown: Record<string, { name: string; sales: number; connected: number; commission: number }> = {};
+        for (const order of repOrders) {
+          const provider = allProviders.find(p => p.id === order.providerId);
+          const providerName = provider?.name || "Unknown";
+          if (!providerBreakdown[order.providerId]) {
+            providerBreakdown[order.providerId] = { name: providerName, sales: 0, connected: 0, commission: 0 };
+          }
+          providerBreakdown[order.providerId].sales++;
+          if (order.jobStatus === "COMPLETED") providerBreakdown[order.providerId].connected++;
+          providerBreakdown[order.providerId].commission += parseFloat(order.baseCommissionEarned || "0");
+        }
+
+        // Find manager
+        const manager = rep.assignedManagerId ? allUsers.find(u => u.id === rep.assignedManagerId) : null;
+
+        return {
+          repId: rep.repId,
+          userId: rep.id,
+          name: rep.name,
+          role: rep.role,
+          managerName: manager?.name || null,
+          totalSales: repOrders.length,
+          connectedSales: repOrders.filter(o => o.jobStatus === "COMPLETED").length,
+          pendingSales: repOrders.filter(o => o.jobStatus === "PENDING").length,
+          pendingCommissions: repOrders
+            .filter(o => o.approvalStatus === "UNAPPROVED" || o.jobStatus === "PENDING")
+            .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
+          connectedCommissions: repOrders
+            .filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED")
+            .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
+          serviceBreakdown: Object.entries(serviceBreakdown).map(([category, data]) => ({
+            category,
+            ...data,
+          })),
+          providerBreakdown: Object.values(providerBreakdown),
+        };
+      }));
+
+      // Sort by total sales descending
+      repListing.sort((a, b) => b.totalSales - a.totalSales);
+
+      res.json({
+        period: { start: monthStart.toISOString().split('T')[0], end: now.toISOString().split('T')[0] },
+        reps: repListing,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }

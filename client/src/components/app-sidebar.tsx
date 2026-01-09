@@ -102,6 +102,7 @@ const adminAccounting: MenuItem[] = [
 const adminInsights: MenuItem[] = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Reports", url: "/reports", icon: BarChart3 },
+  { title: "Executive Reports", url: "/executive-reports", icon: TrendingUp },
 ];
 
 const adminPersonal: MenuItem[] = [
