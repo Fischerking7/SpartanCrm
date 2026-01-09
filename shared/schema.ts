@@ -1347,7 +1347,8 @@ export type BackgroundJob = typeof backgroundJobs.$inferSelect;
 // Employee Credentials - Access & Device Credentials Sheet
 export const employeeCredentials = pgTable("employee_credentials", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id).notNull().unique(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  entryLabel: varchar("entry_label", { length: 100 }).notNull().default("Primary"),
   peopleSoftNumber: text("people_soft_number"),
   networkId: text("network_id"),
   tempPassword: text("temp_password"),
