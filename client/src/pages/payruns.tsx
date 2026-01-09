@@ -11,8 +11,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link } from "lucide-react";
+import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink } from "lucide-react";
 import type { PayRun, SalesOrder } from "@shared/schema";
+
+interface EnrichedPayRun extends PayRun {
+  orderCount: number;
+  totalCommission: string;
+}
 
 interface PayRunDetails extends PayRun {
   orders: SalesOrder[];
@@ -28,11 +33,15 @@ export default function PayRuns() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedPayRun, setSelectedPayRun] = useState<PayRunDetails | null>(null);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [unlinkOrderIds, setUnlinkOrderIds] = useState<string[]>([]);
   const [weekEndingDate, setWeekEndingDate] = useState("");
+  const [payRunName, setPayRunName] = useState("");
+  const [payRunToDelete, setPayRunToDelete] = useState<PayRun | null>(null);
 
-  const { data: payRuns, isLoading } = useQuery<PayRun[]>({
+  const { data: payRuns, isLoading } = useQuery<EnrichedPayRun[]>({
     queryKey: ["/api/admin/payruns"],
     queryFn: async () => {
       const res = await fetch("/api/admin/payruns", { headers: getAuthHeaders() });
@@ -52,11 +61,11 @@ export default function PayRuns() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (date: string) => {
+    mutationFn: async ({ name, weekEndingDate }: { name: string; weekEndingDate: string }) => {
       const res = await fetch("/api/admin/payruns", {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ weekEndingDate: date }),
+        body: JSON.stringify({ name, weekEndingDate }),
       });
       if (!res.ok) {
         const error = await res.json();
@@ -68,10 +77,34 @@ export default function PayRuns() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
       setShowCreateDialog(false);
       setWeekEndingDate("");
+      setPayRunName("");
       toast({ title: "Pay run created successfully" });
     },
     onError: (error: Error) => {
       toast({ title: "Failed to create pay run", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (payRunId: string) => {
+      const res = await fetch(`/api/admin/payruns/${payRunId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to delete pay run");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      setShowDeleteDialog(false);
+      setPayRunToDelete(null);
+      toast({ title: "Pay run deleted" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to delete pay run", description: error.message, variant: "destructive" });
     },
   });
 
@@ -121,12 +154,39 @@ export default function PayRuns() {
     },
   });
 
+  const unlinkOrdersMutation = useMutation({
+    mutationFn: async ({ payRunId, orderIds }: { payRunId: string; orderIds: string[] }) => {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/unlink-orders`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to unlink orders");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      setUnlinkOrderIds([]);
+      if (selectedPayRun) {
+        viewPayRun(selectedPayRun.id);
+      }
+      toast({ title: `${data.unlinked} orders unlinked from pay run` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to unlink orders", description: error.message, variant: "destructive" });
+    },
+  });
+
   const viewPayRun = async (payRunId: string) => {
     try {
       const res = await fetch(`/api/admin/payruns/${payRunId}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch pay run details");
       const details = await res.json();
       setSelectedPayRun(details);
+      setUnlinkOrderIds([]);
       setShowDetailsDialog(true);
     } catch (error) {
       toast({ title: "Failed to load pay run details", variant: "destructive" });
@@ -139,6 +199,11 @@ export default function PayRuns() {
     setShowLinkDialog(true);
   };
 
+  const openDeleteDialog = (payRun: PayRun) => {
+    setPayRunToDelete(payRun);
+    setShowDeleteDialog(true);
+  };
+
   const toggleOrderSelection = (orderId: string) => {
     setSelectedOrderIds(prev => 
       prev.includes(orderId) 
@@ -147,23 +212,50 @@ export default function PayRuns() {
     );
   };
 
+  const toggleUnlinkSelection = (orderId: string) => {
+    setUnlinkOrderIds(prev => 
+      prev.includes(orderId) 
+        ? prev.filter(id => id !== orderId)
+        : [...prev, orderId]
+    );
+  };
+
   const columns = [
+    {
+      key: "name",
+      header: "Name",
+      cell: (row: EnrichedPayRun) => (
+        <span className="font-medium">{row.name || "Untitled"}</span>
+      ),
+    },
     {
       key: "weekEndingDate",
       header: "Week Ending",
-      cell: (row: PayRun) => (
+      cell: (row: EnrichedPayRun) => (
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium">
-            {new Date(row.weekEndingDate).toLocaleDateString()}
-          </span>
+          <span>{new Date(row.weekEndingDate).toLocaleDateString()}</span>
         </div>
+      ),
+    },
+    {
+      key: "orderCount",
+      header: "Orders",
+      cell: (row: EnrichedPayRun) => (
+        <Badge variant="secondary">{row.orderCount}</Badge>
+      ),
+    },
+    {
+      key: "totalCommission",
+      header: "Total",
+      cell: (row: EnrichedPayRun) => (
+        <span className="font-mono">${row.totalCommission}</span>
       ),
     },
     {
       key: "status",
       header: "Status",
-      cell: (row: PayRun) => (
+      cell: (row: EnrichedPayRun) => (
         <Badge variant={row.status === "FINALIZED" ? "default" : "secondary"}>
           {row.status === "FINALIZED" ? (
             <><Lock className="h-3 w-3 mr-1" />Finalized</>
@@ -176,28 +268,19 @@ export default function PayRuns() {
     {
       key: "createdAt",
       header: "Created",
-      cell: (row: PayRun) => (
+      cell: (row: EnrichedPayRun) => (
         <span className="text-sm text-muted-foreground">
-          {new Date(row.createdAt).toLocaleString()}
-        </span>
-      ),
-    },
-    {
-      key: "finalizedAt",
-      header: "Finalized",
-      cell: (row: PayRun) => (
-        <span className="text-sm text-muted-foreground">
-          {row.finalizedAt ? new Date(row.finalizedAt).toLocaleString() : "-"}
+          {new Date(row.createdAt).toLocaleDateString()}
         </span>
       ),
     },
     {
       key: "actions",
       header: "",
-      cell: (row: PayRun) => (
-        <div className="flex items-center gap-2">
+      cell: (row: EnrichedPayRun) => (
+        <div className="flex items-center gap-1">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
             onClick={() => viewPayRun(row.id)}
             data-testid={`button-view-${row.id}`}
@@ -207,7 +290,7 @@ export default function PayRuns() {
           {row.status === "DRAFT" && (
             <>
               <Button
-                size="sm"
+                size="icon"
                 variant="ghost"
                 onClick={() => openLinkDialog(row)}
                 data-testid={`button-link-orders-${row.id}`}
@@ -223,6 +306,14 @@ export default function PayRuns() {
               >
                 <Check className="h-4 w-4 mr-1" />
                 Finalize
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => openDeleteDialog(row)}
+                data-testid={`button-delete-${row.id}`}
+              >
+                <Trash2 className="h-4 w-4 text-destructive" />
               </Button>
             </>
           )}
@@ -259,13 +350,23 @@ export default function PayRuns() {
     },
   ];
 
+  const totalStats = payRuns?.reduce(
+    (acc, pr) => ({
+      totalOrders: acc.totalOrders + pr.orderCount,
+      totalCommission: acc.totalCommission + parseFloat(pr.totalCommission),
+      draftCount: acc.draftCount + (pr.status === "DRAFT" ? 1 : 0),
+      finalizedCount: acc.finalizedCount + (pr.status === "FINALIZED" ? 1 : 0),
+    }),
+    { totalOrders: 0, totalCommission: 0, draftCount: 0, finalizedCount: 0 }
+  ) || { totalOrders: 0, totalCommission: 0, draftCount: 0, finalizedCount: 0 };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold">Pay Runs</h1>
           <p className="text-muted-foreground">
-            Manage weekly payment cycles
+            Manage payment cycles and link approved orders
           </p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="button-create-payrun">
@@ -274,13 +375,60 @@ export default function PayRuns() {
         </Button>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Total Pay Runs
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{payRuns?.length || 0}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              Total Orders
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{totalStats.totalOrders}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <DollarSign className="h-4 w-4" />
+              Total Commission
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">${totalStats.totalCommission.toFixed(2)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Lock className="h-4 w-4" />
+              Finalized
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{totalStats.finalizedCount} / {payRuns?.length || 0}</p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardContent className="pt-6">
           <DataTable
             columns={columns}
             data={payRuns || []}
             isLoading={isLoading}
-            emptyMessage="No pay runs yet"
+            emptyMessage="No pay runs yet. Create one to get started."
             testId="table-payruns"
           />
         </CardContent>
@@ -291,10 +439,19 @@ export default function PayRuns() {
           <DialogHeader>
             <DialogTitle>Create Pay Run</DialogTitle>
             <DialogDescription>
-              Create a new weekly pay run for payment processing.
+              Create a new pay run to group approved orders for payment processing.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Pay Run Name</Label>
+              <Input
+                placeholder="e.g., Week 2 January 2026"
+                value={payRunName}
+                onChange={(e) => setPayRunName(e.target.value)}
+                data-testid="input-payrun-name"
+              />
+            </div>
             <div className="space-y-2">
               <Label>Week Ending Date</Label>
               <Input
@@ -310,7 +467,7 @@ export default function PayRuns() {
               Cancel
             </Button>
             <Button
-              onClick={() => createMutation.mutate(weekEndingDate)}
+              onClick={() => createMutation.mutate({ name: payRunName, weekEndingDate })}
               disabled={!weekEndingDate || createMutation.isPending}
               data-testid="button-confirm-create-payrun"
             >
@@ -320,14 +477,44 @@ export default function PayRuns() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Pay Run</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this pay run? Any linked orders will be unlinked.
+            </DialogDescription>
+          </DialogHeader>
+          {payRunToDelete && (
+            <div className="py-4">
+              <p><strong>Name:</strong> {payRunToDelete.name || "Untitled"}</p>
+              <p><strong>Week Ending:</strong> {new Date(payRunToDelete.weekEndingDate).toLocaleDateString()}</p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => payRunToDelete && deleteMutation.mutate(payRunToDelete.id)}
+              disabled={deleteMutation.isPending}
+              data-testid="button-confirm-delete-payrun"
+            >
+              Delete Pay Run
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              Pay Run - Week Ending {selectedPayRun && new Date(selectedPayRun.weekEndingDate).toLocaleDateString()}
+              {selectedPayRun?.name || "Pay Run"} - Week Ending {selectedPayRun && new Date(selectedPayRun.weekEndingDate).toLocaleDateString()}
             </DialogTitle>
             <DialogDescription>
-              View pay run details and linked orders
+              View pay run details and manage linked orders
             </DialogDescription>
           </DialogHeader>
           {selectedPayRun && (
@@ -390,17 +577,59 @@ export default function PayRuns() {
               )}
 
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between gap-2">
                   <CardTitle className="text-base">Linked Orders</CardTitle>
+                  {selectedPayRun.status === "DRAFT" && unlinkOrderIds.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => unlinkOrdersMutation.mutate({ payRunId: selectedPayRun.id, orderIds: unlinkOrderIds })}
+                      disabled={unlinkOrdersMutation.isPending}
+                      data-testid="button-unlink-selected"
+                    >
+                      <Unlink className="h-4 w-4 mr-1" />
+                      Unlink Selected ({unlinkOrderIds.length})
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent>
-                  <DataTable
-                    columns={orderColumns}
-                    data={selectedPayRun.orders || []}
-                    isLoading={false}
-                    emptyMessage="No orders linked to this pay run"
-                    testId="table-payrun-orders"
-                  />
+                  {selectedPayRun.status === "DRAFT" ? (
+                    <div className="space-y-2">
+                      {selectedPayRun.orders.length === 0 ? (
+                        <p className="text-muted-foreground text-center py-4">No orders linked to this pay run</p>
+                      ) : (
+                        selectedPayRun.orders.map((order) => (
+                          <div 
+                            key={order.id} 
+                            className="flex items-center gap-4 p-3 border rounded-md hover-elevate cursor-pointer"
+                            onClick={() => toggleUnlinkSelection(order.id)}
+                          >
+                            <Checkbox 
+                              checked={unlinkOrderIds.includes(order.id)}
+                              onCheckedChange={() => toggleUnlinkSelection(order.id)}
+                              data-testid={`checkbox-unlink-${order.id}`}
+                            />
+                            <div className="flex-1 grid grid-cols-4 gap-2">
+                              <span className="font-mono text-sm">{order.invoiceNumber}</span>
+                              <span className="font-mono">{order.repId}</span>
+                              <span className="truncate">{order.customerName}</span>
+                              <span className="font-mono text-right">
+                                ${(parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned)).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  ) : (
+                    <DataTable
+                      columns={orderColumns}
+                      data={selectedPayRun.orders || []}
+                      isLoading={false}
+                      emptyMessage="No orders linked to this pay run"
+                      testId="table-payrun-orders"
+                    />
+                  )}
                 </CardContent>
               </Card>
             </div>

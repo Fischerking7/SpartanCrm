@@ -801,7 +801,10 @@ export const storage = {
 
   // Pay Runs
   async getPayRuns() {
-    return db.query.payRuns.findMany({ orderBy: [desc(payRuns.createdAt)] });
+    return db.query.payRuns.findMany({ 
+      where: isNull(payRuns.deletedAt),
+      orderBy: [desc(payRuns.createdAt)] 
+    });
   },
   async getPayRunById(id: string) {
     return db.query.payRuns.findFirst({ where: eq(payRuns.id, id) });
@@ -832,6 +835,9 @@ export const storage = {
       results.push(order);
     }
     return results;
+  },
+  async unlinkOrdersFromPayRun(payRunId: string) {
+    return db.update(salesOrders).set({ payRunId: null }).where(eq(salesOrders.payRunId, payRunId)).returning();
   },
 
   // Exception Queues

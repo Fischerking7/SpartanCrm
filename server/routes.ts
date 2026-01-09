@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
-import { users, providers, clients, services, rateCards } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -2186,13 +2186,43 @@ export async function registerRoutes(
 
   // Pay Runs
   app.get("/api/admin/payruns", auth, executiveOrAdmin, async (req, res) => {
-    try { res.json(await storage.getPayRuns()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+    try {
+      const payRuns = await storage.getPayRuns();
+      // Enrich with order counts and totals
+      const enriched = await Promise.all(payRuns.map(async (pr) => {
+        const orders = await storage.getOrdersByPayRunId(pr.id);
+        const totalCommission = orders.reduce((sum, o) => 
+          sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0
+        );
+        return {
+          ...pr,
+          orderCount: orders.length,
+          totalCommission: totalCommission.toFixed(2),
+        };
+      }));
+      res.json(enriched);
+    } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
   app.post("/api/admin/payruns", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const payRun = await storage.createPayRun({ ...req.body, createdByUserId: req.user!.id });
+      const { name, weekEndingDate } = req.body;
+      const payRun = await storage.createPayRun({ name, weekEndingDate, createdByUserId: req.user!.id });
       await storage.createAuditLog({ action: "create_payrun", tableName: "pay_runs", recordId: payRun.id, afterJson: JSON.stringify(payRun), userId: req.user!.id });
       res.json(payRun);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  app.delete("/api/admin/payruns/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (payRun.status === "FINALIZED") return res.status(400).json({ message: "Cannot delete finalized pay runs" });
+      
+      // Unlink any orders first
+      await storage.unlinkOrdersFromPayRun(req.params.id);
+      // Soft delete
+      await storage.updatePayRun(req.params.id, { deletedAt: new Date() });
+      await storage.createAuditLog({ action: "delete_payrun", tableName: "pay_runs", recordId: req.params.id, userId: req.user!.id });
+      res.json({ success: true });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
   app.post("/api/admin/payruns/:id/finalize", auth, adminOnly, async (req: AuthRequest, res) => {
@@ -2251,6 +2281,30 @@ export async function registerRoutes(
         userId: req.user!.id 
       });
       res.json({ linked: orders.length });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+  
+  app.post("/api/admin/payruns/:id/unlink-orders", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { orderIds } = req.body;
+      if (!orderIds?.length) return res.status(400).json({ message: "No orders to unlink" });
+      
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (payRun.status === "FINALIZED") return res.status(400).json({ message: "Cannot unlink from finalized pay runs" });
+      
+      // Unlink each order
+      for (const orderId of orderIds) {
+        await db.update(salesOrders).set({ payRunId: null }).where(eq(salesOrders.id, orderId));
+      }
+      await storage.createAuditLog({ 
+        action: "unlink_orders_from_payrun", 
+        tableName: "pay_runs", 
+        recordId: req.params.id, 
+        afterJson: JSON.stringify({ orderIds }), 
+        userId: req.user!.id 
+      });
+      res.json({ unlinked: orderIds.length });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 

@@ -134,11 +134,13 @@ export const exportBatches = pgTable("export_batches", {
 // Pay Runs table
 export const payRuns = pgTable("pay_runs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  weekEndingDate: date("week_ending_date").notNull().unique(),
+  name: text("name"),
+  weekEndingDate: date("week_ending_date").notNull(),
   status: payRunStatusEnum("status").notNull().default("DRAFT"),
   createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   finalizedAt: timestamp("finalized_at"),
+  deletedAt: timestamp("deleted_at"),
 });
 
 // Sales Orders table
