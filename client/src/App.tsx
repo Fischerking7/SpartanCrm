@@ -39,6 +39,8 @@ import Reports from "@/pages/reports";
 import Recalculate from "@/pages/recalculate";
 import Knowledge from "@/pages/knowledge";
 import MyPayHistory from "@/pages/my-pay-history";
+import CommissionForecast from "@/pages/commission-forecast";
+import NotificationSettings from "@/pages/notification-settings";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -155,6 +157,8 @@ function Router() {
         <Route path="/adjustments" component={Adjustments} />
         <Route path="/knowledge" component={Knowledge} />
         <Route path="/my-pay" component={MyPayHistory} />
+        <Route path="/commission-forecast" component={CommissionForecast} />
+        <Route path="/notification-settings" component={NotificationSettings} />
         <Route path="/change-password" component={ChangePassword} />
         
         {canViewReports && <Route path="/reports" component={Reports} />}

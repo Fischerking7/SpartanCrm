@@ -41,6 +41,8 @@ import {
   Wallet,
   TrendingUp,
   Cog,
+  Bell,
+  Target,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -52,9 +54,11 @@ const repMenuItems: MenuItem[] = [
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
+  { title: "Notifications", url: "/notification-settings", icon: Bell },
 ];
 
 const salesLeaderMenuItems: MenuItem[] = [
@@ -62,10 +66,12 @@ const salesLeaderMenuItems: MenuItem[] = [
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
+  { title: "Notifications", url: "/notification-settings", icon: Bell },
 ];
 
 const executiveMenuItems: MenuItem[] = [
@@ -108,7 +114,9 @@ const adminInsights: MenuItem[] = [
 const adminPersonal: MenuItem[] = [
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
+  { title: "Notifications", url: "/notification-settings", icon: Bell },
 ];
 
 const adminResources: MenuItem[] = [

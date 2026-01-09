@@ -1274,6 +1274,76 @@ export const commissionForecasts = pgTable("commission_forecasts", {
 
 export type CommissionForecast = typeof commissionForecasts.$inferSelect;
 
+// Email Notifications
+export const notificationTypeEnum = pgEnum("notification_type", [
+  "ORDER_SUBMITTED",
+  "ORDER_APPROVED",
+  "ORDER_REJECTED",
+  "PAY_RUN_FINALIZED",
+  "CHARGEBACK_APPLIED",
+  "ADVANCE_APPROVED",
+  "ADVANCE_REJECTED",
+  "PASSWORD_RESET",
+  "GENERAL"
+]);
+
+export const notificationStatusEnum = pgEnum("notification_status", [
+  "PENDING",
+  "SENT",
+  "FAILED",
+  "SKIPPED"
+]);
+
+export const emailNotifications = pgTable("email_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  notificationType: notificationTypeEnum("notification_type").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  recipientEmail: text("recipient_email").notNull(),
+  status: notificationStatusEnum("status").notNull().default("PENDING"),
+  relatedEntityType: text("related_entity_type"), // ORDER, PAY_RUN, CHARGEBACK, etc.
+  relatedEntityId: varchar("related_entity_id"),
+  sentAt: timestamp("sent_at"),
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type EmailNotification = typeof emailNotifications.$inferSelect;
+export type InsertEmailNotification = typeof emailNotifications.$inferInsert;
+
+// Notification Preferences
+export const notificationPreferences = pgTable("notification_preferences", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull().unique(),
+  emailOrderApproved: boolean("email_order_approved").notNull().default(true),
+  emailOrderRejected: boolean("email_order_rejected").notNull().default(true),
+  emailPayRunFinalized: boolean("email_pay_run_finalized").notNull().default(true),
+  emailChargebackApplied: boolean("email_chargeback_applied").notNull().default(true),
+  emailAdvanceUpdates: boolean("email_advance_updates").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type InsertNotificationPreference = typeof notificationPreferences.$inferInsert;
+
+// Background Job Log (for scheduled tasks)
+export const backgroundJobs = pgTable("background_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobType: text("job_type").notNull(), // SCHEDULED_PAY_RUN, CHARGEBACK_PROCESSOR, NOTIFICATION_SENDER
+  status: text("status").notNull().default("PENDING"), // PENDING, RUNNING, COMPLETED, FAILED
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  result: text("result"),
+  errorMessage: text("error_message"),
+  metadata: text("metadata"), // JSON string for job-specific data
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BackgroundJob = typeof backgroundJobs.$inferSelect;
+
 // Login schema
 export const loginSchema = z.object({
   repId: z.string().min(1, "Rep ID is required"),

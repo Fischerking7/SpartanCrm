@@ -190,6 +190,22 @@ RESTful endpoints with JWT authentication middleware. All sensitive operations c
 - **react-hook-form**: Form state management
 - **zod**: Runtime type validation and schema definition
 
+### Automation & Notifications (January 2026)
+- **Background Scheduler**: Runs on server startup, handles automated tasks at intervals
+  - Scheduled Pay Run Creation: Auto-creates pay runs based on payroll schedules (checked every minute)
+  - Chargeback Auto-Matching: Retries unmatched chargebacks against orders (every 5 minutes)
+  - Email Notification Sender: Processes pending notification queue (every minute)
+- **Commission Forecasting**: Calculates projected earnings based on pending orders and historical trends
+  - Available for all users via `/api/commission-forecast`
+  - Admin-level team forecasts via `/api/admin/commission-forecast`
+- **Email Notifications**: Queue-based notification system
+  - Notification types: Order approved/rejected, pay run finalized, chargeback applied, advance updates
+  - User preferences stored in `notification_preferences` table
+  - Supports SMTP configuration via environment variables (SMTP_HOST, SMTP_USER, SMTP_PASSWORD)
+- **Scheduled Pay Runs**: Auto-create pay runs on recurring schedules
+  - Frequencies: Weekly, Bi-weekly, Semi-monthly, Monthly
+  - Auto-link orders option to automatically attach eligible orders
+
 ### Security Features (January 2026)
 - **Rate Limiting**: Auth endpoints (login, password reset) limited to 10 attempts per 15 minutes per IP
 - **File Upload Validation**: 10MB max file size, file type whitelist (xlsx, xls, csv), 10k row limit
@@ -206,3 +222,6 @@ RESTful endpoints with JWT authentication middleware. All sensitive operations c
 - `QB_CLIENT_SECRET`: QuickBooks OAuth client secret (required for QB integration)
 - `QB_REDIRECT_URI`: QuickBooks OAuth callback URL (optional, defaults to app URL)
 - `QB_ENVIRONMENT`: QuickBooks environment - "sandbox" or "production" (defaults to sandbox)
+- `SMTP_HOST`: SMTP server hostname (optional - for email notifications)
+- `SMTP_USER`: SMTP username (optional - for email notifications)
+- `SMTP_PASSWORD`: SMTP password (optional - for email notifications)

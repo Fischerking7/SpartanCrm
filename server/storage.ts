@@ -14,6 +14,7 @@ import {
   splitCommissionAgreements, splitCommissionRecipients, splitCommissionLedger,
   commissionTiers, commissionTierLevels, repTierAssignments, repVolumeTracking,
   scheduledPayRuns, commissionForecasts,
+  emailNotifications, notificationPreferences, backgroundJobs,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -48,6 +49,9 @@ import {
   type CommissionTierLevel, type RepTierAssignment, type RepVolumeTracking,
   type ScheduledPayRun, type InsertScheduledPayRun,
   type CommissionForecast,
+  type EmailNotification, type InsertEmailNotification,
+  type NotificationPreference, type InsertNotificationPreference,
+  type BackgroundJob,
 } from "@shared/schema";
 
 export const storage = {
@@ -3002,5 +3006,87 @@ export const storage = {
       historicalAverage: historicalResult[0]?.avgCommission || "0",
       projectedOrders: Math.round(parseFloat(historicalResult[0]?.avgOrders || "0")),
     };
+  },
+
+  // Email Notifications
+  async getEmailNotifications(filters?: { userId?: string; status?: string }) {
+    const conditions = [];
+    if (filters?.userId) conditions.push(eq(emailNotifications.userId, filters.userId));
+    if (filters?.status) conditions.push(eq(emailNotifications.status, filters.status as any));
+    
+    return db.select().from(emailNotifications)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(emailNotifications.createdAt));
+  },
+  async getPendingNotifications(limit = 50) {
+    return db.select().from(emailNotifications)
+      .where(eq(emailNotifications.status, "PENDING"))
+      .orderBy(emailNotifications.createdAt)
+      .limit(limit);
+  },
+  async createEmailNotification(data: Omit<InsertEmailNotification, "id" | "createdAt">) {
+    const [notification] = await db.insert(emailNotifications).values(data).returning();
+    return notification;
+  },
+  async updateEmailNotification(id: string, data: { status?: string; sentAt?: Date; errorMessage?: string; retryCount?: number }) {
+    const [notification] = await db.update(emailNotifications)
+      .set(data as any)
+      .where(eq(emailNotifications.id, id))
+      .returning();
+    return notification;
+  },
+
+  // Notification Preferences
+  async getNotificationPreferences(userId: string) {
+    return db.query.notificationPreferences.findFirst({
+      where: eq(notificationPreferences.userId, userId),
+    });
+  },
+  async upsertNotificationPreferences(userId: string, data: Partial<InsertNotificationPreference>) {
+    const existing = await db.query.notificationPreferences.findFirst({
+      where: eq(notificationPreferences.userId, userId),
+    });
+    
+    if (existing) {
+      const [updated] = await db.update(notificationPreferences)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(notificationPreferences.userId, userId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(notificationPreferences)
+        .values({ userId, ...data } as any)
+        .returning();
+      return created;
+    }
+  },
+
+  // Background Jobs
+  async createBackgroundJob(data: { jobType: string; metadata?: string }) {
+    const [job] = await db.insert(backgroundJobs).values(data).returning();
+    return job;
+  },
+  async updateBackgroundJob(id: string, data: { status?: string; startedAt?: Date; completedAt?: Date; result?: string; errorMessage?: string }) {
+    const [job] = await db.update(backgroundJobs)
+      .set(data)
+      .where(eq(backgroundJobs.id, id))
+      .returning();
+    return job;
+  },
+  async getRecentBackgroundJobs(jobType?: string, limit = 20) {
+    const conditions = [];
+    if (jobType) conditions.push(eq(backgroundJobs.jobType, jobType));
+    
+    return db.select().from(backgroundJobs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(backgroundJobs.createdAt))
+      .limit(limit);
+  },
+
+  // Unmatched Chargebacks helpers
+  async getUnresolvedUnmatchedChargebacks() {
+    return db.query.unmatchedChargebacks.findMany({
+      where: isNull(unmatchedChargebacks.resolvedAt),
+    });
   },
 };

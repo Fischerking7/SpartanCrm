@@ -7256,5 +7256,407 @@ export async function registerRoutes(
     }
   });
 
+  // =====================================================
+  // COMMISSION FORECASTING ENDPOINTS
+  // =====================================================
+
+  // Get commission forecast for current user
+  app.get("/api/commission-forecast", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const period = (req.query.period as string) || "MONTH";
+      
+      const now = new Date();
+      let periodStart: Date;
+      let periodEnd: Date = now;
+      
+      switch (period) {
+        case "WEEK":
+          periodStart = new Date(now);
+          periodStart.setDate(periodStart.getDate() - 7);
+          break;
+        case "QUARTER":
+          periodStart = new Date(now);
+          periodStart.setMonth(periodStart.getMonth() - 3);
+          break;
+        case "MONTH":
+        default:
+          periodStart = new Date(now);
+          periodStart.setMonth(periodStart.getMonth() - 1);
+          break;
+      }
+      
+      const forecast = await storage.calculateCommissionForecast(
+        user.id,
+        period,
+        periodStart.toISOString().split("T")[0],
+        periodEnd.toISOString().split("T")[0]
+      );
+      
+      // Calculate projected commission based on historical average and pending
+      const projectedCommission = (
+        parseFloat(forecast.pendingCommission) + 
+        (parseFloat(forecast.historicalAverage) * forecast.projectedOrders)
+      ).toFixed(2);
+      
+      // Confidence score based on data availability
+      const hasHistory = parseFloat(forecast.historicalAverage) > 0;
+      const confidenceScore = hasHistory ? 75 : 40;
+      
+      res.json({
+        period: {
+          type: period,
+          start: periodStart.toISOString().split("T")[0],
+          end: periodEnd.toISOString().split("T")[0],
+        },
+        pending: {
+          orders: forecast.pendingOrders,
+          commission: forecast.pendingCommission,
+        },
+        projected: {
+          orders: forecast.projectedOrders,
+          commission: projectedCommission,
+        },
+        historical: {
+          averageCommission: forecast.historicalAverage,
+        },
+        confidenceScore,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin: Get company-wide or team forecasts
+  app.get("/api/admin/commission-forecast", auth, managerOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const period = (req.query.period as string) || "MONTH";
+      const repId = req.query.repId as string | undefined;
+      
+      const now = new Date();
+      let periodStart: Date;
+      
+      switch (period) {
+        case "WEEK":
+          periodStart = new Date(now);
+          periodStart.setDate(periodStart.getDate() - 7);
+          break;
+        case "QUARTER":
+          periodStart = new Date(now);
+          periodStart.setMonth(periodStart.getMonth() - 3);
+          break;
+        case "MONTH":
+        default:
+          periodStart = new Date(now);
+          periodStart.setMonth(periodStart.getMonth() - 1);
+          break;
+      }
+      
+      // Get scoped users based on role
+      let scopedUsers: any[] = [];
+      const allUsers = await storage.getActiveUsers();
+      
+      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+        scopedUsers = allUsers.filter(u => ["REP", "SUPERVISOR"].includes(u.role));
+      } else if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        scopedUsers = allUsers.filter(u => scope.allRepRepIds.includes(u.repId));
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        const teamRepIds = [...scope.directRepIds, ...scope.indirectRepIds];
+        scopedUsers = allUsers.filter(u => teamRepIds.includes(u.repId));
+      }
+      
+      // Filter to specific rep if requested
+      if (repId) {
+        scopedUsers = scopedUsers.filter(u => u.repId === repId);
+      }
+      
+      // Calculate forecasts for each rep
+      const forecasts = await Promise.all(scopedUsers.map(async (rep) => {
+        const forecast = await storage.calculateCommissionForecast(
+          rep.id,
+          period,
+          periodStart.toISOString().split("T")[0],
+          now.toISOString().split("T")[0]
+        );
+        
+        const projectedCommission = (
+          parseFloat(forecast.pendingCommission) + 
+          (parseFloat(forecast.historicalAverage) * forecast.projectedOrders)
+        ).toFixed(2);
+        
+        return {
+          repId: rep.repId,
+          repName: rep.name,
+          pendingOrders: forecast.pendingOrders,
+          pendingCommission: forecast.pendingCommission,
+          projectedOrders: forecast.projectedOrders,
+          projectedCommission,
+          historicalAverage: forecast.historicalAverage,
+        };
+      }));
+      
+      // Company totals
+      const totals = {
+        pendingOrders: forecasts.reduce((sum, f) => sum + f.pendingOrders, 0),
+        pendingCommission: forecasts.reduce((sum, f) => sum + parseFloat(f.pendingCommission), 0).toFixed(2),
+        projectedOrders: forecasts.reduce((sum, f) => sum + f.projectedOrders, 0),
+        projectedCommission: forecasts.reduce((sum, f) => sum + parseFloat(f.projectedCommission), 0).toFixed(2),
+      };
+      
+      res.json({
+        period: {
+          type: period,
+          start: periodStart.toISOString().split("T")[0],
+          end: now.toISOString().split("T")[0],
+        },
+        totals,
+        byRep: forecasts.sort((a, b) => parseFloat(b.projectedCommission) - parseFloat(a.projectedCommission)),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // =====================================================
+  // SCHEDULED PAY RUNS ENDPOINTS
+  // =====================================================
+
+  // Get all scheduled pay runs
+  app.get("/api/admin/scheduled-pay-runs", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const schedules = await storage.getScheduledPayRuns();
+      res.json(schedules);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create scheduled pay run
+  app.post("/api/admin/scheduled-pay-runs", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { name, frequency, dayOfWeek, dayOfMonth, secondDayOfMonth, autoCreatePayRun, autoLinkOrders } = req.body;
+      
+      // Calculate next run date
+      const nextRunAt = calculateNextRunFromNow(frequency, dayOfWeek, dayOfMonth);
+      
+      const schedule = await storage.createScheduledPayRun({
+        name,
+        frequency,
+        dayOfWeek: dayOfWeek ?? null,
+        dayOfMonth: dayOfMonth ?? null,
+        secondDayOfMonth: secondDayOfMonth ?? null,
+        isActive: true,
+        autoCreatePayRun: autoCreatePayRun ?? true,
+        autoLinkOrders: autoLinkOrders ?? true,
+        createdByUserId: user.id,
+        nextRunAt,
+      });
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "SCHEDULED_PAY_RUN_CREATED",
+        tableName: "scheduled_pay_runs",
+        recordId: schedule.id,
+        afterJson: JSON.stringify({ name, frequency, dayOfWeek, dayOfMonth }),
+      });
+      
+      res.json(schedule);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update scheduled pay run
+  app.patch("/api/admin/scheduled-pay-runs/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { name, frequency, dayOfWeek, dayOfMonth, secondDayOfMonth, isActive, autoCreatePayRun, autoLinkOrders } = req.body;
+      
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (frequency !== undefined) updates.frequency = frequency;
+      if (dayOfWeek !== undefined) updates.dayOfWeek = dayOfWeek;
+      if (dayOfMonth !== undefined) updates.dayOfMonth = dayOfMonth;
+      if (secondDayOfMonth !== undefined) updates.secondDayOfMonth = secondDayOfMonth;
+      if (isActive !== undefined) updates.isActive = isActive;
+      if (autoCreatePayRun !== undefined) updates.autoCreatePayRun = autoCreatePayRun;
+      if (autoLinkOrders !== undefined) updates.autoLinkOrders = autoLinkOrders;
+      
+      // Recalculate next run if frequency changed
+      if (frequency !== undefined) {
+        updates.nextRunAt = calculateNextRunFromNow(frequency, dayOfWeek, dayOfMonth);
+      }
+      
+      const schedule = await storage.updateScheduledPayRun(id, updates);
+      res.json(schedule);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete scheduled pay run
+  app.delete("/api/admin/scheduled-pay-runs/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteScheduledPayRun(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Manually trigger scheduled pay run check
+  app.post("/api/admin/scheduled-pay-runs/trigger", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { scheduler } = await import("./scheduler");
+      await scheduler.checkScheduledPayRuns();
+      res.json({ success: true, message: "Scheduled pay run check triggered" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // =====================================================
+  // BACKGROUND JOBS & CHARGEBACK PROCESSING
+  // =====================================================
+
+  // Get recent background jobs
+  app.get("/api/admin/background-jobs", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const jobType = req.query.type as string | undefined;
+      const jobs = await storage.getRecentBackgroundJobs(jobType, 50);
+      res.json(jobs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Manually trigger chargeback processing
+  app.post("/api/admin/chargebacks/process", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { scheduler } = await import("./scheduler");
+      await scheduler.processChargebacks();
+      res.json({ success: true, message: "Chargeback processing triggered" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // =====================================================
+  // NOTIFICATION ENDPOINTS
+  // =====================================================
+
+  // Get user's notification preferences
+  app.get("/api/notification-preferences", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      let prefs = await storage.getNotificationPreferences(user.id);
+      
+      // Return defaults if no preferences exist
+      if (!prefs) {
+        prefs = {
+          id: "",
+          userId: user.id,
+          emailOrderApproved: true,
+          emailOrderRejected: true,
+          emailPayRunFinalized: true,
+          emailChargebackApplied: true,
+          emailAdvanceUpdates: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      }
+      
+      res.json(prefs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update notification preferences
+  app.patch("/api/notification-preferences", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { emailOrderApproved, emailOrderRejected, emailPayRunFinalized, emailChargebackApplied, emailAdvanceUpdates } = req.body;
+      
+      const updates: any = {};
+      if (emailOrderApproved !== undefined) updates.emailOrderApproved = emailOrderApproved;
+      if (emailOrderRejected !== undefined) updates.emailOrderRejected = emailOrderRejected;
+      if (emailPayRunFinalized !== undefined) updates.emailPayRunFinalized = emailPayRunFinalized;
+      if (emailChargebackApplied !== undefined) updates.emailChargebackApplied = emailChargebackApplied;
+      if (emailAdvanceUpdates !== undefined) updates.emailAdvanceUpdates = emailAdvanceUpdates;
+      
+      const prefs = await storage.upsertNotificationPreferences(user.id, updates);
+      res.json(prefs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin: Get notification logs
+  app.get("/api/admin/notifications", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const notifications = await storage.getEmailNotifications({ status });
+      res.json(notifications);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin: Manually trigger notification sending
+  app.post("/api/admin/notifications/send", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { emailService } = await import("./email");
+      const results = await emailService.sendPendingEmails();
+      res.json({ success: true, ...results });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
+}
+
+// Helper function for scheduled pay runs
+function calculateNextRunFromNow(frequency: string, dayOfWeek?: number | null, dayOfMonth?: number | null): Date {
+  const now = new Date();
+  let next = new Date(now);
+  
+  switch (frequency) {
+    case "WEEKLY":
+      next.setDate(next.getDate() + 7);
+      if (dayOfWeek !== null && dayOfWeek !== undefined) {
+        const currentDay = next.getDay();
+        const daysUntil = (dayOfWeek - currentDay + 7) % 7;
+        if (daysUntil === 0) next.setDate(next.getDate() + 7);
+        else next.setDate(next.getDate() + daysUntil);
+      }
+      break;
+    case "BIWEEKLY":
+      next.setDate(next.getDate() + 14);
+      break;
+    case "SEMIMONTHLY":
+      if (now.getDate() < 15) {
+        next.setDate(15);
+      } else {
+        next.setMonth(next.getMonth() + 1);
+        next.setDate(1);
+      }
+      break;
+    case "MONTHLY":
+    default:
+      next.setMonth(next.getMonth() + 1);
+      if (dayOfMonth !== null && dayOfMonth !== undefined) {
+        const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+        next.setDate(Math.min(dayOfMonth, lastDay));
+      }
+      break;
+  }
+  
+  return next;
 }
