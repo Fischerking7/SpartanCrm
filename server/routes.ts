@@ -7619,30 +7619,80 @@ export async function registerRoutes(
     }
   });
 
-  // ========== Employee Credentials ==========
+  // ========== Employee Credentials (Multi-Entry) ==========
 
-  // Get current user's credentials
+  // Get current user's all credential entries
   app.get("/api/my-credentials", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      const credentials = await storage.getEmployeeCredentials(user.id);
-      res.json(credentials || null);
+      const credentials = await storage.getEmployeeCredentialsByUser(user.id);
+      res.json(credentials);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  // Update current user's credentials
-  app.patch("/api/my-credentials", auth, async (req: AuthRequest, res) => {
+  // Create new credential entry for current user
+  app.post("/api/my-credentials", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
       const {
-        peopleSoftNumber, networkId, tempPassword, workEmail, rtr, rtrPassword,
+        entryLabel, peopleSoftNumber, networkId, tempPassword, workEmail, rtr, rtrPassword,
+        authenticatorUsername, authenticatorPassword, ipadPin, deviceNumber,
+        gmail, gmailPassword, notes
+      } = req.body;
+
+      const data: any = { entryLabel: entryLabel || "Primary" };
+      if (peopleSoftNumber !== undefined) data.peopleSoftNumber = peopleSoftNumber;
+      if (networkId !== undefined) data.networkId = networkId;
+      if (tempPassword !== undefined) data.tempPassword = tempPassword;
+      if (workEmail !== undefined) data.workEmail = workEmail;
+      if (rtr !== undefined) data.rtr = rtr;
+      if (rtrPassword !== undefined) data.rtrPassword = rtrPassword;
+      if (authenticatorUsername !== undefined) data.authenticatorUsername = authenticatorUsername;
+      if (authenticatorPassword !== undefined) data.authenticatorPassword = authenticatorPassword;
+      if (ipadPin !== undefined) data.ipadPin = ipadPin;
+      if (deviceNumber !== undefined) data.deviceNumber = deviceNumber;
+      if (gmail !== undefined) data.gmail = gmail;
+      if (gmailPassword !== undefined) data.gmailPassword = gmailPassword;
+      if (notes !== undefined) data.notes = notes;
+
+      const credentials = await storage.createEmployeeCredential(user.id, data, user.id);
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "CREATE",
+        tableName: "employee_credentials",
+        recordId: credentials.id,
+        afterJson: JSON.stringify({ entryLabel: data.entryLabel }),
+      });
+
+      res.json(credentials);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update specific credential entry for current user
+  app.patch("/api/my-credentials/:credentialId", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { credentialId } = req.params;
+
+      // Verify ownership
+      const existing = await storage.getEmployeeCredentialById(credentialId);
+      if (!existing || existing.userId !== user.id) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+
+      const {
+        entryLabel, peopleSoftNumber, networkId, tempPassword, workEmail, rtr, rtrPassword,
         authenticatorUsername, authenticatorPassword, ipadPin, deviceNumber,
         gmail, gmailPassword, notes
       } = req.body;
 
       const updates: any = {};
+      if (entryLabel !== undefined) updates.entryLabel = entryLabel;
       if (peopleSoftNumber !== undefined) updates.peopleSoftNumber = peopleSoftNumber;
       if (networkId !== undefined) updates.networkId = networkId;
       if (tempPassword !== undefined) updates.tempPassword = tempPassword;
@@ -7657,17 +7707,47 @@ export async function registerRoutes(
       if (gmailPassword !== undefined) updates.gmailPassword = gmailPassword;
       if (notes !== undefined) updates.notes = notes;
 
-      const credentials = await storage.upsertEmployeeCredentials(user.id, updates, user.id);
+      const credentials = await storage.updateEmployeeCredential(credentialId, updates, user.id);
       
       await storage.createAuditLog({
         userId: user.id,
         action: "UPDATE",
         tableName: "employee_credentials",
-        recordId: credentials.id,
+        recordId: credentialId,
         afterJson: JSON.stringify({ fields: Object.keys(updates) }),
       });
 
       res.json(credentials);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete specific credential entry for current user
+  app.delete("/api/my-credentials/:credentialId", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { credentialId } = req.params;
+
+      // Verify ownership
+      const existing = await storage.getEmployeeCredentialById(credentialId);
+      if (!existing || existing.userId !== user.id) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+
+      const deleted = await storage.deleteEmployeeCredential(credentialId);
+      
+      if (deleted) {
+        await storage.createAuditLog({
+          userId: user.id,
+          action: "DELETE",
+          tableName: "employee_credentials",
+          recordId: credentialId,
+          beforeJson: JSON.stringify({ entryLabel: deleted.entryLabel }),
+        });
+      }
+
+      res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -7688,8 +7768,8 @@ export async function registerRoutes(
     }
   });
 
-  // Admin/Executive: Get specific user's credentials
-  app.get("/api/admin/employee-credentials/:userId", auth, async (req: AuthRequest, res) => {
+  // Admin/Executive: Get specific user's credentials (all entries)
+  app.get("/api/admin/employee-credentials/user/:userId", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
       if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
@@ -7702,15 +7782,15 @@ export async function registerRoutes(
         return res.status(404).json({ message: "User not found" });
       }
 
-      const credentials = await storage.getEmployeeCredentials(userId);
-      res.json({ user: targetUser, credentials: credentials || null });
+      const credentials = await storage.getEmployeeCredentialsByUser(userId);
+      res.json({ user: targetUser, credentials });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  // Admin/Executive: Update any user's credentials
-  app.patch("/api/admin/employee-credentials/:userId", auth, async (req: AuthRequest, res) => {
+  // Admin/Executive: Create new credential entry for any user
+  app.post("/api/admin/employee-credentials/user/:userId", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
       if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
@@ -7724,12 +7804,64 @@ export async function registerRoutes(
       }
 
       const {
-        peopleSoftNumber, networkId, tempPassword, workEmail, rtr, rtrPassword,
+        entryLabel, peopleSoftNumber, networkId, tempPassword, workEmail, rtr, rtrPassword,
+        authenticatorUsername, authenticatorPassword, ipadPin, deviceNumber,
+        gmail, gmailPassword, notes
+      } = req.body;
+
+      const data: any = { entryLabel: entryLabel || "Primary" };
+      if (peopleSoftNumber !== undefined) data.peopleSoftNumber = peopleSoftNumber;
+      if (networkId !== undefined) data.networkId = networkId;
+      if (tempPassword !== undefined) data.tempPassword = tempPassword;
+      if (workEmail !== undefined) data.workEmail = workEmail;
+      if (rtr !== undefined) data.rtr = rtr;
+      if (rtrPassword !== undefined) data.rtrPassword = rtrPassword;
+      if (authenticatorUsername !== undefined) data.authenticatorUsername = authenticatorUsername;
+      if (authenticatorPassword !== undefined) data.authenticatorPassword = authenticatorPassword;
+      if (ipadPin !== undefined) data.ipadPin = ipadPin;
+      if (deviceNumber !== undefined) data.deviceNumber = deviceNumber;
+      if (gmail !== undefined) data.gmail = gmail;
+      if (gmailPassword !== undefined) data.gmailPassword = gmailPassword;
+      if (notes !== undefined) data.notes = notes;
+
+      const credentials = await storage.createEmployeeCredential(userId, data, user.id);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "CREATE",
+        tableName: "employee_credentials",
+        recordId: credentials.id,
+        afterJson: JSON.stringify({ targetUserId: userId, entryLabel: data.entryLabel }),
+      });
+
+      res.json(credentials);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin/Executive: Update specific credential entry
+  app.patch("/api/admin/employee-credentials/:credentialId", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const { credentialId } = req.params;
+      const existing = await storage.getEmployeeCredentialById(credentialId);
+      if (!existing) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+
+      const {
+        entryLabel, peopleSoftNumber, networkId, tempPassword, workEmail, rtr, rtrPassword,
         authenticatorUsername, authenticatorPassword, ipadPin, deviceNumber,
         gmail, gmailPassword, notes
       } = req.body;
 
       const updates: any = {};
+      if (entryLabel !== undefined) updates.entryLabel = entryLabel;
       if (peopleSoftNumber !== undefined) updates.peopleSoftNumber = peopleSoftNumber;
       if (networkId !== undefined) updates.networkId = networkId;
       if (tempPassword !== undefined) updates.tempPassword = tempPassword;
@@ -7744,14 +7876,14 @@ export async function registerRoutes(
       if (gmailPassword !== undefined) updates.gmailPassword = gmailPassword;
       if (notes !== undefined) updates.notes = notes;
 
-      const credentials = await storage.upsertEmployeeCredentials(userId, updates, user.id);
+      const credentials = await storage.updateEmployeeCredential(credentialId, updates, user.id);
 
       await storage.createAuditLog({
         userId: user.id,
         action: "UPDATE",
         tableName: "employee_credentials",
-        recordId: credentials.id,
-        afterJson: JSON.stringify({ targetUserId: userId, fields: Object.keys(updates) }),
+        recordId: credentialId,
+        afterJson: JSON.stringify({ targetUserId: existing.userId, fields: Object.keys(updates) }),
       });
 
       res.json(credentials);
@@ -7760,24 +7892,29 @@ export async function registerRoutes(
     }
   });
 
-  // Admin/Executive: Delete user's credentials
-  app.delete("/api/admin/employee-credentials/:userId", auth, async (req: AuthRequest, res) => {
+  // Admin/Executive: Delete specific credential entry
+  app.delete("/api/admin/employee-credentials/:credentialId", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
       if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
-      const { userId } = req.params;
-      const deleted = await storage.deleteEmployeeCredentials(userId);
+      const { credentialId } = req.params;
+      const existing = await storage.getEmployeeCredentialById(credentialId);
+      if (!existing) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+
+      const deleted = await storage.deleteEmployeeCredential(credentialId);
       
       if (deleted) {
         await storage.createAuditLog({
           userId: user.id,
           action: "DELETE",
           tableName: "employee_credentials",
-          recordId: deleted.id,
-          beforeJson: JSON.stringify({ targetUserId: userId }),
+          recordId: credentialId,
+          beforeJson: JSON.stringify({ targetUserId: deleted.userId, entryLabel: deleted.entryLabel }),
         });
       }
 
