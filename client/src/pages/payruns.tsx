@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink } from "lucide-react";
+import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import type { PayRun, SalesOrder } from "@shared/schema";
 
 interface EnrichedPayRun extends PayRun {
@@ -28,18 +29,35 @@ interface PayRunDetails extends PayRun {
   };
 }
 
+interface VarianceReport {
+  payRunId: string;
+  status: string;
+  orderCount: number;
+  statementCount: number;
+  totalGross: string;
+  totalDeductions: string;
+  totalNetPay: string;
+  issues: string[];
+  canFinalize: boolean;
+  repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; hasNegative: boolean }[];
+}
+
 export default function PayRuns() {
   const { toast } = useToast();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showVarianceDialog, setShowVarianceDialog] = useState(false);
+  const [varianceReport, setVarianceReport] = useState<VarianceReport | null>(null);
+  const [varianceLoading, setVarianceLoading] = useState(false);
   const [selectedPayRun, setSelectedPayRun] = useState<PayRunDetails | null>(null);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [unlinkOrderIds, setUnlinkOrderIds] = useState<string[]>([]);
   const [weekEndingDate, setWeekEndingDate] = useState("");
   const [payRunName, setPayRunName] = useState("");
   const [payRunToDelete, setPayRunToDelete] = useState<PayRun | null>(null);
+  const [variancePayRunId, setVariancePayRunId] = useState<string | null>(null);
 
   const { data: payRuns, isLoading } = useQuery<EnrichedPayRun[]>({
     queryKey: ["/api/admin/payruns"],
@@ -128,6 +146,106 @@ export default function PayRuns() {
       toast({ title: "Failed to finalize", description: error.message, variant: "destructive" });
     },
   });
+
+  const submitReviewMutation = useMutation({
+    mutationFn: async (payRunId: string) => {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/submit-review`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to submit for review");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      toast({ title: "Pay run submitted for review" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to submit", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const submitApprovalMutation = useMutation({
+    mutationFn: async (payRunId: string) => {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/submit-approval`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to submit for approval");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      toast({ title: "Pay run submitted for approval" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to submit", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (payRunId: string) => {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/approve`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to approve");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      toast({ title: "Pay run approved" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to approve", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (payRunId: string) => {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/reject`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to reject");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      toast({ title: "Pay run rejected and returned to draft" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to reject", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const fetchVarianceReport = async (payRunId: string) => {
+    setVarianceLoading(true);
+    setVariancePayRunId(payRunId);
+    try {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/variance`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch variance report");
+      const report = await res.json();
+      setVarianceReport(report);
+      setShowVarianceDialog(true);
+    } catch (error) {
+      toast({ title: "Failed to load variance report", variant: "destructive" });
+    } finally {
+      setVarianceLoading(false);
+    }
+  };
 
   const linkOrdersMutation = useMutation({
     mutationFn: async ({ payRunId, orderIds }: { payRunId: string; orderIds: string[] }) => {
@@ -255,15 +373,22 @@ export default function PayRuns() {
     {
       key: "status",
       header: "Status",
-      cell: (row: EnrichedPayRun) => (
-        <Badge variant={row.status === "FINALIZED" ? "default" : "secondary"}>
-          {row.status === "FINALIZED" ? (
-            <><Lock className="h-3 w-3 mr-1" />Finalized</>
-          ) : (
-            <>Draft</>
-          )}
-        </Badge>
-      ),
+      cell: (row: EnrichedPayRun) => {
+        const statusConfig: Record<string, { variant: "default" | "secondary" | "outline" | "destructive"; label: string; icon?: typeof Lock }> = {
+          DRAFT: { variant: "secondary", label: "Draft" },
+          PENDING_REVIEW: { variant: "outline", label: "Pending Review" },
+          PENDING_APPROVAL: { variant: "outline", label: "Pending Approval" },
+          APPROVED: { variant: "default", label: "Approved" },
+          FINALIZED: { variant: "default", label: "Finalized", icon: Lock },
+        };
+        const config = statusConfig[row.status] || statusConfig.DRAFT;
+        return (
+          <Badge variant={config.variant}>
+            {config.icon && <Lock className="h-3 w-3 mr-1" />}
+            {config.label}
+          </Badge>
+        );
+      },
     },
     {
       key: "createdAt",
@@ -278,7 +403,7 @@ export default function PayRuns() {
       key: "actions",
       header: "",
       cell: (row: EnrichedPayRun) => (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           <Button
             size="icon"
             variant="ghost"
@@ -287,6 +412,7 @@ export default function PayRuns() {
           >
             <Eye className="h-4 w-4" />
           </Button>
+          
           {row.status === "DRAFT" && (
             <>
               <Button
@@ -298,14 +424,23 @@ export default function PayRuns() {
                 <Link className="h-4 w-4" />
               </Button>
               <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => fetchVarianceReport(row.id)}
+                disabled={varianceLoading}
+                data-testid={`button-variance-${row.id}`}
+              >
+                <FileSearch className="h-4 w-4" />
+              </Button>
+              <Button
                 size="sm"
                 variant="outline"
-                onClick={() => finalizeMutation.mutate(row.id)}
-                disabled={finalizeMutation.isPending}
-                data-testid={`button-finalize-${row.id}`}
+                onClick={() => submitReviewMutation.mutate(row.id)}
+                disabled={submitReviewMutation.isPending}
+                data-testid={`button-submit-review-${row.id}`}
               >
-                <Check className="h-4 w-4 mr-1" />
-                Finalize
+                <Send className="h-4 w-4 mr-1" />
+                Submit for Review
               </Button>
               <Button
                 size="icon"
@@ -314,6 +449,108 @@ export default function PayRuns() {
                 data-testid={`button-delete-${row.id}`}
               >
                 <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </>
+          )}
+          
+          {row.status === "PENDING_REVIEW" && (
+            <>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => fetchVarianceReport(row.id)}
+                disabled={varianceLoading}
+                data-testid={`button-variance-review-${row.id}`}
+              >
+                <FileSearch className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => submitApprovalMutation.mutate(row.id)}
+                disabled={submitApprovalMutation.isPending}
+                data-testid={`button-submit-approval-${row.id}`}
+              >
+                <ClipboardCheck className="h-4 w-4 mr-1" />
+                Submit for Approval
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => rejectMutation.mutate(row.id)}
+                disabled={rejectMutation.isPending}
+                data-testid={`button-reject-${row.id}`}
+              >
+                <XCircle className="h-4 w-4 mr-1 text-destructive" />
+                Reject
+              </Button>
+            </>
+          )}
+          
+          {row.status === "PENDING_APPROVAL" && (
+            <>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => fetchVarianceReport(row.id)}
+                disabled={varianceLoading}
+                data-testid={`button-variance-approval-${row.id}`}
+              >
+                <FileSearch className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => approveMutation.mutate(row.id)}
+                disabled={approveMutation.isPending}
+                data-testid={`button-approve-${row.id}`}
+              >
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => rejectMutation.mutate(row.id)}
+                disabled={rejectMutation.isPending}
+                data-testid={`button-reject-${row.id}`}
+              >
+                <XCircle className="h-4 w-4 mr-1 text-destructive" />
+                Reject
+              </Button>
+            </>
+          )}
+          
+          {row.status === "APPROVED" && (
+            <>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => fetchVarianceReport(row.id)}
+                disabled={varianceLoading}
+                data-testid={`button-variance-finalize-${row.id}`}
+              >
+                <FileSearch className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => finalizeMutation.mutate(row.id)}
+                disabled={finalizeMutation.isPending}
+                data-testid={`button-finalize-${row.id}`}
+              >
+                <Lock className="h-4 w-4 mr-1" />
+                Finalize
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => rejectMutation.mutate(row.id)}
+                disabled={rejectMutation.isPending}
+                data-testid={`button-reject-${row.id}`}
+              >
+                <XCircle className="h-4 w-4 mr-1 text-destructive" />
+                Reject
               </Button>
             </>
           )}
@@ -519,6 +756,38 @@ export default function PayRuns() {
           </DialogHeader>
           {selectedPayRun && (
             <div className="space-y-6">
+              <div className="flex items-center justify-center gap-2 py-4 bg-muted/30 rounded-lg">
+                {["DRAFT", "PENDING_REVIEW", "PENDING_APPROVAL", "APPROVED", "FINALIZED"].map((status, idx) => {
+                  const currentIdx = ["DRAFT", "PENDING_REVIEW", "PENDING_APPROVAL", "APPROVED", "FINALIZED"].indexOf(selectedPayRun.status);
+                  const isCompleted = idx < currentIdx;
+                  const isCurrent = status === selectedPayRun.status;
+                  const labels: Record<string, string> = {
+                    DRAFT: "Draft",
+                    PENDING_REVIEW: "Review",
+                    PENDING_APPROVAL: "Approval",
+                    APPROVED: "Approved",
+                    FINALIZED: "Finalized",
+                  };
+                  return (
+                    <div key={status} className="flex items-center gap-2">
+                      <div className={`flex flex-col items-center ${isCurrent ? "text-primary" : isCompleted ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                          isCurrent ? "bg-primary text-primary-foreground" : 
+                          isCompleted ? "bg-primary/20 text-primary" : 
+                          "bg-muted text-muted-foreground"
+                        }`}>
+                          {isCompleted ? <Check className="h-4 w-4" /> : idx + 1}
+                        </div>
+                        <span className="text-xs mt-1">{labels[status]}</span>
+                      </div>
+                      {idx < 4 && (
+                        <div className={`w-8 h-0.5 ${idx < currentIdx ? "bg-primary" : "bg-muted"}`} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              
               <div className="grid grid-cols-3 gap-4">
                 <Card>
                   <CardHeader className="pb-2">
@@ -692,6 +961,90 @@ export default function PayRuns() {
               data-testid="button-confirm-link-orders"
             >
               Link {selectedOrderIds.length} Orders
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showVarianceDialog} onOpenChange={setShowVarianceDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSearch className="h-5 w-5" />
+              Variance Report
+            </DialogTitle>
+            <DialogDescription>
+              Review pay run details before proceeding with workflow actions.
+            </DialogDescription>
+          </DialogHeader>
+          {varianceReport && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-3 bg-muted/30 rounded-lg text-center">
+                  <p className="text-sm text-muted-foreground">Orders</p>
+                  <p className="text-xl font-bold">{varianceReport.orderCount}</p>
+                </div>
+                <div className="p-3 bg-muted/30 rounded-lg text-center">
+                  <p className="text-sm text-muted-foreground">Total Gross</p>
+                  <p className="text-xl font-bold font-mono">${varianceReport.totalGross}</p>
+                </div>
+                <div className="p-3 bg-muted/30 rounded-lg text-center">
+                  <p className="text-sm text-muted-foreground">Net Pay</p>
+                  <p className="text-xl font-bold font-mono">${varianceReport.totalNetPay}</p>
+                </div>
+              </div>
+
+              {varianceReport.issues.length > 0 && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Blocking Issues Found</AlertTitle>
+                  <AlertDescription>
+                    <ul className="list-disc pl-4 mt-2 space-y-1">
+                      {varianceReport.issues.map((issue, idx) => (
+                        <li key={idx}>{issue}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {varianceReport.issues.length === 0 && (
+                <Alert>
+                  <CheckCircle className="h-4 w-4" />
+                  <AlertTitle>No Issues Found</AlertTitle>
+                  <AlertDescription>
+                    This pay run is ready to proceed to the next stage.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {varianceReport.repSummaries.length > 0 && (
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-muted px-4 py-2">
+                    <h4 className="font-medium">Rep Summary</h4>
+                  </div>
+                  <div className="divide-y max-h-48 overflow-y-auto">
+                    {varianceReport.repSummaries.map((rep) => (
+                      <div key={rep.repId} className="flex items-center justify-between px-4 py-2">
+                        <span className="font-mono">{rep.repId}</span>
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm text-muted-foreground">Gross: ${rep.gross.toFixed(2)}</span>
+                          <span className="text-sm text-muted-foreground">Deductions: ${rep.deductions.toFixed(2)}</span>
+                          <span className={`font-mono font-medium ${rep.hasNegative ? "text-destructive" : ""}`}>
+                            Net: ${rep.net.toFixed(2)}
+                          </span>
+                          {rep.hasNegative && <AlertTriangle className="h-4 w-4 text-destructive" />}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowVarianceDialog(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

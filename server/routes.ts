@@ -2228,11 +2228,144 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
+  app.post("/api/admin/payruns/:id/submit-review", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (payRun.status !== "DRAFT") return res.status(400).json({ message: "Pay run must be in DRAFT status" });
+      
+      const orders = await storage.getOrdersByPayRunId(req.params.id);
+      if (orders.length === 0) return res.status(400).json({ message: "Pay run has no orders linked" });
+      
+      let totalCommission = 0;
+      for (const order of orders) {
+        totalCommission += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
+      }
+      
+      const beforeJson = JSON.stringify({ status: payRun.status });
+      const updated = await storage.updatePayRun(req.params.id, { status: "PENDING_REVIEW" });
+      await storage.createAuditLog({ action: "submit_payrun_review", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
+      res.json(updated);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  app.post("/api/admin/payruns/:id/submit-approval", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (payRun.status !== "PENDING_REVIEW") return res.status(400).json({ message: "Pay run must be in PENDING_REVIEW status" });
+      
+      const beforeJson = JSON.stringify({ status: payRun.status });
+      const updated = await storage.updatePayRun(req.params.id, { status: "PENDING_APPROVAL" });
+      await storage.createAuditLog({ action: "submit_payrun_approval", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
+      res.json(updated);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  app.post("/api/admin/payruns/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (payRun.status !== "PENDING_APPROVAL") return res.status(400).json({ message: "Pay run must be in PENDING_APPROVAL status" });
+      
+      const beforeJson = JSON.stringify({ status: payRun.status });
+      const updated = await storage.updatePayRun(req.params.id, { status: "APPROVED" });
+      await storage.createAuditLog({ action: "approve_payrun", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
+      res.json(updated);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  app.post("/api/admin/payruns/:id/reject", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (!["PENDING_REVIEW", "PENDING_APPROVAL", "APPROVED"].includes(payRun.status)) {
+        return res.status(400).json({ message: "Pay run cannot be rejected in current status" });
+      }
+      
+      const updated = await storage.updatePayRun(req.params.id, { status: "DRAFT" });
+      await storage.createAuditLog({ action: "reject_payrun", tableName: "pay_runs", recordId: req.params.id, beforeJson: JSON.stringify({ status: payRun.status }), afterJson: JSON.stringify(updated), userId: req.user!.id });
+      res.json(updated);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  app.get("/api/admin/payruns/:id/variance", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      
+      const orders = await storage.getOrdersByPayRunId(req.params.id);
+      const statements = await storage.getPayStatements(req.params.id);
+      
+      let totalGross = 0;
+      let totalDeductions = 0;
+      let totalNetPay = 0;
+      const issues: string[] = [];
+      const repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; hasNegative: boolean }[] = [];
+      
+      for (const order of orders) {
+        totalGross += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
+      }
+      
+      for (const stmt of statements) {
+        const gross = parseFloat(stmt.grossCommission) + parseFloat(stmt.overrideEarningsTotal) + parseFloat(stmt.incentivesTotal);
+        const deductions = parseFloat(stmt.deductionsTotal);
+        const net = parseFloat(stmt.netPay);
+        
+        totalDeductions += deductions;
+        totalNetPay += net;
+        
+        const hasNegative = net < 0;
+        if (hasNegative) issues.push(`${stmt.userId} has negative net pay of $${net.toFixed(2)}`);
+        
+        repSummaries.push({
+          repId: stmt.userId,
+          name: stmt.userId,
+          gross,
+          deductions,
+          net,
+          hasNegative,
+        });
+      }
+      
+      if (orders.length === 0) issues.push("No orders linked to pay run");
+      
+      res.json({
+        payRunId: payRun.id,
+        status: payRun.status,
+        orderCount: orders.length,
+        statementCount: statements.length,
+        totalGross: totalGross.toFixed(2),
+        totalDeductions: totalDeductions.toFixed(2),
+        totalNetPay: totalNetPay.toFixed(2),
+        issues,
+        canFinalize: issues.length === 0 && payRun.status === "APPROVED",
+        repSummaries,
+      });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
   app.post("/api/admin/payruns/:id/finalize", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const payRun = await storage.updatePayRun(req.params.id, { status: "FINALIZED", finalizedAt: new Date() });
-      await storage.createAuditLog({ action: "finalize_payrun", tableName: "pay_runs", recordId: req.params.id, afterJson: JSON.stringify(payRun), userId: req.user!.id });
-      res.json(payRun);
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (payRun.status !== "APPROVED") return res.status(400).json({ message: "Pay run must be approved before finalizing" });
+      
+      const orders = await storage.getOrdersByPayRunId(req.params.id);
+      if (orders.length === 0) return res.status(400).json({ message: "Pay run has no orders linked" });
+      
+      const statements = await storage.getPayStatements(req.params.id);
+      for (const stmt of statements) {
+        const net = parseFloat(stmt.netPay);
+        if (net < 0) {
+          return res.status(400).json({ message: `Cannot finalize: ${stmt.userId} has negative net pay of $${net.toFixed(2)}. Please resolve before finalizing.` });
+        }
+      }
+      
+      const beforeJson = JSON.stringify({ status: payRun.status });
+      const updated = await storage.updatePayRun(req.params.id, { status: "FINALIZED", finalizedAt: new Date() });
+      await storage.createAuditLog({ action: "finalize_payrun", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
+      res.json(updated);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 

@@ -60,6 +60,17 @@ Key tables defined in `shared/schema.ts`:
 - **Rep-Facing My Pay Page**: Statement history with detailed line items and year-to-date summary
 - **Admin Payroll Settings**: Manage schedules, deduction types, user assignments, and advances
 
+### Multi-Stage Pay Run Approval Workflow (January 2026)
+- **Status Flow**: DRAFT → PENDING_REVIEW → PENDING_APPROVAL → APPROVED → FINALIZED
+- **Draft**: Initial state where orders can be linked/unlinked
+- **Pending Review**: Submitted for accounting review, can be rejected back to Draft
+- **Pending Approval**: Submitted for management approval, can be rejected back to Draft
+- **Approved**: Ready for finalization, can still be rejected back to Draft
+- **Finalized**: Locked and immutable, triggers pay statement generation
+- **Variance Report**: Endpoint to check blocking conditions before finalization
+- **Rejection**: Any non-Draft status can be rejected, returning to Draft
+- **UI Features**: Visual workflow progress indicator, status-specific action buttons
+
 ### Knowledge Database
 - Reference document storage for training materials, policies, procedures, and resources
 - Supports PDF, Word documents, and images uploaded to Replit Object Storage
