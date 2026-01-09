@@ -2352,13 +2352,13 @@ export async function registerRoutes(
         await storage.updateOrder(order.id, { exportedToAccounting: true, exportBatchId: batch.id, exportedAt: new Date() });
       }
 
-      // Helper to format date as MM/DD/YYYY
+      // Helper to format date as M/D/YYYY (QuickBooks compatible - no leading zeros)
       const formatDate = (dateStr: string | null | undefined): string => {
         if (!dateStr) return "";
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return dateStr;
-        const month = String(d.getMonth() + 1).padStart(2, "0");
-        const day = String(d.getDate()).padStart(2, "0");
+        const month = d.getMonth() + 1;
+        const day = d.getDate();
         const year = d.getFullYear();
         return `${month}/${day}/${year}`;
       };
