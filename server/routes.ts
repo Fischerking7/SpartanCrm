@@ -1094,7 +1094,7 @@ export async function registerRoutes(
         appliedRateCardId = rateCard.id;
         
         // Check if sales rep is an EXECUTIVE (exempt from override deductions)
-        const salesRepUser = await storage.getUserByRepId(repId);
+        const salesRepUser = await storage.getUserByRepId(assignedRepId);
         const isExecutiveSale = salesRepUser?.role === "EXECUTIVE";
         
         // Subtract override deductions for net commission (NOT for executives)
