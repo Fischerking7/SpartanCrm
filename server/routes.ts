@@ -7047,7 +7047,7 @@ export async function registerRoutes(
       const monthStartStr = monthStart.toISOString().split('T')[0];
 
       // Role-based order scoping
-      let allOrders;
+      let allOrders: any[] = [];
       if (user.role === "ADMIN" || user.role === "FOUNDER") {
         allOrders = await storage.getOrders({});
       } else if (user.role === "EXECUTIVE") {
@@ -7056,10 +7056,8 @@ export async function registerRoutes(
         allOrders = await storage.getOrders({ teamRepIds });
       } else if (user.role === "MANAGER") {
         const scope = await storage.getManagerScope(user.id);
-        const teamRepIds = [user.repId, ...scope.directReps.map((r: any) => r.repId), ...scope.supervisorReps.map((r: any) => r.repId)];
+        const teamRepIds = [user.repId, ...scope.directRepIds, ...scope.indirectRepIds];
         allOrders = await storage.getOrders({ teamRepIds });
-      } else {
-        allOrders = [];
       }
       const monthOrders = allOrders.filter(o => new Date(o.dateSold) >= monthStart);
 
@@ -7170,7 +7168,7 @@ export async function registerRoutes(
       const allProviders = await storage.getProviders();
 
       // Role-based order and rep scoping
-      let allOrders;
+      let allOrders: any[] = [];
       let scopedRepIds: string[] = [];
       
       if (user.role === "ADMIN" || user.role === "FOUNDER") {
@@ -7183,12 +7181,9 @@ export async function registerRoutes(
         scopedRepIds = teamRepIds;
       } else if (user.role === "MANAGER") {
         const scope = await storage.getManagerScope(user.id);
-        const teamRepIds = [user.repId, ...scope.directReps.map((r: any) => r.repId), ...scope.supervisorReps.map((r: any) => r.repId)];
+        const teamRepIds = [user.repId, ...scope.directRepIds, ...scope.indirectRepIds];
         allOrders = await storage.getOrders({ teamRepIds });
         scopedRepIds = teamRepIds;
-      } else {
-        allOrders = [];
-        scopedRepIds = [];
       }
       
       const monthOrders = allOrders.filter(o => new Date(o.dateSold) >= monthStart);
