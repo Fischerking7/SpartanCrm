@@ -2362,10 +2362,152 @@ export async function registerRoutes(
         }
       }
       
+      // ========== DISTRIBUTE OVERRIDE POOL DEDUCTIONS ==========
+      // 1. Get all pending pool entries for orders in this pay run
+      const orderIds = orders.map(o => o.id);
+      const pendingPoolEntries = await storage.getOverrideDeductionPoolByOrderIds(orderIds);
+      
+      // 2. For each pool entry, create override earnings for supervisors/managers in the hierarchy
+      const distributionResults: { recipientId: string; amount: string; orderId: string; type: string }[] = [];
+      
+      for (const poolEntry of pendingPoolEntries) {
+        const order = orders.find(o => o.id === poolEntry.salesOrderId);
+        if (!order) continue;
+        
+        // Get hierarchy for the rep who made the sale
+        const hierarchy = await storage.getRepHierarchy(order.repId);
+        const poolAmount = parseFloat(poolEntry.amount || "0");
+        
+        // Distribute proportionally: 60% supervisor, 40% manager (if both exist)
+        // If only supervisor, they get 100%; if only manager, they get 100%
+        let supervisorShare = 0;
+        let managerShare = 0;
+        
+        if (hierarchy.supervisor && hierarchy.manager) {
+          supervisorShare = poolAmount * 0.6;
+          managerShare = poolAmount * 0.4;
+        } else if (hierarchy.supervisor) {
+          supervisorShare = poolAmount;
+        } else if (hierarchy.manager) {
+          managerShare = poolAmount;
+        }
+        
+        // Create override earnings for supervisor
+        if (hierarchy.supervisor && supervisorShare > 0) {
+          const earning = await storage.createOverrideEarning({
+            salesOrderId: order.id,
+            recipientUserId: hierarchy.supervisor.id,
+            sourceRepId: order.repId,
+            sourceLevelUsed: "SUPERVISOR",
+            amount: supervisorShare.toFixed(2),
+            payRunId: req.params.id,
+          });
+          distributionResults.push({ 
+            recipientId: hierarchy.supervisor.id, 
+            amount: supervisorShare.toFixed(2), 
+            orderId: order.id,
+            type: poolEntry.deductionType || "BASE"
+          });
+          await storage.createAuditLog({ 
+            action: "distribute_override_pool", 
+            tableName: "override_earnings", 
+            recordId: earning.id, 
+            afterJson: JSON.stringify({ ...earning, poolEntryId: poolEntry.id }), 
+            userId: req.user!.id 
+          });
+        }
+        
+        // Create override earnings for manager
+        if (hierarchy.manager && managerShare > 0) {
+          const earning = await storage.createOverrideEarning({
+            salesOrderId: order.id,
+            recipientUserId: hierarchy.manager.id,
+            sourceRepId: order.repId,
+            sourceLevelUsed: "MANAGER",
+            amount: managerShare.toFixed(2),
+            payRunId: req.params.id,
+          });
+          distributionResults.push({ 
+            recipientId: hierarchy.manager.id, 
+            amount: managerShare.toFixed(2), 
+            orderId: order.id,
+            type: poolEntry.deductionType || "BASE"
+          });
+          await storage.createAuditLog({ 
+            action: "distribute_override_pool", 
+            tableName: "override_earnings", 
+            recordId: earning.id, 
+            afterJson: JSON.stringify({ ...earning, poolEntryId: poolEntry.id }), 
+            userId: req.user!.id 
+          });
+        }
+      }
+      
+      // 3. Mark all pool entries as DISTRIBUTED
+      if (pendingPoolEntries.length > 0) {
+        await storage.markPoolEntriesDistributedByOrderIds(orderIds, req.params.id);
+      }
+      
+      // 4. Update or create pay statements for recipients of override earnings
+      // Aggregate distributed amounts by recipient
+      const recipientTotals: Record<string, number> = {};
+      for (const dist of distributionResults) {
+        recipientTotals[dist.recipientId] = (recipientTotals[dist.recipientId] || 0) + parseFloat(dist.amount);
+      }
+      
+      // Update or create pay statements for each recipient
+      for (const [recipientId, addedOverride] of Object.entries(recipientTotals)) {
+        const existingStatement = statements.find(s => s.userId === recipientId);
+        if (existingStatement) {
+          // Update existing statement - only add incremental override amount
+          const currentOverride = parseFloat(existingStatement.overrideEarningsTotal);
+          const newOverrideTotal = currentOverride + addedOverride;
+          // Recalculate net pay correctly: gross + override + incentives - deductions
+          const grossBase = parseFloat(existingStatement.grossCommission) + parseFloat(existingStatement.incentivesTotal);
+          const newNetPay = grossBase + newOverrideTotal - parseFloat(existingStatement.chargebacksTotal) - parseFloat(existingStatement.deductionsTotal) - parseFloat(existingStatement.advancesApplied);
+          
+          await storage.updatePayStatement(existingStatement.id, {
+            overrideEarningsTotal: newOverrideTotal.toFixed(2),
+            netPay: newNetPay.toFixed(2),
+          });
+        } else {
+          // Create new pay statement for supervisor/manager who doesn't have one
+          const currentYear = new Date().getFullYear();
+          const ytd = await storage.getYTDTotalsForUser(recipientId, currentYear);
+          
+          await storage.createPayStatement({
+            payRunId: req.params.id,
+            userId: recipientId,
+            periodStart: payRun.weekEndingDate,
+            periodEnd: payRun.weekEndingDate,
+            grossCommission: "0.00",
+            overrideEarningsTotal: addedOverride.toFixed(2),
+            incentivesTotal: "0.00",
+            chargebacksTotal: "0.00",
+            adjustmentsTotal: "0.00",
+            deductionsTotal: "0.00",
+            advancesApplied: "0.00",
+            taxWithheld: "0.00",
+            netPay: addedOverride.toFixed(2),
+            ytdGross: (parseFloat(ytd.totalGross) + addedOverride).toFixed(2),
+            ytdDeductions: ytd.totalDeductions,
+            ytdNetPay: (parseFloat(ytd.totalNetPay) + addedOverride).toFixed(2),
+          });
+        }
+      }
+      // ========== END DISTRIBUTE OVERRIDE POOL ==========
+      
       const beforeJson = JSON.stringify({ status: payRun.status });
       const updated = await storage.updatePayRun(req.params.id, { status: "FINALIZED", finalizedAt: new Date() });
-      await storage.createAuditLog({ action: "finalize_payrun", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
-      res.json(updated);
+      await storage.createAuditLog({ 
+        action: "finalize_payrun", 
+        tableName: "pay_runs", 
+        recordId: req.params.id, 
+        beforeJson, 
+        afterJson: JSON.stringify({ ...updated, overrideDistributions: distributionResults.length }), 
+        userId: req.user!.id 
+      });
+      res.json({ ...updated, overrideDistributions: distributionResults.length });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
@@ -2409,6 +2551,10 @@ export async function registerRoutes(
       if (!orderIds?.length) return res.status(400).json({ message: "No orders to link" });
       
       const orders = await storage.linkOrdersToPayRun(orderIds, req.params.id);
+      
+      // Also link override earnings for these orders to this pay run
+      await storage.updateOverrideEarningsPayRunId(orderIds, req.params.id);
+      
       await storage.createAuditLog({ 
         action: "link_orders_to_payrun", 
         tableName: "pay_runs", 
@@ -2431,6 +2577,9 @@ export async function registerRoutes(
       
       // Unlink specified orders using storage method
       await storage.unlinkSpecificOrders(orderIds);
+      
+      // Also unlink override earnings for these orders
+      await storage.updateOverrideEarningsPayRunId(orderIds, null);
       
       await storage.createAuditLog({ 
         action: "unlink_orders_from_payrun", 

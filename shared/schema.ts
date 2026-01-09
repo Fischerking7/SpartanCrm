@@ -393,6 +393,7 @@ export const overrideDeductionPool = pgTable("override_deduction_pool", {
   deductionType: overrideDeductionTypeEnum("deduction_type").notNull().default("MOBILE"),
   status: overrideDeductionPoolStatusEnum("status").notNull().default("PENDING"),
   exportBatchId: varchar("export_batch_id").references(() => exportBatches.id),
+  payRunId: varchar("pay_run_id").references(() => payRuns.id),
   distributedAt: timestamp("distributed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -401,6 +402,7 @@ export const overrideDeductionPoolRelations = relations(overrideDeductionPool, (
   salesOrder: one(salesOrders, { fields: [overrideDeductionPool.salesOrderId], references: [salesOrders.id] }),
   rateCard: one(rateCards, { fields: [overrideDeductionPool.rateCardId], references: [rateCards.id] }),
   exportBatch: one(exportBatches, { fields: [overrideDeductionPool.exportBatchId], references: [exportBatches.id] }),
+  payRun: one(payRuns, { fields: [overrideDeductionPool.payRunId], references: [payRuns.id] }),
 }));
 
 export const insertOverrideDeductionPoolSchema = createInsertSchema(overrideDeductionPool).omit({

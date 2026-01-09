@@ -1052,6 +1052,36 @@ export const storage = {
     const [earning] = await db.insert(overrideEarnings).values(data).returning();
     return earning;
   },
+  async updateOverrideEarningsPayRunId(orderIds: string[], payRunId: string | null) {
+    if (orderIds.length === 0) return [];
+    return db.update(overrideEarnings)
+      .set({ payRunId })
+      .where(inArray(overrideEarnings.salesOrderId, orderIds))
+      .returning();
+  },
+  async getOverrideDeductionPoolByOrderIds(orderIds: string[]) {
+    if (orderIds.length === 0) return [];
+    return db.query.overrideDeductionPool.findMany({
+      where: and(
+        inArray(overrideDeductionPool.salesOrderId, orderIds),
+        eq(overrideDeductionPool.status, "PENDING")
+      ),
+    });
+  },
+  async markPoolEntriesDistributedByOrderIds(orderIds: string[], payRunId: string) {
+    if (orderIds.length === 0) return [];
+    return db.update(overrideDeductionPool)
+      .set({ 
+        status: "DISTRIBUTED", 
+        payRunId, 
+        distributedAt: new Date() 
+      })
+      .where(and(
+        inArray(overrideDeductionPool.salesOrderId, orderIds),
+        eq(overrideDeductionPool.status, "PENDING")
+      ))
+      .returning();
+  },
 
   // Hierarchy helpers
   async getUsersByRole(role: string) {
