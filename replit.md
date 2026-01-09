@@ -45,7 +45,20 @@ Key tables defined in `shared/schema.ts`:
 - CommissionLineItems (per-service commission breakdown)
 - UnmatchedPayments, UnmatchedChargebacks, RateIssues (exception queues)
 - KnowledgeDocuments (reference files - PDFs, Word docs, images stored in object storage)
+- PayrollSchedules, DeductionTypes, UserDeductions, Advances (payroll management)
+- PayStatements, PayStatementLineItems (rep pay stubs with YTD tracking)
+- PayRunApprovals (multi-level approval workflow)
+- UserTaxProfiles (tax information for 1099 prep)
 - AuditLogs, ExportBatches, Counters
+
+### Payroll System (January 2026)
+- **Pay Statements**: Auto-generated from finalized pay runs with gross/deductions/net breakdown
+- **Deduction Types**: Categories like health insurance, 401k, garnishments with pre-tax/post-tax flags
+- **User Deductions**: Per-employee recurring deductions with flat/percentage amounts
+- **Advances/Draws**: Track loans against future commissions with multi-status workflow (REQUESTED→APPROVED→ACTIVE→REPAID)
+- **YTD Tracking**: Cumulative gross, deductions, and net pay for tax reporting
+- **Rep-Facing My Pay Page**: Statement history with detailed line items and year-to-date summary
+- **Admin Payroll Settings**: Manage schedules, deduction types, user assignments, and advances
 
 ### Knowledge Database
 - Reference document storage for training materials, policies, procedures, and resources
