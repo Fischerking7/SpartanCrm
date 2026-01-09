@@ -1,4 +1,3 @@
--- STEP 1: Run this first - Insert Providers
 INSERT INTO providers (id, name, active, created_at, updated_at) VALUES
 ('88a9321e-d805-4543-9e77-2116890d471b', 'Astound', true, '2026-01-06 07:34:34', '2026-01-06 07:34:34')
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, active = EXCLUDED.active;
