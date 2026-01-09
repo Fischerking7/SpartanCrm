@@ -7664,7 +7664,7 @@ export async function registerRoutes(
         action: "UPDATE",
         tableName: "employee_credentials",
         recordId: credentials.id,
-        newData: { fields: Object.keys(updates) },
+        afterJson: JSON.stringify({ fields: Object.keys(updates) }),
       });
 
       res.json(credentials);
@@ -7751,7 +7751,7 @@ export async function registerRoutes(
         action: "UPDATE",
         tableName: "employee_credentials",
         recordId: credentials.id,
-        newData: { targetUserId: userId, fields: Object.keys(updates) },
+        afterJson: JSON.stringify({ targetUserId: userId, fields: Object.keys(updates) }),
       });
 
       res.json(credentials);
@@ -7777,7 +7777,7 @@ export async function registerRoutes(
           action: "DELETE",
           tableName: "employee_credentials",
           recordId: deleted.id,
-          oldData: { targetUserId: userId },
+          beforeJson: JSON.stringify({ targetUserId: userId }),
         });
       }
 

@@ -43,6 +43,7 @@ import {
   Cog,
   Bell,
   Target,
+  Key,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -56,6 +57,7 @@ const repMenuItems: MenuItem[] = [
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
+  { title: "My Credentials", url: "/my-credentials", icon: Key },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   { title: "Notifications", url: "/notification-settings", icon: Bell },
@@ -68,6 +70,7 @@ const salesLeaderMenuItems: MenuItem[] = [
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
+  { title: "My Credentials", url: "/my-credentials", icon: Key },
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
@@ -116,6 +119,7 @@ const adminPersonal: MenuItem[] = [
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
+  { title: "My Credentials", url: "/my-credentials", icon: Key },
   { title: "Notifications", url: "/notification-settings", icon: Bell },
 ];
 
@@ -131,6 +135,7 @@ const adminSettings: MenuItem[] = [
   { title: "Rate Cards", url: "/admin/rate-cards", icon: DollarSign },
   { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
   { title: "Overrides", url: "/admin/overrides", icon: Users },
+  { title: "Employee Credentials", url: "/admin/employee-credentials", icon: Key },
   { title: "Payroll", url: "/admin/payroll", icon: Calendar },
   { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
   { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },

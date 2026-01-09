@@ -41,6 +41,8 @@ import Knowledge from "@/pages/knowledge";
 import MyPayHistory from "@/pages/my-pay-history";
 import CommissionForecast from "@/pages/commission-forecast";
 import NotificationSettings from "@/pages/notification-settings";
+import MyCredentials from "@/pages/my-credentials";
+import AdminEmployeeCredentials from "@/pages/admin/employee-credentials";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -159,6 +161,7 @@ function Router() {
         <Route path="/my-pay" component={MyPayHistory} />
         <Route path="/commission-forecast" component={CommissionForecast} />
         <Route path="/notification-settings" component={NotificationSettings} />
+        <Route path="/my-credentials" component={MyCredentials} />
         <Route path="/change-password" component={ChangePassword} />
         
         {canViewReports && <Route path="/reports" component={Reports} />}
@@ -183,6 +186,7 @@ function Router() {
             <Route path="/admin/payroll" component={AdminPayroll} />
             <Route path="/admin/payroll-advanced" component={AdminPayrollAdvanced} />
             <Route path="/admin/quickbooks" component={AdminQuickBooks} />
+            <Route path="/admin/employee-credentials" component={AdminEmployeeCredentials} />
           </>
         )}
         
