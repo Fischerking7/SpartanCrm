@@ -1989,7 +1989,7 @@ export async function registerRoutes(
       );
       
       // Get unique service IDs from matching rate cards
-      const serviceIds = [...new Set(activeRateCards.map(rc => rc.serviceId).filter(Boolean))] as string[];
+      const serviceIds = Array.from(new Set(activeRateCards.map(rc => rc.serviceId).filter(Boolean))) as string[];
       
       // Get all services and filter to only those with matching rate cards
       const allServices = await storage.getServices();
@@ -3668,8 +3668,8 @@ export async function registerRoutes(
       const pendingOrders = allOrders.filter((o: SalesOrder) => 
         o.repId === user.repId && 
         o.jobStatus !== "COMPLETED" &&
-        o.jobStatus !== "CANCELLED" &&
-        o.approvalStatus !== "DENIED"
+        o.jobStatus !== "CANCELED" &&
+        o.approvalStatus !== "REJECTED"
       );
       
       // Calculate pending commissions (estimated from baseCommissionEarned which is pre-calculated)
@@ -5061,6 +5061,570 @@ export async function registerRoutes(
       console.error("Delete knowledge document error:", error);
       res.status(500).json({ message: "Failed to delete document" });
     }
+  });
+
+  // ================== PAYROLL SYSTEM API ==================
+
+  // Payroll Schedules
+  app.get("/api/admin/payroll/schedules", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const schedules = await storage.getPayrollSchedules();
+      res.json(schedules);
+    } catch (error) { res.status(500).json({ message: "Failed to get schedules" }); }
+  });
+
+  app.post("/api/admin/payroll/schedules", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const schedule = await storage.createPayrollSchedule(req.body);
+      await storage.createAuditLog({ action: "create_payroll_schedule", tableName: "payroll_schedules", recordId: schedule.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
+      res.json(schedule);
+    } catch (error) { res.status(500).json({ message: "Failed to create schedule" }); }
+  });
+
+  app.put("/api/admin/payroll/schedules/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const schedule = await storage.updatePayrollSchedule(req.params.id, req.body);
+      await storage.createAuditLog({ action: "update_payroll_schedule", tableName: "payroll_schedules", recordId: req.params.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
+      res.json(schedule);
+    } catch (error) { res.status(500).json({ message: "Failed to update schedule" }); }
+  });
+
+  app.delete("/api/admin/payroll/schedules/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      await storage.deletePayrollSchedule(req.params.id);
+      await storage.createAuditLog({ action: "delete_payroll_schedule", tableName: "payroll_schedules", recordId: req.params.id, userId: req.user!.id });
+      res.json({ message: "Schedule deleted" });
+    } catch (error) { res.status(500).json({ message: "Failed to delete schedule" }); }
+  });
+
+  // Deduction Types
+  app.get("/api/admin/payroll/deduction-types", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const types = await storage.getDeductionTypes();
+      res.json(types);
+    } catch (error) { res.status(500).json({ message: "Failed to get deduction types" }); }
+  });
+
+  app.post("/api/admin/payroll/deduction-types", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const type = await storage.createDeductionType(req.body);
+      await storage.createAuditLog({ action: "create_deduction_type", tableName: "deduction_types", recordId: type.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
+      res.json(type);
+    } catch (error) { res.status(500).json({ message: "Failed to create deduction type" }); }
+  });
+
+  app.put("/api/admin/payroll/deduction-types/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const type = await storage.updateDeductionType(req.params.id, req.body);
+      await storage.createAuditLog({ action: "update_deduction_type", tableName: "deduction_types", recordId: req.params.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
+      res.json(type);
+    } catch (error) { res.status(500).json({ message: "Failed to update deduction type" }); }
+  });
+
+  app.delete("/api/admin/payroll/deduction-types/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteDeductionType(req.params.id);
+      await storage.createAuditLog({ action: "delete_deduction_type", tableName: "deduction_types", recordId: req.params.id, userId: req.user!.id });
+      res.json({ message: "Deduction type deleted" });
+    } catch (error) { res.status(500).json({ message: "Failed to delete deduction type" }); }
+  });
+
+  // User Deductions
+  app.get("/api/admin/payroll/user-deductions", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.query.userId as string | undefined;
+      if (userId) {
+        const deductions = await storage.getUserDeductions(userId);
+        res.json(deductions);
+      } else {
+        const deductions = await storage.getAllActiveUserDeductions();
+        res.json(deductions);
+      }
+    } catch (error) { res.status(500).json({ message: "Failed to get user deductions" }); }
+  });
+
+  app.post("/api/admin/payroll/user-deductions", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const deduction = await storage.createUserDeduction(req.body);
+      await storage.createAuditLog({ action: "create_user_deduction", tableName: "user_deductions", recordId: deduction.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
+      res.json(deduction);
+    } catch (error) { res.status(500).json({ message: "Failed to create user deduction" }); }
+  });
+
+  app.put("/api/admin/payroll/user-deductions/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const deduction = await storage.updateUserDeduction(req.params.id, req.body);
+      await storage.createAuditLog({ action: "update_user_deduction", tableName: "user_deductions", recordId: req.params.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
+      res.json(deduction);
+    } catch (error) { res.status(500).json({ message: "Failed to update user deduction" }); }
+  });
+
+  app.delete("/api/admin/payroll/user-deductions/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteUserDeduction(req.params.id);
+      await storage.createAuditLog({ action: "delete_user_deduction", tableName: "user_deductions", recordId: req.params.id, userId: req.user!.id });
+      res.json({ message: "User deduction deleted" });
+    } catch (error) { res.status(500).json({ message: "Failed to delete user deduction" }); }
+  });
+
+  // Advances
+  app.get("/api/admin/payroll/advances", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      if (status === "pending") {
+        const advances = await storage.getPendingAdvances();
+        res.json(advances);
+      } else {
+        const advances = await storage.getAdvances();
+        res.json(advances);
+      }
+    } catch (error) { res.status(500).json({ message: "Failed to get advances" }); }
+  });
+
+  app.get("/api/admin/payroll/advances/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const advance = await storage.getAdvanceById(req.params.id);
+      if (!advance) return res.status(404).json({ message: "Advance not found" });
+      const repayments = await storage.getAdvanceRepayments(req.params.id);
+      res.json({ ...advance, repayments });
+    } catch (error) { res.status(500).json({ message: "Failed to get advance" }); }
+  });
+
+  app.post("/api/admin/payroll/advances", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const advance = await storage.createAdvance(req.body);
+      await storage.createAuditLog({ action: "create_advance", tableName: "advances", recordId: advance.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
+      res.json(advance);
+    } catch (error) { res.status(500).json({ message: "Failed to create advance" }); }
+  });
+
+  app.post("/api/admin/payroll/advances/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { approvedAmount, notes } = req.body;
+      const advance = await storage.approveAdvance(req.params.id, req.user!.id, approvedAmount, notes);
+      await storage.createAuditLog({ action: "approve_advance", tableName: "advances", recordId: req.params.id, afterJson: JSON.stringify({ approvedAmount, notes }), userId: req.user!.id });
+      res.json(advance);
+    } catch (error) { res.status(500).json({ message: "Failed to approve advance" }); }
+  });
+
+  app.post("/api/admin/payroll/advances/:id/reject", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { notes } = req.body;
+      const advance = await storage.rejectAdvance(req.params.id, req.user!.id, notes);
+      await storage.createAuditLog({ action: "reject_advance", tableName: "advances", recordId: req.params.id, afterJson: JSON.stringify({ notes }), userId: req.user!.id });
+      res.json(advance);
+    } catch (error) { res.status(500).json({ message: "Failed to reject advance" }); }
+  });
+
+  app.post("/api/admin/payroll/advances/:id/mark-paid", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const advance = await storage.markAdvancePaid(req.params.id);
+      await storage.createAuditLog({ action: "mark_advance_paid", tableName: "advances", recordId: req.params.id, userId: req.user!.id });
+      res.json(advance);
+    } catch (error) { res.status(500).json({ message: "Failed to mark advance paid" }); }
+  });
+
+  // Rep can request an advance
+  app.post("/api/payroll/advances/request", auth, async (req: AuthRequest, res) => {
+    try {
+      const advance = await storage.createAdvance({ 
+        userId: req.user!.id, 
+        requestedAmount: req.body.requestedAmount,
+        reason: req.body.reason,
+        repaymentPercentage: req.body.repaymentPercentage || "100"
+      });
+      await storage.createAuditLog({ action: "request_advance", tableName: "advances", recordId: advance.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
+      res.json(advance);
+    } catch (error) { res.status(500).json({ message: "Failed to request advance" }); }
+  });
+
+  // Rep can view their own advances
+  app.get("/api/payroll/my-advances", auth, async (req: AuthRequest, res) => {
+    try {
+      const advances = await storage.getAdvancesByUser(req.user!.id);
+      res.json(advances);
+    } catch (error) { res.status(500).json({ message: "Failed to get advances" }); }
+  });
+
+  // User Tax Profiles
+  app.get("/api/admin/payroll/tax-profiles", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const profiles = await storage.getAllUserTaxProfiles();
+      res.json(profiles);
+    } catch (error) { res.status(500).json({ message: "Failed to get tax profiles" }); }
+  });
+
+  app.get("/api/admin/payroll/tax-profiles/:userId", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const profile = await storage.getUserTaxProfile(req.params.userId);
+      res.json(profile || {});
+    } catch (error) { res.status(500).json({ message: "Failed to get tax profile" }); }
+  });
+
+  app.put("/api/admin/payroll/tax-profiles/:userId", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const profile = await storage.updateUserTaxProfile(req.params.userId, req.body);
+      await storage.createAuditLog({ action: "update_tax_profile", tableName: "user_tax_profiles", recordId: req.params.userId, afterJson: JSON.stringify(req.body), userId: req.user!.id });
+      res.json(profile);
+    } catch (error) { res.status(500).json({ message: "Failed to update tax profile" }); }
+  });
+
+  // User Payment Methods
+  app.get("/api/admin/payroll/payment-methods/:userId", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const methods = await storage.getUserPaymentMethods(req.params.userId);
+      res.json(methods);
+    } catch (error) { res.status(500).json({ message: "Failed to get payment methods" }); }
+  });
+
+  app.post("/api/admin/payroll/payment-methods", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const method = await storage.createUserPaymentMethod(req.body);
+      await storage.createAuditLog({ action: "create_payment_method", tableName: "user_payment_methods", recordId: method.id, afterJson: JSON.stringify({ ...req.body, accountLastFour: req.body.accountLastFour }), userId: req.user!.id });
+      res.json(method);
+    } catch (error) { res.status(500).json({ message: "Failed to create payment method" }); }
+  });
+
+  app.put("/api/admin/payroll/payment-methods/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const method = await storage.updateUserPaymentMethod(req.params.id, req.body);
+      await storage.createAuditLog({ action: "update_payment_method", tableName: "user_payment_methods", recordId: req.params.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
+      res.json(method);
+    } catch (error) { res.status(500).json({ message: "Failed to update payment method" }); }
+  });
+
+  app.delete("/api/admin/payroll/payment-methods/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteUserPaymentMethod(req.params.id);
+      await storage.createAuditLog({ action: "delete_payment_method", tableName: "user_payment_methods", recordId: req.params.id, userId: req.user!.id });
+      res.json({ message: "Payment method deleted" });
+    } catch (error) { res.status(500).json({ message: "Failed to delete payment method" }); }
+  });
+
+  // Rep can manage their own payment methods
+  app.get("/api/payroll/my-payment-methods", auth, async (req: AuthRequest, res) => {
+    try {
+      const methods = await storage.getUserPaymentMethods(req.user!.id);
+      res.json(methods);
+    } catch (error) { res.status(500).json({ message: "Failed to get payment methods" }); }
+  });
+
+  app.post("/api/payroll/my-payment-methods", auth, async (req: AuthRequest, res) => {
+    try {
+      const method = await storage.createUserPaymentMethod({ ...req.body, userId: req.user!.id });
+      res.json(method);
+    } catch (error) { res.status(500).json({ message: "Failed to create payment method" }); }
+  });
+
+  // Pay Statements
+  app.get("/api/admin/payroll/statements", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRunId = req.query.payRunId as string | undefined;
+      const statements = await storage.getPayStatements(payRunId);
+      res.json(statements);
+    } catch (error) { res.status(500).json({ message: "Failed to get statements" }); }
+  });
+
+  app.get("/api/admin/payroll/statements/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const statement = await storage.getPayStatementById(req.params.id);
+      if (!statement) return res.status(404).json({ message: "Statement not found" });
+      const lineItems = await storage.getPayStatementLineItems(req.params.id);
+      const deductions = await storage.getPayStatementDeductions(req.params.id);
+      res.json({ ...statement, lineItems, deductions });
+    } catch (error) { res.status(500).json({ message: "Failed to get statement" }); }
+  });
+
+  // Generate pay statements for a pay run
+  app.post("/api/admin/payroll/payruns/:payRunId/generate-statements", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.payRunId);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      
+      // Get all orders in this pay run grouped by repId
+      const orders = await storage.getOrdersByPayRunId(req.params.payRunId);
+      const chargebacks = await storage.getChargebacksByPayRun(req.params.payRunId);
+      
+      // Group by repId
+      const ordersByRep = new Map<string, any[]>();
+      const chargebacksByRep = new Map<string, any[]>();
+      
+      for (const order of orders) {
+        if (!ordersByRep.has(order.repId)) ordersByRep.set(order.repId, []);
+        ordersByRep.get(order.repId)!.push(order);
+      }
+      
+      for (const cb of chargebacks) {
+        if (!chargebacksByRep.has(cb.repId)) chargebacksByRep.set(cb.repId, []);
+        chargebacksByRep.get(cb.repId)!.push(cb);
+      }
+      
+      const allRepIds = new Set([...Array.from(ordersByRep.keys()), ...Array.from(chargebacksByRep.keys())]);
+      const statements: any[] = [];
+      const currentYear = new Date().getFullYear();
+      
+      for (const repId of Array.from(allRepIds)) {
+        const user = await storage.getUserByRepId(repId);
+        if (!user) continue;
+        
+        const repOrders = ordersByRep.get(repId) || [];
+        const repChargebacks = chargebacksByRep.get(repId) || [];
+        
+        // Calculate totals
+        let grossCommission = 0;
+        let incentivesTotal = 0;
+        let chargebacksTotal = 0;
+        
+        for (const order of repOrders) {
+          grossCommission += parseFloat(order.baseCommissionEarned || "0");
+          incentivesTotal += parseFloat(order.incentiveEarned || "0");
+        }
+        
+        for (const cb of repChargebacks) {
+          chargebacksTotal += parseFloat(cb.amount || "0");
+        }
+        
+        // Get override earnings for this user in this pay run
+        const overrideEarnings = await storage.getOverrideEarningsByPayRun(req.params.payRunId, user.id);
+        let overrideEarningsTotal = 0;
+        for (const oe of overrideEarnings) {
+          overrideEarningsTotal += parseFloat(oe.amount || "0");
+        }
+        
+        // Get active deductions for this user
+        const userDeductions = await storage.getActiveUserDeductions(user.id);
+        let deductionsTotal = 0;
+        const deductionDetails: { userDeductionId?: string; deductionTypeName: string; amount: string }[] = [];
+        
+        for (const ud of userDeductions) {
+          const deductionType = await storage.getDeductionTypeById(ud.deductionTypeId);
+          const deductionAmount = parseFloat(ud.amount || "0");
+          deductionsTotal += deductionAmount;
+          deductionDetails.push({
+            userDeductionId: ud.id,
+            deductionTypeName: deductionType?.name || "Unknown",
+            amount: deductionAmount.toFixed(2)
+          });
+        }
+        
+        // Get active advances to apply
+        const activeAdvances = await storage.getActiveAdvancesForUser(user.id);
+        let advancesApplied = 0;
+        
+        // Get YTD totals
+        const ytd = await storage.getYTDTotalsForUser(user.id, currentYear);
+        
+        // Calculate net pay
+        const grossTotal = grossCommission + incentivesTotal + overrideEarningsTotal;
+        const netPay = grossTotal - chargebacksTotal - deductionsTotal - advancesApplied;
+        
+        // Create pay statement
+        const statement = await storage.createPayStatement({
+          payRunId: req.params.payRunId,
+          userId: user.id,
+          periodStart: payRun.weekEndingDate,
+          periodEnd: payRun.weekEndingDate,
+          grossCommission: grossCommission.toFixed(2),
+          overrideEarningsTotal: overrideEarningsTotal.toFixed(2),
+          incentivesTotal: incentivesTotal.toFixed(2),
+          chargebacksTotal: chargebacksTotal.toFixed(2),
+          adjustmentsTotal: "0",
+          deductionsTotal: deductionsTotal.toFixed(2),
+          advancesApplied: advancesApplied.toFixed(2),
+          taxWithheld: "0",
+          netPay: netPay.toFixed(2),
+          ytdGross: (parseFloat(ytd.totalGross) + grossTotal).toFixed(2),
+          ytdDeductions: (parseFloat(ytd.totalDeductions) + deductionsTotal).toFixed(2),
+          ytdNetPay: (parseFloat(ytd.totalNetPay) + netPay).toFixed(2),
+        });
+        
+        // Create line items for orders
+        for (const order of repOrders) {
+          await storage.createPayStatementLineItem({
+            payStatementId: statement.id,
+            category: "Commission",
+            description: `Order ${order.invoiceNumber || order.id}`,
+            sourceType: "sales_order",
+            sourceId: order.id,
+            amount: order.baseCommissionEarned,
+          });
+        }
+        
+        // Create line items for chargebacks
+        for (const cb of repChargebacks) {
+          await storage.createPayStatementLineItem({
+            payStatementId: statement.id,
+            category: "Chargeback",
+            description: `Chargeback ${cb.invoiceNumber}`,
+            sourceType: "chargeback",
+            sourceId: cb.id,
+            amount: `-${cb.amount}`,
+          });
+        }
+        
+        // Create deduction records
+        for (const ded of deductionDetails) {
+          await storage.createPayStatementDeduction({
+            payStatementId: statement.id,
+            userDeductionId: ded.userDeductionId,
+            deductionTypeName: ded.deductionTypeName,
+            amount: ded.amount,
+          });
+        }
+        
+        statements.push(statement);
+      }
+      
+      await storage.createAuditLog({ 
+        action: "generate_pay_statements", 
+        tableName: "pay_statements", 
+        recordId: req.params.payRunId, 
+        afterJson: JSON.stringify({ count: statements.length }), 
+        userId: req.user!.id 
+      });
+      
+      res.json({ generated: statements.length, statements });
+    } catch (error: any) {
+      console.error("Generate statements error:", error);
+      res.status(500).json({ message: error.message || "Failed to generate statements" });
+    }
+  });
+
+  // Issue a pay statement
+  app.post("/api/admin/payroll/statements/:id/issue", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const statement = await storage.issuePayStatement(req.params.id);
+      await storage.createAuditLog({ action: "issue_pay_statement", tableName: "pay_statements", recordId: req.params.id, userId: req.user!.id });
+      res.json(statement);
+    } catch (error) { res.status(500).json({ message: "Failed to issue statement" }); }
+  });
+
+  // Mark statement as paid
+  app.post("/api/admin/payroll/statements/:id/mark-paid", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { paymentMethodId, paymentReference } = req.body;
+      const statement = await storage.markPayStatementPaid(req.params.id, paymentMethodId, paymentReference);
+      await storage.createAuditLog({ action: "mark_statement_paid", tableName: "pay_statements", recordId: req.params.id, afterJson: JSON.stringify({ paymentMethodId, paymentReference }), userId: req.user!.id });
+      res.json(statement);
+    } catch (error) { res.status(500).json({ message: "Failed to mark statement paid" }); }
+  });
+
+  // Void a pay statement
+  app.post("/api/admin/payroll/statements/:id/void", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const statement = await storage.voidPayStatement(req.params.id);
+      await storage.createAuditLog({ action: "void_pay_statement", tableName: "pay_statements", recordId: req.params.id, userId: req.user!.id });
+      res.json(statement);
+    } catch (error) { res.status(500).json({ message: "Failed to void statement" }); }
+  });
+
+  // Rep can view their own pay statements
+  app.get("/api/payroll/my-statements", auth, async (req: AuthRequest, res) => {
+    try {
+      const statements = await storage.getPayStatementsByUser(req.user!.id);
+      res.json(statements);
+    } catch (error) { res.status(500).json({ message: "Failed to get statements" }); }
+  });
+
+  app.get("/api/payroll/my-statements/:id", auth, async (req: AuthRequest, res) => {
+    try {
+      const statement = await storage.getPayStatementById(req.params.id);
+      if (!statement) return res.status(404).json({ message: "Statement not found" });
+      if (statement.userId !== req.user!.id) return res.status(403).json({ message: "Access denied" });
+      const lineItems = await storage.getPayStatementLineItems(req.params.id);
+      const deductions = await storage.getPayStatementDeductions(req.params.id);
+      res.json({ ...statement, lineItems, deductions });
+    } catch (error) { res.status(500).json({ message: "Failed to get statement" }); }
+  });
+
+  // Rep can view their YTD totals
+  app.get("/api/payroll/my-ytd", auth, async (req: AuthRequest, res) => {
+    try {
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const ytd = await storage.getYTDTotalsForUser(req.user!.id, year);
+      res.json(ytd);
+    } catch (error) { res.status(500).json({ message: "Failed to get YTD totals" }); }
+  });
+
+  // Payroll Reports
+  app.get("/api/admin/payroll/reports/summary", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const statements = await storage.getPayStatements();
+      const totalGross = statements.reduce((sum, s) => sum + parseFloat(s.grossCommission || "0"), 0);
+      const totalNet = statements.reduce((sum, s) => sum + parseFloat(s.netPay || "0"), 0);
+      const totalDeductions = statements.reduce((sum, s) => sum + parseFloat(s.deductionsTotal || "0"), 0);
+      const paid = statements.filter(s => s.status === "PAID").length;
+      const pending = statements.filter(s => s.status === "DRAFT" || s.status === "ISSUED").length;
+      
+      res.json({
+        totalStatements: statements.length,
+        totalGross: totalGross.toFixed(2),
+        totalNet: totalNet.toFixed(2),
+        totalDeductions: totalDeductions.toFixed(2),
+        paidCount: paid,
+        pendingCount: pending,
+      });
+    } catch (error) { res.status(500).json({ message: "Failed to get summary" }); }
+  });
+
+  app.get("/api/admin/payroll/reports/by-user", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const users = await storage.getActiveUsers();
+      const report = [];
+      
+      for (const user of users) {
+        const ytd = await storage.getYTDTotalsForUser(user.id, year);
+        report.push({
+          userId: user.id,
+          repId: user.repId,
+          name: user.name,
+          role: user.role,
+          ytdGross: ytd.totalGross,
+          ytdDeductions: ytd.totalDeductions,
+          ytdNetPay: ytd.totalNetPay,
+        });
+      }
+      
+      res.json(report);
+    } catch (error) { res.status(500).json({ message: "Failed to get report" }); }
+  });
+
+  // Pay Run Approvals
+  app.get("/api/admin/payroll/payruns/:payRunId/approvals", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const approvals = await storage.getPayRunApprovals(req.params.payRunId);
+      res.json(approvals);
+    } catch (error) { res.status(500).json({ message: "Failed to get approvals" }); }
+  });
+
+  app.post("/api/admin/payroll/payruns/:payRunId/approvals", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const approval = await storage.createPayRunApproval({
+        payRunId: req.params.payRunId,
+        roleRequired: req.body.roleRequired,
+      });
+      res.json(approval);
+    } catch (error) { res.status(500).json({ message: "Failed to create approval" }); }
+  });
+
+  app.post("/api/admin/payroll/approvals/:id/decide", auth, managerOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { status, notes } = req.body;
+      const approval = await storage.updatePayRunApproval(req.params.id, {
+        approverId: req.user!.id,
+        status,
+        notes,
+      });
+      await storage.createAuditLog({ 
+        action: `payrun_approval_${status.toLowerCase()}`, 
+        tableName: "pay_run_approvals", 
+        recordId: req.params.id, 
+        afterJson: JSON.stringify({ status, notes }), 
+        userId: req.user!.id 
+      });
+      res.json(approval);
+    } catch (error) { res.status(500).json({ message: "Failed to update approval" }); }
   });
 
   return httpServer;

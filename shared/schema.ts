@@ -564,6 +564,263 @@ export const insertKnowledgeDocumentSchema = createInsertSchema(knowledgeDocumen
 export type KnowledgeDocument = typeof knowledgeDocuments.$inferSelect;
 export type InsertKnowledgeDocument = z.infer<typeof insertKnowledgeDocumentSchema>;
 
+// ================== PAYROLL SYSTEM ==================
+
+// Payroll-related enums
+export const payRunApprovalStatusEnum = pgEnum("payrun_approval_status", ["PENDING", "APPROVED", "REJECTED"]);
+export const deductionFrequencyEnum = pgEnum("deduction_frequency", ["ONE_TIME", "WEEKLY", "BI_WEEKLY", "MONTHLY"]);
+export const deductionCalculationMethodEnum = pgEnum("deduction_calc_method", ["FLAT", "PERCENT"]);
+export const advanceStatusEnum = pgEnum("advance_status", ["PENDING", "APPROVED", "REJECTED", "PAID", "REPAYING", "REPAID"]);
+export const payStatementStatusEnum = pgEnum("pay_statement_status", ["DRAFT", "ISSUED", "PAID", "VOIDED"]);
+export const paymentMethodTypeEnum = pgEnum("payment_method_type", ["DIRECT_DEPOSIT", "CHECK", "CASH", "VENMO", "ZELLE", "OTHER"]);
+
+// Payroll Schedules - Define recurring pay periods
+export const payrollSchedules = pgTable("payroll_schedules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  periodStartDate: date("period_start_date").notNull(),
+  periodEndDate: date("period_end_date").notNull(),
+  payDate: date("pay_date").notNull(),
+  reminderDaysBefore: integer("reminder_days_before").notNull().default(2),
+  isRecurring: boolean("is_recurring").notNull().default(false),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPayrollScheduleSchema = createInsertSchema(payrollSchedules).omit({ id: true, createdAt: true, updatedAt: true });
+export type PayrollSchedule = typeof payrollSchedules.$inferSelect;
+export type InsertPayrollSchedule = z.infer<typeof insertPayrollScheduleSchema>;
+
+// Pay Run Approvals - Multi-level approval workflow
+export const payRunApprovals = pgTable("pay_run_approvals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payRunId: varchar("pay_run_id").notNull().references(() => payRuns.id),
+  roleRequired: userRoleEnum("role_required").notNull(),
+  approverId: varchar("approver_id").references(() => users.id),
+  status: payRunApprovalStatusEnum("status").notNull().default("PENDING"),
+  decidedAt: timestamp("decided_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const payRunApprovalsRelations = relations(payRunApprovals, ({ one }) => ({
+  payRun: one(payRuns, { fields: [payRunApprovals.payRunId], references: [payRuns.id] }),
+  approver: one(users, { fields: [payRunApprovals.approverId], references: [users.id] }),
+}));
+
+export const insertPayRunApprovalSchema = createInsertSchema(payRunApprovals).omit({ id: true, createdAt: true, decidedAt: true });
+export type PayRunApproval = typeof payRunApprovals.$inferSelect;
+export type InsertPayRunApproval = z.infer<typeof insertPayRunApprovalSchema>;
+
+// Deduction Types - Master list of deduction types
+export const deductionTypes = pgTable("deduction_types", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  isTaxable: boolean("is_taxable").notNull().default(false),
+  isPreTax: boolean("is_pre_tax").notNull().default(false),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertDeductionTypeSchema = createInsertSchema(deductionTypes).omit({ id: true, createdAt: true, updatedAt: true });
+export type DeductionType = typeof deductionTypes.$inferSelect;
+export type InsertDeductionType = z.infer<typeof insertDeductionTypeSchema>;
+
+// User Deductions - Deductions assigned to specific users
+export const userDeductions = pgTable("user_deductions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  deductionTypeId: varchar("deduction_type_id").notNull().references(() => deductionTypes.id),
+  calculationMethod: deductionCalculationMethodEnum("calculation_method").notNull().default("FLAT"),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  frequency: deductionFrequencyEnum("frequency").notNull().default("WEEKLY"),
+  effectiveStart: date("effective_start").notNull(),
+  effectiveEnd: date("effective_end"),
+  active: boolean("active").notNull().default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const userDeductionsRelations = relations(userDeductions, ({ one }) => ({
+  user: one(users, { fields: [userDeductions.userId], references: [users.id] }),
+  deductionType: one(deductionTypes, { fields: [userDeductions.deductionTypeId], references: [deductionTypes.id] }),
+}));
+
+export const insertUserDeductionSchema = createInsertSchema(userDeductions).omit({ id: true, createdAt: true, updatedAt: true });
+export type UserDeduction = typeof userDeductions.$inferSelect;
+export type InsertUserDeduction = z.infer<typeof insertUserDeductionSchema>;
+
+// Advances - Draws against future commissions
+export const advances = pgTable("advances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  requestedAmount: decimal("requested_amount", { precision: 10, scale: 2 }).notNull(),
+  approvedAmount: decimal("approved_amount", { precision: 10, scale: 2 }),
+  paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  remainingBalance: decimal("remaining_balance", { precision: 10, scale: 2 }).notNull().default("0"),
+  requestedAt: timestamp("requested_at").defaultNow().notNull(),
+  status: advanceStatusEnum("status").notNull().default("PENDING"),
+  repaymentPercentage: decimal("repayment_percentage", { precision: 5, scale: 2 }).notNull().default("100"),
+  reason: text("reason"),
+  approvedById: varchar("approved_by_id").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  paidAt: timestamp("paid_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const advancesRelations = relations(advances, ({ one }) => ({
+  user: one(users, { fields: [advances.userId], references: [users.id] }),
+  approvedBy: one(users, { fields: [advances.approvedById], references: [users.id] }),
+}));
+
+export const insertAdvanceSchema = createInsertSchema(advances).omit({ id: true, createdAt: true, updatedAt: true, approvedAt: true, paidAt: true, requestedAt: true });
+export type Advance = typeof advances.$inferSelect;
+export type InsertAdvance = z.infer<typeof insertAdvanceSchema>;
+
+// Advance Repayments - Track how advances are repaid from pay statements
+export const advanceRepayments = pgTable("advance_repayments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  advanceId: varchar("advance_id").notNull().references(() => advances.id),
+  payStatementId: varchar("pay_statement_id").notNull(),
+  amountApplied: decimal("amount_applied", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const advanceRepaymentsRelations = relations(advanceRepayments, ({ one }) => ({
+  advance: one(advances, { fields: [advanceRepayments.advanceId], references: [advances.id] }),
+}));
+
+export type AdvanceRepayment = typeof advanceRepayments.$inferSelect;
+
+// User Tax Profiles - For 1099 preparation
+export const userTaxProfiles = pgTable("user_tax_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id).unique(),
+  isContractor: boolean("is_contractor").notNull().default(true),
+  w9OnFile: boolean("w9_on_file").notNull().default(false),
+  w9ReceivedDate: date("w9_received_date"),
+  taxIdLastFour: text("tax_id_last_four"),
+  businessName: text("business_name"),
+  businessAddress: text("business_address"),
+  withholdingRate: decimal("withholding_rate", { precision: 5, scale: 2 }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const userTaxProfilesRelations = relations(userTaxProfiles, ({ one }) => ({
+  user: one(users, { fields: [userTaxProfiles.userId], references: [users.id] }),
+}));
+
+export const insertUserTaxProfileSchema = createInsertSchema(userTaxProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export type UserTaxProfile = typeof userTaxProfiles.$inferSelect;
+export type InsertUserTaxProfile = z.infer<typeof insertUserTaxProfileSchema>;
+
+// User Payment Methods - How reps receive payment
+export const userPaymentMethods = pgTable("user_payment_methods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  methodType: paymentMethodTypeEnum("method_type").notNull(),
+  accountNickname: text("account_nickname"),
+  accountLastFour: text("account_last_four"),
+  routingLastFour: text("routing_last_four"),
+  isDefault: boolean("is_default").notNull().default(false),
+  isVerified: boolean("is_verified").notNull().default(false),
+  verifiedAt: timestamp("verified_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const userPaymentMethodsRelations = relations(userPaymentMethods, ({ one }) => ({
+  user: one(users, { fields: [userPaymentMethods.userId], references: [users.id] }),
+}));
+
+export const insertUserPaymentMethodSchema = createInsertSchema(userPaymentMethods).omit({ id: true, createdAt: true, updatedAt: true, verifiedAt: true });
+export type UserPaymentMethod = typeof userPaymentMethods.$inferSelect;
+export type InsertUserPaymentMethod = z.infer<typeof insertUserPaymentMethodSchema>;
+
+// Pay Statements - Individual pay stubs for each rep per pay run
+export const payStatements = pgTable("pay_statements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payRunId: varchar("pay_run_id").notNull().references(() => payRuns.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  grossCommission: decimal("gross_commission", { precision: 10, scale: 2 }).notNull().default("0"),
+  overrideEarningsTotal: decimal("override_earnings_total", { precision: 10, scale: 2 }).notNull().default("0"),
+  incentivesTotal: decimal("incentives_total", { precision: 10, scale: 2 }).notNull().default("0"),
+  chargebacksTotal: decimal("chargebacks_total", { precision: 10, scale: 2 }).notNull().default("0"),
+  adjustmentsTotal: decimal("adjustments_total", { precision: 10, scale: 2 }).notNull().default("0"),
+  deductionsTotal: decimal("deductions_total", { precision: 10, scale: 2 }).notNull().default("0"),
+  advancesApplied: decimal("advances_applied", { precision: 10, scale: 2 }).notNull().default("0"),
+  taxWithheld: decimal("tax_withheld", { precision: 10, scale: 2 }).notNull().default("0"),
+  netPay: decimal("net_pay", { precision: 10, scale: 2 }).notNull().default("0"),
+  status: payStatementStatusEnum("status").notNull().default("DRAFT"),
+  issuedAt: timestamp("issued_at"),
+  paidAt: timestamp("paid_at"),
+  paymentMethodId: varchar("payment_method_id").references(() => userPaymentMethods.id),
+  paymentReference: text("payment_reference"),
+  ytdGross: decimal("ytd_gross", { precision: 12, scale: 2 }).notNull().default("0"),
+  ytdDeductions: decimal("ytd_deductions", { precision: 12, scale: 2 }).notNull().default("0"),
+  ytdNetPay: decimal("ytd_net_pay", { precision: 12, scale: 2 }).notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const payStatementsRelations = relations(payStatements, ({ one }) => ({
+  payRun: one(payRuns, { fields: [payStatements.payRunId], references: [payRuns.id] }),
+  user: one(users, { fields: [payStatements.userId], references: [users.id] }),
+  paymentMethod: one(userPaymentMethods, { fields: [payStatements.paymentMethodId], references: [userPaymentMethods.id] }),
+}));
+
+export const insertPayStatementSchema = createInsertSchema(payStatements).omit({ id: true, createdAt: true, updatedAt: true, issuedAt: true, paidAt: true });
+export type PayStatement = typeof payStatements.$inferSelect;
+export type InsertPayStatement = z.infer<typeof insertPayStatementSchema>;
+
+// Pay Statement Line Items - Detailed breakdown of earnings
+export const payStatementLineItems = pgTable("pay_statement_line_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payStatementId: varchar("pay_statement_id").notNull().references(() => payStatements.id),
+  category: text("category").notNull(),
+  description: text("description").notNull(),
+  sourceType: text("source_type"),
+  sourceId: varchar("source_id"),
+  quantity: integer("quantity").notNull().default(1),
+  rate: decimal("rate", { precision: 10, scale: 2 }),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const payStatementLineItemsRelations = relations(payStatementLineItems, ({ one }) => ({
+  payStatement: one(payStatements, { fields: [payStatementLineItems.payStatementId], references: [payStatements.id] }),
+}));
+
+export type PayStatementLineItem = typeof payStatementLineItems.$inferSelect;
+
+// Pay Statement Deductions - Applied deductions for each statement
+export const payStatementDeductions = pgTable("pay_statement_deductions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payStatementId: varchar("pay_statement_id").notNull().references(() => payStatements.id),
+  userDeductionId: varchar("user_deduction_id").references(() => userDeductions.id),
+  deductionTypeName: text("deduction_type_name").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const payStatementDeductionsRelations = relations(payStatementDeductions, ({ one }) => ({
+  payStatement: one(payStatements, { fields: [payStatementDeductions.payStatementId], references: [payStatements.id] }),
+  userDeduction: one(userDeductions, { fields: [payStatementDeductions.userDeductionId], references: [userDeductions.id] }),
+}));
+
+export type PayStatementDeduction = typeof payStatementDeductions.$inferSelect;
+
 // Login schema
 export const loginSchema = z.object({
   repId: z.string().min(1, "Rep ID is required"),

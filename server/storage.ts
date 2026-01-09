@@ -6,6 +6,9 @@ import {
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues,
   auditLogs, exportBatches, counters, overrideEarnings, leads, commissionLineItems, mobileLineItems,
   overrideDeductionPool, knowledgeDocuments,
+  payrollSchedules, payRunApprovals, deductionTypes, userDeductions,
+  advances, advanceRepayments, userTaxProfiles, userPaymentMethods,
+  payStatements, payStatementLineItems, payStatementDeductions,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -18,6 +21,15 @@ import {
   type MobileLineItem, type InsertMobileLineItem,
   type OverrideDeductionPool, type InsertOverrideDeductionPool,
   type KnowledgeDocument, type InsertKnowledgeDocument,
+  type PayrollSchedule, type InsertPayrollSchedule,
+  type PayRunApproval, type InsertPayRunApproval,
+  type DeductionType, type InsertDeductionType,
+  type UserDeduction, type InsertUserDeduction,
+  type Advance, type InsertAdvance, type AdvanceRepayment,
+  type UserTaxProfile, type InsertUserTaxProfile,
+  type UserPaymentMethod, type InsertUserPaymentMethod,
+  type PayStatement, type InsertPayStatement,
+  type PayStatementLineItem, type PayStatementDeduction,
 } from "@shared/schema";
 
 export const storage = {
@@ -775,6 +787,12 @@ export const storage = {
   async getChargebacks() {
     return db.query.chargebacks.findMany({ orderBy: [desc(chargebacks.createdAt)] });
   },
+  async getChargebacksByPayRun(payRunId: string) {
+    return db.query.chargebacks.findMany({ 
+      where: eq(chargebacks.payRunId, payRunId),
+      orderBy: [desc(chargebacks.createdAt)] 
+    });
+  },
   async createChargeback(data: InsertChargeback) {
     const [chargeback] = await db.insert(chargebacks).values(data).returning();
     return chargeback;
@@ -1014,6 +1032,21 @@ export const storage = {
   },
   async getOverrideEarningsByRecipient(recipientUserId: string) {
     return db.query.overrideEarnings.findMany({ where: eq(overrideEarnings.recipientUserId, recipientUserId), orderBy: [desc(overrideEarnings.createdAt)] });
+  },
+  async getOverrideEarningsByPayRun(payRunId: string, recipientUserId?: string) {
+    if (recipientUserId) {
+      return db.query.overrideEarnings.findMany({ 
+        where: and(
+          eq(overrideEarnings.payRunId, payRunId),
+          eq(overrideEarnings.recipientUserId, recipientUserId)
+        ),
+        orderBy: [desc(overrideEarnings.createdAt)] 
+      });
+    }
+    return db.query.overrideEarnings.findMany({ 
+      where: eq(overrideEarnings.payRunId, payRunId),
+      orderBy: [desc(overrideEarnings.createdAt)] 
+    });
   },
   async createOverrideEarning(data: InsertOverrideEarning) {
     const [earning] = await db.insert(overrideEarnings).values(data).returning();
@@ -1939,5 +1972,398 @@ export const storage = {
         isNull(knowledgeDocuments.deletedAt)
       ))
       .orderBy(desc(knowledgeDocuments.createdAt));
+  },
+
+  // ================== PAYROLL SYSTEM ==================
+
+  // Payroll Schedules
+  async getPayrollSchedules() {
+    return db.select().from(payrollSchedules).orderBy(desc(payrollSchedules.payDate));
+  },
+  async getActivePayrollSchedules() {
+    return db.select().from(payrollSchedules)
+      .where(eq(payrollSchedules.active, true))
+      .orderBy(desc(payrollSchedules.payDate));
+  },
+  async getPayrollScheduleById(id: string) {
+    const results = await db.select().from(payrollSchedules).where(eq(payrollSchedules.id, id));
+    return results[0] || null;
+  },
+  async createPayrollSchedule(data: InsertPayrollSchedule) {
+    const [schedule] = await db.insert(payrollSchedules).values(data).returning();
+    return schedule;
+  },
+  async updatePayrollSchedule(id: string, data: Partial<InsertPayrollSchedule>) {
+    const [schedule] = await db.update(payrollSchedules)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(payrollSchedules.id, id))
+      .returning();
+    return schedule;
+  },
+  async deletePayrollSchedule(id: string) {
+    await db.delete(payrollSchedules).where(eq(payrollSchedules.id, id));
+  },
+
+  // Pay Run Approvals
+  async getPayRunApprovals(payRunId: string) {
+    return db.select().from(payRunApprovals)
+      .where(eq(payRunApprovals.payRunId, payRunId))
+      .orderBy(payRunApprovals.createdAt);
+  },
+  async createPayRunApproval(data: InsertPayRunApproval) {
+    const [approval] = await db.insert(payRunApprovals).values(data).returning();
+    return approval;
+  },
+  async updatePayRunApproval(id: string, data: { approverId: string; status: "APPROVED" | "REJECTED"; notes?: string }) {
+    const [approval] = await db.update(payRunApprovals)
+      .set({ ...data, decidedAt: new Date() })
+      .where(eq(payRunApprovals.id, id))
+      .returning();
+    return approval;
+  },
+  async deletePayRunApprovals(payRunId: string) {
+    await db.delete(payRunApprovals).where(eq(payRunApprovals.payRunId, payRunId));
+  },
+
+  // Deduction Types
+  async getDeductionTypes() {
+    return db.select().from(deductionTypes).orderBy(deductionTypes.name);
+  },
+  async getActiveDeductionTypes() {
+    return db.select().from(deductionTypes)
+      .where(eq(deductionTypes.active, true))
+      .orderBy(deductionTypes.name);
+  },
+  async getDeductionTypeById(id: string) {
+    const results = await db.select().from(deductionTypes).where(eq(deductionTypes.id, id));
+    return results[0] || null;
+  },
+  async createDeductionType(data: InsertDeductionType) {
+    const [type] = await db.insert(deductionTypes).values(data).returning();
+    return type;
+  },
+  async updateDeductionType(id: string, data: Partial<InsertDeductionType>) {
+    const [type] = await db.update(deductionTypes)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(deductionTypes.id, id))
+      .returning();
+    return type;
+  },
+  async deleteDeductionType(id: string) {
+    await db.delete(deductionTypes).where(eq(deductionTypes.id, id));
+  },
+
+  // User Deductions
+  async getUserDeductions(userId: string) {
+    return db.select().from(userDeductions)
+      .where(eq(userDeductions.userId, userId))
+      .orderBy(desc(userDeductions.createdAt));
+  },
+  async getActiveUserDeductions(userId: string) {
+    return db.select().from(userDeductions)
+      .where(and(
+        eq(userDeductions.userId, userId),
+        eq(userDeductions.active, true)
+      ))
+      .orderBy(desc(userDeductions.createdAt));
+  },
+  async getAllActiveUserDeductions() {
+    return db.select().from(userDeductions)
+      .where(eq(userDeductions.active, true))
+      .orderBy(desc(userDeductions.createdAt));
+  },
+  async getUserDeductionById(id: string) {
+    const results = await db.select().from(userDeductions).where(eq(userDeductions.id, id));
+    return results[0] || null;
+  },
+  async createUserDeduction(data: InsertUserDeduction) {
+    const [deduction] = await db.insert(userDeductions).values(data).returning();
+    return deduction;
+  },
+  async updateUserDeduction(id: string, data: Partial<InsertUserDeduction>) {
+    const [deduction] = await db.update(userDeductions)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(userDeductions.id, id))
+      .returning();
+    return deduction;
+  },
+  async deleteUserDeduction(id: string) {
+    await db.delete(userDeductions).where(eq(userDeductions.id, id));
+  },
+
+  // Advances
+  async getAdvances() {
+    return db.select().from(advances).orderBy(desc(advances.requestedAt));
+  },
+  async getAdvancesByUser(userId: string) {
+    return db.select().from(advances)
+      .where(eq(advances.userId, userId))
+      .orderBy(desc(advances.requestedAt));
+  },
+  async getPendingAdvances() {
+    return db.select().from(advances)
+      .where(eq(advances.status, "PENDING"))
+      .orderBy(desc(advances.requestedAt));
+  },
+  async getActiveAdvancesForUser(userId: string) {
+    return db.select().from(advances)
+      .where(and(
+        eq(advances.userId, userId),
+        inArray(advances.status, ["APPROVED", "PAID", "REPAYING"])
+      ))
+      .orderBy(desc(advances.requestedAt));
+  },
+  async getAdvanceById(id: string) {
+    const results = await db.select().from(advances).where(eq(advances.id, id));
+    return results[0] || null;
+  },
+  async createAdvance(data: InsertAdvance) {
+    const [advance] = await db.insert(advances).values(data).returning();
+    return advance;
+  },
+  async updateAdvance(id: string, data: Partial<Advance>) {
+    const [advance] = await db.update(advances)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(advances.id, id))
+      .returning();
+    return advance;
+  },
+  async approveAdvance(id: string, approvedById: string, approvedAmount: string, notes?: string) {
+    const [advance] = await db.update(advances)
+      .set({ 
+        status: "APPROVED", 
+        approvedById, 
+        approvedAmount, 
+        remainingBalance: approvedAmount,
+        approvedAt: new Date(),
+        notes,
+        updatedAt: new Date() 
+      })
+      .where(eq(advances.id, id))
+      .returning();
+    return advance;
+  },
+  async rejectAdvance(id: string, approvedById: string, notes?: string) {
+    const [advance] = await db.update(advances)
+      .set({ status: "REJECTED", approvedById, approvedAt: new Date(), notes, updatedAt: new Date() })
+      .where(eq(advances.id, id))
+      .returning();
+    return advance;
+  },
+  async markAdvancePaid(id: string) {
+    const adv = await this.getAdvanceById(id);
+    if (!adv) return null;
+    const [advance] = await db.update(advances)
+      .set({ 
+        status: "REPAYING", 
+        paidAmount: adv.approvedAmount || "0",
+        paidAt: new Date(), 
+        updatedAt: new Date() 
+      })
+      .where(eq(advances.id, id))
+      .returning();
+    return advance;
+  },
+
+  // Advance Repayments
+  async createAdvanceRepayment(data: { advanceId: string; payStatementId: string; amountApplied: string }) {
+    const [repayment] = await db.insert(advanceRepayments).values(data).returning();
+    const advance = await this.getAdvanceById(data.advanceId);
+    if (advance) {
+      const newBalance = parseFloat(advance.remainingBalance) - parseFloat(data.amountApplied);
+      await db.update(advances)
+        .set({ 
+          remainingBalance: String(Math.max(0, newBalance)),
+          status: newBalance <= 0 ? "REPAID" : "REPAYING",
+          updatedAt: new Date()
+        })
+        .where(eq(advances.id, data.advanceId));
+    }
+    return repayment;
+  },
+  async getAdvanceRepayments(advanceId: string) {
+    return db.select().from(advanceRepayments)
+      .where(eq(advanceRepayments.advanceId, advanceId))
+      .orderBy(desc(advanceRepayments.createdAt));
+  },
+
+  // User Tax Profiles
+  async getUserTaxProfile(userId: string) {
+    const results = await db.select().from(userTaxProfiles).where(eq(userTaxProfiles.userId, userId));
+    return results[0] || null;
+  },
+  async getAllUserTaxProfiles() {
+    return db.select().from(userTaxProfiles).orderBy(desc(userTaxProfiles.createdAt));
+  },
+  async createUserTaxProfile(data: InsertUserTaxProfile) {
+    const [profile] = await db.insert(userTaxProfiles).values(data).returning();
+    return profile;
+  },
+  async updateUserTaxProfile(userId: string, data: Partial<InsertUserTaxProfile>) {
+    const existing = await this.getUserTaxProfile(userId);
+    if (existing) {
+      const [profile] = await db.update(userTaxProfiles)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(userTaxProfiles.userId, userId))
+        .returning();
+      return profile;
+    } else {
+      return this.createUserTaxProfile({ userId, ...data } as InsertUserTaxProfile);
+    }
+  },
+  async deleteUserTaxProfile(userId: string) {
+    await db.delete(userTaxProfiles).where(eq(userTaxProfiles.userId, userId));
+  },
+
+  // User Payment Methods
+  async getUserPaymentMethods(userId: string) {
+    return db.select().from(userPaymentMethods)
+      .where(eq(userPaymentMethods.userId, userId))
+      .orderBy(desc(userPaymentMethods.createdAt));
+  },
+  async getDefaultPaymentMethod(userId: string) {
+    const results = await db.select().from(userPaymentMethods)
+      .where(and(
+        eq(userPaymentMethods.userId, userId),
+        eq(userPaymentMethods.isDefault, true)
+      ));
+    return results[0] || null;
+  },
+  async getUserPaymentMethodById(id: string) {
+    const results = await db.select().from(userPaymentMethods).where(eq(userPaymentMethods.id, id));
+    return results[0] || null;
+  },
+  async createUserPaymentMethod(data: InsertUserPaymentMethod) {
+    if (data.isDefault) {
+      await db.update(userPaymentMethods)
+        .set({ isDefault: false })
+        .where(eq(userPaymentMethods.userId, data.userId));
+    }
+    const [method] = await db.insert(userPaymentMethods).values(data).returning();
+    return method;
+  },
+  async updateUserPaymentMethod(id: string, data: Partial<InsertUserPaymentMethod>) {
+    const existing = await this.getUserPaymentMethodById(id);
+    if (existing && data.isDefault) {
+      await db.update(userPaymentMethods)
+        .set({ isDefault: false })
+        .where(eq(userPaymentMethods.userId, existing.userId));
+    }
+    const [method] = await db.update(userPaymentMethods)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(userPaymentMethods.id, id))
+      .returning();
+    return method;
+  },
+  async deleteUserPaymentMethod(id: string) {
+    await db.delete(userPaymentMethods).where(eq(userPaymentMethods.id, id));
+  },
+
+  // Pay Statements
+  async getPayStatements(payRunId?: string) {
+    if (payRunId) {
+      return db.select().from(payStatements)
+        .where(eq(payStatements.payRunId, payRunId))
+        .orderBy(desc(payStatements.createdAt));
+    }
+    return db.select().from(payStatements).orderBy(desc(payStatements.createdAt));
+  },
+  async getPayStatementsByUser(userId: string) {
+    return db.select().from(payStatements)
+      .where(eq(payStatements.userId, userId))
+      .orderBy(desc(payStatements.periodEnd));
+  },
+  async getPayStatementById(id: string) {
+    const results = await db.select().from(payStatements).where(eq(payStatements.id, id));
+    return results[0] || null;
+  },
+  async createPayStatement(data: InsertPayStatement) {
+    const [statement] = await db.insert(payStatements).values(data).returning();
+    return statement;
+  },
+  async updatePayStatement(id: string, data: Partial<PayStatement>) {
+    const [statement] = await db.update(payStatements)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(payStatements.id, id))
+      .returning();
+    return statement;
+  },
+  async issuePayStatement(id: string) {
+    const [statement] = await db.update(payStatements)
+      .set({ status: "ISSUED", issuedAt: new Date(), updatedAt: new Date() })
+      .where(eq(payStatements.id, id))
+      .returning();
+    return statement;
+  },
+  async markPayStatementPaid(id: string, paymentMethodId?: string, paymentReference?: string) {
+    const [statement] = await db.update(payStatements)
+      .set({ 
+        status: "PAID", 
+        paidAt: new Date(), 
+        paymentMethodId, 
+        paymentReference,
+        updatedAt: new Date() 
+      })
+      .where(eq(payStatements.id, id))
+      .returning();
+    return statement;
+  },
+  async voidPayStatement(id: string) {
+    const [statement] = await db.update(payStatements)
+      .set({ status: "VOIDED", updatedAt: new Date() })
+      .where(eq(payStatements.id, id))
+      .returning();
+    return statement;
+  },
+  async deletePayStatement(id: string) {
+    await db.delete(payStatementLineItems).where(eq(payStatementLineItems.payStatementId, id));
+    await db.delete(payStatementDeductions).where(eq(payStatementDeductions.payStatementId, id));
+    await db.delete(payStatements).where(eq(payStatements.id, id));
+  },
+
+  // Pay Statement Line Items
+  async getPayStatementLineItems(payStatementId: string) {
+    return db.select().from(payStatementLineItems)
+      .where(eq(payStatementLineItems.payStatementId, payStatementId))
+      .orderBy(payStatementLineItems.category);
+  },
+  async createPayStatementLineItem(data: { payStatementId: string; category: string; description: string; sourceType?: string; sourceId?: string; quantity?: number; rate?: string; amount: string }) {
+    const [item] = await db.insert(payStatementLineItems).values(data).returning();
+    return item;
+  },
+  async deletePayStatementLineItems(payStatementId: string) {
+    await db.delete(payStatementLineItems).where(eq(payStatementLineItems.payStatementId, payStatementId));
+  },
+
+  // Pay Statement Deductions
+  async getPayStatementDeductions(payStatementId: string) {
+    return db.select().from(payStatementDeductions)
+      .where(eq(payStatementDeductions.payStatementId, payStatementId));
+  },
+  async createPayStatementDeduction(data: { payStatementId: string; userDeductionId?: string; deductionTypeName: string; amount: string }) {
+    const [deduction] = await db.insert(payStatementDeductions).values(data).returning();
+    return deduction;
+  },
+  async deletePayStatementDeductions(payStatementId: string) {
+    await db.delete(payStatementDeductions).where(eq(payStatementDeductions.payStatementId, payStatementId));
+  },
+
+  // YTD calculations
+  async getYTDTotalsForUser(userId: string, year: number) {
+    const startOfYear = `${year}-01-01`;
+    const endOfYear = `${year}-12-31`;
+    const results = await db.select({
+      totalGross: sql<string>`COALESCE(SUM(${payStatements.grossCommission} + ${payStatements.overrideEarningsTotal} + ${payStatements.incentivesTotal} + ${payStatements.adjustmentsTotal} - ${payStatements.chargebacksTotal}), 0)`,
+      totalDeductions: sql<string>`COALESCE(SUM(${payStatements.deductionsTotal} + ${payStatements.advancesApplied} + ${payStatements.taxWithheld}), 0)`,
+      totalNetPay: sql<string>`COALESCE(SUM(${payStatements.netPay}), 0)`,
+    })
+    .from(payStatements)
+    .where(and(
+      eq(payStatements.userId, userId),
+      gte(payStatements.periodEnd, startOfYear),
+      lte(payStatements.periodEnd, endOfYear),
+      inArray(payStatements.status, ["ISSUED", "PAID"])
+    ));
+    return results[0] || { totalGross: "0", totalDeductions: "0", totalNetPay: "0" };
   },
 };
