@@ -1054,10 +1054,10 @@ export default function Orders() {
                     value={newOrderForm.clientId}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v }))}
                     placeholder="Select client"
-                    options={clients?.filter(c => c.active !== false && c.id).map((client) => ({
+                    options={(clients || []).map((client) => ({
                       value: client.id,
                       label: client.name
-                    })) || []}
+                    }))}
                     data-testid="select-client"
                   />
                 ) : (
@@ -1066,7 +1066,7 @@ export default function Orders() {
                       <SelectValue placeholder="Select client" />
                     </SelectTrigger>
                     <SelectContent>
-                      {clients?.filter(c => c.active !== false && c.id).map((client) => (
+                      {(clients || []).map((client) => (
                         <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -1080,10 +1080,10 @@ export default function Orders() {
                     value={newOrderForm.providerId}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v }))}
                     placeholder="Select provider"
-                    options={providers?.filter(p => p.active !== false && p.id).map((provider) => ({
+                    options={(providers || []).map((provider) => ({
                       value: provider.id,
                       label: provider.name
-                    })) || []}
+                    }))}
                     data-testid="select-provider"
                   />
                 ) : (
@@ -1092,7 +1092,7 @@ export default function Orders() {
                       <SelectValue placeholder="Select provider" />
                     </SelectTrigger>
                     <SelectContent>
-                      {providers?.filter(p => p.active !== false && p.id).map((provider) => (
+                      {(providers || []).map((provider) => (
                         <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -1133,10 +1133,10 @@ export default function Orders() {
                     value={newOrderForm.serviceId}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}
                     placeholder="Select service"
-                    options={services?.filter(s => s.active !== false && s.id).map((service) => ({
+                    options={(services || []).map((service) => ({
                       value: service.id,
                       label: service.name
-                    })) || []}
+                    }))}
                     data-testid="select-service"
                   />
                 ) : (
@@ -1145,7 +1145,7 @@ export default function Orders() {
                       <SelectValue placeholder="Select service" />
                     </SelectTrigger>
                     <SelectContent>
-                      {services?.filter(s => s.active !== false && s.id).map((service) => (
+                      {(services || []).map((service) => (
                         <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
                       ))}
                     </SelectContent>
