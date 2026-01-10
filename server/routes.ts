@@ -2,8 +2,8 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { eq, and, sql, gte, lte, inArray } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions } from "@shared/schema";
+import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or } from "drizzle-orm";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -4322,6 +4322,332 @@ export async function registerRoutes(
       res.json({ message, count: assignedLeads.length, skipped: deniedIds.length });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to assign leads" });
+    }
+  });
+
+  // Update lead pipeline stage
+  app.put("/api/leads/:id/stage", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { pipelineStage, lostReason, lostNotes } = req.body;
+      
+      if (!pipelineStage || typeof pipelineStage !== "string") {
+        return res.status(400).json({ message: "pipelineStage is required" });
+      }
+      
+      const validStages = ["NEW", "CONTACTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"];
+      if (!validStages.includes(pipelineStage)) {
+        return res.status(400).json({ message: "Invalid pipeline stage" });
+      }
+      
+      const lead = await storage.getLeadById(id);
+      if (!lead || lead.deletedAt) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(req.user!.role);
+      if (!isAdmin && lead.repId !== req.user!.repId) {
+        return res.status(403).json({ message: "You can only update your own leads" });
+      }
+      
+      const sanitizedLostReason = typeof lostReason === "string" ? lostReason : null;
+      const sanitizedLostNotes = typeof lostNotes === "string" ? lostNotes : null;
+      
+      const updated = await storage.updateLeadPipelineStage(id, pipelineStage, sanitizedLostReason, sanitizedLostNotes);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update_lead_stage",
+        tableName: "leads",
+        recordId: id,
+        afterJson: JSON.stringify({ pipelineStage, lostReason: sanitizedLostReason }),
+      });
+      
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update lead stage" });
+    }
+  });
+
+  // Schedule follow-up for a lead
+  app.put("/api/leads/:id/follow-up", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { scheduledFollowUp, followUpNotes } = req.body;
+      
+      const lead = await storage.getLeadById(id);
+      if (!lead || lead.deletedAt) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(req.user!.role);
+      if (!isAdmin && lead.repId !== req.user!.repId) {
+        return res.status(403).json({ message: "You can only update your own leads" });
+      }
+      
+      let parsedDate: Date | null = null;
+      if (scheduledFollowUp) {
+        const d = new Date(scheduledFollowUp);
+        if (isNaN(d.getTime())) {
+          return res.status(400).json({ message: "Invalid date format for scheduledFollowUp" });
+        }
+        parsedDate = d;
+      }
+      
+      const sanitizedNotes = typeof followUpNotes === "string" ? followUpNotes : null;
+      const updated = await storage.updateLeadFollowUp(id, parsedDate, sanitizedNotes);
+      
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to schedule follow-up" });
+    }
+  });
+
+  // Log contact attempt
+  app.post("/api/leads/:id/contact", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { notes } = req.body;
+      
+      const lead = await storage.getLeadById(id);
+      if (!lead || lead.deletedAt) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(req.user!.role);
+      if (!isAdmin && lead.repId !== req.user!.repId) {
+        return res.status(403).json({ message: "You can only update your own leads" });
+      }
+      
+      const sanitizedNotes = typeof notes === "string" ? notes : undefined;
+      const updated = await storage.logLeadContact(id, lead, sanitizedNotes);
+      
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to log contact" });
+    }
+  });
+
+  // Get leads with follow-ups due (for reminders)
+  app.get("/api/leads/follow-ups", auth, async (req: AuthRequest, res) => {
+    try {
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(req.user!.role);
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      const repId = isAdmin ? undefined : req.user!.repId || undefined;
+      const followUps = await storage.getLeadsWithFollowUpsDue(repId, tomorrow);
+      
+      // Categorize follow-ups
+      const overdue = followUps.filter(f => f.scheduledFollowUp && f.scheduledFollowUp < now);
+      const today = followUps.filter(f => {
+        if (!f.scheduledFollowUp) return false;
+        const followUpDate = new Date(f.scheduledFollowUp);
+        return followUpDate.toDateString() === now.toDateString();
+      });
+      const upcoming = followUps.filter(f => {
+        if (!f.scheduledFollowUp) return false;
+        const followUpDate = new Date(f.scheduledFollowUp);
+        return followUpDate > now && followUpDate.toDateString() !== now.toDateString();
+      });
+      
+      res.json({ overdue, today, upcoming, total: followUps.length });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get follow-ups" });
+    }
+  });
+
+  // Pipeline analytics - funnel data
+  app.get("/api/pipeline/funnel", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const { startDate, endDate, repId, providerId } = req.query;
+      
+      const filters = {
+        startDate: typeof startDate === "string" ? startDate : undefined,
+        endDate: typeof endDate === "string" ? endDate : undefined,
+        repId: typeof repId === "string" && repId !== "all" ? repId : undefined,
+        providerId: typeof providerId === "string" ? providerId : undefined,
+      };
+      
+      const stageCounts = await storage.getPipelineFunnelData(filters);
+      
+      // Build funnel data with proper stage ordering
+      const stages = ["NEW", "CONTACTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"];
+      const stageMap: Record<string, number> = {};
+      for (const sc of stageCounts) {
+        stageMap[sc.pipelineStage || "NEW"] = sc.count;
+      }
+      
+      const funnelData = stages.map(stage => ({
+        stage,
+        count: stageMap[stage] || 0,
+      }));
+      
+      // Calculate totals
+      const total = funnelData.reduce((sum, f) => sum + f.count, 0);
+      const won = stageMap["WON"] || 0;
+      const lost = stageMap["LOST"] || 0;
+      const active = total - won - lost;
+      
+      res.json({
+        funnel: funnelData,
+        summary: {
+          total,
+          won,
+          lost,
+          active,
+          winRate: (won + lost) > 0 ? ((won / (won + lost)) * 100).toFixed(1) : "0",
+          conversionRate: total > 0 ? ((won / total) * 100).toFixed(1) : "0",
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get funnel data" });
+    }
+  });
+
+  // Lead aging report
+  app.get("/api/pipeline/aging", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const { repId } = req.query;
+      const repFilter = typeof repId === "string" && repId !== "all" ? repId : undefined;
+      
+      const activeLeads = await storage.getActiveLeadsForAging(repFilter, 100);
+      
+      const now = new Date();
+      const agingBuckets = {
+        "0-7 days": 0,
+        "8-14 days": 0,
+        "15-30 days": 0,
+        "31-60 days": 0,
+        "60+ days": 0,
+      };
+      
+      const agingDetails: any[] = [];
+      
+      for (const lead of activeLeads) {
+        const createdAt = new Date(lead.createdAt);
+        const ageDays = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (ageDays <= 7) agingBuckets["0-7 days"]++;
+        else if (ageDays <= 14) agingBuckets["8-14 days"]++;
+        else if (ageDays <= 30) agingBuckets["15-30 days"]++;
+        else if (ageDays <= 60) agingBuckets["31-60 days"]++;
+        else agingBuckets["60+ days"]++;
+        
+        agingDetails.push({
+          id: lead.id,
+          customerName: lead.customerName,
+          repId: lead.repId,
+          pipelineStage: lead.pipelineStage,
+          createdAt: lead.createdAt,
+          ageDays,
+          lastContactedAt: lead.lastContactedAt,
+          scheduledFollowUp: lead.scheduledFollowUp,
+        });
+      }
+      
+      // Sort by age descending
+      agingDetails.sort((a, b) => b.ageDays - a.ageDays);
+      
+      const avgAge = activeLeads.length > 0
+        ? agingDetails.reduce((sum, l) => sum + l.ageDays, 0) / activeLeads.length
+        : 0;
+      
+      res.json({
+        buckets: agingBuckets,
+        details: agingDetails.slice(0, 50),
+        summary: {
+          totalActive: activeLeads.length,
+          averageAgeDays: avgAge.toFixed(1),
+          oldestLead: agingDetails[0] || null,
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get aging report" });
+    }
+  });
+
+  // Win/Loss analysis
+  app.get("/api/pipeline/win-loss", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const { startDate, endDate, groupBy } = req.query;
+      const groupByField = (typeof groupBy === "string" ? groupBy : "rep");
+      
+      const filters = {
+        startDate: typeof startDate === "string" ? startDate : undefined,
+        endDate: typeof endDate === "string" ? endDate : undefined,
+      };
+      
+      const closedLeads = await storage.getClosedLeadsForWinLoss(filters);
+      
+      // Group analysis
+      const analysis: Record<string, { wins: number; losses: number; lossReasons: Record<string, number> }> = {};
+      
+      for (const lead of closedLeads) {
+        let key: string;
+        switch (groupByField) {
+          case "provider":
+            key = lead.interestedProviderId || "Unknown";
+            break;
+          case "service":
+            key = lead.interestedServiceId || "Unknown";
+            break;
+          default:
+            key = lead.repId || "Unknown";
+        }
+        
+        if (!analysis[key]) {
+          analysis[key] = { wins: 0, losses: 0, lossReasons: {} };
+        }
+        
+        if (lead.pipelineStage === "WON") {
+          analysis[key].wins++;
+        } else {
+          analysis[key].losses++;
+          const reason = lead.lostReason || "Not specified";
+          analysis[key].lossReasons[reason] = (analysis[key].lossReasons[reason] || 0) + 1;
+        }
+      }
+      
+      // Convert to array and calculate rates
+      const results = Object.entries(analysis).map(([key, data]) => ({
+        [groupByField]: key,
+        wins: data.wins,
+        losses: data.losses,
+        total: data.wins + data.losses,
+        winRate: data.wins + data.losses > 0 ? ((data.wins / (data.wins + data.losses)) * 100).toFixed(1) : "0",
+        topLossReasons: Object.entries(data.lossReasons)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([reason, count]) => ({ reason, count })),
+      }));
+      
+      results.sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
+      
+      // Overall loss reasons
+      const overallLossReasons: Record<string, number> = {};
+      for (const lead of closedLeads.filter(l => l.pipelineStage === "LOST")) {
+        const reason = lead.lostReason || "Not specified";
+        overallLossReasons[reason] = (overallLossReasons[reason] || 0) + 1;
+      }
+      
+      res.json({
+        byGroup: results,
+        summary: {
+          totalWins: closedLeads.filter(l => l.pipelineStage === "WON").length,
+          totalLosses: closedLeads.filter(l => l.pipelineStage === "LOST").length,
+          overallWinRate: closedLeads.length > 0 
+            ? ((closedLeads.filter(l => l.pipelineStage === "WON").length / closedLeads.length) * 100).toFixed(1)
+            : "0",
+          topLossReasons: Object.entries(overallLossReasons)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([reason, count]) => ({ reason, count })),
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get win/loss analysis" });
     }
   });
 

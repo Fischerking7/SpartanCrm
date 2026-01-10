@@ -610,6 +610,14 @@ export type InsertCommissionLineItem = z.infer<typeof insertCommissionLineItemSc
 export const leadDispositions = ["NONE", "SOLD", "NOT_HOME", "RETURN", "REJECT"] as const;
 export type LeadDisposition = typeof leadDispositions[number];
 
+// Lead pipeline stages for funnel tracking
+export const leadPipelineStages = ["NEW", "CONTACTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"] as const;
+export type LeadPipelineStage = typeof leadPipelineStages[number];
+
+// Lead loss reasons
+export const leadLossReasons = ["PRICE", "COMPETITOR", "NO_RESPONSE", "NOT_INTERESTED", "SERVICE_AREA", "CREDIT", "OTHER"] as const;
+export type LeadLossReason = typeof leadLossReasons[number];
+
 // Leads table - for imported lead data
 export const leads = pgTable("leads", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -635,6 +643,30 @@ export const leads = pgTable("leads", {
   importedAt: timestamp("imported_at").defaultNow().notNull(),
   importedBy: varchar("imported_by").references(() => users.id),
   status: text("status").notNull().default("NEW"),
+  
+  // Pipeline tracking
+  pipelineStage: text("pipeline_stage").notNull().default("NEW"),
+  stageChangedAt: timestamp("stage_changed_at"),
+  
+  // Follow-up scheduling
+  scheduledFollowUp: timestamp("scheduled_follow_up"),
+  followUpNotes: text("follow_up_notes"),
+  lastContactedAt: timestamp("last_contacted_at"),
+  contactAttempts: integer("contact_attempts").notNull().default(0),
+  
+  // Conversion tracking
+  convertedToOrderId: varchar("converted_to_order_id").references(() => salesOrders.id),
+  convertedAt: timestamp("converted_at"),
+  
+  // Loss tracking
+  lostReason: text("lost_reason"),
+  lostAt: timestamp("lost_at"),
+  lostNotes: text("lost_notes"),
+  
+  // Provider/Service interest (for win/loss analysis)
+  interestedProviderId: varchar("interested_provider_id").references(() => providers.id),
+  interestedServiceId: varchar("interested_service_id").references(() => services.id),
+  
   deletedAt: timestamp("deleted_at"),
   deletedByUserId: varchar("deleted_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),

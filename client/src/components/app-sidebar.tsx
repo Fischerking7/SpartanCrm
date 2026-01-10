@@ -44,6 +44,7 @@ import {
   Bell,
   Target,
   Key,
+  Filter,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -76,6 +77,7 @@ const mduMenuItems: MenuItem[] = [
 const salesLeaderMenuItems: MenuItem[] = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
+  { title: "Sales Pipeline", url: "/sales-pipeline", icon: Filter },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
@@ -90,6 +92,7 @@ const salesLeaderMenuItems: MenuItem[] = [
 const executiveMenuItems: MenuItem[] = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
+  { title: "Sales Pipeline", url: "/sales-pipeline", icon: Filter },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
@@ -122,6 +125,7 @@ const adminAccounting: MenuItem[] = [
 
 const adminInsights: MenuItem[] = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "Sales Pipeline", url: "/sales-pipeline", icon: Filter },
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Executive Reports", url: "/executive-reports", icon: TrendingUp },
 ];

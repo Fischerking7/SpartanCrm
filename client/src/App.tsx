@@ -45,6 +45,7 @@ import MyCredentials from "@/pages/my-credentials";
 import AdminEmployeeCredentials from "@/pages/admin/employee-credentials";
 import MduOrders from "@/pages/mdu-orders";
 import AdminMduReview from "@/pages/admin/mdu-review";
+import SalesPipeline from "@/pages/sales-pipeline";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -171,6 +172,7 @@ function Router() {
         
         {canViewReports && <Route path="/reports" component={Reports} />}
         {canViewReports && <Route path="/executive-reports" component={ExecutiveReports} />}
+        {canViewReports && <Route path="/sales-pipeline" component={SalesPipeline} />}
         
         {canReviewMdu && <Route path="/admin/mdu-review" component={AdminMduReview} />}
         

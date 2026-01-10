@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, sql, lte, gte, or, isNull, ilike, inArray, notInArray } from "drizzle-orm";
+import { eq, and, desc, sql, lte, gte, or, isNull, ilike, inArray, notInArray, ne, asc } from "drizzle-orm";
 import {
   users, providers, clients, services, rateCards, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
@@ -2039,6 +2039,168 @@ export const storage = {
   async deleteAllLeads() {
     const result = await db.delete(leads).returning();
     return result.length;
+  },
+  
+  // Pipeline analytics methods
+  async updateLeadPipelineStage(id: string, pipelineStage: string, lostReason?: string | null, lostNotes?: string | null) {
+    const updates: any = {
+      pipelineStage,
+      stageChangedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    
+    if (pipelineStage === "LOST") {
+      updates.lostAt = new Date();
+      updates.lostReason = lostReason || null;
+      updates.lostNotes = lostNotes || null;
+    }
+    
+    if (pipelineStage === "WON") {
+      updates.disposition = "SOLD";
+      updates.dispositionAt = new Date();
+    }
+    
+    const [lead] = await db.update(leads).set(updates).where(eq(leads.id, id)).returning();
+    return lead;
+  },
+  
+  async updateLeadFollowUp(id: string, scheduledFollowUp: Date | null, followUpNotes?: string | null) {
+    const [lead] = await db.update(leads).set({
+      scheduledFollowUp,
+      followUpNotes: followUpNotes || null,
+      updatedAt: new Date(),
+    }).where(eq(leads.id, id)).returning();
+    return lead;
+  },
+  
+  async logLeadContact(id: string, existingLead: { notes?: string | null; contactAttempts?: number; pipelineStage?: string }, notes?: string) {
+    const updates: any = {
+      lastContactedAt: new Date(),
+      contactAttempts: (existingLead.contactAttempts || 0) + 1,
+      updatedAt: new Date(),
+    };
+    
+    if (existingLead.pipelineStage === "NEW") {
+      updates.pipelineStage = "CONTACTED";
+      updates.stageChangedAt = new Date();
+    }
+    
+    if (notes) {
+      updates.notes = existingLead.notes 
+        ? `${existingLead.notes}\n[${new Date().toLocaleDateString()}] ${notes}` 
+        : `[${new Date().toLocaleDateString()}] ${notes}`;
+    }
+    
+    const [lead] = await db.update(leads).set(updates).where(eq(leads.id, id)).returning();
+    return lead;
+  },
+  
+  async getLeadsWithFollowUpsDue(repId?: string, tomorrow?: Date) {
+    const now = new Date();
+    const tomorrowDate = tomorrow || new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    
+    const conditions = [
+      isNull(leads.deletedAt),
+      lte(leads.scheduledFollowUp, tomorrowDate),
+      isNull(leads.convertedToOrderId),
+      ne(leads.pipelineStage, "WON"),
+      ne(leads.pipelineStage, "LOST"),
+    ];
+    
+    if (repId) {
+      conditions.push(eq(leads.repId, repId));
+    }
+    
+    return db.select({
+      id: leads.id,
+      repId: leads.repId,
+      customerName: leads.customerName,
+      customerPhone: leads.customerPhone,
+      customerEmail: leads.customerEmail,
+      pipelineStage: leads.pipelineStage,
+      scheduledFollowUp: leads.scheduledFollowUp,
+      followUpNotes: leads.followUpNotes,
+    }).from(leads)
+      .where(and(...conditions))
+      .orderBy(asc(leads.scheduledFollowUp))
+      .limit(100);
+  },
+  
+  async getPipelineFunnelData(filters?: { startDate?: string; endDate?: string; repId?: string; providerId?: string }) {
+    const conditions = [isNull(leads.deletedAt)];
+    
+    if (filters?.startDate) {
+      conditions.push(gte(leads.createdAt, new Date(filters.startDate)));
+    }
+    if (filters?.endDate) {
+      conditions.push(lte(leads.createdAt, new Date(filters.endDate)));
+    }
+    if (filters?.repId) {
+      conditions.push(eq(leads.repId, filters.repId));
+    }
+    if (filters?.providerId) {
+      conditions.push(eq(leads.interestedProviderId, filters.providerId));
+    }
+    
+    // Get counts by pipeline stage using aggregation
+    const result = await db.select({
+      pipelineStage: leads.pipelineStage,
+      count: sql<number>`count(*)::int`,
+    }).from(leads)
+      .where(and(...conditions))
+      .groupBy(leads.pipelineStage);
+    
+    return result;
+  },
+  
+  async getActiveLeadsForAging(repId?: string, limit: number = 50) {
+    const conditions = [
+      isNull(leads.deletedAt),
+      ne(leads.pipelineStage, "WON"),
+      ne(leads.pipelineStage, "LOST"),
+    ];
+    
+    if (repId) {
+      conditions.push(eq(leads.repId, repId));
+    }
+    
+    return db.select({
+      id: leads.id,
+      customerName: leads.customerName,
+      repId: leads.repId,
+      pipelineStage: leads.pipelineStage,
+      createdAt: leads.createdAt,
+      lastContactedAt: leads.lastContactedAt,
+      scheduledFollowUp: leads.scheduledFollowUp,
+    }).from(leads)
+      .where(and(...conditions))
+      .orderBy(asc(leads.createdAt))
+      .limit(limit);
+  },
+  
+  async getClosedLeadsForWinLoss(filters?: { startDate?: string; endDate?: string }) {
+    const conditions = [
+      isNull(leads.deletedAt),
+      or(eq(leads.pipelineStage, "WON"), eq(leads.pipelineStage, "LOST")),
+    ];
+    
+    if (filters?.startDate) {
+      conditions.push(gte(leads.stageChangedAt, new Date(filters.startDate)));
+    }
+    if (filters?.endDate) {
+      conditions.push(lte(leads.stageChangedAt, new Date(filters.endDate)));
+    }
+    
+    return db.select({
+      id: leads.id,
+      repId: leads.repId,
+      pipelineStage: leads.pipelineStage,
+      lostReason: leads.lostReason,
+      interestedProviderId: leads.interestedProviderId,
+      interestedServiceId: leads.interestedServiceId,
+    }).from(leads)
+      .where(and(...conditions))
+      .limit(1000);
   },
 
   // Knowledge Documents
