@@ -351,14 +351,14 @@ export default function MduOrders() {
       <Dialog open={showCreateDialog || !!editingOrder} onOpenChange={(open) => { 
         if (!open) { setShowCreateDialog(false); setEditingOrder(null); resetForm(); }
       }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingOrder ? "Edit Order" : "New MDU Order"}</DialogTitle>
             <DialogDescription>
               {editingOrder ? "Update order details" : "Submit a new order for review"}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <div className="grid gap-4 py-4 overflow-y-auto flex-1 pr-2">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="customerName">Customer Name *</Label>
