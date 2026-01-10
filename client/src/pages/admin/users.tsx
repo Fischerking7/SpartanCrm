@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
-import { DataTable } from "@/components/data-table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -11,12 +10,265 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Users, Edit, UserX, AlertTriangle, KeyRound, Trash2 } from "lucide-react";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { Plus, Search, Users, Edit, UserX, AlertTriangle, KeyRound, Trash2, ChevronDown, ChevronRight, Key, CreditCard, Eye, EyeOff, Save } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@shared/schema";
 
 const __NONE__ = "__NONE__";
+
+interface EmployeeCredential {
+  id: string;
+  userId: string;
+  entryLabel: string;
+  peopleSoftNumber: string | null;
+  networkId: string | null;
+  tempPassword: string | null;
+  workEmail: string | null;
+  rtr: string | null;
+  rtrPassword: string | null;
+  authenticatorUsername: string | null;
+  authenticatorPassword: string | null;
+  ipadPin: string | null;
+  deviceNumber: string | null;
+  gmail: string | null;
+  gmailPassword: string | null;
+  notes: string | null;
+}
+
+interface BankAccount {
+  id: string;
+  userId: string;
+  accountHolderName: string;
+  bankName: string;
+  accountType: string;
+  routingNumber: string;
+  accountNumber: string;
+  isPrimary: boolean;
+}
+
+function PasswordField({ value, label }: { value: string | null; label: string }) {
+  const [visible, setVisible] = useState(false);
+  if (!value) return null;
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-sm">{visible ? value : "••••••••"}</span>
+        <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setVisible(!visible)}>
+          {visible ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function UserCredentialsSection({ userId, enabled }: { userId: string; enabled: boolean }) {
+  const { data: credentials, isLoading } = useQuery<EmployeeCredential[]>({
+    queryKey: ["/api/admin/employee-credentials/user", userId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/employee-credentials/user/${userId}`, { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled,
+  });
+
+  if (isLoading) return <Skeleton className="h-20 w-full" />;
+  if (!credentials?.length) return <p className="text-sm text-muted-foreground py-4">No credentials on file</p>;
+
+  return (
+    <div className="space-y-4">
+      {credentials.map((cred) => (
+        <div key={cred.id} className="border rounded-lg p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <Badge variant="outline">{cred.entryLabel || "Default"}</Badge>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+            {cred.peopleSoftNumber && (
+              <div><Label className="text-xs text-muted-foreground">PeopleSoft #</Label><p className="font-mono">{cred.peopleSoftNumber}</p></div>
+            )}
+            {cred.networkId && (
+              <div><Label className="text-xs text-muted-foreground">Network ID</Label><p className="font-mono">{cred.networkId}</p></div>
+            )}
+            {cred.workEmail && (
+              <div><Label className="text-xs text-muted-foreground">Work Email</Label><p className="font-mono">{cred.workEmail}</p></div>
+            )}
+            {cred.deviceNumber && (
+              <div><Label className="text-xs text-muted-foreground">Device #</Label><p className="font-mono">{cred.deviceNumber}</p></div>
+            )}
+            <PasswordField value={cred.tempPassword} label="Temp Password" />
+            <PasswordField value={cred.rtrPassword} label="RTR Password" />
+            <PasswordField value={cred.authenticatorPassword} label="Authenticator Password" />
+            <PasswordField value={cred.ipadPin} label="iPad PIN" />
+            <PasswordField value={cred.gmailPassword} label="Gmail Password" />
+          </div>
+          {cred.notes && (
+            <div className="pt-2 border-t">
+              <Label className="text-xs text-muted-foreground">Notes</Label>
+              <p className="text-sm whitespace-pre-wrap">{cred.notes}</p>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UserBankingSection({ userId, enabled }: { userId: string; enabled: boolean }) {
+  const { data: accounts, isLoading } = useQuery<BankAccount[]>({
+    queryKey: ["/api/admin/bank-accounts", userId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/bank-accounts?userId=${userId}`, { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled,
+  });
+
+  if (isLoading) return <Skeleton className="h-20 w-full" />;
+  if (!accounts?.length) return <p className="text-sm text-muted-foreground py-4">No bank accounts on file</p>;
+
+  return (
+    <div className="space-y-4">
+      {accounts.map((account) => (
+        <div key={account.id} className="border rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium">{account.bankName}</span>
+            </div>
+            {account.isPrimary && <Badge variant="default">Primary</Badge>}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <Label className="text-xs text-muted-foreground">Account Holder</Label>
+              <p>{account.accountHolderName}</p>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Account Type</Label>
+              <p>{account.accountType}</p>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Routing #</Label>
+              <p className="font-mono">••••{account.routingNumber.slice(-4)}</p>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Account #</Label>
+              <p className="font-mono">••••{account.accountNumber.slice(-4)}</p>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UserRow({ user, users, onEdit, onResetPassword, onDeactivate, onDelete }: {
+  user: User;
+  users: User[];
+  onEdit: (user: User) => void;
+  onResetPassword: (user: User) => void;
+  onDeactivate: (userId: string) => void;
+  onDelete: (user: User) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const getInitials = (name: string) => name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+  const getRoleBadgeVariant = (role: string) => {
+    switch (role) {
+      case "ADMIN": case "FOUNDER": case "EXECUTIVE": return "default";
+      case "MANAGER": case "SUPERVISOR": return "secondary";
+      default: return "outline";
+    }
+  };
+
+  const getReportsTo = () => {
+    const parts: string[] = [];
+    if (user.assignedSupervisorId) {
+      const sup = users.find(u => u.id === user.assignedSupervisorId);
+      if (sup) parts.push(`Sup: ${sup.name}`);
+    }
+    if (user.assignedManagerId) {
+      const mgr = users.find(u => u.id === user.assignedManagerId);
+      if (mgr) parts.push(`Mgr: ${mgr.name}`);
+    }
+    if (user.assignedExecutiveId) {
+      const exec = users.find(u => u.id === user.assignedExecutiveId);
+      if (exec) parts.push(`Exec: ${exec.name}`);
+    }
+    return parts.join(" | ") || "-";
+  };
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <div className="border rounded-lg mb-2 bg-card">
+        <CollapsibleTrigger asChild>
+          <div className="flex items-center justify-between p-4 cursor-pointer hover-elevate" data-testid={`row-user-${user.id}`}>
+            <div className="flex items-center gap-4 flex-1">
+              <div className="flex items-center gap-1 text-muted-foreground">
+                {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </div>
+              <Avatar className="h-10 w-10">
+                <AvatarFallback className="bg-primary/10 text-primary">{getInitials(user.name)}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium">{user.name}</span>
+                  <span className="text-xs text-muted-foreground font-mono">({user.repId})</span>
+                  <Badge variant={getRoleBadgeVariant(user.role)}>{user.role}</Badge>
+                  <Badge variant={user.status === "ACTIVE" ? "default" : "destructive"}>{user.status}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">{getReportsTo()}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              <Button size="icon" variant="ghost" onClick={() => onEdit(user)} data-testid={`button-edit-${user.id}`}>
+                <Edit className="h-4 w-4" />
+              </Button>
+              <Button size="icon" variant="ghost" onClick={() => onResetPassword(user)} title="Reset Password" data-testid={`button-reset-password-${user.id}`}>
+                <KeyRound className="h-4 w-4 text-amber-600" />
+              </Button>
+              {user.status === "ACTIVE" && (
+                <Button size="icon" variant="ghost" onClick={() => onDeactivate(user.id)} title="Deactivate" data-testid={`button-deactivate-${user.id}`}>
+                  <UserX className="h-4 w-4 text-amber-600" />
+                </Button>
+              )}
+              <Button size="icon" variant="ghost" onClick={() => onDelete(user)} title="Remove" data-testid={`button-delete-${user.id}`}>
+                <Trash2 className="h-4 w-4 text-red-600" />
+              </Button>
+            </div>
+          </div>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="px-4 pb-4 border-t pt-4">
+            <Tabs defaultValue="credentials" className="w-full">
+              <TabsList className="mb-4">
+                <TabsTrigger value="credentials" className="gap-2">
+                  <Key className="h-4 w-4" />
+                  Credentials
+                </TabsTrigger>
+                <TabsTrigger value="banking" className="gap-2">
+                  <CreditCard className="h-4 w-4" />
+                  Banking
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="credentials">
+                <UserCredentialsSection userId={user.id} enabled={isOpen} />
+              </TabsContent>
+              <TabsContent value="banking">
+                <UserBankingSection userId={user.id} enabled={isOpen} />
+              </TabsContent>
+            </Tabs>
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
 
 export default function AdminUsers() {
   const { toast } = useToast();
@@ -170,7 +422,6 @@ export default function AdminUsers() {
   const managers = users?.filter((u) => u.role === "MANAGER" && u.status === "ACTIVE") || [];
   const executives = users?.filter((u) => u.role === "EXECUTIVE" && u.status === "ACTIVE") || [];
   
-  // Compute validation warnings
   const getValidationWarnings = (): string[] => {
     const warnings: string[] = [];
     const role = formData.role;
@@ -218,137 +469,6 @@ export default function AdminUsers() {
     user.repId.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const getInitials = (name: string) => {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
-  };
-
-  const getRoleBadgeVariant = (role: string) => {
-    switch (role) {
-      case "ADMIN": return "default";
-      case "EXECUTIVE": return "default";
-      case "MANAGER": return "secondary";
-      case "SUPERVISOR": return "secondary";
-      default: return "outline";
-    }
-  };
-
-  const columns = [
-    {
-      key: "name",
-      header: "User",
-      cell: (row: User) => (
-        <div className="flex items-center gap-3">
-          <Avatar className="h-8 w-8">
-            <AvatarFallback className="bg-primary/10 text-primary text-xs">
-              {getInitials(row.name)}
-            </AvatarFallback>
-          </Avatar>
-          <div>
-            <p className="font-medium">{row.name}</p>
-            <p className="text-xs text-muted-foreground font-mono">{row.repId}</p>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: "role",
-      header: "Role",
-      cell: (row: User) => (
-        <Badge variant={getRoleBadgeVariant(row.role)}>
-          {row.role}
-        </Badge>
-      ),
-    },
-    {
-      key: "hierarchy",
-      header: "Reports To",
-      cell: (row: User) => {
-        const parts: string[] = [];
-        if (row.assignedSupervisorId) {
-          const sup = users?.find(u => u.id === row.assignedSupervisorId);
-          if (sup) parts.push(`Sup: ${sup.name}`);
-        }
-        if (row.assignedManagerId) {
-          const mgr = users?.find(u => u.id === row.assignedManagerId);
-          if (mgr) parts.push(`Mgr: ${mgr.name}`);
-        }
-        if (row.assignedExecutiveId) {
-          const exec = users?.find(u => u.id === row.assignedExecutiveId);
-          if (exec) parts.push(`Exec: ${exec.name}`);
-        }
-        return <span className="text-xs text-muted-foreground">{parts.join(", ") || "-"}</span>;
-      },
-    },
-    {
-      key: "status",
-      header: "Status",
-      cell: (row: User) => (
-        <Badge variant={row.status === "ACTIVE" ? "default" : "destructive"}>
-          {row.status}
-        </Badge>
-      ),
-    },
-    {
-      key: "createdAt",
-      header: "Created",
-      cell: (row: User) => (
-        <span className="text-sm text-muted-foreground">
-          {new Date(row.createdAt).toLocaleDateString()}
-        </span>
-      ),
-    },
-    {
-      key: "actions",
-      header: "",
-      cell: (row: User) => (
-        <div className="flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => openEditDialog(row)}
-            data-testid={`button-edit-${row.id}`}
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setResetPasswordUser(row)}
-            data-testid={`button-reset-password-${row.id}`}
-            title="Reset Password"
-          >
-            <KeyRound className="h-4 w-4 text-amber-600" />
-          </Button>
-          {row.status === "ACTIVE" && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => deactivateMutation.mutate(row.id)}
-              data-testid={`button-deactivate-${row.id}`}
-              title="Deactivate"
-            >
-              <UserX className="h-4 w-4 text-amber-600" />
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setDeleteUser(row)}
-            data-testid={`button-delete-${row.id}`}
-            title="Remove User"
-          >
-            <Trash2 className="h-4 w-4 text-red-600" />
-          </Button>
-        </div>
-      ),
-    },
-  ];
-
   const showSupervisorField = formData.role === "REP";
   const showManagerField = formData.role === "REP" || formData.role === "SUPERVISOR";
   const showExecutiveField = formData.role === "REP" || formData.role === "SUPERVISOR" || formData.role === "MANAGER";
@@ -360,7 +480,7 @@ export default function AdminUsers() {
           <Users className="h-6 w-6 text-primary" />
           <div>
             <h1 className="text-2xl font-semibold">Users</h1>
-            <p className="text-muted-foreground">Manage system users and roles</p>
+            <p className="text-muted-foreground">Manage users, credentials, and banking info</p>
           </div>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="button-new-user">
@@ -371,7 +491,7 @@ export default function AdminUsers() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <div className="relative max-w-md flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -383,18 +503,32 @@ export default function AdminUsers() {
               />
             </div>
             <span className="text-sm text-muted-foreground">
-              Showing {filteredUsers?.length || 0} of {users?.length || 0} users
+              {filteredUsers?.length || 0} of {users?.length || 0} users
             </span>
           </div>
         </CardHeader>
         <CardContent>
-          <DataTable
-            columns={columns}
-            data={filteredUsers || []}
-            isLoading={isLoading}
-            emptyMessage="No users found"
-            testId="table-users"
-          />
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+            </div>
+          ) : !filteredUsers?.length ? (
+            <p className="text-center text-muted-foreground py-8">No users found</p>
+          ) : (
+            <div className="space-y-2">
+              {filteredUsers.map((user) => (
+                <UserRow
+                  key={user.id}
+                  user={user}
+                  users={users || []}
+                  onEdit={openEditDialog}
+                  onResetPassword={setResetPasswordUser}
+                  onDeactivate={(id) => deactivateMutation.mutate(id)}
+                  onDelete={setDeleteUser}
+                />
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -577,7 +711,6 @@ export default function AdminUsers() {
         </DialogContent>
       </Dialog>
       
-      {/* Password Reset Dialog */}
       <Dialog open={!!resetPasswordUser} onOpenChange={() => { setResetPasswordUser(null); setTempPasswordResult(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -593,69 +726,56 @@ export default function AdminUsers() {
             </DialogDescription>
           </DialogHeader>
           
-          {!tempPasswordResult ? (
+          {tempPasswordResult ? (
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                This will generate a temporary password that expires in 24 hours. 
-                The user will be required to change their password on next login.
-              </p>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setResetPasswordUser(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => resetPasswordUser && resetPasswordMutation.mutate(resetPasswordUser.id)}
-                  disabled={resetPasswordMutation.isPending}
-                  data-testid="button-confirm-reset-password"
-                >
-                  {resetPasswordMutation.isPending ? "Generating..." : "Generate Temporary Password"}
-                </Button>
-              </DialogFooter>
+              <div className="p-4 bg-muted rounded-lg">
+                <Label className="text-xs text-muted-foreground">Temporary Password</Label>
+                <p className="font-mono text-lg font-bold mt-1">{tempPasswordResult.tempPassword}</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Expires in {tempPasswordResult.expiresInHours} hours. User must change on next login.
+                </p>
+              </div>
+              <Button 
+                className="w-full" 
+                onClick={() => {
+                  navigator.clipboard.writeText(tempPasswordResult.tempPassword);
+                  toast({ title: "Password copied to clipboard" });
+                }}
+              >
+                Copy Password
+              </Button>
             </div>
           ) : (
-            <div className="space-y-4">
-              <Alert>
-                <AlertDescription>
-                  <p className="font-medium mb-2">Temporary Password (copy now):</p>
-                  <code className="block p-3 bg-muted rounded-md text-lg font-mono select-all" data-testid="text-temp-password">
-                    {tempPasswordResult.tempPassword}
-                  </code>
-                  <p className="text-sm mt-3 text-muted-foreground">
-                    This password will expire in {tempPasswordResult.expiresInHours} hours.
-                    The user must change their password on next login.
-                  </p>
-                </AlertDescription>
-              </Alert>
-              <DialogFooter>
-                <Button 
-                  onClick={() => { setResetPasswordUser(null); setTempPasswordResult(null); }}
-                  data-testid="button-close-reset-dialog"
-                >
-                  Done
-                </Button>
-              </DialogFooter>
-            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setResetPasswordUser(null)}>Cancel</Button>
+              <Button 
+                onClick={() => resetPasswordUser && resetPasswordMutation.mutate(resetPasswordUser.id)}
+                disabled={resetPasswordMutation.isPending}
+              >
+                {resetPasswordMutation.isPending ? "Generating..." : "Generate Password"}
+              </Button>
+            </DialogFooter>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteUser} onOpenChange={() => setDeleteUser(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remove User</DialogTitle>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" />
+              Remove User
+            </DialogTitle>
             <DialogDescription>
-              This will archive the user "{deleteUser?.name}" ({deleteUser?.repId}). 
-              Their historical data will be preserved, but they will no longer have access to the system.
+              Are you sure you want to archive {deleteUser?.name}? This will soft-delete the user and they will no longer be able to log in.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteUser(null)}>Cancel</Button>
-            <Button
+            <Button 
               variant="destructive"
               onClick={() => deleteUser && deleteMutation.mutate(deleteUser.id)}
               disabled={deleteMutation.isPending}
-              data-testid="button-confirm-delete-user"
             >
               {deleteMutation.isPending ? "Removing..." : "Remove User"}
             </Button>
