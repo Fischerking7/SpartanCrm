@@ -5,7 +5,7 @@ import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray } from "drizzle-orm";
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
-import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client } from "@shared/schema";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 import crypto from "crypto";
@@ -8297,6 +8297,232 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ================== MDU STAGING ORDERS ==================
+
+  // MDU middleware - only MDU users can access their own staging orders
+  const mduOnly = (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (req.user?.role !== "MDU") {
+      return res.status(403).json({ message: "MDU access required" });
+    }
+    next();
+  };
+
+  // MDU: Get my staging orders
+  app.get("/api/mdu/orders", auth, mduOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const orders = await storage.getMduStagingOrders(user.repId);
+      res.json(orders);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch MDU orders" });
+    }
+  });
+
+  // MDU: Create new staging order
+  app.post("/api/mdu/orders", auth, mduOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const parsed = insertMduStagingOrderSchema.safeParse({ ...req.body, mduRepId: user.repId });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
+      }
+      const order = await storage.createMduStagingOrder(parsed.data);
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "create_mdu_staging_order",
+        tableName: "mdu_staging_orders",
+        recordId: order.id,
+        afterJson: JSON.stringify(order),
+      });
+      res.json(order);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create MDU order" });
+    }
+  });
+
+  // MDU: Update my staging order (only if PENDING)
+  app.put("/api/mdu/orders/:id", auth, mduOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { id } = req.params;
+      const existing = await storage.getMduStagingOrderById(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      if (existing.mduRepId !== user.repId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+      if (existing.status !== "PENDING") {
+        return res.status(400).json({ message: "Can only edit pending orders" });
+      }
+      // Whitelist only editable fields - prevent privilege escalation
+      const allowedFields = {
+        clientId: req.body.clientId,
+        providerId: req.body.providerId,
+        serviceId: req.body.serviceId,
+        dateSold: req.body.dateSold,
+        installDate: req.body.installDate,
+        installTime: req.body.installTime,
+        installType: req.body.installType,
+        accountNumber: req.body.accountNumber,
+        tvSold: req.body.tvSold,
+        mobileSold: req.body.mobileSold,
+        mobileProductType: req.body.mobileProductType,
+        mobilePortedStatus: req.body.mobilePortedStatus,
+        mobileLinesQty: req.body.mobileLinesQty,
+        customerName: req.body.customerName,
+        customerAddress: req.body.customerAddress,
+        customerPhone: req.body.customerPhone,
+        customerEmail: req.body.customerEmail,
+        notes: req.body.notes,
+      };
+      // Remove undefined values
+      const sanitizedData = Object.fromEntries(
+        Object.entries(allowedFields).filter(([_, v]) => v !== undefined)
+      );
+      const updated = await storage.updateMduStagingOrder(id, sanitizedData);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update MDU order" });
+    }
+  });
+
+  // MDU: Delete my staging order (only if PENDING)
+  app.delete("/api/mdu/orders/:id", auth, mduOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { id } = req.params;
+      const existing = await storage.getMduStagingOrderById(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      if (existing.mduRepId !== user.repId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+      if (existing.status !== "PENDING") {
+        return res.status(400).json({ message: "Can only delete pending orders" });
+      }
+      await storage.deleteMduStagingOrder(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete MDU order" });
+    }
+  });
+
+  // Admin: Get all pending MDU staging orders for review
+  app.get("/api/admin/mdu/pending", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const orders = await storage.getPendingMduStagingOrders();
+      res.json(orders);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch pending MDU orders" });
+    }
+  });
+
+  // Admin: Get all MDU staging orders
+  app.get("/api/admin/mdu/orders", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const orders = await storage.getMduStagingOrders();
+      res.json(orders);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch MDU orders" });
+    }
+  });
+
+  // Admin: Approve MDU staging order - moves to main orders table
+  app.post("/api/admin/mdu/:id/approve", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { id } = req.params;
+      const mduOrder = await storage.getMduStagingOrderById(id);
+      if (!mduOrder) {
+        return res.status(404).json({ message: "MDU order not found" });
+      }
+      if (mduOrder.status !== "PENDING") {
+        return res.status(400).json({ message: "Order is not pending" });
+      }
+
+      // Create the main sales order from MDU staging order
+      const mainOrderData: any = {
+        repId: mduOrder.mduRepId,
+        clientId: mduOrder.clientId,
+        providerId: mduOrder.providerId,
+        serviceId: mduOrder.serviceId,
+        dateSold: mduOrder.dateSold,
+        installDate: mduOrder.installDate,
+        installTime: mduOrder.installTime,
+        installType: mduOrder.installType,
+        accountNumber: mduOrder.accountNumber,
+        tvSold: mduOrder.tvSold,
+        mobileSold: mduOrder.mobileSold,
+        mobileProductType: mduOrder.mobileProductType,
+        mobilePortedStatus: mduOrder.mobilePortedStatus,
+        mobileLinesQty: mduOrder.mobileLinesQty,
+        customerName: mduOrder.customerName,
+        customerAddress: mduOrder.customerAddress,
+        customerPhone: mduOrder.customerPhone,
+        customerEmail: mduOrder.customerEmail,
+      };
+
+      const mainOrder = await storage.createOrder(mainOrderData);
+
+      // Update MDU staging order status
+      await storage.updateMduStagingOrder(id, {
+        status: "APPROVED",
+        reviewedByUserId: user.id,
+        reviewedAt: new Date(),
+        promotedToOrderId: mainOrder.id,
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "approve_mdu_order",
+        tableName: "mdu_staging_orders",
+        recordId: id,
+        afterJson: JSON.stringify({ promotedToOrderId: mainOrder.id }),
+      });
+
+      res.json({ mduOrder: await storage.getMduStagingOrderById(id), mainOrder });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to approve MDU order" });
+    }
+  });
+
+  // Admin: Reject MDU staging order
+  app.post("/api/admin/mdu/:id/reject", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { id } = req.params;
+      const { rejectionNote } = req.body;
+      const mduOrder = await storage.getMduStagingOrderById(id);
+      if (!mduOrder) {
+        return res.status(404).json({ message: "MDU order not found" });
+      }
+      if (mduOrder.status !== "PENDING") {
+        return res.status(400).json({ message: "Order is not pending" });
+      }
+
+      const updated = await storage.updateMduStagingOrder(id, {
+        status: "REJECTED",
+        rejectionNote: rejectionNote || "Rejected by admin",
+        reviewedByUserId: user.id,
+        reviewedAt: new Date(),
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "reject_mdu_order",
+        tableName: "mdu_staging_orders",
+        recordId: id,
+        afterJson: JSON.stringify({ rejectionNote }),
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to reject MDU order" });
     }
   });
 

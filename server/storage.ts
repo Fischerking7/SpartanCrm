@@ -15,6 +15,7 @@ import {
   commissionTiers, commissionTierLevels, repTierAssignments, repVolumeTracking,
   scheduledPayRuns, commissionForecasts,
   emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
+  mduStagingOrders,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -54,6 +55,7 @@ import {
   type BackgroundJob,
   type EmployeeCredential, type InsertEmployeeCredential,
   type SalesGoal, type InsertSalesGoal,
+  type MduStagingOrder, type InsertMduStagingOrder,
 } from "@shared/schema";
 
 export const storage = {
@@ -3189,6 +3191,52 @@ export const storage = {
   async deleteSalesGoal(id: string) {
     const [deleted] = await db.delete(salesGoals)
       .where(eq(salesGoals.id, id))
+      .returning();
+    return deleted;
+  },
+
+  // MDU Staging Orders
+  async getMduStagingOrders(mduRepId?: string) {
+    if (mduRepId) {
+      return db.query.mduStagingOrders.findMany({
+        where: eq(mduStagingOrders.mduRepId, mduRepId),
+        orderBy: [desc(mduStagingOrders.createdAt)],
+      });
+    }
+    return db.query.mduStagingOrders.findMany({
+      orderBy: [desc(mduStagingOrders.createdAt)],
+    });
+  },
+
+  async getMduStagingOrderById(id: string) {
+    return db.query.mduStagingOrders.findFirst({
+      where: eq(mduStagingOrders.id, id),
+    });
+  },
+
+  async getPendingMduStagingOrders() {
+    return db.query.mduStagingOrders.findMany({
+      where: eq(mduStagingOrders.status, "PENDING"),
+      orderBy: [desc(mduStagingOrders.createdAt)],
+    });
+  },
+
+  async createMduStagingOrder(data: InsertMduStagingOrder) {
+    const [order] = await db.insert(mduStagingOrders).values(data).returning();
+    return order;
+  },
+
+  async updateMduStagingOrder(id: string, data: Partial<MduStagingOrder>) {
+    const [order] = await db.update(mduStagingOrders)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(mduStagingOrders.id, id))
+      .returning();
+    return order;
+  },
+
+  async deleteMduStagingOrder(id: string) {
+    const [deleted] = await db.delete(mduStagingOrders)
+      .where(eq(mduStagingOrders.id, id))
       .returning();
     return deleted;
   },

@@ -63,6 +63,16 @@ const repMenuItems: MenuItem[] = [
   { title: "Notifications", url: "/notification-settings", icon: Bell },
 ];
 
+const mduMenuItems: MenuItem[] = [
+  { title: "My MDU Orders", url: "/mdu-orders", icon: Building2 },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "My Commissions", url: "/commissions", icon: DollarSign },
+  { title: "My Pay", url: "/my-pay", icon: Calendar },
+  { title: "My Credentials", url: "/my-credentials", icon: Key },
+  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
+  { title: "Notifications", url: "/notification-settings", icon: Bell },
+];
+
 const salesLeaderMenuItems: MenuItem[] = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "My Leads", url: "/leads", icon: UserPlus },
@@ -139,6 +149,7 @@ const adminSettings: MenuItem[] = [
   { title: "Payroll", url: "/admin/payroll", icon: Calendar },
   { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
   { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
+  { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
 ];
 
 function MenuItems({ items, location }: { items: MenuItem[]; location: string }) {
@@ -205,6 +216,7 @@ export function AppSidebar() {
   const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS";
   const isExecutive = user.role === "EXECUTIVE";
   const isSalesLeader = ["SUPERVISOR", "MANAGER"].includes(user.role);
+  const isMdu = user.role === "MDU";
 
   const getInitials = (name: string) => {
     return name
@@ -229,7 +241,7 @@ export function AppSidebar() {
   };
 
   const renderNonAdminSidebar = () => {
-    const menuItems = isExecutive ? executiveMenuItems : (isSalesLeader ? salesLeaderMenuItems : repMenuItems);
+    const menuItems = isMdu ? mduMenuItems : (isExecutive ? executiveMenuItems : (isSalesLeader ? salesLeaderMenuItems : repMenuItems));
     return (
       <SidebarGroup>
         <SidebarGroupLabel>Navigation</SidebarGroupLabel>

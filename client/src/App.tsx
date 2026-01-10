@@ -43,6 +43,8 @@ import CommissionForecast from "@/pages/commission-forecast";
 import NotificationSettings from "@/pages/notification-settings";
 import MyCredentials from "@/pages/my-credentials";
 import AdminEmployeeCredentials from "@/pages/admin/employee-credentials";
+import MduOrders from "@/pages/mdu-orders";
+import AdminMduReview from "@/pages/admin/mdu-review";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -164,6 +166,8 @@ function Router() {
         <Route path="/my-credentials" component={MyCredentials} />
         <Route path="/change-password" component={ChangePassword} />
         
+        {user.role === "MDU" && <Route path="/mdu-orders" component={MduOrders} />}
+        
         {canViewReports && <Route path="/reports" component={Reports} />}
         {canViewReports && <Route path="/executive-reports" component={ExecutiveReports} />}
         
@@ -187,6 +191,7 @@ function Router() {
             <Route path="/admin/payroll-advanced" component={AdminPayrollAdvanced} />
             <Route path="/admin/quickbooks" component={AdminQuickBooks} />
             <Route path="/admin/employee-credentials" component={AdminEmployeeCredentials} />
+            <Route path="/admin/mdu-review" component={AdminMduReview} />
           </>
         )}
         
