@@ -3189,6 +3189,9 @@ export async function registerRoutes(
           "TECH_INSTALL": "Tech Install",
         };
         
+        // Look up user name by repId
+        const user = await storage.getUserByRepId(o.repId);
+        
         return {
           "Invoice #": o.invoiceNumber || "",
           "Rep ID": o.repId,
@@ -3205,6 +3208,7 @@ export async function registerRoutes(
           "Net Commission": netCommission.toFixed(2),
           "Client": o.client?.name || "",
           "Provider": o.provider?.name || "",
+          "User Name": user?.name || "",
         };
       }));
 

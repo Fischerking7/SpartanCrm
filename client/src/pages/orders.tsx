@@ -471,10 +471,11 @@ export default function Orders() {
       "DIRECT_SHIP": "Direct Ship",
       "TECH_INSTALL": "Tech Install",
     };
-    const headers = ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Approval Status", "Base Commission", "Incentive", "Gross Commission", "Override", "Net Commission", "Client", "Provider"];
+    const headers = ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Approval Status", "Base Commission", "Incentive", "Gross Commission", "Override", "Net Commission", "Client", "Provider", "User Name"];
     const rows = filteredOrders.map(order => {
       const provider = providers?.find(p => p.id === order.providerId);
       const client = clients?.find(c => c.id === order.clientId);
+      const user = reps?.find(r => r.repId === order.repId);
       const overrideAmount = getOverrideAmount(order);
       const baseCommission = parseFloat(order.baseCommissionEarned);
       const incentive = parseFloat(order.incentiveEarned || "0");
@@ -496,6 +497,7 @@ export default function Orders() {
         netCommission.toFixed(2),
         client?.name || "",
         provider?.name || "",
+        user?.name || "",
       ];
     });
     
