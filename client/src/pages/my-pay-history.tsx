@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { DollarSign, FileText, TrendingUp, Calendar, Eye, Wallet, Receipt, ArrowDownCircle, ArrowUpCircle, MinusCircle } from "lucide-react";
+import { DollarSign, FileText, TrendingUp, Calendar, Eye, Wallet, Receipt, ArrowDownCircle, ArrowUpCircle, MinusCircle, Download } from "lucide-react";
 import { useState } from "react";
 import { format } from "date-fns";
 
@@ -74,13 +74,36 @@ function formatDate(date: string) {
   return format(new Date(date), "MMM dd, yyyy");
 }
 
+function downloadPdf(statementId: string) {
+  const headers = getAuthHeaders();
+  fetch(`/api/payroll/my-statements/${statementId}/pdf`, {
+    headers,
+    credentials: "include",
+  })
+    .then((res) => {
+      if (!res.ok) throw new Error("Failed to download PDF");
+      return res.blob();
+    })
+    .then((blob) => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `PayStatement_${statementId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    })
+    .catch((err) => console.error("PDF download error:", err));
+}
+
 function StatementDetailsDialog({ statementId }: { statementId: string }) {
   const [open, setOpen] = useState(false);
   
   const { data, isLoading } = useQuery<PayStatementDetails>({
-    queryKey: ["/api/my-pay/statements", statementId],
+    queryKey: ["/api/payroll/my-statements", statementId],
     queryFn: async () => {
-      const res = await fetch(`/api/my-pay/statements/${statementId}`, { 
+      const res = await fetch(`/api/payroll/my-statements/${statementId}`, { 
         headers: getAuthHeaders(),
         credentials: "include" 
       });
@@ -264,9 +287,9 @@ function StatementDetailsDialog({ statementId }: { statementId: string }) {
 
 export default function MyPayHistory() {
   const { data: statements, isLoading: statementsLoading } = useQuery<PayStatement[]>({
-    queryKey: ["/api/my-pay/statements"],
+    queryKey: ["/api/payroll/my-statements"],
     queryFn: async () => {
-      const res = await fetch("/api/my-pay/statements", { 
+      const res = await fetch("/api/payroll/my-statements", { 
         headers: getAuthHeaders(),
         credentials: "include" 
       });
@@ -276,9 +299,9 @@ export default function MyPayHistory() {
   });
 
   const { data: ytdData, isLoading: ytdLoading } = useQuery<YTDTotals>({
-    queryKey: ["/api/my-pay/ytd"],
+    queryKey: ["/api/payroll/my-ytd"],
     queryFn: async () => {
-      const res = await fetch("/api/my-pay/ytd", { 
+      const res = await fetch("/api/payroll/my-ytd", { 
         headers: getAuthHeaders(),
         credentials: "include" 
       });
@@ -406,7 +429,17 @@ export default function MyPayHistory() {
                       <Badge variant="outline">{statement.status}</Badge>
                     </TableCell>
                     <TableCell>
-                      <StatementDetailsDialog statementId={statement.id} />
+                      <div className="flex items-center gap-1">
+                        <StatementDetailsDialog statementId={statement.id} />
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          onClick={() => downloadPdf(statement.id)}
+                          data-testid={`button-download-pdf-${statement.id}`}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -465,7 +498,17 @@ export default function MyPayHistory() {
                       {formatCurrency(statement.netPay)}
                     </TableCell>
                     <TableCell>
-                      <StatementDetailsDialog statementId={statement.id} />
+                      <div className="flex items-center gap-1">
+                        <StatementDetailsDialog statementId={statement.id} />
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          onClick={() => downloadPdf(statement.id)}
+                          data-testid={`button-download-pdf-${statement.id}`}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

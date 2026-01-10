@@ -48,6 +48,7 @@ import {
   BellRing,
   Settings2,
   Smartphone,
+  MessageSquareWarning,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -63,6 +64,7 @@ const repMenuItems: MenuItem[] = [
   { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "My Credentials", url: "/my-credentials", icon: Key },
+  { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   { title: "Alerts", url: "/notifications", icon: BellRing },
@@ -75,6 +77,7 @@ const mduMenuItems: MenuItem[] = [
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "My Credentials", url: "/my-credentials", icon: Key },
+  { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   { title: "Alerts", url: "/notifications", icon: BellRing },
   { title: "Settings", url: "/notification-settings", icon: Settings2 },
@@ -90,6 +93,7 @@ const salesLeaderMenuItems: MenuItem[] = [
   { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "My Credentials", url: "/my-credentials", icon: Key },
+  { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
@@ -146,6 +150,7 @@ const adminPersonal: MenuItem[] = [
   { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "My Credentials", url: "/my-credentials", icon: Key },
+  { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
   { title: "Alerts", url: "/notifications", icon: BellRing },
   { title: "Settings", url: "/notification-settings", icon: Settings2 },
 ];
@@ -163,6 +168,7 @@ const adminSettings: MenuItem[] = [
   { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
   { title: "Overrides", url: "/admin/overrides", icon: Users },
   { title: "Employee Credentials", url: "/admin/employee-credentials", icon: Key },
+  { title: "Disputes", url: "/admin/disputes", icon: MessageSquareWarning },
   { title: "Payroll", url: "/admin/payroll", icon: Calendar },
   { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
   { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },

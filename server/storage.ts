@@ -15,7 +15,7 @@ import {
   commissionTiers, commissionTierLevels, repTierAssignments, repVolumeTracking,
   scheduledPayRuns, commissionForecasts,
   emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
-  mduStagingOrders, scheduledReports,
+  mduStagingOrders, scheduledReports, commissionDisputes,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -57,6 +57,7 @@ import {
   type SalesGoal, type InsertSalesGoal,
   type MduStagingOrder, type InsertMduStagingOrder,
   type ScheduledReport, type InsertScheduledReport,
+  type CommissionDispute, type InsertCommissionDispute,
 } from "@shared/schema";
 
 export const storage = {
@@ -2626,9 +2627,10 @@ export const storage = {
     const startOfYear = `${year}-01-01`;
     const endOfYear = `${year}-12-31`;
     const results = await db.select({
-      totalGross: sql<string>`COALESCE(SUM(${payStatements.grossCommission} + ${payStatements.overrideEarningsTotal} + ${payStatements.incentivesTotal} + ${payStatements.adjustmentsTotal} - ${payStatements.chargebacksTotal}), 0)`,
-      totalDeductions: sql<string>`COALESCE(SUM(${payStatements.deductionsTotal} + ${payStatements.advancesApplied} + ${payStatements.taxWithheld}), 0)`,
-      totalNetPay: sql<string>`COALESCE(SUM(${payStatements.netPay}), 0)`,
+      ytdGross: sql<number>`COALESCE(SUM(${payStatements.grossCommission} + ${payStatements.overrideEarningsTotal} + ${payStatements.incentivesTotal} + ${payStatements.adjustmentsTotal} - ${payStatements.chargebacksTotal}), 0)::numeric`,
+      ytdDeductions: sql<number>`COALESCE(SUM(${payStatements.deductionsTotal} + ${payStatements.advancesApplied} + ${payStatements.taxWithheld}), 0)::numeric`,
+      ytdNet: sql<number>`COALESCE(SUM(${payStatements.netPay}), 0)::numeric`,
+      statementsCount: sql<number>`COUNT(*)::int`,
     })
     .from(payStatements)
     .where(and(
@@ -2637,7 +2639,7 @@ export const storage = {
       lte(payStatements.periodEnd, endOfYear),
       inArray(payStatements.status, ["ISSUED", "PAID"])
     ));
-    return results[0] || { totalGross: "0", totalDeductions: "0", totalNetPay: "0" };
+    return results[0] || { ytdGross: 0, ytdDeductions: 0, ytdNet: 0, statementsCount: 0 };
   },
 
   // ========== NEW PAYROLL FEATURES ==========
@@ -3480,5 +3482,74 @@ export const storage = {
       .where(eq(mduStagingOrders.id, id))
       .returning();
     return deleted;
+  },
+
+  // Commission Disputes
+  async getCommissionDisputes(filters?: { userId?: string; status?: string }) {
+    const conditions = [];
+    if (filters?.userId) conditions.push(eq(commissionDisputes.userId, filters.userId));
+    if (filters?.status) conditions.push(eq(commissionDisputes.status, filters.status as any));
+    
+    return db.select({
+      dispute: commissionDisputes,
+      user: { id: users.id, name: users.name, repId: users.repId },
+    })
+    .from(commissionDisputes)
+    .leftJoin(users, eq(commissionDisputes.userId, users.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(commissionDisputes.createdAt));
+  },
+
+  async getCommissionDisputeById(id: string) {
+    const [result] = await db.select({
+      dispute: commissionDisputes,
+      user: { id: users.id, name: users.name, repId: users.repId },
+    })
+    .from(commissionDisputes)
+    .leftJoin(users, eq(commissionDisputes.userId, users.id))
+    .where(eq(commissionDisputes.id, id));
+    return result;
+  },
+
+  async getCommissionDisputesByUser(userId: string) {
+    return db.select()
+      .from(commissionDisputes)
+      .where(eq(commissionDisputes.userId, userId))
+      .orderBy(desc(commissionDisputes.createdAt));
+  },
+
+  async createCommissionDispute(data: InsertCommissionDispute) {
+    const [dispute] = await db.insert(commissionDisputes).values(data).returning();
+    return dispute;
+  },
+
+  async updateCommissionDispute(id: string, data: Partial<CommissionDispute>) {
+    const [dispute] = await db.update(commissionDisputes)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(commissionDisputes.id, id))
+      .returning();
+    return dispute;
+  },
+
+  async resolveCommissionDispute(id: string, data: { status: string; resolution: string; resolvedAmount?: string; resolvedByUserId: string }) {
+    const [dispute] = await db.update(commissionDisputes)
+      .set({
+        status: data.status as any,
+        resolution: data.resolution,
+        resolvedAmount: data.resolvedAmount,
+        resolvedByUserId: data.resolvedByUserId,
+        resolvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(commissionDisputes.id, id))
+      .returning();
+    return dispute;
+  },
+
+  async getPendingDisputesCount() {
+    const [result] = await db.select({ count: sql<number>`COUNT(*)::int` })
+      .from(commissionDisputes)
+      .where(inArray(commissionDisputes.status, ["PENDING", "UNDER_REVIEW"]));
+    return result?.count || 0;
   },
 };

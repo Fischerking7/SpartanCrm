@@ -8,8 +8,19 @@ import { JobStatusBadge, ApprovalStatusBadge, PaymentStatusBadge } from "@/compo
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, Upload } from "lucide-react";
+import { Download, Upload, TrendingUp, Wallet, ArrowDownCircle } from "lucide-react";
 import type { SalesOrder } from "@shared/schema";
+
+interface YTDTotals {
+  ytdGross: number;
+  ytdNet: number;
+  ytdDeductions: number;
+  statementsCount: number;
+}
+
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
+}
 
 interface DashboardSummary {
   weekly: {
@@ -63,6 +74,15 @@ export default function RepDashboard() {
     queryFn: async () => {
       const res = await fetch("/api/orders?limit=10", { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch orders");
+      return res.json();
+    },
+  });
+
+  const { data: ytdData } = useQuery<YTDTotals>({
+    queryKey: ["/api/payroll/my-ytd"],
+    queryFn: async () => {
+      const res = await fetch("/api/payroll/my-ytd", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch YTD totals");
       return res.json();
     },
   });
@@ -152,6 +172,46 @@ export default function RepDashboard() {
         </div>
       ) : summary ? (
         <>
+          {ytdData && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+                  <CardTitle className="text-sm font-medium">YTD Gross Earnings</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-green-500" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-dashboard-ytd-gross">
+                    {formatCurrency(ytdData.ytdGross || 0)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Before deductions</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+                  <CardTitle className="text-sm font-medium">YTD Deductions</CardTitle>
+                  <ArrowDownCircle className="h-4 w-4 text-red-500" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-2xl font-bold text-red-600 dark:text-red-400" data-testid="text-dashboard-ytd-deductions">
+                    -{formatCurrency(ytdData.ytdDeductions || 0)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Total withheld</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+                  <CardTitle className="text-sm font-medium">YTD Net Pay</CardTitle>
+                  <Wallet className="h-4 w-4 text-primary" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-2xl font-bold" data-testid="text-dashboard-ytd-net">
+                    {formatCurrency(ytdData.ytdNet || 0)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Take-home pay ({ytdData.statementsCount || 0} pay periods)</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
           <NextDayInstallsCard />
           <ProductionMetricsModule
             personalWeekly={summary.weekly.personal}

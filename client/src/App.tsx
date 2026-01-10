@@ -48,6 +48,8 @@ import AdminMduReview from "@/pages/admin/mdu-review";
 import SalesPipeline from "@/pages/sales-pipeline";
 import Notifications from "@/pages/notifications";
 import MobileOrderEntry from "@/pages/mobile-order-entry";
+import MyDisputes from "@/pages/my-disputes";
+import AdminDisputes from "@/pages/admin-disputes";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -171,6 +173,7 @@ function Router() {
         <Route path="/my-credentials" component={MyCredentials} />
         <Route path="/change-password" component={ChangePassword} />
         <Route path="/mobile-entry" component={MobileOrderEntry} />
+        <Route path="/my-disputes" component={MyDisputes} />
         
         {user.role === "MDU" && <Route path="/mdu-orders" component={MduOrders} />}
         
@@ -205,6 +208,7 @@ function Router() {
             <Route path="/admin/payroll-advanced" component={AdminPayrollAdvanced} />
             <Route path="/admin/quickbooks" component={AdminQuickBooks} />
             <Route path="/admin/employee-credentials" component={AdminEmployeeCredentials} />
+            <Route path="/admin/disputes" component={AdminDisputes} />
           </>
         )}
         

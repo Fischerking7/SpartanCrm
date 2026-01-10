@@ -1563,3 +1563,47 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
+
+// Commission Disputes
+export const commissionDisputeStatusEnum = pgEnum("commission_dispute_status", ["PENDING", "UNDER_REVIEW", "APPROVED", "REJECTED", "CLOSED"]);
+export const commissionDisputeTypeEnum = pgEnum("commission_dispute_type", ["MISSING_COMMISSION", "INCORRECT_AMOUNT", "INCORRECT_SERVICE", "CHARGEBACK_DISPUTE", "OTHER"]);
+
+export const commissionDisputes = pgTable("commission_disputes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  salesOrderId: varchar("sales_order_id").references(() => salesOrders.id),
+  payStatementId: varchar("pay_statement_id").references(() => payStatements.id),
+  disputeType: commissionDisputeTypeEnum("dispute_type").notNull(),
+  status: commissionDisputeStatusEnum("status").notNull().default("PENDING"),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  expectedAmount: decimal("expected_amount", { precision: 10, scale: 2 }),
+  actualAmount: decimal("actual_amount", { precision: 10, scale: 2 }),
+  differenceAmount: decimal("difference_amount", { precision: 10, scale: 2 }),
+  resolution: text("resolution"),
+  resolvedAmount: decimal("resolved_amount", { precision: 10, scale: 2 }),
+  resolvedByUserId: varchar("resolved_by_user_id").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const commissionDisputesRelations = relations(commissionDisputes, ({ one }) => ({
+  user: one(users, { fields: [commissionDisputes.userId], references: [users.id] }),
+  salesOrder: one(salesOrders, { fields: [commissionDisputes.salesOrderId], references: [salesOrders.id] }),
+  payStatement: one(payStatements, { fields: [commissionDisputes.payStatementId], references: [payStatements.id] }),
+  resolvedBy: one(users, { fields: [commissionDisputes.resolvedByUserId], references: [users.id], relationName: "disputeResolver" }),
+}));
+
+export const insertCommissionDisputeSchema = createInsertSchema(commissionDisputes).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true,
+  resolvedAt: true,
+  resolvedByUserId: true,
+  resolution: true,
+  resolvedAmount: true,
+});
+
+export type CommissionDispute = typeof commissionDisputes.$inferSelect;
+export type InsertCommissionDispute = z.infer<typeof insertCommissionDisputeSchema>;

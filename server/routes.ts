@@ -6855,6 +6855,41 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to get statement" }); }
   });
 
+  // PDF download for pay statement
+  app.get("/api/payroll/my-statements/:id/pdf", auth, async (req: AuthRequest, res) => {
+    try {
+      const { generatePayStatementPdf } = await import("./pdf-generator");
+      const statement = await storage.getPayStatementById(req.params.id);
+      if (!statement) return res.status(404).json({ message: "Statement not found" });
+      if (statement.userId !== req.user!.id) return res.status(403).json({ message: "Access denied" });
+      
+      const lineItems = await storage.getPayStatementLineItems(req.params.id);
+      const deductions = await storage.getPayStatementDeductions(req.params.id);
+      const user = await storage.getUserById(req.user!.id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const pdfBuffer = await generatePayStatementPdf({
+        statement,
+        lineItems,
+        deductions,
+        user,
+        companyName: "Iron Crest CRM",
+      });
+
+      const periodStart = new Date(statement.periodStart).toISOString().split("T")[0];
+      const periodEnd = new Date(statement.periodEnd).toISOString().split("T")[0];
+      const filename = `PayStatement_${user.repId}_${periodStart}_${periodEnd}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Length", pdfBuffer.length);
+      res.send(pdfBuffer);
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      res.status(500).json({ message: "Failed to generate PDF" });
+    }
+  });
+
   // Rep can view their YTD totals
   app.get("/api/payroll/my-ytd", auth, async (req: AuthRequest, res) => {
     try {
@@ -9346,6 +9381,164 @@ export async function registerRoutes(
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to reject MDU order" });
+    }
+  });
+
+  // ========== COMMISSION DISPUTES ==========
+
+  // Rep can view their own disputes
+  app.get("/api/disputes/my", auth, async (req: AuthRequest, res) => {
+    try {
+      const disputes = await storage.getCommissionDisputesByUser(req.user!.id);
+      res.json(disputes);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get disputes" });
+    }
+  });
+
+  // Rep can create a dispute
+  app.post("/api/disputes", auth, async (req: AuthRequest, res) => {
+    try {
+      const { disputeType, title, description, salesOrderId, payStatementId, expectedAmount, actualAmount } = req.body;
+      
+      if (!disputeType || !title || !description) {
+        return res.status(400).json({ message: "Dispute type, title, and description are required" });
+      }
+
+      const differenceAmount = expectedAmount && actualAmount 
+        ? (parseFloat(expectedAmount) - parseFloat(actualAmount)).toFixed(2)
+        : null;
+
+      const dispute = await storage.createCommissionDispute({
+        userId: req.user!.id,
+        disputeType,
+        title,
+        description,
+        salesOrderId: salesOrderId || null,
+        payStatementId: payStatementId || null,
+        expectedAmount: expectedAmount || null,
+        actualAmount: actualAmount || null,
+        differenceAmount,
+        status: "PENDING",
+      });
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create_dispute",
+        tableName: "commission_disputes",
+        recordId: dispute.id,
+        afterJson: JSON.stringify({ disputeType, title }),
+      });
+
+      res.status(201).json(dispute);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create dispute" });
+    }
+  });
+
+  // Rep can get a specific dispute they own
+  app.get("/api/disputes/my/:id", auth, async (req: AuthRequest, res) => {
+    try {
+      const result = await storage.getCommissionDisputeById(req.params.id);
+      if (!result) return res.status(404).json({ message: "Dispute not found" });
+      if (result.dispute.userId !== req.user!.id) return res.status(403).json({ message: "Access denied" });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get dispute" });
+    }
+  });
+
+  // Admin can view all disputes
+  app.get("/api/admin/disputes", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { status, userId } = req.query;
+      const disputes = await storage.getCommissionDisputes({
+        status: status as string | undefined,
+        userId: userId as string | undefined,
+      });
+      res.json(disputes);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get disputes" });
+    }
+  });
+
+  // Admin can get a specific dispute
+  app.get("/api/admin/disputes/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const result = await storage.getCommissionDisputeById(req.params.id);
+      if (!result) return res.status(404).json({ message: "Dispute not found" });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get dispute" });
+    }
+  });
+
+  // Admin can update dispute status
+  app.patch("/api/admin/disputes/:id/status", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { status } = req.body;
+      if (!["PENDING", "UNDER_REVIEW", "APPROVED", "REJECTED", "CLOSED"].includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+
+      const dispute = await storage.updateCommissionDispute(req.params.id, { status });
+      if (!dispute) return res.status(404).json({ message: "Dispute not found" });
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update_dispute_status",
+        tableName: "commission_disputes",
+        recordId: req.params.id,
+        afterJson: JSON.stringify({ status }),
+      });
+
+      res.json(dispute);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update dispute status" });
+    }
+  });
+
+  // Admin can resolve a dispute
+  app.post("/api/admin/disputes/:id/resolve", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { status, resolution, resolvedAmount } = req.body;
+      if (!["APPROVED", "REJECTED", "CLOSED"].includes(status)) {
+        return res.status(400).json({ message: "Invalid resolution status" });
+      }
+      if (!resolution) {
+        return res.status(400).json({ message: "Resolution note is required" });
+      }
+
+      const dispute = await storage.resolveCommissionDispute(req.params.id, {
+        status,
+        resolution,
+        resolvedAmount: resolvedAmount || null,
+        resolvedByUserId: req.user!.id,
+      });
+
+      if (!dispute) return res.status(404).json({ message: "Dispute not found" });
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "resolve_dispute",
+        tableName: "commission_disputes",
+        recordId: req.params.id,
+        afterJson: JSON.stringify({ status, resolution, resolvedAmount }),
+      });
+
+      res.json(dispute);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to resolve dispute" });
+    }
+  });
+
+  // Get pending disputes count (for badges)
+  app.get("/api/admin/disputes/count/pending", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const count = await storage.getPendingDisputesCount();
+      res.json({ count });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get count" });
     }
   });
 
