@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums
-export const userRoleEnum = pgEnum("user_role", ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"]);
+export const userRoleEnum = pgEnum("user_role", ["REP", "MDU", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"]);
 export const userStatusEnum = pgEnum("user_status", ["ACTIVE", "DEACTIVATED"]);
 export const jobStatusEnum = pgEnum("job_status", ["PENDING", "COMPLETED", "CANCELED"]);
 export const approvalStatusEnum = pgEnum("approval_status", ["UNAPPROVED", "APPROVED", "REJECTED"]);
@@ -25,6 +25,7 @@ export const mobileProductTypeEnum = pgEnum("mobile_product_type", ["UNLIMITED",
 export const mobilePortedStatusEnum = pgEnum("mobile_ported_status", ["PORTED", "NON_PORTED"]);
 export const serviceCategoryEnum = pgEnum("service_category", ["INTERNET", "MOBILE", "VIDEO"]);
 export const installTypeEnum = pgEnum("install_type", ["AGENT_INSTALL", "DIRECT_SHIP", "TECH_INSTALL"]);
+export const mduOrderStatusEnum = pgEnum("mdu_order_status", ["PENDING", "APPROVED", "REJECTED"]);
 
 // Users table with expanded hierarchy
 export const users = pgTable("users", {
@@ -209,6 +210,58 @@ export const salesOrdersRelations = relations(salesOrders, ({ one, many }) => ({
   payRun: one(payRuns, { fields: [salesOrders.payRunId], references: [payRuns.id] }),
   overrideEarnings: many(overrideEarnings),
 }));
+
+// MDU Staging Orders - Orders from MDU users that need approval before entering main orders
+export const mduStagingOrders = pgTable("mdu_staging_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  mduRepId: text("mdu_rep_id").notNull(),
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  providerId: varchar("provider_id").notNull().references(() => providers.id),
+  serviceId: varchar("service_id").notNull().references(() => services.id),
+  dateSold: date("date_sold").notNull(),
+  installDate: date("install_date"),
+  installTime: text("install_time"),
+  installType: installTypeEnum("install_type"),
+  accountNumber: text("account_number"),
+  tvSold: boolean("tv_sold").notNull().default(false),
+  mobileSold: boolean("mobile_sold").notNull().default(false),
+  mobileProductType: mobileProductTypeEnum("mobile_product_type"),
+  mobilePortedStatus: mobilePortedStatusEnum("mobile_ported_status"),
+  mobileLinesQty: integer("mobile_lines_qty").notNull().default(0),
+  customerName: text("customer_name").notNull(),
+  customerAddress: text("customer_address"),
+  customerPhone: text("customer_phone"),
+  customerEmail: text("customer_email"),
+  notes: text("notes"),
+  status: mduOrderStatusEnum("status").notNull().default("PENDING"),
+  rejectionNote: text("rejection_note"),
+  reviewedByUserId: varchar("reviewed_by_user_id").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  promotedToOrderId: varchar("promoted_to_order_id").references(() => salesOrders.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const mduStagingOrdersRelations = relations(mduStagingOrders, ({ one }) => ({
+  client: one(clients, { fields: [mduStagingOrders.clientId], references: [clients.id] }),
+  provider: one(providers, { fields: [mduStagingOrders.providerId], references: [providers.id] }),
+  service: one(services, { fields: [mduStagingOrders.serviceId], references: [services.id] }),
+  reviewedBy: one(users, { fields: [mduStagingOrders.reviewedByUserId], references: [users.id] }),
+  promotedOrder: one(salesOrders, { fields: [mduStagingOrders.promotedToOrderId], references: [salesOrders.id] }),
+}));
+
+export const insertMduStagingOrderSchema = createInsertSchema(mduStagingOrders).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  status: true,
+  rejectionNote: true,
+  reviewedByUserId: true,
+  reviewedAt: true,
+  promotedToOrderId: true,
+});
+export type MduStagingOrder = typeof mduStagingOrders.$inferSelect;
+export type InsertMduStagingOrder = z.infer<typeof insertMduStagingOrderSchema>;
 
 // Incentives table
 export const incentives = pgTable("incentives", {
