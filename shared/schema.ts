@@ -215,9 +215,9 @@ export const salesOrdersRelations = relations(salesOrders, ({ one, many }) => ({
 export const mduStagingOrders = pgTable("mdu_staging_orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   mduRepId: text("mdu_rep_id").notNull(),
-  clientId: varchar("client_id").notNull().references(() => clients.id),
-  providerId: varchar("provider_id").notNull().references(() => providers.id),
-  serviceId: varchar("service_id").notNull().references(() => services.id),
+  clientId: varchar("client_id").references(() => clients.id),
+  providerId: varchar("provider_id").references(() => providers.id),
+  serviceId: varchar("service_id").references(() => services.id),
   dateSold: date("date_sold").notNull(),
   installDate: date("install_date"),
   installTime: text("install_time"),
