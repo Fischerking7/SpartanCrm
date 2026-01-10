@@ -232,6 +232,13 @@ export const mduStagingOrders = pgTable("mdu_staging_orders", {
   customerAddress: text("customer_address"),
   customerPhone: text("customer_phone"),
   customerEmail: text("customer_email"),
+  customerBirthday: date("customer_birthday"),
+  customerSsnEncrypted: text("customer_ssn_encrypted"),
+  customerSsnLast4: text("customer_ssn_last4"),
+  creditCardEncrypted: text("credit_card_encrypted"),
+  creditCardLast4: text("credit_card_last4"),
+  creditCardExpiry: text("credit_card_expiry"),
+  creditCardName: text("credit_card_name"),
   notes: text("notes"),
   status: mduOrderStatusEnum("status").notNull().default("PENDING"),
   rejectionNote: text("rejection_note"),
@@ -259,6 +266,13 @@ export const insertMduStagingOrderSchema = createInsertSchema(mduStagingOrders).
   reviewedByUserId: true,
   reviewedAt: true,
   promotedToOrderId: true,
+  customerSsnEncrypted: true,
+  customerSsnLast4: true,
+  creditCardEncrypted: true,
+  creditCardLast4: true,
+}).extend({
+  customerSsn: z.string().optional(),
+  creditCardNumber: z.string().optional(),
 });
 export type MduStagingOrder = typeof mduStagingOrders.$inferSelect;
 export type InsertMduStagingOrder = z.infer<typeof insertMduStagingOrderSchema>;
