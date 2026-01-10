@@ -47,6 +47,7 @@ import {
   Filter,
   BellRing,
   Settings2,
+  Smartphone,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -55,6 +56,7 @@ type MenuItem = { title: string; url: string; icon: React.ComponentType<{ classN
 
 const repMenuItems: MenuItem[] = [
   { title: "Orders", url: "/orders", icon: FileText },
+  { title: "Quick Entry", url: "/mobile-entry", icon: Smartphone },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
@@ -80,6 +82,7 @@ const mduMenuItems: MenuItem[] = [
 
 const salesLeaderMenuItems: MenuItem[] = [
   { title: "Orders", url: "/orders", icon: FileText },
+  { title: "Quick Entry", url: "/mobile-entry", icon: Smartphone },
   { title: "My Leads", url: "/leads", icon: UserPlus },
   { title: "Sales Pipeline", url: "/sales-pipeline", icon: Filter },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },

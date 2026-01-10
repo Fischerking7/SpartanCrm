@@ -47,6 +47,7 @@ import MduOrders from "@/pages/mdu-orders";
 import AdminMduReview from "@/pages/admin/mdu-review";
 import SalesPipeline from "@/pages/sales-pipeline";
 import Notifications from "@/pages/notifications";
+import MobileOrderEntry from "@/pages/mobile-order-entry";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -169,6 +170,7 @@ function Router() {
         <Route path="/notification-settings" component={NotificationSettings} />
         <Route path="/my-credentials" component={MyCredentials} />
         <Route path="/change-password" component={ChangePassword} />
+        <Route path="/mobile-entry" component={MobileOrderEntry} />
         
         {user.role === "MDU" && <Route path="/mdu-orders" component={MduOrders} />}
         
