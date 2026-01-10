@@ -190,6 +190,7 @@ function Router() {
             <Route path="/export-history" component={ExportHistory} />
             <Route path="/queues" component={Queues} />
             <Route path="/audit" component={Audit} />
+            <Route path="/admin/users" component={AdminUsers} />
           </>
         )}
         
@@ -197,7 +198,6 @@ function Router() {
           <>
             <Route path="/accounting" component={Accounting} />
             <Route path="/recalculate" component={Recalculate} />
-            <Route path="/admin/users" component={AdminUsers} />
             <Route path="/admin/providers" component={AdminProviders} />
             <Route path="/admin/clients" component={AdminClients} />
             <Route path="/admin/services" component={AdminServices} />
