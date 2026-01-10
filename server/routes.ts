@@ -3177,24 +3177,30 @@ export async function registerRoutes(
         const poolEntries = await storage.getOverrideDeductionPoolByOrderId(o.id);
         const totalOverrideDeduction = poolEntries.reduce((sum, entry) => sum + parseFloat(entry.amount || "0"), 0);
         
-        // Net commission after override deduction
+        // Net commission after override deduction (base commission)
         const netCommission = grossCommission - totalOverrideDeduction;
+
+        // Install type labels
+        const typeLabels: Record<string, string> = {
+          "AGENT_INSTALL": "Agent Install",
+          "DIRECT_SHIP": "Direct Ship",
+          "TECH_INSTALL": "Tech Install",
+        };
         
         return {
-          "Invoice Number": o.invoiceNumber || "",
+          "Invoice #": o.invoiceNumber || "",
           "Rep ID": o.repId,
-          "Customer": o.client?.name || "",
-          "Provider": o.provider?.name || "",
-          "Service": o.service?.name || "",
+          "Customer Name": o.customerName || "",
+          "Account #": o.accountNumber || "",
           "Date Sold": formatDate(o.dateSold),
           "Install Date": formatDate(o.installDate),
-          "Account Number": o.accountNumber || "",
-          "TV/Video?": o.tvSold ? "Yes" : "No",
-          "Mobile sold?": o.mobileSold ? "Yes" : "No",
-          "Mobile Lines Qty": o.mobileLinesQty || 0,
-          "Commission Before Override": grossCommission.toFixed(2),
-          "Override Deduction": totalOverrideDeduction.toFixed(2),
-          "Commission After Override": netCommission.toFixed(2),
+          "Install Type": o.installType ? (typeLabels[o.installType] || o.installType) : "",
+          "Approval Status": o.approvalStatus || "",
+          "Commission": grossCommission.toFixed(2),
+          "Override Amount": totalOverrideDeduction.toFixed(2),
+          "Base Commission": netCommission.toFixed(2),
+          "Client": o.client?.name || "",
+          "Provider": o.provider?.name || "",
         };
       }));
 

@@ -471,29 +471,26 @@ export default function Orders() {
       "DIRECT_SHIP": "Direct Ship",
       "TECH_INSTALL": "Tech Install",
     };
-    const headers = ["Invoice #", "Rep ID", "Customer Name", "Account #", "Phone", "Provider", "Service", "TV", "Mobile", "Mobile Lines", "Date Sold", "Install Date", "Install Time", "Install Type", "Job Status", "Approval Status", "Commission", "Payment Status"];
+    const headers = ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Approval Status", "Commission", "Override Amount", "Base Commission", "Client", "Provider"];
     const rows = filteredOrders.map(order => {
       const provider = providers?.find(p => p.id === order.providerId);
-      const service = services?.find(s => s.id === order.serviceId);
+      const client = clients?.find(c => c.id === order.clientId);
+      const overrideAmount = getOverrideAmount(order);
+      const baseCommission = parseFloat(order.baseCommissionEarned);
       return [
         order.invoiceNumber || "",
         order.repId,
         order.customerName,
         order.accountNumber || "",
-        order.customerPhone || "",
-        provider?.name || "",
-        service?.name || "",
-        order.tvSold ? "Yes" : "No",
-        order.mobileSold ? "Yes" : "No",
-        order.mobileLinesQty?.toString() || "0",
         order.dateSold,
         order.installDate || "",
-        order.installTime || "",
         order.installType ? (typeLabels[order.installType] || order.installType) : "",
-        order.jobStatus,
         order.approvalStatus,
-        parseFloat(order.baseCommissionEarned).toFixed(2),
-        order.paymentStatus,
+        baseCommission.toFixed(2),
+        overrideAmount.toFixed(2),
+        (baseCommission - overrideAmount).toFixed(2),
+        client?.name || "",
+        provider?.name || "",
       ];
     });
     
@@ -648,7 +645,7 @@ export default function Orders() {
       ? [
           {
             key: "repId",
-            header: "Rep",
+            header: "Rep ID",
             cell: (row: SalesOrder) => (
               <span className="font-mono text-sm">{row.repId}</span>
             ),
@@ -657,7 +654,7 @@ export default function Orders() {
       : []),
     {
       key: "customerName",
-      header: "Customer",
+      header: "Customer Name",
       cell: (row: SalesOrder) => (
         <span className="font-medium truncate block max-w-[150px]">{row.customerName}</span>
       ),
@@ -669,42 +666,6 @@ export default function Orders() {
         <span className="font-mono text-sm text-muted-foreground truncate block max-w-[100px]">
           {row.accountNumber || "-"}
         </span>
-      ),
-    },
-    {
-      key: "customerPhone",
-      header: "Phone",
-      cell: (row: SalesOrder) => (
-        <span className="font-mono text-sm text-muted-foreground truncate block max-w-[120px]">
-          {row.customerPhone || "-"}
-        </span>
-      ),
-    },
-    {
-      key: "provider",
-      header: "Provider",
-      cell: (row: SalesOrder) => {
-        const provider = providers?.find(p => p.id === row.providerId);
-        return <span className="text-sm truncate block max-w-[100px]">{provider?.name || "-"}</span>;
-      },
-    },
-    {
-      key: "service",
-      header: "Service",
-      cell: (row: SalesOrder) => {
-        const service = services?.find(s => s.id === row.serviceId);
-        return <span className="text-sm truncate block max-w-[100px]">{service?.name || "-"}</span>;
-      },
-    },
-    {
-      key: "addons",
-      header: "Add-ons",
-      cell: (row: SalesOrder) => (
-        <div className="flex gap-1 flex-wrap">
-          {row.tvSold && <span className="text-xs bg-muted px-1.5 py-0.5 rounded">TV</span>}
-          {row.mobileSold && <span className="text-xs bg-muted px-1.5 py-0.5 rounded">Mobile ({row.mobileLinesQty})</span>}
-          {!row.tvSold && !row.mobileSold && <span className="text-muted-foreground text-sm">-</span>}
-        </div>
       ),
     },
     {
@@ -726,15 +687,6 @@ export default function Orders() {
       ),
     },
     {
-      key: "installTime",
-      header: "Install Time",
-      cell: (row: SalesOrder) => (
-        <span className="text-sm text-muted-foreground">
-          {row.installTime || "-"}
-        </span>
-      ),
-    },
-    {
       key: "installType",
       header: "Install Type",
       cell: (row: SalesOrder) => {
@@ -749,11 +701,6 @@ export default function Orders() {
           </span>
         );
       },
-    },
-    {
-      key: "jobStatus",
-      header: "Job",
-      cell: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
     },
     {
       key: "approvalStatus",
@@ -783,6 +730,19 @@ export default function Orders() {
       },
       className: "text-right",
     }] : []),
+    {
+      key: "provider",
+      header: "Provider",
+      cell: (row: SalesOrder) => {
+        const provider = providers?.find(p => p.id === row.providerId);
+        return <span className="text-sm truncate block max-w-[100px]">{provider?.name || "-"}</span>;
+      },
+    },
+    {
+      key: "jobStatus",
+      header: "Job",
+      cell: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
+    },
     // Payment status only visible to ADMIN and OPERATIONS
     ...((user?.role === "ADMIN" || user?.role === "OPERATIONS") ? [{
       key: "paymentStatus",
