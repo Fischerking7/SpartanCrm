@@ -3951,13 +3951,19 @@ export async function registerRoutes(
         return user ? `${user.name} (${repId})` : repId;
       };
       
-      // Prepare leads sheet data
+      // Prepare leads sheet data with full address breakdown
       const leadsData = leadPool.map(lead => ({
         "Lead ID": lead.id,
         "Customer Name": lead.customerName || "",
         "Phone": lead.phone || "",
         "Email": lead.email || "",
-        "Address": [lead.streetNumber, lead.streetName, lead.city, lead.state, lead.zipCode].filter(Boolean).join(", "),
+        "Street Number": lead.streetNumber || "",
+        "Street Name": lead.streetName || "",
+        "Unit/Apt": lead.unit || "",
+        "City": lead.city || "",
+        "State": lead.state || "",
+        "Zip Code": lead.zipCode || "",
+        "Full Address": [lead.streetNumber, lead.streetName, lead.unit, lead.city, lead.state, lead.zipCode].filter(Boolean).join(", "),
         "Disposition": lead.disposition,
         "Rep ID": lead.repId || "",
         "Rep Name": getRepName(lead.repId),
