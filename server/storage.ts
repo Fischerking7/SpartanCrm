@@ -15,7 +15,7 @@ import {
   commissionTiers, commissionTierLevels, repTierAssignments, repVolumeTracking,
   scheduledPayRuns, commissionForecasts,
   emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
-  mduStagingOrders,
+  mduStagingOrders, scheduledReports,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -56,6 +56,7 @@ import {
   type EmployeeCredential, type InsertEmployeeCredential,
   type SalesGoal, type InsertSalesGoal,
   type MduStagingOrder, type InsertMduStagingOrder,
+  type ScheduledReport, type InsertScheduledReport,
 } from "@shared/schema";
 
 export const storage = {
@@ -3286,6 +3287,45 @@ export const storage = {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(backgroundJobs.createdAt))
       .limit(limit);
+  },
+
+  // Scheduled Reports
+  async getScheduledReports(userId?: string) {
+    if (userId) {
+      return db.select().from(scheduledReports)
+        .where(eq(scheduledReports.userId, userId))
+        .orderBy(desc(scheduledReports.createdAt));
+    }
+    return db.select().from(scheduledReports)
+      .orderBy(desc(scheduledReports.createdAt));
+  },
+
+  async getActiveScheduledReports() {
+    return db.select().from(scheduledReports)
+      .where(eq(scheduledReports.isActive, true));
+  },
+
+  async getScheduledReportById(id: string) {
+    return db.query.scheduledReports.findFirst({
+      where: eq(scheduledReports.id, id),
+    });
+  },
+
+  async createScheduledReport(data: InsertScheduledReport) {
+    const [report] = await db.insert(scheduledReports).values(data).returning();
+    return report;
+  },
+
+  async updateScheduledReport(id: string, data: Partial<InsertScheduledReport> & { lastSentAt?: Date; nextSendAt?: Date }) {
+    const [report] = await db.update(scheduledReports)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(scheduledReports.id, id))
+      .returning();
+    return report;
+  },
+
+  async deleteScheduledReport(id: string) {
+    await db.delete(scheduledReports).where(eq(scheduledReports.id, id));
   },
 
   // Unmatched Chargebacks helpers

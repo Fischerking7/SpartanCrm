@@ -38,6 +38,7 @@ import {
   Tv,
   Smartphone,
   Target,
+  BarChart3,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -597,6 +598,12 @@ export default function Reports() {
             )}
             {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS") && (
               <TabsTrigger value="payroll" data-testid="tab-payroll">Payroll Summary</TabsTrigger>
+            )}
+            {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
+              <TabsTrigger value="profitability" data-testid="tab-profitability">Profitability</TabsTrigger>
+            )}
+            {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
+              <TabsTrigger value="product-mix" data-testid="tab-product-mix">Product Mix</TabsTrigger>
             )}
           </TabsList>
           <div className="flex items-center gap-3 flex-wrap">
@@ -1307,6 +1314,18 @@ export default function Reports() {
             <PayrollSummaryTab period={period} customStartDate={customStartDate} customEndDate={customEndDate} />
           </TabsContent>
         )}
+
+        {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
+          <TabsContent value="profitability" className="space-y-4">
+            <ProfitabilityTab period={period} customStartDate={customStartDate} customEndDate={customEndDate} />
+          </TabsContent>
+        )}
+
+        {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
+          <TabsContent value="product-mix" className="space-y-4">
+            <ProductMixTab period={period} customStartDate={customStartDate} customEndDate={customEndDate} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
@@ -1459,6 +1478,381 @@ function PayrollSummaryTab({ period, customStartDate, customEndDate }: { period:
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ProfitabilityTab({ period, customStartDate, customEndDate }: { period: string; customStartDate: string; customEndDate: string }) {
+  const [groupBy, setGroupBy] = useState<"provider" | "client">("provider");
+  
+  const { data: profitability, isLoading } = useQuery<{
+    data: Array<{
+      id: string;
+      name: string;
+      orders: number;
+      revenue: number;
+      commissionCost: number;
+      overrideCost: number;
+      margin: number;
+      marginPercent: number;
+    }>;
+    totals: {
+      totalOrders: number;
+      totalRevenue: number;
+      totalCommissionCost: number;
+      totalOverrideCost: number;
+      totalMargin: number;
+      avgMarginPercent: number;
+    };
+  }>({
+    queryKey: ["/api/reports/profitability", period, customStartDate, customEndDate, groupBy],
+    queryFn: async () => {
+      const params = new URLSearchParams({ period, type: groupBy });
+      if (period === "custom" && customStartDate) params.set("startDate", customStartDate);
+      if (period === "custom" && customEndDate) params.set("endDate", customEndDate);
+      const res = await fetch(`/api/reports/profitability?${params}`, { 
+        headers: getAuthHeaders(),
+        credentials: "include" 
+      });
+      if (!res.ok) throw new Error("Failed to fetch profitability data");
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 md:grid-cols-4">
+        {[1, 2, 3, 4].map(i => (
+          <Card key={i}>
+            <CardContent className="p-6">
+              <Skeleton className="h-4 w-24 mb-2" />
+              <Skeleton className="h-8 w-32" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card data-testid="profit-stat-revenue">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Est. Revenue</p>
+                <p className="text-3xl font-bold font-mono mt-2 text-green-600">{formatCurrency(profitability?.totals?.totalRevenue || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-green-500/10">
+                <TrendingUp className="h-5 w-5 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card data-testid="profit-stat-commission-cost">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Commission Cost</p>
+                <p className="text-3xl font-bold font-mono mt-2 text-red-600">{formatCurrency(profitability?.totals?.totalCommissionCost || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-red-500/10">
+                <TrendingDown className="h-5 w-5 text-red-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card data-testid="profit-stat-margin">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Gross Margin</p>
+                <p className="text-3xl font-bold font-mono mt-2">{formatCurrency(profitability?.totals?.totalMargin || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-primary/10">
+                <DollarSign className="h-5 w-5 text-primary" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card data-testid="profit-stat-margin-pct">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Avg Margin %</p>
+                <p className="text-3xl font-bold font-mono mt-2">{(profitability?.totals?.avgMarginPercent || 0).toFixed(1)}%</p>
+              </div>
+              <div className="p-2 rounded-md bg-blue-500/10">
+                <BarChart3 className="h-5 w-5 text-blue-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div>
+            <CardTitle className="text-lg">Profitability Analysis</CardTitle>
+            <CardDescription>Revenue and margin breakdown by {groupBy}</CardDescription>
+          </div>
+          <Select value={groupBy} onValueChange={(v: "provider" | "client") => setGroupBy(v)}>
+            <SelectTrigger className="w-[140px]" data-testid="select-profitability-group">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="provider">By Provider</SelectItem>
+              <SelectItem value="client">By Client</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardHeader>
+        <CardContent>
+          {profitability?.data?.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left py-3 px-2 font-medium">{groupBy === "provider" ? "Provider" : "Client"}</th>
+                    <th className="text-right py-3 px-2 font-medium">Orders</th>
+                    <th className="text-right py-3 px-2 font-medium">Revenue</th>
+                    <th className="text-right py-3 px-2 font-medium">Commission Cost</th>
+                    <th className="text-right py-3 px-2 font-medium">Override Cost</th>
+                    <th className="text-right py-3 px-2 font-medium">Total Cost</th>
+                    <th className="text-right py-3 px-2 font-medium">Margin</th>
+                    <th className="text-right py-3 px-2 font-medium">Margin %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {profitability.data.map((row) => (
+                    <tr key={row.id} className="border-b last:border-0 hover-elevate">
+                      <td className="py-3 px-2 font-medium">{row.name}</td>
+                      <td className="text-right py-3 px-2">{row.orders}</td>
+                      <td className="text-right py-3 px-2 font-mono text-green-600">{formatCurrency(row.revenue)}</td>
+                      <td className="text-right py-3 px-2 font-mono text-red-600">{formatCurrency(row.commissionCost)}</td>
+                      <td className="text-right py-3 px-2 font-mono text-purple-600">{formatCurrency(row.overrideCost)}</td>
+                      <td className="text-right py-3 px-2 font-mono font-semibold text-red-600">{formatCurrency(row.commissionCost + row.overrideCost)}</td>
+                      <td className="text-right py-3 px-2 font-mono font-semibold">{formatCurrency(row.margin)}</td>
+                      <td className="text-right py-3 px-2">
+                        <Badge variant={row.marginPercent >= 30 ? "default" : row.marginPercent >= 15 ? "secondary" : "destructive"}>
+                          {row.marginPercent.toFixed(1)}%
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="py-12 text-center text-muted-foreground">
+              No profitability data found for this period
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ProductMixTab({ period, customStartDate, customEndDate }: { period: string; customStartDate: string; customEndDate: string }) {
+  const { data: productMix, isLoading } = useQuery<{
+    data: Array<{
+      id: string;
+      name: string;
+      provider: string;
+      orders: number;
+      baseCommission: number;
+      incentiveCommission: number;
+      overrideCommission: number;
+      totalCommission: number;
+      avgCommissionPerOrder: number;
+      percentOfTotal: number;
+    }>;
+    providerBreakdown: Array<{
+      id: string;
+      name: string;
+      totalCommission: number;
+      percentOfTotal: number;
+    }>;
+    totals: {
+      totalOrders: number;
+      totalBaseCommission: number;
+      totalIncentiveCommission: number;
+      totalOverrideCommission: number;
+      grandTotalCommission: number;
+    };
+  }>({
+    queryKey: ["/api/reports/product-mix", period, customStartDate, customEndDate],
+    queryFn: async () => {
+      const params = new URLSearchParams({ period });
+      if (period === "custom" && customStartDate) params.set("startDate", customStartDate);
+      if (period === "custom" && customEndDate) params.set("endDate", customEndDate);
+      const res = await fetch(`/api/reports/product-mix?${params}`, { 
+        headers: getAuthHeaders(),
+        credentials: "include" 
+      });
+      if (!res.ok) throw new Error("Failed to fetch product mix data");
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 md:grid-cols-4">
+        {[1, 2, 3, 4].map(i => (
+          <Card key={i}>
+            <CardContent className="p-6">
+              <Skeleton className="h-4 w-24 mb-2" />
+              <Skeleton className="h-8 w-32" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card data-testid="mix-stat-base">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Base Commissions</p>
+                <p className="text-3xl font-bold font-mono mt-2">{formatCurrency(productMix?.totals?.totalBaseCommission || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-blue-500/10">
+                <DollarSign className="h-5 w-5 text-blue-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card data-testid="mix-stat-incentives">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Incentives</p>
+                <p className="text-3xl font-bold font-mono mt-2 text-orange-600">{formatCurrency(productMix?.totals?.totalIncentiveCommission || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-orange-500/10">
+                <TrendingUp className="h-5 w-5 text-orange-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card data-testid="mix-stat-overrides">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Overrides</p>
+                <p className="text-3xl font-bold font-mono mt-2 text-purple-600">{formatCurrency(productMix?.totals?.totalOverrideCommission || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-purple-500/10">
+                <Users className="h-5 w-5 text-purple-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card data-testid="mix-stat-total">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Cost</p>
+                <p className="text-3xl font-bold font-mono mt-2 text-red-600">{formatCurrency(productMix?.totals?.grandTotalCommission || 0)}</p>
+              </div>
+              <div className="p-2 rounded-md bg-red-500/10">
+                <BarChart3 className="h-5 w-5 text-red-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">By Service</CardTitle>
+            <CardDescription>Commission costs breakdown by service</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {productMix?.data?.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="text-left py-3 px-2 font-medium">Service</th>
+                      <th className="text-left py-3 px-2 font-medium">Provider</th>
+                      <th className="text-right py-3 px-2 font-medium">Orders</th>
+                      <th className="text-right py-3 px-2 font-medium">Base</th>
+                      <th className="text-right py-3 px-2 font-medium">Incentives</th>
+                      <th className="text-right py-3 px-2 font-medium">Overrides</th>
+                      <th className="text-right py-3 px-2 font-medium">Total</th>
+                      <th className="text-right py-3 px-2 font-medium">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productMix.data.map((row) => (
+                      <tr key={row.id} className="border-b last:border-0 hover-elevate">
+                        <td className="py-3 px-2 font-medium">{row.name}</td>
+                        <td className="py-3 px-2 text-muted-foreground">{row.provider}</td>
+                        <td className="text-right py-3 px-2">{row.orders}</td>
+                        <td className="text-right py-3 px-2 font-mono">{formatCurrency(row.baseCommission)}</td>
+                        <td className="text-right py-3 px-2 font-mono text-orange-600">{formatCurrency(row.incentiveCommission)}</td>
+                        <td className="text-right py-3 px-2 font-mono text-purple-600">{formatCurrency(row.overrideCommission)}</td>
+                        <td className="text-right py-3 px-2 font-mono font-semibold">{formatCurrency(row.totalCommission)}</td>
+                        <td className="text-right py-3 px-2">
+                          <Badge variant="outline">{row.percentOfTotal.toFixed(1)}%</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="py-12 text-center text-muted-foreground">
+                No service data found
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">By Provider</CardTitle>
+            <CardDescription>Commission costs breakdown by provider</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {productMix?.providerBreakdown?.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="text-left py-3 px-2 font-medium">Provider</th>
+                      <th className="text-right py-3 px-2 font-medium">Total Commission</th>
+                      <th className="text-right py-3 px-2 font-medium">% of Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productMix.providerBreakdown.map((row) => (
+                      <tr key={row.id} className="border-b last:border-0 hover-elevate">
+                        <td className="py-3 px-2 font-medium">{row.name}</td>
+                        <td className="text-right py-3 px-2 font-mono font-semibold">{formatCurrency(row.totalCommission)}</td>
+                        <td className="text-right py-3 px-2">
+                          <Badge variant="outline">{row.percentOfTotal.toFixed(1)}%</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="py-12 text-center text-muted-foreground">
+                No provider data found
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

@@ -5727,6 +5727,227 @@ export async function registerRoutes(
     }
   });
 
+  // Provider/Client Profitability Analysis
+  app.get("/api/reports/profitability", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate, type = "provider" } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const allOrders = await storage.getOrders({});
+      const providers = await storage.getProviders();
+      const clients = await storage.getClients();
+      const rateCards = await storage.getRateCards();
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
+      
+      const periodOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= start && orderDate < end;
+      });
+      
+      const entityStats: Record<string, {
+        name: string;
+        orders: number;
+        revenue: number;
+        commissionCost: number;
+        overrideCost: number;
+        margin: number;
+        marginPercent: number;
+      }> = {};
+      
+      for (const order of periodOrders) {
+        if (order.approvalStatus !== "APPROVED") continue;
+        
+        const entityId = type === "provider" ? order.providerId : order.clientId || "unknown";
+        const entity = type === "provider" 
+          ? providers.find(p => p.id === entityId)
+          : clients.find(c => c.id === entityId);
+        
+        if (!entityStats[entityId]) {
+          entityStats[entityId] = {
+            name: entity?.name || "Unknown",
+            orders: 0,
+            revenue: 0,
+            commissionCost: 0,
+            overrideCost: 0,
+            margin: 0,
+            marginPercent: 0,
+          };
+        }
+        
+        const baseEarned = parseFloat(order.baseCommissionEarned);
+        const incentiveEarned = parseFloat(order.incentiveEarned);
+        const overrideEarned = parseFloat(order.overrideEarned);
+        const totalCommissionCost = baseEarned + incentiveEarned;
+        
+        // Calculate estimated revenue (use MRC if available, otherwise estimate)
+        const mrc = parseFloat(order.mrc) || 0;
+        const estimatedRevenue = mrc > 0 ? mrc * 12 : totalCommissionCost * 5; // Assume 5x commission as revenue if MRC unknown
+        
+        entityStats[entityId].orders++;
+        entityStats[entityId].revenue += estimatedRevenue;
+        entityStats[entityId].commissionCost += totalCommissionCost;
+        entityStats[entityId].overrideCost += overrideEarned;
+      }
+      
+      // Calculate margins
+      for (const stats of Object.values(entityStats)) {
+        const totalCost = stats.commissionCost + stats.overrideCost;
+        stats.margin = stats.revenue - totalCost;
+        stats.marginPercent = stats.revenue > 0 ? (stats.margin / stats.revenue) * 100 : 0;
+      }
+      
+      const data = Object.entries(entityStats)
+        .map(([id, stats]) => ({ id, ...stats }))
+        .sort((a, b) => b.margin - a.margin);
+      
+      const totals = data.reduce((acc, item) => ({
+        totalOrders: acc.totalOrders + item.orders,
+        totalRevenue: acc.totalRevenue + item.revenue,
+        totalCommissionCost: acc.totalCommissionCost + item.commissionCost,
+        totalOverrideCost: acc.totalOverrideCost + item.overrideCost,
+        totalMargin: acc.totalMargin + item.margin,
+      }), { totalOrders: 0, totalRevenue: 0, totalCommissionCost: 0, totalOverrideCost: 0, totalMargin: 0 });
+      
+      res.json({ 
+        data, 
+        totals: {
+          ...totals,
+          avgMarginPercent: totals.totalRevenue > 0 ? (totals.totalMargin / totals.totalRevenue) * 100 : 0,
+        },
+        period: { start: start.toISOString(), end: end.toISOString() },
+      });
+    } catch (error) {
+      console.error("Profitability report error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Commission Cost Analysis by Product Mix
+  app.get("/api/reports/product-mix", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const allOrders = await storage.getOrders({});
+      const services = await storage.getServices();
+      const providers = await storage.getProviders();
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
+      
+      const periodOrders = orders.filter(o => {
+        const orderDate = new Date(o.dateSold);
+        return orderDate >= start && orderDate < end;
+      });
+      
+      // Product mix by service type
+      const serviceStats: Record<string, {
+        name: string;
+        provider: string;
+        orders: number;
+        baseCommission: number;
+        incentiveCommission: number;
+        overrideCommission: number;
+        totalCommission: number;
+        avgCommissionPerOrder: number;
+        percentOfTotal: number;
+      }> = {};
+      
+      let grandTotalCommission = 0;
+      
+      for (const order of periodOrders) {
+        if (order.approvalStatus !== "APPROVED") continue;
+        
+        const serviceId = order.serviceId;
+        const service = services.find(s => s.id === serviceId);
+        const provider = providers.find(p => p.id === order.providerId);
+        
+        if (!serviceStats[serviceId]) {
+          serviceStats[serviceId] = {
+            name: service?.name || "Unknown",
+            provider: provider?.name || "Unknown",
+            orders: 0,
+            baseCommission: 0,
+            incentiveCommission: 0,
+            overrideCommission: 0,
+            totalCommission: 0,
+            avgCommissionPerOrder: 0,
+            percentOfTotal: 0,
+          };
+        }
+        
+        const baseEarned = parseFloat(order.baseCommissionEarned);
+        const incentiveEarned = parseFloat(order.incentiveEarned);
+        const overrideEarned = parseFloat(order.overrideEarned);
+        const totalCommission = baseEarned + incentiveEarned + overrideEarned;
+        
+        serviceStats[serviceId].orders++;
+        serviceStats[serviceId].baseCommission += baseEarned;
+        serviceStats[serviceId].incentiveCommission += incentiveEarned;
+        serviceStats[serviceId].overrideCommission += overrideEarned;
+        serviceStats[serviceId].totalCommission += totalCommission;
+        grandTotalCommission += totalCommission;
+      }
+      
+      // Calculate averages and percentages
+      for (const stats of Object.values(serviceStats)) {
+        stats.avgCommissionPerOrder = stats.orders > 0 ? stats.totalCommission / stats.orders : 0;
+        stats.percentOfTotal = grandTotalCommission > 0 ? (stats.totalCommission / grandTotalCommission) * 100 : 0;
+      }
+      
+      const data = Object.entries(serviceStats)
+        .map(([id, stats]) => ({ id, ...stats }))
+        .sort((a, b) => b.totalCommission - a.totalCommission);
+      
+      const totals = data.reduce((acc, item) => ({
+        totalOrders: acc.totalOrders + item.orders,
+        totalBaseCommission: acc.totalBaseCommission + item.baseCommission,
+        totalIncentiveCommission: acc.totalIncentiveCommission + item.incentiveCommission,
+        totalOverrideCommission: acc.totalOverrideCommission + item.overrideCommission,
+        grandTotalCommission: acc.grandTotalCommission + item.totalCommission,
+      }), { totalOrders: 0, totalBaseCommission: 0, totalIncentiveCommission: 0, totalOverrideCommission: 0, grandTotalCommission: 0 });
+      
+      // Also break down by provider
+      const providerBreakdown: Record<string, { name: string; totalCommission: number; percentOfTotal: number }> = {};
+      for (const order of periodOrders) {
+        if (order.approvalStatus !== "APPROVED") continue;
+        const provider = providers.find(p => p.id === order.providerId);
+        if (!providerBreakdown[order.providerId]) {
+          providerBreakdown[order.providerId] = {
+            name: provider?.name || "Unknown",
+            totalCommission: 0,
+            percentOfTotal: 0,
+          };
+        }
+        providerBreakdown[order.providerId].totalCommission += 
+          parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned) + parseFloat(order.overrideEarned);
+      }
+      for (const stats of Object.values(providerBreakdown)) {
+        stats.percentOfTotal = grandTotalCommission > 0 ? (stats.totalCommission / grandTotalCommission) * 100 : 0;
+      }
+      
+      res.json({ 
+        data, 
+        totals,
+        providerBreakdown: Object.entries(providerBreakdown)
+          .map(([id, stats]) => ({ id, ...stats }))
+          .sort((a, b) => b.totalCommission - a.totalCommission),
+        period: { start: start.toISOString(), end: end.toISOString() },
+      });
+    } catch (error) {
+      console.error("Product mix report error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
   // Register object storage routes
   registerObjectStorageRoutes(app);
 
@@ -8380,6 +8601,126 @@ export async function registerRoutes(
       const user = req.user!;
       const count = await storage.markAllNotificationsRead(user.id);
       res.json({ markedRead: count });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ========== Scheduled Reports ==========
+
+  // Get user's scheduled reports
+  app.get("/api/scheduled-reports", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      // ADMIN/OPERATIONS can see all, others see only their own
+      const reports = ["ADMIN", "OPERATIONS"].includes(user.role)
+        ? await storage.getScheduledReports()
+        : await storage.getScheduledReports(user.id);
+      res.json(reports);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create scheduled report
+  app.post("/api/scheduled-reports", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const { name, reportType, frequency, dayOfWeek, dayOfMonth, timeOfDay, recipients, isActive } = req.body;
+      
+      // Calculate next send time
+      const now = new Date();
+      let nextSendAt = new Date();
+      const [hours, minutes] = (timeOfDay || "08:00").split(":").map(Number);
+      nextSendAt.setHours(hours, minutes, 0, 0);
+      
+      if (frequency === "daily") {
+        if (nextSendAt <= now) nextSendAt.setDate(nextSendAt.getDate() + 1);
+      } else if (frequency === "weekly" && dayOfWeek !== undefined) {
+        const currentDay = now.getDay();
+        let daysUntil = dayOfWeek - currentDay;
+        if (daysUntil <= 0 || (daysUntil === 0 && nextSendAt <= now)) daysUntil += 7;
+        nextSendAt.setDate(now.getDate() + daysUntil);
+      } else if (frequency === "monthly" && dayOfMonth) {
+        nextSendAt.setDate(dayOfMonth);
+        if (nextSendAt <= now) nextSendAt.setMonth(nextSendAt.getMonth() + 1);
+      }
+      
+      const report = await storage.createScheduledReport({
+        userId: user.id,
+        name,
+        reportType,
+        frequency,
+        dayOfWeek: dayOfWeek !== undefined ? dayOfWeek : null,
+        dayOfMonth: dayOfMonth || null,
+        timeOfDay: timeOfDay || "08:00",
+        recipients: recipients || [],
+        isActive: isActive !== false,
+      });
+      
+      // Update with calculated nextSendAt
+      await storage.updateScheduledReport(report.id, { nextSendAt });
+      
+      res.json({ ...report, nextSendAt });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update scheduled report
+  app.patch("/api/scheduled-reports/:id", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const existing = await storage.getScheduledReportById(req.params.id);
+      
+      if (!existing) {
+        return res.status(404).json({ message: "Scheduled report not found" });
+      }
+      
+      // Check ownership or admin
+      if (existing.userId !== user.id && !["ADMIN", "OPERATIONS"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const { name, reportType, frequency, dayOfWeek, dayOfMonth, timeOfDay, recipients, isActive } = req.body;
+      
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (reportType !== undefined) updates.reportType = reportType;
+      if (frequency !== undefined) updates.frequency = frequency;
+      if (dayOfWeek !== undefined) updates.dayOfWeek = dayOfWeek;
+      if (dayOfMonth !== undefined) updates.dayOfMonth = dayOfMonth;
+      if (timeOfDay !== undefined) updates.timeOfDay = timeOfDay;
+      if (recipients !== undefined) updates.recipients = recipients;
+      if (isActive !== undefined) updates.isActive = isActive;
+      
+      const report = await storage.updateScheduledReport(req.params.id, updates);
+      res.json(report);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete scheduled report
+  app.delete("/api/scheduled-reports/:id", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const existing = await storage.getScheduledReportById(req.params.id);
+      
+      if (!existing) {
+        return res.status(404).json({ message: "Scheduled report not found" });
+      }
+      
+      if (existing.userId !== user.id && !["ADMIN", "OPERATIONS"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      await storage.deleteScheduledReport(req.params.id);
+      res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

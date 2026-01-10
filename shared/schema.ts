@@ -1447,6 +1447,35 @@ export const notificationPreferences = pgTable("notification_preferences", {
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;
 export type InsertNotificationPreference = typeof notificationPreferences.$inferInsert;
 
+// Scheduled Reports
+export const scheduledReports = pgTable("scheduled_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  reportType: varchar("report_type", { length: 100 }).notNull(), // 'summary', 'commission', 'profitability', 'product-mix'
+  frequency: varchar("frequency", { length: 50 }).notNull(), // 'daily', 'weekly', 'monthly'
+  dayOfWeek: integer("day_of_week"), // 0-6 for weekly (0=Sunday)
+  dayOfMonth: integer("day_of_month"), // 1-31 for monthly
+  timeOfDay: varchar("time_of_day", { length: 10 }).default("08:00"), // HH:mm format
+  recipients: text("recipients").array(), // Array of email addresses
+  isActive: boolean("is_active").notNull().default(true),
+  lastSentAt: timestamp("last_sent_at"),
+  nextSendAt: timestamp("next_send_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertScheduledReportSchema = createInsertSchema(scheduledReports).omit({
+  id: true,
+  lastSentAt: true,
+  nextSendAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ScheduledReport = typeof scheduledReports.$inferSelect;
+export type InsertScheduledReport = z.infer<typeof insertScheduledReportSchema>;
+
 // Background Job Log (for scheduled tasks)
 export const backgroundJobs = pgTable("background_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
