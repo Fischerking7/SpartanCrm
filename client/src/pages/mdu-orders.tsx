@@ -7,12 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Plus, Edit2, Trash2, CheckCircle, XCircle, Clock } from "lucide-react";
-import type { Client, Provider, Service } from "@shared/schema";
 
 interface MduStagingOrder {
   id: string;
@@ -52,9 +50,6 @@ export default function MduOrders() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingOrder, setEditingOrder] = useState<MduStagingOrder | null>(null);
   const [formData, setFormData] = useState({
-    clientId: "",
-    providerId: "",
-    serviceId: "",
     dateSold: new Date().toISOString().split("T")[0],
     installDate: "",
     installTime: "",
@@ -86,32 +81,6 @@ export default function MduOrders() {
     },
   });
 
-  const { data: clients } = useQuery<Client[]>({
-    queryKey: ["/api/clients"],
-    queryFn: async () => {
-      const res = await fetch("/api/clients", { headers: getAuthHeaders() });
-      if (!res.ok) return [];
-      return res.json();
-    },
-  });
-
-  const { data: providers } = useQuery<Provider[]>({
-    queryKey: ["/api/providers"],
-    queryFn: async () => {
-      const res = await fetch("/api/providers", { headers: getAuthHeaders() });
-      if (!res.ok) return [];
-      return res.json();
-    },
-  });
-
-  const { data: services } = useQuery<Service[]>({
-    queryKey: ["/api/services"],
-    queryFn: async () => {
-      const res = await fetch("/api/services", { headers: getAuthHeaders() });
-      if (!res.ok) return [];
-      return res.json();
-    },
-  });
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -184,9 +153,6 @@ export default function MduOrders() {
 
   const resetForm = () => {
     setFormData({
-      clientId: "",
-      providerId: "",
-      serviceId: "",
       dateSold: new Date().toISOString().split("T")[0],
       installDate: "",
       installTime: "",
@@ -212,9 +178,6 @@ export default function MduOrders() {
 
   const openEditDialog = (order: MduStagingOrder) => {
     setFormData({
-      clientId: order.clientId,
-      providerId: order.providerId,
-      serviceId: order.serviceId,
       dateSold: order.dateSold,
       installDate: order.installDate || "",
       installTime: order.installTime || "",
@@ -293,9 +256,8 @@ export default function MduOrders() {
                       {getStatusBadge(order.status)}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {providers?.find(p => p.id === order.providerId)?.name} • 
-                      {services?.find(s => s.id === order.serviceId)?.name} • 
                       Sold: {new Date(order.dateSold).toLocaleDateString()}
+                      {order.accountNumber && ` • Account: ${order.accountNumber}`}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -334,8 +296,8 @@ export default function MduOrders() {
                       {getStatusBadge(order.status)}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {providers?.find(p => p.id === order.providerId)?.name} • 
-                      {services?.find(s => s.id === order.serviceId)?.name}
+                      Sold: {new Date(order.dateSold).toLocaleDateString()}
+                      {order.accountNumber && ` • Account: ${order.accountNumber}`}
                     </div>
                     {order.status === "REJECTED" && order.rejectionNote && (
                       <p className="text-sm text-destructive">Reason: {order.rejectionNote}</p>
@@ -480,47 +442,6 @@ export default function MduOrders() {
                   placeholder="John Doe"
                   data-testid="input-credit-card-name"
                 />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Provider</Label>
-                <Select value={formData.providerId} onValueChange={v => setFormData({ ...formData, providerId: v })}>
-                  <SelectTrigger data-testid="select-provider">
-                    <SelectValue placeholder="Select provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {providers?.map(p => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Client</Label>
-                <Select value={formData.clientId} onValueChange={v => setFormData({ ...formData, clientId: v })}>
-                  <SelectTrigger data-testid="select-client">
-                    <SelectValue placeholder="Select client" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients?.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Service</Label>
-                <Select value={formData.serviceId} onValueChange={v => setFormData({ ...formData, serviceId: v })}>
-                  <SelectTrigger data-testid="select-service">
-                    <SelectValue placeholder="Select service" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {services?.map(s => (
-                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4">
