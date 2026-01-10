@@ -36,6 +36,7 @@ interface MduStagingOrder {
   customerEmail?: string;
   customerBirthday?: string;
   customerSsnLast4?: string;
+  customerSsnDisplay?: string;
   creditCardLast4?: string;
   creditCardExpiry?: string;
   creditCardName?: string;
@@ -69,7 +70,7 @@ export default function MduOrders() {
     customerPhone: "",
     customerEmail: "",
     customerBirthday: "",
-    customerSsnLast4: "",
+    customerSsn: "",
     creditCardLast4: "",
     creditCardExpiry: "",
     creditCardName: "",
@@ -186,7 +187,7 @@ export default function MduOrders() {
       customerPhone: "",
       customerEmail: "",
       customerBirthday: "",
-      customerSsnLast4: "",
+      customerSsn: "",
       creditCardLast4: "",
       creditCardExpiry: "",
       creditCardName: "",
@@ -214,7 +215,7 @@ export default function MduOrders() {
       customerPhone: order.customerPhone || "",
       customerEmail: order.customerEmail || "",
       customerBirthday: order.customerBirthday || "",
-      customerSsnLast4: order.customerSsnLast4 || "",
+      customerSsn: "",
       creditCardLast4: order.creditCardLast4 || "",
       creditCardExpiry: order.creditCardExpiry || "",
       creditCardName: order.creditCardName || "",
@@ -396,18 +397,31 @@ export default function MduOrders() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="customerSsnLast4">SSN (Last 4 digits)</Label>
+                <Label htmlFor="customerSsn">Social Security Number</Label>
                 <Input
-                  id="customerSsnLast4"
-                  value={formData.customerSsnLast4}
+                  id="customerSsn"
+                  value={formData.customerSsn}
                   onChange={e => {
-                    const value = e.target.value.replace(/\D/g, "").slice(0, 4);
-                    setFormData({ ...formData, customerSsnLast4: value });
+                    let value = e.target.value.replace(/[^\d-]/g, "");
+                    const digits = value.replace(/-/g, "");
+                    if (digits.length <= 9) {
+                      if (digits.length > 5) {
+                        value = digits.slice(0, 3) + "-" + digits.slice(3, 5) + "-" + digits.slice(5);
+                      } else if (digits.length > 3) {
+                        value = digits.slice(0, 3) + "-" + digits.slice(3);
+                      } else {
+                        value = digits;
+                      }
+                    }
+                    setFormData({ ...formData, customerSsn: value });
                   }}
-                  placeholder="1234"
-                  maxLength={4}
-                  data-testid="input-customer-ssn-last4"
+                  placeholder="123-45-6789"
+                  maxLength={11}
+                  data-testid="input-customer-ssn"
                 />
+                {editingOrder?.customerSsnDisplay && (
+                  <p className="text-xs text-muted-foreground">Current: {editingOrder.customerSsnDisplay}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="creditCardLast4">Credit Card (Last 4 digits)</Label>

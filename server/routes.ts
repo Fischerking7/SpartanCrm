@@ -13,6 +13,7 @@ import multer from "multer";
 import * as XLSX from "xlsx";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import rateLimit from "express-rate-limit";
+import { encryptSsn, decryptSsn, extractSsnLast4, maskSsn } from "./encryption";
 
 // Rate limiter for auth endpoints (10 attempts per 15 minutes per IP)
 const authLimiter = rateLimit({
@@ -8315,7 +8316,12 @@ export async function registerRoutes(
     try {
       const user = req.user!;
       const orders = await storage.getMduStagingOrders(user.repId);
-      res.json(orders);
+      // Remove encrypted SSN and add masked display
+      const safeOrders = orders.map((order: any) => {
+        const { customerSsnEncrypted, ...safeOrder } = order;
+        return { ...safeOrder, customerSsnDisplay: safeOrder.customerSsnLast4 ? `***-**-${safeOrder.customerSsnLast4}` : null };
+      });
+      res.json(safeOrders);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch MDU orders" });
     }
@@ -8329,15 +8335,27 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
       }
-      const order = await storage.createMduStagingOrder(parsed.data);
+      
+      // Handle SSN encryption
+      const { customerSsn, ...orderData } = parsed.data;
+      const dataToSave: any = { ...orderData };
+      if (customerSsn) {
+        dataToSave.customerSsnEncrypted = encryptSsn(customerSsn);
+        dataToSave.customerSsnLast4 = extractSsnLast4(customerSsn);
+      }
+      
+      const order = await storage.createMduStagingOrder(dataToSave);
       await storage.createAuditLog({
         userId: user.id,
         action: "create_mdu_staging_order",
         tableName: "mdu_staging_orders",
         recordId: order.id,
-        afterJson: JSON.stringify(order),
+        afterJson: JSON.stringify({ ...order, customerSsnEncrypted: "[ENCRYPTED]" }),
       });
-      res.json(order);
+      
+      // Return with masked SSN display (never expose encrypted value to client)
+      const { customerSsnEncrypted, ...safeOrder } = order;
+      res.json({ ...safeOrder, customerSsnDisplay: safeOrder.customerSsnLast4 ? `***-**-${safeOrder.customerSsnLast4}` : null });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to create MDU order" });
     }
@@ -8359,7 +8377,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Can only edit pending orders" });
       }
       // Whitelist only editable fields - prevent privilege escalation
-      const allowedFields = {
+      const allowedFields: any = {
         clientId: req.body.clientId,
         providerId: req.body.providerId,
         serviceId: req.body.serviceId,
@@ -8378,18 +8396,27 @@ export async function registerRoutes(
         customerPhone: req.body.customerPhone,
         customerEmail: req.body.customerEmail,
         customerBirthday: req.body.customerBirthday,
-        customerSsnLast4: req.body.customerSsnLast4,
         creditCardLast4: req.body.creditCardLast4,
         creditCardExpiry: req.body.creditCardExpiry,
         creditCardName: req.body.creditCardName,
         notes: req.body.notes,
       };
+      
+      // Handle SSN update - encrypt if provided
+      if (req.body.customerSsn) {
+        allowedFields.customerSsnEncrypted = encryptSsn(req.body.customerSsn);
+        allowedFields.customerSsnLast4 = extractSsnLast4(req.body.customerSsn);
+      }
+      
       // Remove undefined values
       const sanitizedData = Object.fromEntries(
         Object.entries(allowedFields).filter(([_, v]) => v !== undefined)
       );
       const updated = await storage.updateMduStagingOrder(id, sanitizedData);
-      res.json(updated);
+      
+      // Return with masked SSN display
+      const { customerSsnEncrypted, ...safeOrder } = updated as any;
+      res.json({ ...safeOrder, customerSsnDisplay: safeOrder.customerSsnLast4 ? `***-**-${safeOrder.customerSsnLast4}` : null });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to update MDU order" });
     }
