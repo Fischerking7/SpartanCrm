@@ -1453,6 +1453,39 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/orders/:id/unapprove", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user!;
+      const order = await storage.getOrderById(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+
+      if (order.approvalStatus === "UNAPPROVED") {
+        return res.status(400).json({ message: "Order is already unapproved" });
+      }
+
+      if (order.payRunId) {
+        return res.status(400).json({ message: "Cannot unapprove order that is linked to a pay run" });
+      }
+
+      if (order.paymentStatus === "PAID") {
+        return res.status(400).json({ message: "Cannot unapprove order that has been paid" });
+      }
+
+      const updated = await storage.updateOrder(id, {
+        approvalStatus: "UNAPPROVED",
+        rejectionNote: null,
+        approvedByUserId: null,
+        approvedAt: null,
+      });
+
+      await storage.createAuditLog({ action: "unapprove_order", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to unapprove order" });
+    }
+  });
+
   app.post("/api/admin/orders/:id/mark-paid", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;

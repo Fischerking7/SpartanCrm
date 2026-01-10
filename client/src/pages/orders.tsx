@@ -509,6 +509,28 @@ export default function Orders() {
     },
   });
 
+  const unapproveMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await fetch(`/api/admin/orders/${orderId}/unapprove`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to unapprove");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setSelectedOrder(data);
+      toast({ title: "Order unapproved", description: "Approval status has been reversed" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to unapprove", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleCreateOrder = () => {
     if (!newOrderForm.customerName || !newOrderForm.dateSold) {
       toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
@@ -1086,6 +1108,16 @@ export default function Orders() {
             </div>
           )}
           <DialogFooter className="gap-2">
+            {isAdmin && selectedOrder && selectedOrder.approvalStatus !== "UNAPPROVED" && selectedOrder.paymentStatus !== "PAID" && !selectedOrder.payRunId && (
+              <Button 
+                variant="outline"
+                onClick={() => unapproveMutation.mutate(selectedOrder.id)}
+                disabled={unapproveMutation.isPending}
+                data-testid="button-unapprove"
+              >
+                {unapproveMutation.isPending ? "Reversing..." : "Reverse Approval"}
+              </Button>
+            )}
             {isAdmin && selectedOrder && selectedOrder.paymentStatus !== "PAID" && (
               <Button 
                 onClick={() => markPaidMutation.mutate(selectedOrder.id)}

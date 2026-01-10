@@ -2,7 +2,7 @@
 
 ## Overview
 
-Iron Crest CRM is a full-stack sales operations, commissions tracking, and QuickBooks reconciliation platform built for scaling from small teams (5 reps) to mid-size organizations (50-200 reps). The application provides role-based access control (REP/SUPERVISOR/MANAGER/EXECUTIVE/ADMIN/FOUNDER), commission calculations, payment tracking, chargeback management, and comprehensive audit logging.
+Iron Crest CRM is a full-stack sales operations, commissions tracking, and QuickBooks reconciliation platform built for scaling from small teams (5 reps) to mid-size organizations (50-200 reps). The application provides role-based access control (REP/SUPERVISOR/MANAGER/EXECUTIVE/ADMIN/OPERATIONS), commission calculations, payment tracking, chargeback management, and comprehensive audit logging.
 
 ## User Preferences
 
