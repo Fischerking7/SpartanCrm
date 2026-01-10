@@ -591,6 +591,7 @@ export const knowledgeDocuments = pgTable("knowledge_documents", {
   objectPath: text("object_path").notNull(),
   category: text("category"),
   tags: text("tags").array(),
+  minimumRole: userRoleEnum("minimum_role").default("REP"),
   uploadedById: varchar("uploaded_by_id").references(() => users.id).notNull(),
   deletedAt: timestamp("deleted_at"),
   deletedByUserId: varchar("deleted_by_user_id").references(() => users.id),

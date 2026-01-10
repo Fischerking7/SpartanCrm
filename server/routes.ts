@@ -5038,11 +5038,32 @@ export async function registerRoutes(
 
   // === Knowledge Documents API ===
   
-  // Get all knowledge documents
+  // Role hierarchy for access control
+  const ROLE_HIERARCHY: Record<string, number> = {
+    "REP": 1,
+    "SUPERVISOR": 2,
+    "MANAGER": 3,
+    "EXECUTIVE": 4,
+    "ADMIN": 5,
+    "FOUNDER": 6,
+  };
+
+  // Get all knowledge documents (filtered by user's role)
   app.get("/api/knowledge-documents", auth, async (req: AuthRequest, res) => {
     try {
-      const docs = await storage.getKnowledgeDocuments();
-      res.json(docs);
+      const userRole = req.user!.role;
+      const userRoleLevel = ROLE_HIERARCHY[userRole] || 1;
+      
+      const allDocs = await storage.getKnowledgeDocuments();
+      
+      // Filter documents based on minimumRole requirement
+      const visibleDocs = allDocs.filter(doc => {
+        const docMinRole = doc.minimumRole || "REP";
+        const docRoleLevel = ROLE_HIERARCHY[docMinRole] || 1;
+        return userRoleLevel >= docRoleLevel;
+      });
+      
+      res.json(visibleDocs);
     } catch (error) {
       console.error("Get knowledge documents error:", error);
       res.status(500).json({ message: "Failed to get documents" });
@@ -5096,12 +5117,13 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Document not found" });
       }
       
-      const { title, description, category, tags } = req.body;
+      const { title, description, category, tags, minimumRole } = req.body;
       const doc = await storage.updateKnowledgeDocument(req.params.id, {
         title: title !== undefined ? title : existing.title,
         description: description !== undefined ? description : existing.description,
         category: category !== undefined ? category : existing.category,
         tags: tags !== undefined ? tags : existing.tags,
+        minimumRole: minimumRole !== undefined ? minimumRole : existing.minimumRole,
       });
       
       await storage.createAuditLog({

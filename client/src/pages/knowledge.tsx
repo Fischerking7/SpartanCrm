@@ -55,6 +55,15 @@ const CATEGORIES = [
   "Other",
 ];
 
+const ROLES = [
+  { value: "REP", label: "Everyone (Rep+)" },
+  { value: "SUPERVISOR", label: "Supervisor+" },
+  { value: "MANAGER", label: "Manager+" },
+  { value: "EXECUTIVE", label: "Executive+" },
+  { value: "ADMIN", label: "Admin+" },
+  { value: "FOUNDER", label: "Founder Only" },
+];
+
 function getFileTypeFromMime(mimeType: string): "PDF" | "WORD" | "IMAGE" | "OTHER" {
   if (mimeType === "application/pdf") return "PDF";
   if (mimeType.includes("word") || mimeType.includes("document")) return "WORD";
@@ -96,6 +105,7 @@ export default function KnowledgeDatabase() {
   const [newDocTitle, setNewDocTitle] = useState("");
   const [newDocDescription, setNewDocDescription] = useState("");
   const [newDocCategory, setNewDocCategory] = useState("");
+  const [newDocMinimumRole, setNewDocMinimumRole] = useState("REP");
   
   // Store the objectPath from the upload URL request
   const pendingObjectPathRef = useRef<string | null>(null);
@@ -123,6 +133,7 @@ export default function KnowledgeDatabase() {
       mimeType: string;
       objectPath: string;
       category: string;
+      minimumRole: string;
     }) => {
       const res = await apiRequest("POST", "/api/knowledge-documents", data);
       return res.json();
@@ -138,7 +149,7 @@ export default function KnowledgeDatabase() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, ...data }: { id: string; title?: string; description?: string; category?: string }) => {
+    mutationFn: async ({ id, ...data }: { id: string; title?: string; description?: string; category?: string; minimumRole?: string }) => {
       const res = await apiRequest("PATCH", `/api/knowledge-documents/${id}`, data);
       return res.json();
     },
@@ -175,6 +186,7 @@ export default function KnowledgeDatabase() {
     setNewDocTitle("");
     setNewDocDescription("");
     setNewDocCategory("");
+    setNewDocMinimumRole("REP");
   };
 
   const handleUploadComplete = (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
@@ -210,6 +222,7 @@ export default function KnowledgeDatabase() {
       mimeType: uploadedFile.metadata.contentType,
       objectPath: uploadedFile.objectPath,
       category: newDocCategory || "Other",
+      minimumRole: newDocMinimumRole,
     });
   };
 
@@ -218,6 +231,7 @@ export default function KnowledgeDatabase() {
     setNewDocTitle(doc.title);
     setNewDocDescription(doc.description || "");
     setNewDocCategory(doc.category || "");
+    setNewDocMinimumRole(doc.minimumRole || "REP");
     setShowEditDialog(true);
   };
 
@@ -228,6 +242,7 @@ export default function KnowledgeDatabase() {
       title: newDocTitle,
       description: newDocDescription,
       category: newDocCategory,
+      minimumRole: newDocMinimumRole,
     });
   };
 
@@ -351,6 +366,11 @@ export default function KnowledgeDatabase() {
                       {doc.category && (
                         <Badge variant="secondary" className="text-xs">
                           {doc.category}
+                        </Badge>
+                      )}
+                      {doc.minimumRole && doc.minimumRole !== "REP" && (
+                        <Badge variant="default" className="text-xs">
+                          {ROLES.find(r => r.value === doc.minimumRole)?.label || doc.minimumRole}
                         </Badge>
                       )}
                       <span className="text-xs text-muted-foreground">
@@ -502,6 +522,19 @@ export default function KnowledgeDatabase() {
                   data-testid="input-doc-description"
                 />
               </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Visible To</label>
+                <Select value={newDocMinimumRole} onValueChange={setNewDocMinimumRole}>
+                  <SelectTrigger data-testid="select-doc-minimum-role">
+                    <SelectValue placeholder="Select minimum role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ROLES.map((role) => (
+                      <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <DialogFooter className="gap-2">
@@ -559,6 +592,19 @@ export default function KnowledgeDatabase() {
                 rows={3}
                 data-testid="input-edit-description"
               />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Visible To</label>
+              <Select value={newDocMinimumRole} onValueChange={setNewDocMinimumRole}>
+                <SelectTrigger data-testid="select-edit-minimum-role">
+                  <SelectValue placeholder="Select minimum role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((role) => (
+                    <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter className="gap-2">
