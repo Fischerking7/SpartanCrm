@@ -423,7 +423,12 @@ export default function Orders() {
       return;
     }
     
-    const headers = ["Invoice #", "Rep ID", "Customer Name", "Account #", "Phone", "Provider", "Service", "TV", "Mobile", "Mobile Lines", "Date Sold", "Install Date", "Job Status", "Approval Status", "Commission", "Payment Status"];
+    const typeLabels: Record<string, string> = {
+      "AGENT_INSTALL": "Agent Install",
+      "DIRECT_SHIP": "Direct Ship",
+      "TECH_INSTALL": "Tech Install",
+    };
+    const headers = ["Invoice #", "Rep ID", "Customer Name", "Account #", "Phone", "Provider", "Service", "TV", "Mobile", "Mobile Lines", "Date Sold", "Install Date", "Install Time", "Install Type", "Job Status", "Approval Status", "Commission", "Payment Status"];
     const rows = filteredOrders.map(order => {
       const provider = providers?.find(p => p.id === order.providerId);
       const service = services?.find(s => s.id === order.serviceId);
@@ -440,6 +445,8 @@ export default function Orders() {
         order.mobileLinesQty?.toString() || "0",
         order.dateSold,
         order.installDate || "",
+        order.installTime || "",
+        order.installType ? (typeLabels[order.installType] || order.installType) : "",
         order.jobStatus,
         order.approvalStatus,
         parseFloat(order.baseCommissionEarned).toFixed(2),
@@ -632,12 +639,37 @@ export default function Orders() {
     },
     {
       key: "installDate",
-      header: "Install",
+      header: "Install Date",
       cell: (row: SalesOrder) => (
         <span className="text-sm text-muted-foreground">
           {row.installDate ? new Date(row.installDate).toLocaleDateString() : "-"}
         </span>
       ),
+    },
+    {
+      key: "installTime",
+      header: "Install Time",
+      cell: (row: SalesOrder) => (
+        <span className="text-sm text-muted-foreground">
+          {row.installTime || "-"}
+        </span>
+      ),
+    },
+    {
+      key: "installType",
+      header: "Install Type",
+      cell: (row: SalesOrder) => {
+        const typeLabels: Record<string, string> = {
+          "AGENT_INSTALL": "Agent Install",
+          "DIRECT_SHIP": "Direct Ship",
+          "TECH_INSTALL": "Tech Install",
+        };
+        return (
+          <span className="text-sm text-muted-foreground">
+            {row.installType ? typeLabels[row.installType] || row.installType : "-"}
+          </span>
+        );
+      },
     },
     {
       key: "jobStatus",

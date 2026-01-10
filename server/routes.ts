@@ -1984,7 +1984,7 @@ export async function registerRoutes(
         rc.active && 
         !rc.deletedAt &&
         rc.serviceId && // Only internet service rate cards (not mobile-only)
-        (!clientId || rc.clientId === clientId) &&
+        (!clientId || !rc.clientId || rc.clientId === clientId) && // Include rate cards for any client OR specific client
         (!providerId || rc.providerId === providerId)
       );
       
