@@ -33,6 +33,13 @@ The system implements seven distinct user roles (REP, MDU, SUPERVISOR, MANAGER, 
 - **Chargebacks**: Handled as negative commission entries, separate from original orders.
 - **Immutability**: Approved order fields are locked, requiring formal Adjustments for changes.
 
+### Commission Terminology (Exports)
+- **Base Commission**: The base rate from the rate card (`baseCommissionEarned` on orders).
+- **Incentive**: Additional incentive earnings (`incentiveEarned` on orders).
+- **Gross Commission**: Base Commission + Incentive (total before deductions).
+- **Override**: Override deduction amount taken from the commission pool.
+- **Net Commission**: Gross Commission - Override (what the rep actually receives).
+
 ### Database Schema Highlights
 Key entities include Users, Clients, SalesOrders, Incentives, Chargebacks, PayRuns, and an extensive payroll system covering Pay Statements, Deductions, Advances, and Tax Profiles. Specific tables exist for MobileLineItems and CommissionLineItems to support granular tracking.
 

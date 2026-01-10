@@ -3170,14 +3170,16 @@ export async function registerRoutes(
 
       // Build CSV data with override deduction info
       const csvData = await Promise.all(orders.map(async (o: any) => {
-        // Calculate gross commission (before override deduction)
-        const grossCommission = parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0");
+        // Base commission from rate card
+        const baseCommission = parseFloat(o.baseCommissionEarned || "0");
+        const incentive = parseFloat(o.incentiveEarned || "0");
+        const grossCommission = baseCommission + incentive;
         
         // Get override deductions for this order from the pool
         const poolEntries = await storage.getOverrideDeductionPoolByOrderId(o.id);
         const totalOverrideDeduction = poolEntries.reduce((sum, entry) => sum + parseFloat(entry.amount || "0"), 0);
         
-        // Net commission after override deduction (base commission)
+        // Net commission after override deduction
         const netCommission = grossCommission - totalOverrideDeduction;
 
         // Install type labels
@@ -3196,9 +3198,11 @@ export async function registerRoutes(
           "Install Date": formatDate(o.installDate),
           "Install Type": o.installType ? (typeLabels[o.installType] || o.installType) : "",
           "Approval Status": o.approvalStatus || "",
-          "Commission": grossCommission.toFixed(2),
-          "Override Amount": totalOverrideDeduction.toFixed(2),
-          "Base Commission": netCommission.toFixed(2),
+          "Base Commission": baseCommission.toFixed(2),
+          "Incentive": incentive.toFixed(2),
+          "Gross Commission": grossCommission.toFixed(2),
+          "Override": totalOverrideDeduction.toFixed(2),
+          "Net Commission": netCommission.toFixed(2),
           "Client": o.client?.name || "",
           "Provider": o.provider?.name || "",
         };

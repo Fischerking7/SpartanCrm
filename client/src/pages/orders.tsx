@@ -471,12 +471,14 @@ export default function Orders() {
       "DIRECT_SHIP": "Direct Ship",
       "TECH_INSTALL": "Tech Install",
     };
-    const headers = ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Approval Status", "Commission", "Override Amount", "Base Commission", "Client", "Provider"];
+    const headers = ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Approval Status", "Base Commission", "Incentive", "Gross Commission", "Override", "Net Commission", "Client", "Provider"];
     const rows = filteredOrders.map(order => {
       const provider = providers?.find(p => p.id === order.providerId);
       const client = clients?.find(c => c.id === order.clientId);
       const overrideAmount = getOverrideAmount(order);
-      const grossCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
+      const baseCommission = parseFloat(order.baseCommissionEarned);
+      const incentive = parseFloat(order.incentiveEarned || "0");
+      const grossCommission = baseCommission + incentive;
       const netCommission = grossCommission - overrideAmount;
       return [
         order.invoiceNumber || "",
@@ -487,6 +489,8 @@ export default function Orders() {
         order.installDate || "",
         order.installType ? (typeLabels[order.installType] || order.installType) : "",
         order.approvalStatus,
+        baseCommission.toFixed(2),
+        incentive.toFixed(2),
         grossCommission.toFixed(2),
         overrideAmount.toFixed(2),
         netCommission.toFixed(2),
