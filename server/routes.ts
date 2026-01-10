@@ -938,6 +938,136 @@ export async function registerRoutes(
     }
   });
 
+  // Leaderboard endpoint - rankings by period
+  app.get("/api/dashboard/leaderboard", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const role = user.role;
+      const period = (req.query.period as string) || "weekly"; // daily, weekly, monthly
+      
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      
+      let startDate: Date;
+      let endDate: Date = new Date(nyNow);
+      
+      if (period === "daily") {
+        startDate = new Date(nyNow);
+        startDate.setHours(0, 0, 0, 0);
+      } else if (period === "weekly") {
+        startDate = new Date(nyNow);
+        const dayOfWeek = startDate.getDay();
+        const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        startDate.setDate(startDate.getDate() - daysToMonday);
+        startDate.setHours(0, 0, 0, 0);
+      } else { // monthly
+        startDate = new Date(nyNow.getFullYear(), nyNow.getMonth(), 1);
+      }
+      
+      const formatDate = (d: Date) => d.toISOString().split("T")[0];
+      
+      // Get all active users who can appear on leaderboard
+      const allUsers = await storage.getUsers();
+      const activeUsers = allUsers.filter(u => 
+        u.status === "ACTIVE" && 
+        !u.deletedAt && 
+        ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role)
+      );
+      
+      // Determine which reps to show based on role scope
+      let visibleRepIds: string[] = [];
+      
+      if (role === "REP") {
+        visibleRepIds = activeUsers.map(u => u.repId);
+      } else if (role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        visibleRepIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+      } else if (role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        visibleRepIds = [user.repId, ...scope.allRepRepIds];
+      } else {
+        visibleRepIds = activeUsers.map(u => u.repId);
+      }
+      
+      // Get orders in the period
+      const allOrders = await storage.getOrders({});
+      const periodOrders = allOrders.filter(order => {
+        const orderDate = new Date(order.dateSold);
+        return orderDate >= startDate && orderDate <= endDate;
+      });
+      
+      // Calculate rankings
+      const rankings = activeUsers
+        .filter(u => visibleRepIds.includes(u.repId))
+        .map(u => {
+          const userOrders = periodOrders.filter(o => o.repId === u.repId);
+          const soldCount = userOrders.length;
+          const connectsCount = userOrders.filter(o => o.jobStatus === "COMPLETED").length;
+          const approvedOrders = userOrders.filter(o => o.approvalStatus === "APPROVED");
+          const earnedDollars = approvedOrders.reduce((sum, o) => 
+            sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0
+          );
+          
+          return {
+            userId: u.id,
+            repId: u.repId,
+            name: u.name,
+            role: u.role,
+            soldCount,
+            connectsCount,
+            earnedDollars,
+            isCurrentUser: u.id === user.id,
+          };
+        })
+        .filter(r => r.soldCount > 0 || r.connectsCount > 0 || r.earnedDollars > 0)
+        .sort((a, b) => b.soldCount - a.soldCount);
+      
+      // Add ranking position
+      const rankedResults = rankings.map((r, index) => ({
+        ...r,
+        rank: index + 1,
+      }));
+      
+      // Find current user's rank (even if they're not in top results)
+      const currentUserRank = rankedResults.find(r => r.isCurrentUser);
+      const currentUserStats = activeUsers.find(u => u.id === user.id);
+      let myRanking = currentUserRank;
+      
+      if (!currentUserRank && currentUserStats) {
+        const myOrders = periodOrders.filter(o => o.repId === currentUserStats.repId);
+        const mySoldCount = myOrders.length;
+        const myConnects = myOrders.filter(o => o.jobStatus === "COMPLETED").length;
+        const myEarned = myOrders.filter(o => o.approvalStatus === "APPROVED")
+          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        
+        const myRank = rankings.filter(r => r.soldCount > mySoldCount).length + 1;
+        myRanking = {
+          userId: user.id,
+          repId: currentUserStats.repId,
+          name: currentUserStats.name,
+          role: currentUserStats.role,
+          soldCount: mySoldCount,
+          connectsCount: myConnects,
+          earnedDollars: myEarned,
+          isCurrentUser: true,
+          rank: myRank,
+        };
+      }
+      
+      res.json({
+        period,
+        startDate: formatDate(startDate),
+        endDate: formatDate(endDate),
+        leaderboard: rankedResults.slice(0, 10), // Top 10
+        myRanking,
+        totalParticipants: rankings.length,
+      });
+    } catch (error) {
+      console.error("Leaderboard error:", error);
+      res.status(500).json({ message: "Failed to get leaderboard" });
+    }
+  });
+
   // Team routes
   app.get("/api/team/members", auth, managerOrAdmin, async (req: AuthRequest, res) => {
     try {

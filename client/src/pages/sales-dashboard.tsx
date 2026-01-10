@@ -4,6 +4,7 @@ import { ProductionMetricsModule } from "@/components/production-metrics-card";
 import { DashboardChartsModule } from "@/components/dashboard-charts";
 import { NextDayInstallsCard } from "@/components/next-day-installs";
 import { TeamBreakdownByRepTable } from "@/components/team-breakdown-table";
+import { Leaderboard } from "@/components/leaderboard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -111,14 +112,21 @@ export default function SalesDashboard() {
         </div>
       ) : summary ? (
         <>
-          <NextDayInstallsCard />
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2 space-y-6">
+              <NextDayInstallsCard />
 
-          <ProductionMetricsModule
-            personalWeekly={summary.weekly.personal}
-            personalMtd={summary.mtd.personal}
-            teamWeekly={isRep ? null : summary.weekly.team}
-            teamMtd={isRep ? null : summary.mtd.team}
-          />
+              <ProductionMetricsModule
+                personalWeekly={summary.weekly.personal}
+                personalMtd={summary.mtd.personal}
+                teamWeekly={isRep ? null : summary.weekly.team}
+                teamMtd={isRep ? null : summary.mtd.team}
+              />
+            </div>
+            <div>
+              <Leaderboard />
+            </div>
+          </div>
 
           <DashboardChartsModule
             personalWeekly={summary.weekly.personal.sparklineSeries}

@@ -1385,6 +1385,35 @@ export const insertEmployeeCredentialsSchema = createInsertSchema(employeeCreden
 export type EmployeeCredential = typeof employeeCredentials.$inferSelect;
 export type InsertEmployeeCredential = z.infer<typeof insertEmployeeCredentialsSchema>;
 
+// Sales Goals/Quotas table
+export const salesGoals = pgTable("sales_goals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  periodType: text("period_type").notNull().default("MONTHLY"), // WEEKLY, MONTHLY, QUARTERLY
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  salesTarget: integer("sales_target").notNull().default(0), // Number of sales
+  connectsTarget: integer("connects_target").notNull().default(0), // Number of connects/completions
+  revenueTarget: decimal("revenue_target", { precision: 10, scale: 2 }).notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+});
+
+export const salesGoalsRelations = relations(salesGoals, ({ one }) => ({
+  user: one(users, { fields: [salesGoals.userId], references: [users.id] }),
+  createdBy: one(users, { fields: [salesGoals.createdByUserId], references: [users.id], relationName: "goalCreator" }),
+}));
+
+export const insertSalesGoalSchema = createInsertSchema(salesGoals).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+
+export type SalesGoal = typeof salesGoals.$inferSelect;
+export type InsertSalesGoal = z.infer<typeof insertSalesGoalSchema>;
+
 // Login schema
 export const loginSchema = z.object({
   repId: z.string().min(1, "Rep ID is required"),
