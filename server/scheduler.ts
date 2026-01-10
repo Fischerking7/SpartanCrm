@@ -19,6 +19,14 @@ export const scheduler = {
     const emailInterval = setInterval(() => emailService.sendPendingEmails(), 60000);
     this.intervalIds.push(emailInterval);
 
+    // Run pending approval alerts every 6 hours
+    const pendingApprovalInterval = setInterval(() => this.checkPendingApprovalAlerts(), 6 * 60 * 60 * 1000);
+    this.intervalIds.push(pendingApprovalInterval);
+
+    // Run low performance checks daily
+    const performanceInterval = setInterval(() => this.checkLowPerformance(), 24 * 60 * 60 * 1000);
+    this.intervalIds.push(performanceInterval);
+
     setTimeout(() => {
       this.checkScheduledPayRuns();
       this.processChargebacks();
@@ -265,7 +273,7 @@ export const scheduler = {
     return "OTHER";
   },
 
-  async runManualJob(jobType: "SCHEDULED_PAY_RUN" | "CHARGEBACK_PROCESSOR" | "NOTIFICATION_SENDER") {
+  async runManualJob(jobType: "SCHEDULED_PAY_RUN" | "CHARGEBACK_PROCESSOR" | "NOTIFICATION_SENDER" | "PENDING_APPROVAL_ALERT" | "LOW_PERFORMANCE_CHECK") {
     switch (jobType) {
       case "SCHEDULED_PAY_RUN":
         await this.checkScheduledPayRuns();
@@ -276,6 +284,175 @@ export const scheduler = {
       case "NOTIFICATION_SENDER":
         await emailService.sendPendingEmails();
         break;
+      case "PENDING_APPROVAL_ALERT":
+        await this.checkPendingApprovalAlerts();
+        break;
+      case "LOW_PERFORMANCE_CHECK":
+        await this.checkLowPerformance();
+        break;
+    }
+  },
+
+  async checkPendingApprovalAlerts() {
+    const job = await storage.createBackgroundJob({
+      jobType: "PENDING_APPROVAL_ALERT",
+    });
+    
+    try {
+      await storage.updateBackgroundJob(job.id, { status: "RUNNING", startedAt: new Date() });
+      
+      // Get all managers/executives who should receive alerts
+      const allUsers = await storage.getUsers();
+      const managers = allUsers.filter(u => 
+        ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(u.role) && 
+        u.status === "ACTIVE" && 
+        !u.deletedAt
+      );
+      
+      // Get orders pending approval
+      const allOrders = await storage.getOrders({});
+      const now = new Date();
+      let alertsSent = 0;
+      
+      for (const manager of managers) {
+        // Get manager's preference for days threshold (default 3 days)
+        const prefs = await storage.getNotificationPreferences(manager.id);
+        const daysThreshold = prefs?.pendingApprovalDaysThreshold || 3;
+        
+        // Find orders pending > threshold days (UNAPPROVED = awaiting approval)
+        const pendingOrders = allOrders.filter(order => {
+          if (order.approvalStatus !== "UNAPPROVED") return false;
+          const orderDate = new Date(order.createdAt);
+          const daysPending = Math.floor((now.getTime() - orderDate.getTime()) / (1000 * 60 * 60 * 24));
+          return daysPending >= daysThreshold;
+        });
+        
+        if (pendingOrders.length > 0) {
+          await emailService.notifyPendingApprovalAlert(manager, pendingOrders, daysThreshold);
+          alertsSent++;
+        }
+      }
+      
+      await storage.updateBackgroundJob(job.id, {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        result: JSON.stringify({ alertsSent, managersChecked: managers.length }),
+      });
+      
+      if (alertsSent > 0) {
+        console.log(`[Scheduler] Sent ${alertsSent} pending approval alerts`);
+      }
+    } catch (error: any) {
+      await storage.updateBackgroundJob(job.id, {
+        status: "FAILED",
+        completedAt: new Date(),
+        errorMessage: error.message,
+      });
+      console.error("[Scheduler] Pending approval alert check failed:", error);
+    }
+  },
+
+  async checkLowPerformance() {
+    const job = await storage.createBackgroundJob({
+      jobType: "LOW_PERFORMANCE_CHECK",
+    });
+    
+    try {
+      await storage.updateBackgroundJob(job.id, { status: "RUNNING", startedAt: new Date() });
+      
+      const allUsers = await storage.getUsers();
+      const reps = allUsers.filter(u => 
+        ["REP", "MDU"].includes(u.role) && 
+        u.status === "ACTIVE" && 
+        !u.deletedAt
+      );
+      
+      const now = new Date();
+      const periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+      const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
+      
+      const allOrders = await storage.getOrders({});
+      let repWarnings = 0;
+      const lowPerformers: { name: string; repId: string; percentage: number; supervisorId: string | null }[] = [];
+      const warningThreshold = 0.5; // 50% of quota
+      
+      for (const rep of reps) {
+        // Get rep's sales goal for current period
+        const goals = await storage.getSalesGoalsByUser(rep.id);
+        const currentGoal = goals.find((g: { periodStart: string; periodEnd: string }) => 
+          g.periodStart <= periodEnd && g.periodEnd >= periodStart
+        );
+        
+        if (!currentGoal || currentGoal.salesTarget === 0) continue;
+        
+        // Count rep's approved orders in period
+        const repOrders = allOrders.filter(o => 
+          o.repId === rep.repId &&
+          o.approvalStatus === "APPROVED" &&
+          o.dateSold >= periodStart &&
+          o.dateSold <= periodEnd
+        );
+        
+        const current = repOrders.length;
+        const target = currentGoal.salesTarget;
+        const percentage = (current / target) * 100;
+        
+        // Calculate expected progress based on day of month
+        const dayOfMonth = now.getDate();
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const expectedProgress = (dayOfMonth / daysInMonth) * 100;
+        
+        // Alert if significantly below expected progress (less than 50% of expected)
+        if (percentage < expectedProgress * warningThreshold && dayOfMonth > 7) {
+          await emailService.notifyLowPerformanceWarning(rep, {
+            current,
+            target,
+            percentage,
+            periodType: currentGoal.periodType || "MONTHLY",
+          });
+          
+          lowPerformers.push({
+            name: rep.name,
+            repId: rep.repId || "",
+            percentage,
+            supervisorId: rep.assignedSupervisorId,
+          });
+          repWarnings++;
+        }
+      }
+      
+      // Notify managers about their team members' low performance
+      const managers = allUsers.filter(u => 
+        ["SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && 
+        u.status === "ACTIVE" && 
+        !u.deletedAt
+      );
+      
+      let managerAlerts = 0;
+      for (const manager of managers) {
+        const teamLowPerformers = lowPerformers.filter(lp => lp.supervisorId === manager.id);
+        if (teamLowPerformers.length > 0) {
+          await emailService.notifyManagerLowPerformance(manager, teamLowPerformers);
+          managerAlerts++;
+        }
+      }
+      
+      await storage.updateBackgroundJob(job.id, {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        result: JSON.stringify({ repWarnings, managerAlerts, repsChecked: reps.length }),
+      });
+      
+      if (repWarnings > 0) {
+        console.log(`[Scheduler] Sent ${repWarnings} low performance warnings`);
+      }
+    } catch (error: any) {
+      await storage.updateBackgroundJob(job.id, {
+        status: "FAILED",
+        completedAt: new Date(),
+        errorMessage: error.message,
+      });
+      console.error("[Scheduler] Low performance check failed:", error);
     }
   },
 };

@@ -3194,12 +3194,51 @@ export const storage = {
     const [notification] = await db.insert(emailNotifications).values(data).returning();
     return notification;
   },
-  async updateEmailNotification(id: string, data: { status?: string; sentAt?: Date; errorMessage?: string; retryCount?: number }) {
+  async updateEmailNotification(id: string, data: { status?: string; sentAt?: Date; errorMessage?: string; retryCount?: number; isRead?: boolean; readAt?: Date }) {
     const [notification] = await db.update(emailNotifications)
       .set(data as any)
       .where(eq(emailNotifications.id, id))
       .returning();
     return notification;
+  },
+
+  async getUserNotifications(userId: string, limit = 50) {
+    return db.select().from(emailNotifications)
+      .where(eq(emailNotifications.userId, userId))
+      .orderBy(desc(emailNotifications.createdAt))
+      .limit(limit);
+  },
+
+  async getUnreadNotificationCount(userId: string) {
+    const result = await db.select({ count: sql<number>`count(*)::int` })
+      .from(emailNotifications)
+      .where(and(
+        eq(emailNotifications.userId, userId),
+        eq(emailNotifications.isRead, false)
+      ));
+    return result[0]?.count || 0;
+  },
+
+  async markNotificationRead(id: string, userId: string) {
+    const [notification] = await db.update(emailNotifications)
+      .set({ isRead: true, readAt: new Date() })
+      .where(and(
+        eq(emailNotifications.id, id),
+        eq(emailNotifications.userId, userId)
+      ))
+      .returning();
+    return notification;
+  },
+
+  async markAllNotificationsRead(userId: string) {
+    const result = await db.update(emailNotifications)
+      .set({ isRead: true, readAt: new Date() })
+      .where(and(
+        eq(emailNotifications.userId, userId),
+        eq(emailNotifications.isRead, false)
+      ))
+      .returning();
+    return result.length;
   },
 
   // Notification Preferences
