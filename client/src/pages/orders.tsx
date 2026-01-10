@@ -47,6 +47,8 @@ export default function Orders() {
     serviceId: "",
     dateSold: "",
     installDate: "",
+    installTime: "",
+    installType: "",
     accountNumber: "",
     customerName: "",
     customerAddress: "",
@@ -313,6 +315,8 @@ export default function Orders() {
           serviceId: orderData.serviceId || null,
           dateSold: orderData.dateSold,
           installDate: orderData.installDate || null,
+          installTime: orderData.installTime || null,
+          installType: orderData.installType || null,
           accountNumber: orderData.accountNumber || null,
           customerName: orderData.customerName,
           customerAddress: orderData.customerAddress || null,
@@ -348,6 +352,8 @@ export default function Orders() {
       serviceId: "",
       dateSold: "",
       installDate: "",
+      installTime: "",
+      installType: "",
       accountNumber: "",
       customerName: "",
       customerAddress: "",
@@ -360,10 +366,12 @@ export default function Orders() {
   };
 
   const updateJobStatusMutation = useMutation({
-    mutationFn: async ({ orderId, jobStatus, installDate }: { orderId: string; jobStatus?: string; installDate?: string }) => {
+    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string }) => {
       const body: Record<string, string> = {};
       if (jobStatus) body.jobStatus = jobStatus;
       if (installDate !== undefined) body.installDate = installDate;
+      if (installTime !== undefined) body.installTime = installTime;
+      if (installType !== undefined) body.installType = installType;
       
       const res = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
@@ -859,6 +867,39 @@ export default function Orders() {
                   </div>
                 </div>
                 <div>
+                  <Label className="text-muted-foreground">Install Time</Label>
+                  <div className="mt-1">
+                    <Input
+                      type="time"
+                      value={selectedOrder.installTime || ""}
+                      onChange={(e) => {
+                        updateJobStatusMutation.mutate({ orderId: selectedOrder.id, installTime: e.target.value });
+                      }}
+                      className="w-[140px]"
+                      data-testid="input-detail-install-time"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Install Type</Label>
+                  <div className="mt-1">
+                    <Select
+                      value={selectedOrder.installType || ""}
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, installType: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[160px]" data-testid="select-detail-install-type">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="AGENT_INSTALL">Agent Install</SelectItem>
+                        <SelectItem value="DIRECT_SHIP">Direct Ship</SelectItem>
+                        <SelectItem value="TECH_INSTALL">Tech Install</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div>
                   <Label className="text-muted-foreground">Job Status</Label>
                   <div className="mt-1">
                     <Select
@@ -1130,6 +1171,42 @@ export default function Orders() {
                   onChange={(e) => setNewOrderForm(f => ({ ...f, installDate: e.target.value }))}
                   data-testid="input-install-date" 
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Install Time</Label>
+                <Input 
+                  type="time" 
+                  value={newOrderForm.installTime}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, installTime: e.target.value }))}
+                  data-testid="input-install-time" 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Install Type</Label>
+                {isTouchDevice ? (
+                  <NativeSelect
+                    value={newOrderForm.installType}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, installType: v }))}
+                    placeholder="Select install type"
+                    options={[
+                      { value: "AGENT_INSTALL", label: "Agent Install" },
+                      { value: "DIRECT_SHIP", label: "Direct Ship" },
+                      { value: "TECH_INSTALL", label: "Tech Install" },
+                    ]}
+                    data-testid="select-install-type"
+                  />
+                ) : (
+                  <Select value={newOrderForm.installType} onValueChange={(v) => setNewOrderForm(f => ({ ...f, installType: v }))}>
+                    <SelectTrigger data-testid="select-install-type">
+                      <SelectValue placeholder="Select install type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="AGENT_INSTALL">Agent Install</SelectItem>
+                      <SelectItem value="DIRECT_SHIP">Direct Ship</SelectItem>
+                      <SelectItem value="TECH_INSTALL">Tech Install</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Account Number</Label>

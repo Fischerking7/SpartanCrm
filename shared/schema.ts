@@ -24,6 +24,7 @@ export const sourceLevelEnum = pgEnum("source_level", ["REP", "SUPERVISOR", "MAN
 export const mobileProductTypeEnum = pgEnum("mobile_product_type", ["UNLIMITED", "3_GIG", "1_GIG", "BYOD", "OTHER"]);
 export const mobilePortedStatusEnum = pgEnum("mobile_ported_status", ["PORTED", "NON_PORTED"]);
 export const serviceCategoryEnum = pgEnum("service_category", ["INTERNET", "MOBILE", "VIDEO"]);
+export const installTypeEnum = pgEnum("install_type", ["AGENT_INSTALL", "DIRECT_SHIP", "TECH_INSTALL"]);
 
 // Users table with expanded hierarchy
 export const users = pgTable("users", {
@@ -157,6 +158,8 @@ export const salesOrders = pgTable("sales_orders", {
   serviceId: varchar("service_id").notNull().references(() => services.id),
   dateSold: date("date_sold").notNull(),
   installDate: date("install_date"),
+  installTime: text("install_time"),
+  installType: installTypeEnum("install_type"),
   accountNumber: text("account_number"),
   tvSold: boolean("tv_sold").notNull().default(false),
   mobileSold: boolean("mobile_sold").notNull().default(false),
