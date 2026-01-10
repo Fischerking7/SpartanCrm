@@ -585,6 +585,42 @@ export async function registerRoutes(
     res.json({ user: { ...req.user, passwordHash: undefined } });
   });
 
+  // Profile endpoints - users can view their own credentials and banking info (read-only)
+  app.get("/api/profile/credentials", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const credentials = await storage.getUserCredentials(user.id);
+      // Mask sensitive fields for non-admin users viewing their own data
+      const masked = credentials.map(c => ({
+        ...c,
+        tempPassword: c.tempPassword ? "••••••••" : null,
+        rtrPassword: c.rtrPassword ? "••••••••" : null,
+        authenticatorPassword: c.authenticatorPassword ? "••••••••" : null,
+        ipadPin: c.ipadPin ? "••••" : null,
+        gmailPassword: c.gmailPassword ? "••••••••" : null,
+      }));
+      res.json(masked);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/profile/bank-accounts", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const accounts = await storage.getUserBankAccounts(user.id);
+      // Mask sensitive fields
+      const masked = accounts.map(a => ({
+        ...a,
+        routingNumber: "•••••" + a.routingNumber.slice(-4),
+        accountNumber: "•••••" + a.accountNumber.slice(-4),
+      }));
+      res.json(masked);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Dashboard stats
   app.get("/api/dashboard/stats", auth, async (req: AuthRequest, res) => {
     try {
