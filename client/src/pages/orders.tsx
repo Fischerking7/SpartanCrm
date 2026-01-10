@@ -593,7 +593,7 @@ export default function Orders() {
           >
             <Eye className="h-4 w-4" />
           </Button>
-          {isAdminOrExec && row.approvalStatus === "UNAPPROVED" && (
+          {(user?.role === "OPERATIONS" || (isAdminOrExec && row.approvalStatus === "UNAPPROVED")) && (
             <Button
               size="icon"
               variant="ghost"
