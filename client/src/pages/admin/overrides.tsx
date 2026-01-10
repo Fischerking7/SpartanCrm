@@ -253,7 +253,7 @@ export default function AdminOverrides() {
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
-      case "FOUNDER": return "default";
+      case "OPERATIONS": return "default";
       case "ADMIN": return "default";
       case "EXECUTIVE": return "secondary";
       case "MANAGER": return "secondary";

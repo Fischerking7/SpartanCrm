@@ -136,7 +136,7 @@ export default function PayRuns() {
       const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
       if (!res.ok) return [];
       const users = await res.json();
-      return users.filter((u: User) => ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(u.role));
+      return users.filter((u: User) => ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(u.role));
     },
     enabled: showDistributionDialog,
   });

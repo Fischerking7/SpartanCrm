@@ -64,14 +64,14 @@ export function authMiddleware(db: any) {
 }
 
 export function adminOnly(req: AuthRequest, res: Response, next: NextFunction) {
-  if (req.user?.role !== "ADMIN" && req.user?.role !== "FOUNDER") {
+  if (req.user?.role !== "ADMIN" && req.user?.role !== "OPERATIONS") {
     return res.status(403).json({ message: "Admin access required" });
   }
   next();
 }
 
 export function executiveOrAdmin(req: AuthRequest, res: Response, next: NextFunction) {
-  const allowedRoles = ["ADMIN", "FOUNDER", "EXECUTIVE"];
+  const allowedRoles = ["ADMIN", "OPERATIONS", "EXECUTIVE"];
   if (!req.user?.role || !allowedRoles.includes(req.user.role)) {
     return res.status(403).json({ message: "Executive or admin access required" });
   }
@@ -79,7 +79,7 @@ export function executiveOrAdmin(req: AuthRequest, res: Response, next: NextFunc
 }
 
 export function managerOrAdmin(req: AuthRequest, res: Response, next: NextFunction) {
-  const allowedRoles = ["ADMIN", "FOUNDER", "MANAGER", "EXECUTIVE"];
+  const allowedRoles = ["ADMIN", "OPERATIONS", "MANAGER", "EXECUTIVE"];
   if (!req.user?.role || !allowedRoles.includes(req.user.role)) {
     return res.status(403).json({ message: "Manager or admin access required" });
   }
@@ -87,7 +87,7 @@ export function managerOrAdmin(req: AuthRequest, res: Response, next: NextFuncti
 }
 
 export function supervisorOrAbove(req: AuthRequest, res: Response, next: NextFunction) {
-  const allowedRoles = ["ADMIN", "FOUNDER", "EXECUTIVE", "MANAGER", "SUPERVISOR"];
+  const allowedRoles = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "SUPERVISOR"];
   if (!req.user?.role || !allowedRoles.includes(req.user.role)) {
     return res.status(403).json({ message: "Supervisor or above access required" });
   }

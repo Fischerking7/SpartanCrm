@@ -38,7 +38,7 @@ interface AdminStats {
 export default function AdminDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const isFounder = user?.role === "FOUNDER";
+  const isFounder = user?.role === "OPERATIONS";
 
   const [isSeeding, setIsSeeding] = useState(false);
 

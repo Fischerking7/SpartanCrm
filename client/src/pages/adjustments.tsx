@@ -29,7 +29,7 @@ export default function Adjustments() {
     adjustmentDate: new Date().toISOString().split("T")[0],
   });
 
-  const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
+  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS";
   const canApprove = isAdmin || user?.role === "EXECUTIVE";
 
   const { data: adjustments, isLoading } = useQuery<Adjustment[]>({

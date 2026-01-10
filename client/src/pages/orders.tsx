@@ -82,7 +82,7 @@ export default function Orders() {
     }));
   };
 
-  const isAdmin = user?.role === "ADMIN" || user?.role === "FOUNDER";
+  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS";
   const isTouchDevice = useIsTouchDevice();
 
   // Handle pre-filling form from lead query params
@@ -270,7 +270,7 @@ export default function Orders() {
   });
 
   // Fetch rate cards for override calculation (admin/executive only)
-  const isAdminOrExec = user?.role === "ADMIN" || user?.role === "FOUNDER" || user?.role === "EXECUTIVE";
+  const isAdminOrExec = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE";
   const { data: rateCards } = useQuery<RateCard[]>({
     queryKey: ["/api/rate-cards/for-overrides"],
     queryFn: async () => {

@@ -50,10 +50,10 @@ export default function Leads() {
   const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
   const [bulkAssignTargetRepId, setBulkAssignTargetRepId] = useState<string>("");
 
-  const canImport = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
-  const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user?.role || "");
+  const canImport = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
+  const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
   const canBulkManage = canAssignToOthers; // SUPERVISOR+ can multi-select and bulk manage
-  const isAdmin = ["ADMIN", "FOUNDER"].includes(user?.role || "");
+  const isAdmin = ["ADMIN", "OPERATIONS"].includes(user?.role || "");
 
   const getStreetAddress = (lead: Lead): string => {
     let street = "";

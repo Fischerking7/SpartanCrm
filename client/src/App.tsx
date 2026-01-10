@@ -50,7 +50,7 @@ function Dashboard() {
   if (!user) return null;
   
   switch (user.role) {
-    case "FOUNDER":
+    case "OPERATIONS":
     case "ADMIN":
       return <AdminDashboard />;
     default:
@@ -74,7 +74,7 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
     return <Redirect to="/login" />;
   }
   
-  if (adminOnly && user.role !== "ADMIN" && user.role !== "FOUNDER") {
+  if (adminOnly && user.role !== "ADMIN" && user.role !== "OPERATIONS") {
     return <Redirect to="/" />;
   }
   
@@ -146,7 +146,7 @@ function Router() {
     );
   }
 
-  const isAdmin = user.role === "ADMIN" || user.role === "FOUNDER";
+  const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS";
   const canViewReports = user.role !== "REP";
 
   return (

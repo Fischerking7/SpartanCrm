@@ -202,7 +202,7 @@ export function AppSidebar() {
 
   if (!user) return null;
 
-  const isAdmin = user.role === "ADMIN" || user.role === "FOUNDER";
+  const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS";
   const isExecutive = user.role === "EXECUTIVE";
   const isSalesLeader = ["SUPERVISOR", "MANAGER"].includes(user.role);
 
@@ -218,7 +218,7 @@ export function AppSidebar() {
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
       case "ADMIN":
-      case "FOUNDER":
+      case "OPERATIONS":
         return "default";
       case "EXECUTIVE":
       case "MANAGER":

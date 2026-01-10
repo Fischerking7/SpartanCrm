@@ -96,7 +96,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
   MANAGER: 3,
   EXECUTIVE: 4,
   ADMIN: 5,
-  FOUNDER: 6,
+  OPERATIONS: 6,
 };
 
 // Generate secure temporary password
@@ -106,20 +106,20 @@ function generateTempPassword(): string {
 
 // Check if actor can reset target's password based on PASSWORD AUTHORITY rules
 async function checkPasswordAuthority(actor: User, target: User): Promise<boolean> {
-  // Rule 1: FOUNDER can reset any password
-  if (actor.role === "FOUNDER") {
+  // Rule 1: OPERATIONS can reset any password
+  if (actor.role === "OPERATIONS") {
     return true;
   }
   
-  // Rule 2: ADMIN can reset any password except FOUNDER
+  // Rule 2: ADMIN can reset any password except OPERATIONS
   if (actor.role === "ADMIN") {
-    return target.role !== "FOUNDER";
+    return target.role !== "OPERATIONS";
   }
   
   // Rule 3: MANAGER can reset passwords for their supervisors and reps in their org tree
   if (actor.role === "MANAGER") {
     // Cannot reset Executives, Admins, Founders, or other Managers
-    if (["EXECUTIVE", "ADMIN", "FOUNDER", "MANAGER"].includes(target.role)) {
+    if (["EXECUTIVE", "ADMIN", "OPERATIONS", "MANAGER"].includes(target.role)) {
       return false;
     }
     // Check if target is in manager's org tree
@@ -322,23 +322,23 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   return earnings;
 }
 
-// Bootstrap FOUNDER user on first run
+// Bootstrap OPERATIONS user on first run
 async function bootstrapFounder(): Promise<void> {
   try {
-    // Check if any FOUNDER exists
-    const founders = await storage.getUsersByRole("FOUNDER");
+    // Check if any OPERATIONS exists
+    const founders = await storage.getUsersByRole("OPERATIONS");
     if (founders.length > 0) {
-      console.log("FOUNDER user already exists, skipping bootstrap");
+      console.log("OPERATIONS user already exists, skipping bootstrap");
       return;
     }
     
     // Check env vars
-    const repId = process.env.BOOTSTRAP_FOUNDER_REPID;
-    const password = process.env.BOOTSTRAP_FOUNDER_PASSWORD;
-    const name = process.env.BOOTSTRAP_FOUNDER_NAME || "System Founder";
+    const repId = process.env.BOOTSTRAP_OPERATIONS_REPID;
+    const password = process.env.BOOTSTRAP_OPERATIONS_PASSWORD;
+    const name = process.env.BOOTSTRAP_OPERATIONS_NAME || "System Founder";
     
     if (!repId || !password) {
-      console.log("BOOTSTRAP_FOUNDER_REPID and BOOTSTRAP_FOUNDER_PASSWORD env vars not set, skipping founder bootstrap");
+      console.log("BOOTSTRAP_OPERATIONS_REPID and BOOTSTRAP_OPERATIONS_PASSWORD env vars not set, skipping founder bootstrap");
       return;
     }
     
@@ -349,23 +349,23 @@ async function bootstrapFounder(): Promise<void> {
       return;
     }
     
-    // Create FOUNDER user
+    // Create OPERATIONS user
     const hashedPassword = await hashPassword(password);
     await storage.createUser({
       name,
       repId,
-      role: "FOUNDER",
+      role: "OPERATIONS",
       status: "ACTIVE",
       passwordHash: hashedPassword,
     });
     
-    console.log(`FOUNDER user '${name}' created with repId '${repId}'`);
+    console.log(`OPERATIONS user '${name}' created with repId '${repId}'`);
     
     // Log the bootstrap event
     await storage.createAuditLog({
-      action: "FOUNDER_BOOTSTRAP",
+      action: "OPERATIONS_BOOTSTRAP",
       tableName: "users",
-      afterJson: JSON.stringify({ repId, name, role: "FOUNDER" }),
+      afterJson: JSON.stringify({ repId, name, role: "OPERATIONS" }),
       userId: null,
     });
   } catch (error) {
@@ -451,7 +451,7 @@ export async function registerRoutes(
   // One-time migration to free up Rep IDs from deleted users
   await migrateDeletedUserRepIds();
   
-  // Bootstrap FOUNDER and ADMIN on first run
+  // Bootstrap OPERATIONS and ADMIN on first run
   await bootstrapFounder();
   await bootstrapAdmin();
 
@@ -724,7 +724,7 @@ export async function registerRoutes(
       const providerId = req.query.providerId as string | undefined;
       
       // Only MANAGER or higher can use filtered endpoint
-      if (!["MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(user.role)) {
+      if (!["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
       
@@ -743,8 +743,8 @@ export async function registerRoutes(
       const managerId = req.params.managerId;
       const cadence = (req.query.cadence as "DAY" | "WEEK" | "MONTH") || "WEEK";
       
-      // Only EXECUTIVE, ADMIN, FOUNDER can drill into manager data
-      if (!["EXECUTIVE", "ADMIN", "FOUNDER"].includes(user.role)) {
+      // Only EXECUTIVE, ADMIN, OPERATIONS can drill into manager data
+      if (!["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
       
@@ -856,7 +856,7 @@ export async function registerRoutes(
         teamByRep = await storage.getTeamBreakdownByRep(user.id, role, formatDate(mtdStart), formatDate(mtdEnd));
       }
       
-      if (["EXECUTIVE", "ADMIN", "FOUNDER"].includes(role)) {
+      if (["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(role)) {
         teamByManager = await storage.getTeamBreakdownByManager(formatDate(mtdStart), formatDate(mtdEnd));
         teamByRep = await storage.getTeamBreakdownByRep(user.id, role, formatDate(mtdStart), formatDate(mtdEnd));
       }
@@ -909,7 +909,7 @@ export async function registerRoutes(
         const scope = await storage.getExecutiveScope(user.id);
         repIds = [user.repId, ...scope.allRepRepIds];
       } else {
-        // ADMIN/FOUNDER see all
+        // ADMIN/OPERATIONS see all
         const allUsers = await storage.getUsers();
         repIds = allUsers.filter(u => u.role === "REP" && u.status === "ACTIVE" && !u.deletedAt).map(u => u.repId);
       }
@@ -967,7 +967,7 @@ export async function registerRoutes(
       let supervisors: { id: string; name: string }[] = [];
       let reps: { id: string; name: string; repId: string }[] = [];
       
-      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+      if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         // Admin sees all
         const allUsers = await storage.getUsers();
         supervisors = allUsers.filter(u => u.role === "SUPERVISOR" && u.status === "ACTIVE" && !u.deletedAt).map(u => ({ id: u.id, name: u.name }));
@@ -1002,7 +1002,7 @@ export async function registerRoutes(
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       let orders;
 
-      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+      if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         // Admin/Founder sees all orders
         orders = await storage.getOrders({ limit });
       } else if (user.role === "EXECUTIVE") {
@@ -1044,7 +1044,7 @@ export async function registerRoutes(
       
       // Determine repId - admins can assign to any rep, others use their own
       let assignedRepId = user.repId;
-      if (["ADMIN", "FOUNDER"].includes(user.role) && submittedRepId) {
+      if (["ADMIN", "OPERATIONS"].includes(user.role) && submittedRepId) {
         // Verify the rep exists
         const rep = await storage.getUserByRepId(submittedRepId);
         if (rep) {
@@ -1182,7 +1182,7 @@ export async function registerRoutes(
       if (!order) return res.status(404).json({ message: "Order not found" });
       
       // Only admins can recalculate commissions
-      if (!["ADMIN", "FOUNDER"].includes(user.role)) {
+      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
         return res.status(403).json({ message: "Only admins can recalculate commissions" });
       }
       
@@ -1716,7 +1716,7 @@ export async function registerRoutes(
   app.get("/api/users/assignable", auth, async (req: AuthRequest, res) => {
     try {
       const currentUser = req.user!;
-      const canAssign = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(currentUser.role);
+      const canAssign = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(currentUser.role);
       if (!canAssign) {
         return res.status(403).json({ message: "Only supervisors and above can access assignable users" });
       }
@@ -1807,7 +1807,7 @@ export async function registerRoutes(
     try {
       const { id } = req.params;
       const { password, name, role, repId, status, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
-      const isFounder = req.user!.role === "FOUNDER";
+      const isFounder = req.user!.role === "OPERATIONS";
       
       // Get existing user for before snapshot
       const existingUser = await storage.getUserById(id);
@@ -1826,7 +1826,7 @@ export async function registerRoutes(
         updateData.passwordHash = await hashPassword(password);
       }
       
-      // FOUNDER-only: Allow editing repId
+      // OPERATIONS-only: Allow editing repId
       if (repId !== undefined && isFounder) {
         // Check if new repId is already taken by another active (non-deleted) user
         if (repId !== existingUser.repId) {
@@ -2076,7 +2076,7 @@ export async function registerRoutes(
   app.get("/api/rate-cards/for-overrides", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
       res.json(await storage.getRateCards());
@@ -2631,7 +2631,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
   const canApproveAdjustments = (req: AuthRequest, res: any, next: any) => {
-    if (req.user?.role === "ADMIN" || req.user?.role === "FOUNDER" || req.user?.role === "EXECUTIVE") {
+    if (req.user?.role === "ADMIN" || req.user?.role === "OPERATIONS" || req.user?.role === "EXECUTIVE") {
       next();
     } else {
       res.status(403).json({ message: "Only Admin and Executive can approve adjustments" });
@@ -3305,7 +3305,7 @@ export async function registerRoutes(
       
       // Determine which rep's leads to fetch
       let targetRepId = req.user!.repId;
-      const canViewOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(req.user!.role);
+      const canViewOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
       
       if (viewRepId && canViewOthers) {
         // Verify caller can view this rep's leads (target must be at or below caller's level)
@@ -3337,7 +3337,7 @@ export async function registerRoutes(
   // Get lead counts per rep for SUPERVISOR+ roles
   app.get("/api/leads/counts", auth, async (req: AuthRequest, res) => {
     try {
-      const canViewOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(req.user!.role);
+      const canViewOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
       if (!canViewOthers) {
         return res.status(403).json({ message: "Only supervisors and above can view lead counts" });
       }
@@ -3438,7 +3438,7 @@ export async function registerRoutes(
       const { id } = req.params;
       
       // Only SUPERVISOR+ can reverse dispositions
-      const canReverse = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(req.user!.role);
+      const canReverse = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
       if (!canReverse) {
         return res.status(403).json({ message: "Only supervisors and above can reverse dispositions" });
       }
@@ -3494,7 +3494,7 @@ export async function registerRoutes(
       }
       
       // Only SUPERVISOR+ can assign leads to others
-      const canAssign = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(req.user!.role);
+      const canAssign = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
       if (!canAssign) {
         return res.status(403).json({ message: "Only supervisors and above can assign leads to other users" });
       }
@@ -3568,7 +3568,7 @@ export async function registerRoutes(
       const users = await storage.getUsers();
       const currentUser = req.user!;
       const isRep = currentUser.role === "REP";
-      const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "FOUNDER"].includes(currentUser.role);
+      const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(currentUser.role);
       
       // Check for targetRepId query parameter (SUPERVISOR+ only)
       const targetRepId = req.query.targetRepId as string | undefined;
@@ -4208,7 +4208,7 @@ export async function registerRoutes(
       filteredOrders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
       scopeDescription = `Your division (${scope.managerIds.length} managers, ${scope.allRepRepIds.length} total reps)`;
       repCount = scope.allRepRepIds.length;
-    } else if (user.role === "ADMIN" || user.role === "FOUNDER") {
+    } else if (user.role === "ADMIN" || user.role === "OPERATIONS") {
       const allUsers = await storage.getUsers();
       const salesReps = allUsers.filter(u => ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && !u.deletedAt);
       scopeDescription = `Company-wide (${salesReps.length} total sales reps)`;
@@ -4721,7 +4721,7 @@ export async function registerRoutes(
       let teamLeaders: typeof allUsers = [];
       let userScope: { supervisorIds?: string[]; managerIds?: string[]; allRepRepIds: string[] } = { allRepRepIds: [] };
       
-      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+      if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         // Full access - show all team leaders
         teamLeaders = allUsers.filter(u => 
           ["EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(u.role) && !u.deletedAt
@@ -4980,8 +4980,8 @@ export async function registerRoutes(
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      // Only ADMIN and FOUNDER can see all override earnings
-      if (!["ADMIN", "FOUNDER"].includes(user.role)) {
+      // Only ADMIN and OPERATIONS can see all override earnings
+      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
       
@@ -5081,7 +5081,7 @@ export async function registerRoutes(
     "MANAGER": 3,
     "EXECUTIVE": 4,
     "ADMIN": 5,
-    "FOUNDER": 6,
+    "OPERATIONS": 6,
   };
 
   // Get all knowledge documents (filtered by user's role)
@@ -5177,11 +5177,11 @@ export async function registerRoutes(
     }
   });
 
-  // Seed reference data from bundled JSON (FOUNDER only) - one-click sync
+  // Seed reference data from bundled JSON (OPERATIONS only) - one-click sync
   app.post("/api/admin/seed-reference-data", auth, async (req: AuthRequest, res) => {
     try {
-      if (req.user?.role !== "FOUNDER") {
-        return res.status(403).json({ message: "Only FOUNDER can seed reference data" });
+      if (req.user?.role !== "OPERATIONS") {
+        return res.status(403).json({ message: "Only OPERATIONS can seed reference data" });
       }
 
       const referenceData = await import("./reference-data.json");
@@ -5409,11 +5409,11 @@ export async function registerRoutes(
     }
   });
 
-  // Export reference data as SQL (FOUNDER only) - for syncing to production
+  // Export reference data as SQL (OPERATIONS only) - for syncing to production
   app.get("/api/admin/export-reference-data", auth, async (req: AuthRequest, res) => {
     try {
-      if (req.user?.role !== "FOUNDER") {
-        return res.status(403).json({ message: "Only FOUNDER can export reference data" });
+      if (req.user?.role !== "OPERATIONS") {
+        return res.status(403).json({ message: "Only OPERATIONS can export reference data" });
       }
 
       const providers = await storage.getProviders();
@@ -7095,8 +7095,8 @@ export async function registerRoutes(
   app.get("/api/executive/sales-overview", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      // EXECUTIVE, ADMIN, FOUNDER, MANAGER access
-      if (!["EXECUTIVE", "ADMIN", "FOUNDER", "MANAGER"].includes(user.role)) {
+      // EXECUTIVE, ADMIN, OPERATIONS, MANAGER access
+      if (!["EXECUTIVE", "ADMIN", "OPERATIONS", "MANAGER"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -7106,7 +7106,7 @@ export async function registerRoutes(
 
       // Role-based order scoping
       let allOrders: any[] = [];
-      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+      if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         allOrders = await storage.getOrders({});
       } else if (user.role === "EXECUTIVE") {
         const scope = await storage.getExecutiveScope(user.id);
@@ -7214,7 +7214,7 @@ export async function registerRoutes(
   app.get("/api/executive/rep-listing", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["EXECUTIVE", "ADMIN", "FOUNDER", "MANAGER"].includes(user.role)) {
+      if (!["EXECUTIVE", "ADMIN", "OPERATIONS", "MANAGER"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -7229,7 +7229,7 @@ export async function registerRoutes(
       let allOrders: any[] = [];
       let scopedRepIds: string[] = [];
       
-      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+      if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         allOrders = await storage.getOrders({});
         scopedRepIds = allUsers.filter(u => ["REP", "SUPERVISOR"].includes(u.role) && u.status === "ACTIVE").map(u => u.repId);
       } else if (user.role === "EXECUTIVE") {
@@ -7415,7 +7415,7 @@ export async function registerRoutes(
       let scopedUsers: any[] = [];
       const allUsers = await storage.getActiveUsers();
       
-      if (user.role === "ADMIN" || user.role === "FOUNDER") {
+      if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         scopedUsers = allUsers.filter(u => ["REP", "SUPERVISOR"].includes(u.role));
       } else if (user.role === "EXECUTIVE") {
         const scope = await storage.getExecutiveScope(user.id);
@@ -7815,7 +7815,7 @@ export async function registerRoutes(
   app.get("/api/admin/employee-credentials", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
@@ -7830,7 +7830,7 @@ export async function registerRoutes(
   app.get("/api/admin/employee-credentials/user/:userId", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
@@ -7851,7 +7851,7 @@ export async function registerRoutes(
   app.post("/api/admin/employee-credentials/user/:userId", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
@@ -7902,7 +7902,7 @@ export async function registerRoutes(
   app.patch("/api/admin/employee-credentials/:credentialId", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
@@ -7954,7 +7954,7 @@ export async function registerRoutes(
   app.delete("/api/admin/employee-credentials/:credentialId", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "FOUNDER", "EXECUTIVE"].includes(user.role)) {
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Forbidden" });
       }
 

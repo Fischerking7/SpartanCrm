@@ -484,7 +484,7 @@ function UserRow({ user, users, onEdit, onResetPassword, onDeactivate, onDelete 
   const getInitials = (name: string) => name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
-      case "ADMIN": case "FOUNDER": case "EXECUTIVE": return "default";
+      case "ADMIN": case "OPERATIONS": case "EXECUTIVE": return "default";
       case "MANAGER": case "SUPERVISOR": return "secondary";
       default: return "outline";
     }

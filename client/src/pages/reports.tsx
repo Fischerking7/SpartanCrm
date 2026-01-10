@@ -308,7 +308,7 @@ export default function Reports() {
       if (!res.ok) return { data: [], totals: { totalOverrides: "0.00", invoiceCount: 0 }, recipients: [] };
       return res.json();
     },
-    enabled: summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER",
+    enabled: summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS",
   });
 
   const handleExport = () => {
@@ -592,10 +592,10 @@ export default function Reports() {
             {summary?.scopeInfo?.role !== "REP" && (
               <TabsTrigger value="team-production" data-testid="tab-team-production">Team Production</TabsTrigger>
             )}
-            {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
+            {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS") && (
               <TabsTrigger value="override-invoices" data-testid="tab-override-invoices">Override by Invoice</TabsTrigger>
             )}
-            {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
+            {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS") && (
               <TabsTrigger value="payroll" data-testid="tab-payroll">Payroll Summary</TabsTrigger>
             )}
           </TabsList>
@@ -1225,7 +1225,7 @@ export default function Reports() {
           </TabsContent>
         )}
 
-        {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
+        {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS") && (
           <TabsContent value="override-invoices" className="space-y-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
@@ -1302,7 +1302,7 @@ export default function Reports() {
           </TabsContent>
         )}
 
-        {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "FOUNDER") && (
+        {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS") && (
           <TabsContent value="payroll" className="space-y-4">
             <PayrollSummaryTab period={period} customStartDate={customStartDate} customEndDate={customEndDate} />
           </TabsContent>
