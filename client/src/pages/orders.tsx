@@ -901,15 +901,20 @@ export default function Orders() {
                 <div>
                   <Label className="text-muted-foreground">Install Time</Label>
                   <div className="mt-1">
-                    <Input
-                      type="time"
+                    <Select
                       value={selectedOrder.installTime || ""}
-                      onChange={(e) => {
-                        updateJobStatusMutation.mutate({ orderId: selectedOrder.id, installTime: e.target.value });
-                      }}
-                      className="w-[140px]"
-                      data-testid="input-detail-install-time"
-                    />
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, installTime: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[140px]" data-testid="select-detail-install-time">
+                        <SelectValue placeholder="Select time" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="8-11am">8-11am</SelectItem>
+                        <SelectItem value="11-2pm">11-2pm</SelectItem>
+                        <SelectItem value="2-5pm">2-5pm</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <div>
@@ -1206,12 +1211,30 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label>Install Time</Label>
-                <Input 
-                  type="time" 
-                  value={newOrderForm.installTime}
-                  onChange={(e) => setNewOrderForm(f => ({ ...f, installTime: e.target.value }))}
-                  data-testid="input-install-time" 
-                />
+                {isTouchDevice ? (
+                  <NativeSelect
+                    value={newOrderForm.installTime}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, installTime: v }))}
+                    placeholder="Select time window"
+                    options={[
+                      { value: "8-11am", label: "8-11am" },
+                      { value: "11-2pm", label: "11-2pm" },
+                      { value: "2-5pm", label: "2-5pm" },
+                    ]}
+                    data-testid="select-install-time"
+                  />
+                ) : (
+                  <Select value={newOrderForm.installTime} onValueChange={(v) => setNewOrderForm(f => ({ ...f, installTime: v }))}>
+                    <SelectTrigger data-testid="select-install-time">
+                      <SelectValue placeholder="Select time window" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="8-11am">8-11am</SelectItem>
+                      <SelectItem value="11-2pm">11-2pm</SelectItem>
+                      <SelectItem value="2-5pm">2-5pm</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Install Type</Label>
