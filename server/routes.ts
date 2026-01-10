@@ -8352,6 +8352,22 @@ export async function registerRoutes(
       // Handle SSN encryption
       const { customerSsn, ...orderData } = parsed.data;
       const dataToSave: any = { ...orderData };
+      
+      // Sanitize empty strings to null for date fields
+      const dateFields = ['installDate', 'customerBirthday'];
+      dateFields.forEach(field => {
+        if (dataToSave[field] === '' || dataToSave[field] === undefined) {
+          dataToSave[field] = null;
+        }
+      });
+      
+      // Sanitize empty strings to null for optional text fields
+      const optionalTextFields = ['installTime', 'accountNumber', 'customerAddress', 'customerPhone', 'customerEmail', 'creditCardLast4', 'creditCardExpiry', 'creditCardName', 'notes', 'clientId', 'providerId', 'serviceId'];
+      optionalTextFields.forEach(field => {
+        if (dataToSave[field] === '') {
+          dataToSave[field] = null;
+        }
+      });
       if (customerSsn) {
         dataToSave.customerSsnEncrypted = encryptSsn(customerSsn);
         dataToSave.customerSsnLast4 = extractSsnLast4(customerSsn);
@@ -8420,6 +8436,22 @@ export async function registerRoutes(
         allowedFields.customerSsnEncrypted = encryptSsn(req.body.customerSsn);
         allowedFields.customerSsnLast4 = extractSsnLast4(req.body.customerSsn);
       }
+      
+      // Sanitize empty strings to null for date fields
+      const dateFieldsToSanitize = ['installDate', 'customerBirthday'];
+      dateFieldsToSanitize.forEach(field => {
+        if (allowedFields[field] === '') {
+          allowedFields[field] = null;
+        }
+      });
+      
+      // Sanitize empty strings to null for optional text/enum fields
+      const optionalFieldsToSanitize = ['installTime', 'accountNumber', 'customerAddress', 'customerPhone', 'customerEmail', 'creditCardLast4', 'creditCardExpiry', 'creditCardName', 'notes', 'clientId', 'providerId', 'serviceId', 'installType', 'mobileProductType', 'mobilePortedStatus'];
+      optionalFieldsToSanitize.forEach(field => {
+        if (allowedFields[field] === '') {
+          allowedFields[field] = null;
+        }
+      });
       
       // Remove undefined values
       const sanitizedData = Object.fromEntries(
