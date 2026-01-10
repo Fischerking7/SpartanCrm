@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { getAuthHeaders } from "@/lib/auth";
+import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,7 +19,7 @@ import {
   Mail,
   MapPin,
   History,
-  ChevronRight,
+  Download,
   Filter
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
@@ -46,6 +46,7 @@ function getDispositionColor(value: string) {
 }
 
 export default function SalesPipeline() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDisposition, setSelectedDisposition] = useState<string>("ALL");
@@ -55,6 +56,9 @@ export default function SalesPipeline() {
     leadId: null,
     leadName: ""
   });
+  const [isExporting, setIsExporting] = useState(false);
+
+  const canExport = ["OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
 
   const { data: leadPool, isLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/pool", selectedRepId, selectedDisposition, searchTerm],
@@ -119,6 +123,38 @@ export default function SalesPipeline() {
     return reps?.find(r => r.repId === repId)?.name || repId;
   };
 
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedRepId && selectedRepId !== "ALL") params.set("repId", selectedRepId);
+      if (selectedDisposition && selectedDisposition !== "ALL") params.set("disposition", selectedDisposition);
+      if (searchTerm) params.set("search", searchTerm);
+      
+      const res = await fetch(`/api/leads/pool/export?${params}`, { headers: getAuthHeaders() });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Export failed");
+      }
+      
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `lead-pool-export-${format(new Date(), "yyyy-MM-dd-HHmm")}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast({ title: "Export complete", description: "Lead pool with history exported successfully" });
+    } catch (error: any) {
+      toast({ title: "Export failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const dispositionCounts = leadPool?.reduce((acc, lead) => {
     acc[lead.disposition] = (acc[lead.disposition] || 0) + 1;
     return acc;
@@ -131,9 +167,22 @@ export default function SalesPipeline() {
           <h1 className="text-2xl font-bold">Lead Pool</h1>
           <p className="text-muted-foreground">All imported leads with disposition tracking</p>
         </div>
-        <Badge variant="outline" className="text-lg px-4 py-1">
-          {leadPool?.length || 0} leads
-        </Badge>
+        <div className="flex items-center gap-2">
+          {canExport && (
+            <Button 
+              variant="outline" 
+              onClick={handleExport} 
+              disabled={isExporting || !leadPool?.length}
+              data-testid="button-export-leads"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              {isExporting ? "Exporting..." : "Export with History"}
+            </Button>
+          )}
+          <Badge variant="outline" className="text-lg px-4 py-1">
+            {leadPool?.length || 0} leads
+          </Badge>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">

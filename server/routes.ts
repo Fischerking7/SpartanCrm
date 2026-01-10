@@ -3926,6 +3926,96 @@ export async function registerRoutes(
     }
   });
 
+  // Export lead pool with history (OPERATIONS and EXECUTIVE only)
+  app.get("/api/leads/pool/export", auth, async (req: AuthRequest, res) => {
+    try {
+      if (!["OPERATIONS", "EXECUTIVE"].includes(req.user!.role)) {
+        return res.status(403).json({ message: "Export requires OPERATIONS or EXECUTIVE role" });
+      }
+
+      const { repId, disposition, search } = req.query;
+      const filters: { repId?: string; disposition?: string; search?: string } = {
+        disposition: typeof disposition === "string" ? disposition : undefined,
+        search: typeof search === "string" ? search : undefined,
+      };
+      if (typeof repId === "string" && repId !== "ALL") {
+        filters.repId = repId;
+      }
+
+      const leadPool = await storage.getLeadPool(filters);
+      const users = await storage.getUsers();
+      const getUserName = (userId: string) => users.find(u => u.id === userId)?.name || userId;
+      const getRepName = (repId: string | null) => {
+        if (!repId) return "";
+        const user = users.find(u => u.repId === repId);
+        return user ? `${user.name} (${repId})` : repId;
+      };
+      
+      // Prepare leads sheet data
+      const leadsData = leadPool.map(lead => ({
+        "Lead ID": lead.id,
+        "Customer Name": lead.customerName || "",
+        "Phone": lead.phone || "",
+        "Email": lead.email || "",
+        "Address": [lead.streetNumber, lead.streetName, lead.city, lead.state, lead.zipCode].filter(Boolean).join(", "),
+        "Disposition": lead.disposition,
+        "Rep ID": lead.repId || "",
+        "Rep Name": getRepName(lead.repId),
+        "Source": lead.source || "",
+        "Created At": lead.createdAt ? new Date(lead.createdAt).toISOString() : "",
+        "Updated At": lead.updatedAt ? new Date(lead.updatedAt).toISOString() : "",
+      }));
+
+      // Get all history for these leads
+      const allHistory: any[] = [];
+      for (const lead of leadPool) {
+        const history = await storage.getLeadDispositionHistory(lead.id);
+        for (const h of history) {
+          allHistory.push({
+            "Lead ID": lead.id,
+            "Customer Name": lead.customerName || "",
+            "Previous Disposition": h.previousDisposition || "NONE",
+            "New Disposition": h.disposition,
+            "Changed By": getUserName(h.changedByUserId || ""),
+            "Notes": h.notes || "",
+            "Changed At": h.createdAt ? new Date(h.createdAt).toISOString() : "",
+          });
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      const leadsWs = XLSX.utils.json_to_sheet(leadsData);
+      XLSX.utils.book_append_sheet(wb, leadsWs, "Leads");
+      
+      if (allHistory.length > 0) {
+        const historyWs = XLSX.utils.json_to_sheet(allHistory);
+        XLSX.utils.book_append_sheet(wb, historyWs, "Disposition History");
+      }
+
+      const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      
+      // Audit log the export
+      await storage.createAuditLog({
+        action: "lead_pool_export",
+        tableName: "leads",
+        recordId: "bulk",
+        userId: req.user!.id,
+        afterJson: JSON.stringify({
+          filters,
+          leadsExported: leadPool.length,
+          historyRecords: allHistory.length,
+        }),
+      });
+
+      res.setHeader("Content-Disposition", `attachment; filename="lead-pool-export.xlsx"`);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.send(buffer);
+    } catch (error) {
+      console.error("Lead pool export error:", error);
+      res.status(500).json({ message: "Failed to export lead pool" });
+    }
+  });
+
   // Get lead disposition history
   app.get("/api/leads/:id/history", auth, async (req: AuthRequest, res) => {
     try {
