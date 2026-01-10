@@ -608,52 +608,58 @@ export type InsertCommissionLineItem = z.infer<typeof insertCommissionLineItemSc
 
 // Lead dispositions - expanded for better pipeline tracking
 export const leadDispositions = [
-  "NONE",              // No disposition yet
-  // Contact outcomes
-  "NO_ANSWER",         // Called but no answer
-  "LEFT_MESSAGE",      // Left voicemail/message
-  "NOT_HOME",          // Door knock - not home
-  "BUSY",              // Customer was busy, try again later
-  "WRONG_NUMBER",      // Invalid contact info
-  // Positive outcomes  
-  "CONTACTED",         // Successfully made contact
-  "INTERESTED",        // Customer expressed interest
-  "APPOINTMENT_SET",   // Scheduled appointment/demo
-  "PROPOSAL_SENT",     // Sent quote/proposal
-  "NEGOTIATING",       // In active negotiation
-  "SOLD",              // Closed the sale
-  // Negative outcomes
-  "NOT_INTERESTED",    // Customer declined
-  "REJECT",            // Hard reject - do not contact
-  "DO_NOT_CALL",       // Requested removal
-  "INVALID_LEAD",      // Bad data/duplicate
-  // Follow-up needed
-  "CALLBACK_SCHEDULED", // Customer requested callback
-  "RETURN",            // Need to return/follow up
+  "NONE", "NO_ANSWER", "LEFT_MESSAGE", "NOT_HOME", "BUSY", "WRONG_NUMBER",
+  "CONTACTED", "INTERESTED", "APPOINTMENT_SET", "PROPOSAL_SENT", "NEGOTIATING", "SOLD",
+  "NOT_INTERESTED", "REJECT", "DO_NOT_CALL", "INVALID_LEAD",
+  "CALLBACK_SCHEDULED", "RETURN"
 ] as const;
 export type LeadDisposition = typeof leadDispositions[number];
 
-// Disposition to Pipeline Stage mapping
-export const dispositionToPipelineStage: Record<LeadDisposition, LeadPipelineStage | null> = {
-  "NONE": null,              // No change
-  "NO_ANSWER": "CONTACTED",
-  "LEFT_MESSAGE": "CONTACTED",
-  "NOT_HOME": "CONTACTED",
-  "BUSY": "CONTACTED",
-  "WRONG_NUMBER": "LOST",
-  "CONTACTED": "CONTACTED",
-  "INTERESTED": "QUALIFIED",
-  "APPOINTMENT_SET": "QUALIFIED",
-  "PROPOSAL_SENT": "PROPOSAL",
-  "NEGOTIATING": "NEGOTIATION",
-  "SOLD": "WON",
-  "NOT_INTERESTED": "LOST",
-  "REJECT": "LOST",
-  "DO_NOT_CALL": "LOST",
-  "INVALID_LEAD": "LOST",
-  "CALLBACK_SCHEDULED": null, // Keep current stage
-  "RETURN": null,            // Keep current stage
-};
+// Lead disposition categories with metadata for UI and logic
+export type DispositionCategory = "status" | "contact" | "positive" | "won" | "negative" | "follow_up";
+export interface DispositionInfo {
+  value: LeadDisposition;
+  label: string;
+  category: DispositionCategory;
+  pipelineStage: LeadPipelineStage | null;
+  isTerminal: boolean;
+  requiresLostReason: boolean;
+}
+
+export const dispositionMetadata: DispositionInfo[] = [
+  { value: "NONE", label: "None", category: "status", pipelineStage: null, isTerminal: false, requiresLostReason: false },
+  // Contact outcomes
+  { value: "NO_ANSWER", label: "No Answer", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
+  { value: "LEFT_MESSAGE", label: "Left Message", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
+  { value: "NOT_HOME", label: "Not Home", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
+  { value: "BUSY", label: "Busy", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
+  { value: "CONTACTED", label: "Contacted", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
+  // Positive outcomes
+  { value: "INTERESTED", label: "Interested", category: "positive", pipelineStage: "QUALIFIED", isTerminal: false, requiresLostReason: false },
+  { value: "APPOINTMENT_SET", label: "Appointment Set", category: "positive", pipelineStage: "QUALIFIED", isTerminal: false, requiresLostReason: false },
+  { value: "PROPOSAL_SENT", label: "Proposal Sent", category: "positive", pipelineStage: "PROPOSAL", isTerminal: false, requiresLostReason: false },
+  { value: "NEGOTIATING", label: "Negotiating", category: "positive", pipelineStage: "NEGOTIATION", isTerminal: false, requiresLostReason: false },
+  // Won
+  { value: "SOLD", label: "Sold", category: "won", pipelineStage: "WON", isTerminal: true, requiresLostReason: false },
+  // Negative outcomes (terminal)
+  { value: "NOT_INTERESTED", label: "Not Interested", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: true },
+  { value: "REJECT", label: "Reject", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: true },
+  { value: "DO_NOT_CALL", label: "Do Not Call", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: false },
+  { value: "WRONG_NUMBER", label: "Wrong Number", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: false },
+  { value: "INVALID_LEAD", label: "Invalid Lead", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: false },
+  // Follow-up needed
+  { value: "CALLBACK_SCHEDULED", label: "Callback Scheduled", category: "follow_up", pipelineStage: null, isTerminal: false, requiresLostReason: false },
+  { value: "RETURN", label: "Return Visit", category: "follow_up", pipelineStage: null, isTerminal: false, requiresLostReason: false },
+];
+
+// Derived mappings for backward compatibility
+export const dispositionToPipelineStage: Record<LeadDisposition, LeadPipelineStage | null> = 
+  Object.fromEntries(dispositionMetadata.map(d => [d.value, d.pipelineStage])) as Record<LeadDisposition, LeadPipelineStage | null>;
+
+export const terminalDispositions: LeadDisposition[] = dispositionMetadata.filter(d => d.isTerminal).map(d => d.value);
+
+export const getDispositionInfo = (disposition: LeadDisposition): DispositionInfo | undefined =>
+  dispositionMetadata.find(d => d.value === disposition);
 
 // Lead pipeline stages for funnel tracking
 export const leadPipelineStages = ["NEW", "CONTACTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"] as const;

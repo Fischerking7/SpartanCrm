@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
-import type { Lead } from "@shared/schema";
+import { dispositionMetadata, terminalDispositions, type Lead, type LeadDisposition } from "@shared/schema";
 
 export default function Leads() {
   const { user } = useAuth();
@@ -180,34 +180,9 @@ export default function Leads() {
     },
   });
 
-  // Expanded disposition options with labels and categories
-  const dispositionOptions = [
-    { value: "NONE", label: "None", category: "Status" },
-    // Contact outcomes
-    { value: "NO_ANSWER", label: "No Answer", category: "Contact" },
-    { value: "LEFT_MESSAGE", label: "Left Message", category: "Contact" },
-    { value: "NOT_HOME", label: "Not Home", category: "Contact" },
-    { value: "BUSY", label: "Busy", category: "Contact" },
-    { value: "CONTACTED", label: "Contacted", category: "Contact" },
-    // Positive outcomes
-    { value: "INTERESTED", label: "Interested", category: "Positive" },
-    { value: "APPOINTMENT_SET", label: "Appointment Set", category: "Positive" },
-    { value: "PROPOSAL_SENT", label: "Proposal Sent", category: "Positive" },
-    { value: "NEGOTIATING", label: "Negotiating", category: "Positive" },
-    { value: "SOLD", label: "Sold", category: "Won" },
-    // Follow-up
-    { value: "CALLBACK_SCHEDULED", label: "Callback Scheduled", category: "Follow-up" },
-    { value: "RETURN", label: "Return Visit", category: "Follow-up" },
-    // Negative outcomes
-    { value: "NOT_INTERESTED", label: "Not Interested", category: "Negative" },
-    { value: "WRONG_NUMBER", label: "Wrong Number", category: "Negative" },
-    { value: "INVALID_LEAD", label: "Invalid Lead", category: "Negative" },
-    { value: "DO_NOT_CALL", label: "Do Not Call", category: "Negative" },
-    { value: "REJECT", label: "Reject", category: "Negative" },
-  ];
-
+  // Use shared disposition metadata from schema
   const getDispositionLabel = (value: string) => {
-    return dispositionOptions.find(d => d.value === value)?.label || value;
+    return dispositionMetadata.find(d => d.value === value)?.label || value;
   };
 
   const updateDispositionMutation = useMutation({
@@ -711,8 +686,7 @@ export default function Leads() {
           </Card>
         ) : leads && leads.length > 0 ? (
           leads.map((lead) => {
-            const terminalDispositions = ["SOLD", "REJECT", "NOT_INTERESTED", "DO_NOT_CALL", "INVALID_LEAD", "WRONG_NUMBER"];
-            const isClosedLead = terminalDispositions.includes(lead.disposition || "");
+            const isClosedLead = terminalDispositions.includes((lead.disposition || "NONE") as LeadDisposition);
             const isViewingOtherRep = viewingRepId && canAssignToOthers;
             const isSelected = selectedLeadIds.has(lead.id);
             return (
@@ -897,24 +871,11 @@ export default function Leads() {
                           <SelectValue placeholder="Select disposition" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="NONE">None</SelectItem>
-                          <SelectItem value="NO_ANSWER">No Answer</SelectItem>
-                          <SelectItem value="LEFT_MESSAGE">Left Message</SelectItem>
-                          <SelectItem value="NOT_HOME">Not Home</SelectItem>
-                          <SelectItem value="BUSY">Busy</SelectItem>
-                          <SelectItem value="CONTACTED">Contacted</SelectItem>
-                          <SelectItem value="INTERESTED">Interested</SelectItem>
-                          <SelectItem value="APPOINTMENT_SET">Appointment Set</SelectItem>
-                          <SelectItem value="PROPOSAL_SENT">Proposal Sent</SelectItem>
-                          <SelectItem value="NEGOTIATING">Negotiating</SelectItem>
-                          <SelectItem value="SOLD">Sold</SelectItem>
-                          <SelectItem value="CALLBACK_SCHEDULED">Callback Scheduled</SelectItem>
-                          <SelectItem value="RETURN">Return Visit</SelectItem>
-                          <SelectItem value="NOT_INTERESTED">Not Interested</SelectItem>
-                          <SelectItem value="WRONG_NUMBER">Wrong Number</SelectItem>
-                          <SelectItem value="INVALID_LEAD">Invalid Lead</SelectItem>
-                          <SelectItem value="DO_NOT_CALL">Do Not Call</SelectItem>
-                          <SelectItem value="REJECT">Reject</SelectItem>
+                          {dispositionMetadata.map((d) => (
+                            <SelectItem key={d.value} value={d.value}>
+                              {d.label}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       {canAssignToOthers && (

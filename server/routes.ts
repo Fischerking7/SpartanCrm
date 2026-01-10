@@ -5,7 +5,7 @@ import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or } from "drizzle-orm";
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
-import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 import crypto from "crypto";
@@ -3795,8 +3795,7 @@ export async function registerRoutes(
       }
       
       // Only allow reversing terminal dispositions (SOLD or loss-related)
-      const terminalDispositions = ["SOLD", "REJECT", "NOT_INTERESTED", "DO_NOT_CALL", "INVALID_LEAD", "WRONG_NUMBER"];
-      if (!terminalDispositions.includes(lead.disposition || "")) {
+      if (!terminalDispositions.includes(lead.disposition as LeadDisposition)) {
         return res.status(400).json({ message: "Can only reverse terminal dispositions (SOLD, REJECTED, NOT_INTERESTED, etc.)" });
       }
       
