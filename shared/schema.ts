@@ -606,12 +606,10 @@ export type Counter = typeof counters.$inferSelect;
 export type CommissionLineItem = typeof commissionLineItems.$inferSelect;
 export type InsertCommissionLineItem = z.infer<typeof insertCommissionLineItemSchema>;
 
-// Lead dispositions - expanded for better pipeline tracking
+// Lead dispositions - simplified for field operations
 export const leadDispositions = [
-  "NONE", "NO_ANSWER", "LEFT_MESSAGE", "NOT_HOME", "BUSY", "WRONG_NUMBER",
-  "CONTACTED", "INTERESTED", "APPOINTMENT_SET", "PROPOSAL_SENT", "NEGOTIATING", "SOLD",
-  "NOT_INTERESTED", "REJECT", "DO_NOT_CALL", "INVALID_LEAD",
-  "CALLBACK_SCHEDULED", "RETURN"
+  "NONE", "NOT_HOME", "RETURN", "DOOR_SLAM_REJECT", "SHORT_PITCH",
+  "CALLED", "EMAIL_SENT", "CALL_NO_ANSWER", "SOLD"
 ] as const;
 export type LeadDisposition = typeof leadDispositions[number];
 
@@ -629,27 +627,17 @@ export interface DispositionInfo {
 export const dispositionMetadata: DispositionInfo[] = [
   { value: "NONE", label: "None", category: "status", pipelineStage: null, isTerminal: false, requiresLostReason: false },
   // Contact outcomes
-  { value: "NO_ANSWER", label: "No Answer", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
-  { value: "LEFT_MESSAGE", label: "Left Message", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
   { value: "NOT_HOME", label: "Not Home", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
-  { value: "BUSY", label: "Busy", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
-  { value: "CONTACTED", label: "Contacted", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
-  // Positive outcomes
-  { value: "INTERESTED", label: "Interested", category: "positive", pipelineStage: "QUALIFIED", isTerminal: false, requiresLostReason: false },
-  { value: "APPOINTMENT_SET", label: "Appointment Set", category: "positive", pipelineStage: "QUALIFIED", isTerminal: false, requiresLostReason: false },
-  { value: "PROPOSAL_SENT", label: "Proposal Sent", category: "positive", pipelineStage: "PROPOSAL", isTerminal: false, requiresLostReason: false },
-  { value: "NEGOTIATING", label: "Negotiating", category: "positive", pipelineStage: "NEGOTIATION", isTerminal: false, requiresLostReason: false },
+  { value: "CALLED", label: "Called", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
+  { value: "EMAIL_SENT", label: "Email Sent", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
+  { value: "CALL_NO_ANSWER", label: "Call-No Answer", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
+  { value: "SHORT_PITCH", label: "Short-Pitch", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
+  // Follow-up needed
+  { value: "RETURN", label: "Return", category: "follow_up", pipelineStage: null, isTerminal: false, requiresLostReason: false },
+  // Negative outcomes (terminal)
+  { value: "DOOR_SLAM_REJECT", label: "Door Slam/Reject", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: false },
   // Won
   { value: "SOLD", label: "Sold", category: "won", pipelineStage: "WON", isTerminal: true, requiresLostReason: false },
-  // Negative outcomes (terminal)
-  { value: "NOT_INTERESTED", label: "Not Interested", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: true },
-  { value: "REJECT", label: "Reject", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: true },
-  { value: "DO_NOT_CALL", label: "Do Not Call", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: false },
-  { value: "WRONG_NUMBER", label: "Wrong Number", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: false },
-  { value: "INVALID_LEAD", label: "Invalid Lead", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: false },
-  // Follow-up needed
-  { value: "CALLBACK_SCHEDULED", label: "Callback Scheduled", category: "follow_up", pipelineStage: null, isTerminal: false, requiresLostReason: false },
-  { value: "RETURN", label: "Return Visit", category: "follow_up", pipelineStage: null, isTerminal: false, requiresLostReason: false },
 ];
 
 // Derived mappings for backward compatibility
