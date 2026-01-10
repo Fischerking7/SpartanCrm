@@ -268,6 +268,19 @@ export const insertMduStagingOrderSchema = createInsertSchema(mduStagingOrders).
   customerSsnEncrypted: true,
 }).extend({
   customerSsn: z.string().optional(),
+  // Make enum fields truly optional - empty strings convert to null/undefined before validation
+  installType: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined) ? undefined : v,
+    z.enum(["AGENT_INSTALL", "DIRECT_SHIP", "TECH_INSTALL"]).optional()
+  ),
+  mobileProductType: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined) ? undefined : v,
+    z.enum(["UNLIMITED", "3_GIG", "1_GIG", "BYOD", "OTHER"]).optional()
+  ),
+  mobilePortedStatus: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined) ? undefined : v,
+    z.enum(["PORTED", "NON_PORTED"]).optional()
+  ),
 });
 export type MduStagingOrder = typeof mduStagingOrders.$inferSelect;
 export type InsertMduStagingOrder = z.infer<typeof insertMduStagingOrderSchema>;
