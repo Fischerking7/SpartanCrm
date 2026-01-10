@@ -9134,6 +9134,30 @@ export async function registerRoutes(
         afterJson: JSON.stringify({ ...order, customerSsnEncrypted: "[ENCRYPTED]" }),
       });
       
+      // Notify Operations and Executive users about new MDU order
+      try {
+        const [opsUsers, execUsers] = await Promise.all([
+          storage.getUsersByRole("OPERATIONS"),
+          storage.getUsersByRole("EXECUTIVE"),
+        ]);
+        const adminUsers = await storage.getUsersByRole("ADMIN");
+        const notifyUsers = [...opsUsers, ...execUsers, ...adminUsers];
+        
+        for (const notifyUser of notifyUsers) {
+          await storage.createEmailNotification({
+            userId: notifyUser.id,
+            notificationType: "MDU_ORDER_SUBMITTED",
+            subject: "New MDU Order Submitted",
+            body: `${user.name} (${user.repId}) submitted a new MDU order for ${req.body.customerName || "a customer"}. Please review it in the MDU Review queue.`,
+            recipientEmail: "", // In-app notification only
+            status: "PENDING",
+            isRead: false,
+          });
+        }
+      } catch (notifyError) {
+        console.error("Failed to send MDU order notifications:", notifyError);
+      }
+      
       // Return with masked SSN display (never expose encrypted value to client)
       const { customerSsnEncrypted, ...safeOrder } = order;
       res.json({ ...safeOrder, customerSsnDisplay: safeOrder.customerSsnLast4 ? `***-**-${safeOrder.customerSsnLast4}` : null });

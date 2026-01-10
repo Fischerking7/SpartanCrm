@@ -1397,6 +1397,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "PASSWORD_RESET",
   "PENDING_APPROVAL_ALERT",
   "LOW_PERFORMANCE_WARNING",
+  "MDU_ORDER_SUBMITTED",
   "GENERAL"
 ]);
 

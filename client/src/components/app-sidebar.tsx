@@ -240,7 +240,8 @@ function CollapsibleSection({
   location: string;
   defaultOpen?: boolean;
 }) {
-  const hasActiveItem = items.some(item => location === item.url);
+  const validItems = items.filter(Boolean);
+  const hasActiveItem = validItems.some(item => location === item.url);
   const [isOpen, setIsOpen] = useState(defaultOpen || hasActiveItem);
 
   return (
@@ -257,7 +258,7 @@ function CollapsibleSection({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <SidebarGroupContent className="pl-2">
-            <MenuItems items={items} location={location} />
+            <MenuItems items={validItems} location={location} />
           </SidebarGroupContent>
         </CollapsibleContent>
       </SidebarGroup>
