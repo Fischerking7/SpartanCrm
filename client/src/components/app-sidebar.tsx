@@ -41,7 +41,6 @@ import {
   Wallet,
   TrendingUp,
   Cog,
-  Bell,
   Target,
   Key,
   Filter,
@@ -49,131 +48,167 @@ import {
   Settings2,
   Smartphone,
   MessageSquareWarning,
+  User,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
 
 type MenuItem = { title: string; url: string; icon: React.ComponentType<{ className?: string }> };
 
-const repMenuItems: MenuItem[] = [
-  { title: "Orders", url: "/orders", icon: FileText },
-  { title: "Quick Entry", url: "/mobile-entry", icon: Smartphone },
-  { title: "My Leads", url: "/leads", icon: UserPlus },
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "My Commissions", url: "/commissions", icon: DollarSign },
-  { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
-  { title: "My Pay", url: "/my-pay", icon: Calendar },
-  { title: "My Credentials", url: "/my-credentials", icon: Key },
-  { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
-  { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
-  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
-  { title: "Alerts", url: "/notifications", icon: BellRing },
-  { title: "Settings", url: "/notification-settings", icon: Settings2 },
+// ============ SHARED MENU BLOCKS (Single Source of Truth) ============
+
+const MENU = {
+  // Core Sales Items
+  orders: { title: "Orders", url: "/orders", icon: FileText },
+  quickEntry: { title: "Quick Entry", url: "/mobile-entry", icon: Smartphone },
+  leads: { title: "My Leads", url: "/leads", icon: UserPlus },
+  mduOrders: { title: "My MDU Orders", url: "/mdu-orders", icon: Building2 },
+  
+  // Dashboard & Analytics
+  dashboard: { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  salesPipeline: { title: "Sales Pipeline", url: "/sales-pipeline", icon: Filter },
+  reports: { title: "Reports", url: "/reports", icon: BarChart3 },
+  execReports: { title: "Executive Reports", url: "/executive-reports", icon: TrendingUp },
+  
+  // Personal Finance
+  commissions: { title: "Commissions", url: "/commissions", icon: DollarSign },
+  forecast: { title: "Forecast", url: "/commission-forecast", icon: Target },
+  myPay: { title: "Pay History", url: "/my-pay", icon: Calendar },
+  myDisputes: { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
+  
+  // Operations
+  approvals: { title: "Approvals", url: "/approvals", icon: CheckSquare },
+  mduReview: { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
+  payRuns: { title: "Pay Runs", url: "/payruns", icon: Calendar },
+  adjustments: { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
+  
+  // Accounting & Audit
+  accounting: { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
+  exports: { title: "Export History", url: "/export-history", icon: Download },
+  recalculate: { title: "Recalculate", url: "/recalculate", icon: Calculator },
+  queues: { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
+  audit: { title: "Audit Log", url: "/audit", icon: History },
+  
+  // Resources & Settings
+  knowledge: { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
+  credentials: { title: "My Credentials", url: "/my-credentials", icon: Key },
+  alerts: { title: "Alerts", url: "/notifications", icon: BellRing },
+  settings: { title: "Settings", url: "/notification-settings", icon: Settings2 },
+  
+  // Admin Settings
+  users: { title: "Users", url: "/admin/users", icon: Users },
+  providers: { title: "Providers", url: "/admin/providers", icon: Building2 },
+  clients: { title: "Clients", url: "/admin/clients", icon: Building2 },
+  services: { title: "Services", url: "/admin/services", icon: Settings },
+  rateCards: { title: "Rate Cards", url: "/admin/rate-cards", icon: DollarSign },
+  incentives: { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
+  overrides: { title: "Overrides", url: "/admin/overrides", icon: Users },
+  empCredentials: { title: "Employee Credentials", url: "/admin/employee-credentials", icon: Key },
+  adminDisputes: { title: "Disputes", url: "/admin/disputes", icon: MessageSquareWarning },
+  payroll: { title: "Payroll", url: "/admin/payroll", icon: Calendar },
+  advPayroll: { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
+  quickbooks: { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
+} as const;
+
+// ============ COMPOSED MENU GROUPS ============
+
+// Personal section - common to all roles
+const personalItems: MenuItem[] = [
+  MENU.commissions,
+  MENU.forecast,
+  MENU.myPay,
+  MENU.myDisputes,
+  MENU.credentials,
 ];
 
-const mduMenuItems: MenuItem[] = [
-  { title: "My MDU Orders", url: "/mdu-orders", icon: Building2 },
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "My Commissions", url: "/commissions", icon: DollarSign },
-  { title: "My Pay", url: "/my-pay", icon: Calendar },
-  { title: "My Credentials", url: "/my-credentials", icon: Key },
-  { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
-  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
-  { title: "Alerts", url: "/notifications", icon: BellRing },
-  { title: "Settings", url: "/notification-settings", icon: Settings2 },
+// Alerts & Settings - common to all
+const preferencesItems: MenuItem[] = [
+  MENU.alerts,
+  MENU.settings,
 ];
 
-const salesLeaderMenuItems: MenuItem[] = [
-  { title: "Orders", url: "/orders", icon: FileText },
-  { title: "Quick Entry", url: "/mobile-entry", icon: Smartphone },
-  { title: "My Leads", url: "/leads", icon: UserPlus },
-  { title: "Sales Pipeline", url: "/sales-pipeline", icon: Filter },
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "My Commissions", url: "/commissions", icon: DollarSign },
-  { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
-  { title: "My Pay", url: "/my-pay", icon: Calendar },
-  { title: "My Credentials", url: "/my-credentials", icon: Key },
-  { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
-  { title: "Reports", url: "/reports", icon: BarChart3 },
-  { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
-  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
-  { title: "Alerts", url: "/notifications", icon: BellRing },
-  { title: "Settings", url: "/notification-settings", icon: Settings2 },
+// Admin: Operations group
+const adminOpsItems: MenuItem[] = [
+  MENU.orders,
+  MENU.leads,
+  MENU.approvals,
+  MENU.mduReview,
+  MENU.payRuns,
+  MENU.adjustments,
 ];
 
-const executiveMenuItems: MenuItem[] = [
-  { title: "Orders", url: "/orders", icon: FileText },
-  { title: "My Leads", url: "/leads", icon: UserPlus },
-  { title: "Sales Pipeline", url: "/sales-pipeline", icon: Filter },
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "My Commissions", url: "/commissions", icon: DollarSign },
-  { title: "My Pay", url: "/my-pay", icon: Calendar },
-  { title: "Approvals Queue", url: "/approvals", icon: CheckSquare },
-  { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
-  { title: "Pay Runs", url: "/payruns", icon: Calendar },
-  { title: "Export History", url: "/export-history", icon: Download },
-  { title: "Reports", url: "/reports", icon: BarChart3 },
-  { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
-  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
-  { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
-  { title: "Audit Log", url: "/audit", icon: History },
-  { title: "Alerts", url: "/notifications", icon: BellRing },
-  { title: "Settings", url: "/notification-settings", icon: Settings2 },
+// Admin: Accounting group
+const adminAccountingItems: MenuItem[] = [
+  MENU.accounting,
+  MENU.exports,
+  MENU.recalculate,
+  MENU.queues,
+  MENU.audit,
 ];
 
-const adminOperations: MenuItem[] = [
-  { title: "Orders", url: "/orders", icon: FileText },
-  { title: "Approvals", url: "/approvals", icon: CheckSquare },
-  { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
-  { title: "Pay Runs", url: "/payruns", icon: Calendar },
-  { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
+// Admin: Insights group
+const adminInsightsItems: MenuItem[] = [
+  MENU.dashboard,
+  MENU.salesPipeline,
+  MENU.reports,
+  MENU.execReports,
 ];
 
-const adminAccounting: MenuItem[] = [
-  { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
-  { title: "Export History", url: "/export-history", icon: Download },
-  { title: "Recalculate", url: "/recalculate", icon: Calculator },
-  { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
-  { title: "Audit Log", url: "/audit", icon: History },
+// Admin: System Settings group
+const adminSettingsItems: MenuItem[] = [
+  MENU.users,
+  MENU.providers,
+  MENU.clients,
+  MENU.services,
+  MENU.rateCards,
+  MENU.incentives,
+  MENU.overrides,
+  MENU.empCredentials,
+  MENU.adminDisputes,
+  MENU.payroll,
+  MENU.advPayroll,
+  MENU.quickbooks,
 ];
 
-const adminInsights: MenuItem[] = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Sales Pipeline", url: "/sales-pipeline", icon: Filter },
-  { title: "Reports", url: "/reports", icon: BarChart3 },
-  { title: "Executive Reports", url: "/executive-reports", icon: TrendingUp },
-];
+// ============ ROLE-SPECIFIC MENUS (Composed from blocks) ============
 
-const adminPersonal: MenuItem[] = [
-  { title: "My Leads", url: "/leads", icon: UserPlus },
-  { title: "My Commissions", url: "/commissions", icon: DollarSign },
-  { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
-  { title: "My Pay", url: "/my-pay", icon: Calendar },
-  { title: "My Credentials", url: "/my-credentials", icon: Key },
-  { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
-  { title: "Alerts", url: "/notifications", icon: BellRing },
-  { title: "Settings", url: "/notification-settings", icon: Settings2 },
-];
+function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; resources: MenuItem[] } {
+  const base = {
+    personal: personalItems,
+    resources: [MENU.knowledge, ...preferencesItems],
+  };
 
-const adminResources: MenuItem[] = [
-  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
-];
+  switch (role) {
+    case "REP":
+      return {
+        sales: [MENU.orders, MENU.quickEntry, MENU.leads, MENU.dashboard, MENU.adjustments],
+        ...base,
+      };
+    case "MDU":
+      return {
+        sales: [MENU.mduOrders, MENU.dashboard],
+        ...base,
+      };
+    case "SUPERVISOR":
+    case "MANAGER":
+      return {
+        sales: [MENU.orders, MENU.quickEntry, MENU.leads, MENU.salesPipeline, MENU.dashboard, MENU.reports, MENU.adjustments],
+        ...base,
+      };
+    case "EXECUTIVE":
+      return {
+        sales: [MENU.orders, MENU.leads, MENU.salesPipeline, MENU.dashboard, MENU.reports, MENU.approvals, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit],
+        ...base,
+      };
+    default:
+      return {
+        sales: [MENU.orders, MENU.dashboard],
+        ...base,
+      };
+  }
+}
 
-const adminSettings: MenuItem[] = [
-  { title: "Users", url: "/admin/users", icon: Users },
-  { title: "Providers", url: "/admin/providers", icon: Building2 },
-  { title: "Clients", url: "/admin/clients", icon: Building2 },
-  { title: "Services", url: "/admin/services", icon: Settings },
-  { title: "Rate Cards", url: "/admin/rate-cards", icon: DollarSign },
-  { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
-  { title: "Overrides", url: "/admin/overrides", icon: Users },
-  { title: "Employee Credentials", url: "/admin/employee-credentials", icon: Key },
-  { title: "Disputes", url: "/admin/disputes", icon: MessageSquareWarning },
-  { title: "Payroll", url: "/admin/payroll", icon: Calendar },
-  { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
-  { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
-  { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
-];
+// ============ COMPONENTS ============
 
 function MenuItems({ items, location }: { items: MenuItem[]; location: string }) {
   return (
@@ -237,9 +272,6 @@ export function AppSidebar() {
   if (!user) return null;
 
   const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS";
-  const isExecutive = user.role === "EXECUTIVE";
-  const isSalesLeader = ["SUPERVISOR", "MANAGER"].includes(user.role);
-  const isMdu = user.role === "MDU";
 
   const getInitials = (name: string) => {
     return name
@@ -264,14 +296,29 @@ export function AppSidebar() {
   };
 
   const renderNonAdminSidebar = () => {
-    const menuItems = isMdu ? mduMenuItems : (isExecutive ? executiveMenuItems : (isSalesLeader ? salesLeaderMenuItems : repMenuItems));
+    const menu = getRoleMenu(user.role);
     return (
-      <SidebarGroup>
-        <SidebarGroupLabel>Navigation</SidebarGroupLabel>
-        <SidebarGroupContent>
-          <MenuItems items={menuItems} location={location} />
-        </SidebarGroupContent>
-      </SidebarGroup>
+      <>
+        <CollapsibleSection 
+          title="Sales" 
+          icon={Briefcase} 
+          items={menu.sales} 
+          location={location}
+          defaultOpen={true}
+        />
+        <CollapsibleSection 
+          title="My Account" 
+          icon={User} 
+          items={menu.personal} 
+          location={location}
+        />
+        <CollapsibleSection 
+          title="Resources" 
+          icon={BookOpen} 
+          items={menu.resources} 
+          location={location}
+        />
+      </>
     );
   };
 
@@ -280,38 +327,38 @@ export function AppSidebar() {
       <CollapsibleSection 
         title="Operations" 
         icon={Briefcase} 
-        items={adminOperations} 
+        items={adminOpsItems} 
         location={location}
         defaultOpen={true}
       />
       <CollapsibleSection 
         title="Accounting" 
         icon={Wallet} 
-        items={adminAccounting} 
+        items={adminAccountingItems} 
         location={location}
       />
       <CollapsibleSection 
         title="Insights" 
         icon={TrendingUp} 
-        items={adminInsights} 
+        items={adminInsightsItems} 
         location={location}
       />
       <CollapsibleSection 
-        title="My Workspace" 
-        icon={UserPlus} 
-        items={adminPersonal} 
+        title="My Account" 
+        icon={User} 
+        items={[...personalItems, ...preferencesItems]} 
         location={location}
       />
       <CollapsibleSection 
         title="Resources" 
         icon={BookOpen} 
-        items={adminResources} 
+        items={[MENU.knowledge]} 
         location={location}
       />
       <CollapsibleSection 
         title="System Settings" 
         icon={Cog} 
-        items={adminSettings} 
+        items={adminSettingsItems} 
         location={location}
       />
     </>
