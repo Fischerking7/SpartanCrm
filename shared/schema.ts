@@ -1395,6 +1395,8 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "ADVANCE_APPROVED",
   "ADVANCE_REJECTED",
   "PASSWORD_RESET",
+  "PENDING_APPROVAL_ALERT",
+  "LOW_PERFORMANCE_WARNING",
   "GENERAL"
 ]);
 
@@ -1418,6 +1420,8 @@ export const emailNotifications = pgTable("email_notifications", {
   sentAt: timestamp("sent_at"),
   errorMessage: text("error_message"),
   retryCount: integer("retry_count").notNull().default(0),
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -1433,6 +1437,9 @@ export const notificationPreferences = pgTable("notification_preferences", {
   emailPayRunFinalized: boolean("email_pay_run_finalized").notNull().default(true),
   emailChargebackApplied: boolean("email_chargeback_applied").notNull().default(true),
   emailAdvanceUpdates: boolean("email_advance_updates").notNull().default(true),
+  emailPendingApprovalAlert: boolean("email_pending_approval_alert").notNull().default(true),
+  emailLowPerformanceWarning: boolean("email_low_performance_warning").notNull().default(true),
+  pendingApprovalDaysThreshold: integer("pending_approval_days_threshold").notNull().default(3),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

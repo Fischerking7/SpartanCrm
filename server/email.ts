@@ -2,7 +2,7 @@ import { storage } from "./storage";
 
 interface EmailContent {
   userId: string;
-  notificationType: "ORDER_SUBMITTED" | "ORDER_APPROVED" | "ORDER_REJECTED" | "PAY_RUN_FINALIZED" | "CHARGEBACK_APPLIED" | "ADVANCE_APPROVED" | "ADVANCE_REJECTED" | "PASSWORD_RESET" | "GENERAL";
+  notificationType: "ORDER_SUBMITTED" | "ORDER_APPROVED" | "ORDER_REJECTED" | "PAY_RUN_FINALIZED" | "CHARGEBACK_APPLIED" | "ADVANCE_APPROVED" | "ADVANCE_REJECTED" | "PASSWORD_RESET" | "PENDING_APPROVAL_ALERT" | "LOW_PERFORMANCE_WARNING" | "GENERAL";
   subject: string;
   body: string;
   recipientEmail: string;
@@ -41,6 +41,10 @@ export const emailService = {
       case "ADVANCE_APPROVED":
       case "ADVANCE_REJECTED":
         return prefs.emailAdvanceUpdates !== false;
+      case "PENDING_APPROVAL_ALERT":
+        return prefs.emailPendingApprovalAlert !== false;
+      case "LOW_PERFORMANCE_WARNING":
+        return prefs.emailLowPerformanceWarning !== false;
       default:
         return true;
     }
@@ -168,6 +172,55 @@ export const emailService = {
       recipientEmail: rep.email,
       relatedEntityType: "ADVANCE",
       relatedEntityId: advance.id,
+    });
+  },
+
+  async notifyPendingApprovalAlert(manager: any, pendingOrders: any[], daysPending: number) {
+    if (!manager.email) return;
+    
+    const orderCount = pendingOrders.length;
+    const orderList = pendingOrders.slice(0, 5).map(o => `  - ${o.customerName} (${o.dateSold})`).join("\n");
+    const moreText = orderCount > 5 ? `\n  ...and ${orderCount - 5} more` : "";
+    
+    await this.queueNotification({
+      userId: manager.id,
+      notificationType: "PENDING_APPROVAL_ALERT",
+      subject: `${orderCount} Order${orderCount > 1 ? "s" : ""} Pending Approval for ${daysPending}+ Days`,
+      body: `You have ${orderCount} order${orderCount > 1 ? "s" : ""} waiting for approval for more than ${daysPending} days:\n\n${orderList}${moreText}\n\nPlease review these orders in the Orders page.`,
+      recipientEmail: manager.email,
+      relatedEntityType: "ORDER_BATCH",
+      relatedEntityId: pendingOrders[0]?.id || "",
+    });
+  },
+
+  async notifyLowPerformanceWarning(rep: any, performance: { current: number; target: number; percentage: number; periodType: string }) {
+    if (!rep.email) return;
+    
+    await this.queueNotification({
+      userId: rep.id,
+      notificationType: "LOW_PERFORMANCE_WARNING",
+      subject: `Performance Alert - Below ${performance.periodType} Quota`,
+      body: `Your current performance is at ${performance.percentage.toFixed(1)}% of your ${performance.periodType.toLowerCase()} quota.\n\nCurrent: ${performance.current} sales\nTarget: ${performance.target} sales\n\nPlease reach out to your supervisor if you need support.`,
+      recipientEmail: rep.email,
+      relatedEntityType: "SALES_GOAL",
+      relatedEntityId: rep.id,
+    });
+  },
+
+  async notifyManagerLowPerformance(manager: any, reps: { name: string; repId: string; percentage: number }[]) {
+    if (!manager.email) return;
+    
+    const repList = reps.slice(0, 10).map(r => `  - ${r.name} (${r.repId}): ${r.percentage.toFixed(1)}%`).join("\n");
+    const moreText = reps.length > 10 ? `\n  ...and ${reps.length - 10} more` : "";
+    
+    await this.queueNotification({
+      userId: manager.id,
+      notificationType: "LOW_PERFORMANCE_WARNING",
+      subject: `${reps.length} Rep${reps.length > 1 ? "s" : ""} Below Performance Threshold`,
+      body: `The following reps are below their quota threshold:\n\n${repList}${moreText}\n\nConsider reaching out to provide support.`,
+      recipientEmail: manager.email,
+      relatedEntityType: "PERFORMANCE_REPORT",
+      relatedEntityId: "",
     });
   },
 };
