@@ -180,6 +180,36 @@ export default function Leads() {
     },
   });
 
+  // Expanded disposition options with labels and categories
+  const dispositionOptions = [
+    { value: "NONE", label: "None", category: "Status" },
+    // Contact outcomes
+    { value: "NO_ANSWER", label: "No Answer", category: "Contact" },
+    { value: "LEFT_MESSAGE", label: "Left Message", category: "Contact" },
+    { value: "NOT_HOME", label: "Not Home", category: "Contact" },
+    { value: "BUSY", label: "Busy", category: "Contact" },
+    { value: "CONTACTED", label: "Contacted", category: "Contact" },
+    // Positive outcomes
+    { value: "INTERESTED", label: "Interested", category: "Positive" },
+    { value: "APPOINTMENT_SET", label: "Appointment Set", category: "Positive" },
+    { value: "PROPOSAL_SENT", label: "Proposal Sent", category: "Positive" },
+    { value: "NEGOTIATING", label: "Negotiating", category: "Positive" },
+    { value: "SOLD", label: "Sold", category: "Won" },
+    // Follow-up
+    { value: "CALLBACK_SCHEDULED", label: "Callback Scheduled", category: "Follow-up" },
+    { value: "RETURN", label: "Return Visit", category: "Follow-up" },
+    // Negative outcomes
+    { value: "NOT_INTERESTED", label: "Not Interested", category: "Negative" },
+    { value: "WRONG_NUMBER", label: "Wrong Number", category: "Negative" },
+    { value: "INVALID_LEAD", label: "Invalid Lead", category: "Negative" },
+    { value: "DO_NOT_CALL", label: "Do Not Call", category: "Negative" },
+    { value: "REJECT", label: "Reject", category: "Negative" },
+  ];
+
+  const getDispositionLabel = (value: string) => {
+    return dispositionOptions.find(d => d.value === value)?.label || value;
+  };
+
   const updateDispositionMutation = useMutation({
     mutationFn: async ({ id, disposition }: { id: string; disposition: string }) => {
       const res = await fetch(`/api/leads/${id}/disposition`, {
@@ -193,13 +223,10 @@ export default function Leads() {
     onSuccess: (_, { disposition }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads/counts"] });
-      const messages: Record<string, string> = {
-        SOLD: "Lead marked as sold and removed from your list",
-        NOT_HOME: "Lead marked as not home",
-        RETURN: "Lead marked for return visit",
-        REJECT: "Lead rejected and removed from your list",
-      };
-      toast({ title: messages[disposition] || "Disposition updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/funnel"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/aging"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/win-loss"] });
+      toast({ title: `Disposition updated to: ${getDispositionLabel(disposition)}` });
     },
     onError: () => {
       toast({ title: "Failed to update disposition", variant: "destructive" });
@@ -684,7 +711,8 @@ export default function Leads() {
           </Card>
         ) : leads && leads.length > 0 ? (
           leads.map((lead) => {
-            const isClosedLead = ["SOLD", "REJECT"].includes(lead.disposition || "");
+            const terminalDispositions = ["SOLD", "REJECT", "NOT_INTERESTED", "DO_NOT_CALL", "INVALID_LEAD", "WRONG_NUMBER"];
+            const isClosedLead = terminalDispositions.includes(lead.disposition || "");
             const isViewingOtherRep = viewingRepId && canAssignToOthers;
             const isSelected = selectedLeadIds.has(lead.id);
             return (
@@ -708,7 +736,7 @@ export default function Leads() {
                       </h3>
                       {isClosedLead && (
                         <Badge variant={lead.disposition === "SOLD" ? "default" : "destructive"} className="text-xs">
-                          {lead.disposition === "SOLD" ? "SOLD" : "REJECTED"}
+                          {getDispositionLabel(lead.disposition || "")}
                         </Badge>
                       )}
                     </div>
@@ -858,44 +886,37 @@ export default function Leads() {
                       </Button>
                     </div>
                     
-                    <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t">
-                      <span className="text-xs text-muted-foreground self-center mr-1">Disposition:</span>
-                      <Button
-                        size="sm"
-                        variant={lead.disposition === "SOLD" ? "default" : "outline"}
-                        onClick={() => updateDispositionMutation.mutate({ id: lead.id, disposition: "SOLD" })}
+                    <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t items-center">
+                      <span className="text-xs text-muted-foreground mr-1">Disposition:</span>
+                      <Select
+                        value={lead.disposition || "NONE"}
+                        onValueChange={(value) => updateDispositionMutation.mutate({ id: lead.id, disposition: value })}
                         disabled={updateDispositionMutation.isPending}
-                        data-testid={`button-disposition-sold-${lead.id}`}
                       >
-                        Sold
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={lead.disposition === "NOT_HOME" ? "default" : "outline"}
-                        onClick={() => updateDispositionMutation.mutate({ id: lead.id, disposition: "NOT_HOME" })}
-                        disabled={updateDispositionMutation.isPending}
-                        data-testid={`button-disposition-not-home-${lead.id}`}
-                      >
-                        Not Home
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={lead.disposition === "RETURN" ? "default" : "outline"}
-                        onClick={() => updateDispositionMutation.mutate({ id: lead.id, disposition: "RETURN" })}
-                        disabled={updateDispositionMutation.isPending}
-                        data-testid={`button-disposition-return-${lead.id}`}
-                      >
-                        Return
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={lead.disposition === "REJECT" ? "destructive" : "outline"}
-                        onClick={() => updateDispositionMutation.mutate({ id: lead.id, disposition: "REJECT" })}
-                        disabled={updateDispositionMutation.isPending}
-                        data-testid={`button-disposition-reject-${lead.id}`}
-                      >
-                        Reject
-                      </Button>
+                        <SelectTrigger className="w-[180px] h-8" data-testid={`select-disposition-${lead.id}`}>
+                          <SelectValue placeholder="Select disposition" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="NONE">None</SelectItem>
+                          <SelectItem value="NO_ANSWER">No Answer</SelectItem>
+                          <SelectItem value="LEFT_MESSAGE">Left Message</SelectItem>
+                          <SelectItem value="NOT_HOME">Not Home</SelectItem>
+                          <SelectItem value="BUSY">Busy</SelectItem>
+                          <SelectItem value="CONTACTED">Contacted</SelectItem>
+                          <SelectItem value="INTERESTED">Interested</SelectItem>
+                          <SelectItem value="APPOINTMENT_SET">Appointment Set</SelectItem>
+                          <SelectItem value="PROPOSAL_SENT">Proposal Sent</SelectItem>
+                          <SelectItem value="NEGOTIATING">Negotiating</SelectItem>
+                          <SelectItem value="SOLD">Sold</SelectItem>
+                          <SelectItem value="CALLBACK_SCHEDULED">Callback Scheduled</SelectItem>
+                          <SelectItem value="RETURN">Return Visit</SelectItem>
+                          <SelectItem value="NOT_INTERESTED">Not Interested</SelectItem>
+                          <SelectItem value="WRONG_NUMBER">Wrong Number</SelectItem>
+                          <SelectItem value="INVALID_LEAD">Invalid Lead</SelectItem>
+                          <SelectItem value="DO_NOT_CALL">Do Not Call</SelectItem>
+                          <SelectItem value="REJECT">Reject</SelectItem>
+                        </SelectContent>
+                      </Select>
                       {canAssignToOthers && (
                         <Button
                           size="sm"

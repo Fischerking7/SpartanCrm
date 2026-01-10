@@ -606,16 +606,72 @@ export type Counter = typeof counters.$inferSelect;
 export type CommissionLineItem = typeof commissionLineItems.$inferSelect;
 export type InsertCommissionLineItem = z.infer<typeof insertCommissionLineItemSchema>;
 
-// Lead dispositions
-export const leadDispositions = ["NONE", "SOLD", "NOT_HOME", "RETURN", "REJECT"] as const;
+// Lead dispositions - expanded for better pipeline tracking
+export const leadDispositions = [
+  "NONE",              // No disposition yet
+  // Contact outcomes
+  "NO_ANSWER",         // Called but no answer
+  "LEFT_MESSAGE",      // Left voicemail/message
+  "NOT_HOME",          // Door knock - not home
+  "BUSY",              // Customer was busy, try again later
+  "WRONG_NUMBER",      // Invalid contact info
+  // Positive outcomes  
+  "CONTACTED",         // Successfully made contact
+  "INTERESTED",        // Customer expressed interest
+  "APPOINTMENT_SET",   // Scheduled appointment/demo
+  "PROPOSAL_SENT",     // Sent quote/proposal
+  "NEGOTIATING",       // In active negotiation
+  "SOLD",              // Closed the sale
+  // Negative outcomes
+  "NOT_INTERESTED",    // Customer declined
+  "REJECT",            // Hard reject - do not contact
+  "DO_NOT_CALL",       // Requested removal
+  "INVALID_LEAD",      // Bad data/duplicate
+  // Follow-up needed
+  "CALLBACK_SCHEDULED", // Customer requested callback
+  "RETURN",            // Need to return/follow up
+] as const;
 export type LeadDisposition = typeof leadDispositions[number];
+
+// Disposition to Pipeline Stage mapping
+export const dispositionToPipelineStage: Record<LeadDisposition, LeadPipelineStage | null> = {
+  "NONE": null,              // No change
+  "NO_ANSWER": "CONTACTED",
+  "LEFT_MESSAGE": "CONTACTED",
+  "NOT_HOME": "CONTACTED",
+  "BUSY": "CONTACTED",
+  "WRONG_NUMBER": "LOST",
+  "CONTACTED": "CONTACTED",
+  "INTERESTED": "QUALIFIED",
+  "APPOINTMENT_SET": "QUALIFIED",
+  "PROPOSAL_SENT": "PROPOSAL",
+  "NEGOTIATING": "NEGOTIATION",
+  "SOLD": "WON",
+  "NOT_INTERESTED": "LOST",
+  "REJECT": "LOST",
+  "DO_NOT_CALL": "LOST",
+  "INVALID_LEAD": "LOST",
+  "CALLBACK_SCHEDULED": null, // Keep current stage
+  "RETURN": null,            // Keep current stage
+};
 
 // Lead pipeline stages for funnel tracking
 export const leadPipelineStages = ["NEW", "CONTACTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"] as const;
 export type LeadPipelineStage = typeof leadPipelineStages[number];
 
-// Lead loss reasons
-export const leadLossReasons = ["PRICE", "COMPETITOR", "NO_RESPONSE", "NOT_INTERESTED", "SERVICE_AREA", "CREDIT", "OTHER"] as const;
+// Lead loss reasons - expanded
+export const leadLossReasons = [
+  "PRICE",           // Too expensive
+  "COMPETITOR",      // Chose competitor
+  "NO_RESPONSE",     // Never responded
+  "NOT_INTERESTED",  // Not interested in service
+  "SERVICE_AREA",    // Outside service area
+  "CREDIT",          // Credit/qualification issues
+  "TIMING",          // Bad timing, not ready
+  "WRONG_NUMBER",    // Invalid contact info
+  "DO_NOT_CALL",     // Requested no contact
+  "OTHER"            // Other reason
+] as const;
 export type LeadLossReason = typeof leadLossReasons[number];
 
 // Leads table - for imported lead data

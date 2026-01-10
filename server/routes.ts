@@ -5,7 +5,7 @@ import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or } from "drizzle-orm";
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
-import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 import crypto from "crypto";
@@ -3730,23 +3730,35 @@ export async function registerRoutes(
   app.patch("/api/leads/:id/disposition", auth, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const { disposition } = req.body;
+      const { disposition, lostReason, lostNotes } = req.body;
       
-      const validDispositions = ["NONE", "SOLD", "NOT_HOME", "RETURN", "REJECT"];
-      if (!disposition || !validDispositions.includes(disposition)) {
+      if (!disposition || !leadDispositions.includes(disposition)) {
         return res.status(400).json({ message: "Invalid disposition" });
       }
       
-      // Verify the lead belongs to this user
+      // Verify the lead belongs to this user or user is admin
       const lead = await storage.getLeadById(id);
       if (!lead) {
         return res.status(404).json({ message: "Lead not found" });
       }
-      if (lead.repId !== req.user!.repId) {
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(req.user!.role);
+      if (!isAdmin && lead.repId !== req.user!.repId) {
         return res.status(403).json({ message: "Not authorized to update this lead" });
       }
       
+      // Get the mapped pipeline stage from disposition
+      const mappedStage = dispositionToPipelineStage[disposition as LeadDisposition];
+      
+      // Update disposition
       const updated = await storage.updateLeadDisposition(id, disposition);
+      
+      // Auto-update pipeline stage if disposition maps to one
+      if (mappedStage) {
+        await storage.updateLeadPipelineStage(id, mappedStage, 
+          mappedStage === "LOST" ? lostReason : null,
+          mappedStage === "LOST" ? lostNotes : null
+        );
+      }
       
       // Audit log
       await storage.createAuditLog({
@@ -3754,11 +3766,13 @@ export async function registerRoutes(
         action: "lead_disposition_update",
         tableName: "leads",
         recordId: id,
-        beforeJson: JSON.stringify({ disposition: lead.disposition }),
-        afterJson: JSON.stringify({ disposition }),
+        beforeJson: JSON.stringify({ disposition: lead.disposition, pipelineStage: lead.pipelineStage }),
+        afterJson: JSON.stringify({ disposition, pipelineStage: mappedStage || lead.pipelineStage }),
       });
       
-      res.json(updated);
+      // Fetch updated lead with new pipeline stage
+      const finalLead = await storage.getLeadById(id);
+      res.json(finalLead);
     } catch (error) {
       res.status(500).json({ message: "Failed to update lead disposition" });
     }
@@ -3780,9 +3794,10 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Lead not found" });
       }
       
-      // Only allow reversing SOLD or REJECT dispositions
-      if (!["SOLD", "REJECT"].includes(lead.disposition || "")) {
-        return res.status(400).json({ message: "Can only reverse SOLD or REJECTED leads" });
+      // Only allow reversing terminal dispositions (SOLD or loss-related)
+      const terminalDispositions = ["SOLD", "REJECT", "NOT_INTERESTED", "DO_NOT_CALL", "INVALID_LEAD", "WRONG_NUMBER"];
+      if (!terminalDispositions.includes(lead.disposition || "")) {
+        return res.status(400).json({ message: "Can only reverse terminal dispositions (SOLD, REJECTED, NOT_INTERESTED, etc.)" });
       }
       
       // Verify caller can manage this lead's rep (target must be at or below caller's level)
