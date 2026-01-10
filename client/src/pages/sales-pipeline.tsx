@@ -30,13 +30,14 @@ import {
 import { format, formatDistanceToNow } from "date-fns";
 
 const PIPELINE_STAGES = [
-  { id: "NEW", label: "New", color: "bg-blue-500" },
-  { id: "CONTACTED", label: "Contacted", color: "bg-yellow-500" },
-  { id: "QUALIFIED", label: "Qualified", color: "bg-orange-500" },
-  { id: "PROPOSAL", label: "Proposal", color: "bg-purple-500" },
-  { id: "NEGOTIATION", label: "Negotiation", color: "bg-pink-500" },
-  { id: "WON", label: "Won", color: "bg-green-500" },
-  { id: "LOST", label: "Lost", color: "bg-red-500" },
+  { id: "NOT_HOME", label: "Not Home", color: "bg-blue-500" },
+  { id: "RETURN", label: "Return", color: "bg-yellow-500" },
+  { id: "DOOR_SLAM_REJECT", label: "Door Slam/Reject", color: "bg-red-500" },
+  { id: "SHORT_PITCH", label: "Short-Pitch", color: "bg-orange-500" },
+  { id: "CALLED", label: "Called", color: "bg-purple-500" },
+  { id: "EMAIL_SENT", label: "Email Sent", color: "bg-pink-500" },
+  { id: "CALL_NO_ANSWER", label: "Call-No Answer", color: "bg-cyan-500" },
+  { id: "SOLD", label: "Sold", color: "bg-green-500" },
 ];
 
 const LOSS_REASONS = [
@@ -622,12 +623,14 @@ function FollowUpCard({ lead, onStageChange }: { lead: any; onStageChange: (id: 
             <SelectValue placeholder="Move to..." />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="CONTACTED">Contacted</SelectItem>
-            <SelectItem value="QUALIFIED">Qualified</SelectItem>
-            <SelectItem value="PROPOSAL">Proposal</SelectItem>
-            <SelectItem value="NEGOTIATION">Negotiation</SelectItem>
-            <SelectItem value="WON">Won</SelectItem>
-            <SelectItem value="LOST">Lost</SelectItem>
+            <SelectItem value="NOT_HOME">Not Home</SelectItem>
+            <SelectItem value="RETURN">Return</SelectItem>
+            <SelectItem value="DOOR_SLAM_REJECT">Door Slam/Reject</SelectItem>
+            <SelectItem value="SHORT_PITCH">Short-Pitch</SelectItem>
+            <SelectItem value="CALLED">Called</SelectItem>
+            <SelectItem value="EMAIL_SENT">Email Sent</SelectItem>
+            <SelectItem value="CALL_NO_ANSWER">Call-No Answer</SelectItem>
+            <SelectItem value="SOLD">Sold</SelectItem>
           </SelectContent>
         </Select>
       </div>

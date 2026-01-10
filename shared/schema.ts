@@ -624,20 +624,23 @@ export interface DispositionInfo {
   requiresLostReason: boolean;
 }
 
+// Lead pipeline stages for funnel tracking - matches dispositions
+export const leadPipelineStages = [
+  "NOT_HOME", "RETURN", "DOOR_SLAM_REJECT", "SHORT_PITCH",
+  "CALLED", "EMAIL_SENT", "CALL_NO_ANSWER", "SOLD"
+] as const;
+export type LeadPipelineStage = typeof leadPipelineStages[number];
+
 export const dispositionMetadata: DispositionInfo[] = [
   { value: "NONE", label: "None", category: "status", pipelineStage: null, isTerminal: false, requiresLostReason: false },
-  // Contact outcomes
-  { value: "NOT_HOME", label: "Not Home", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
-  { value: "CALLED", label: "Called", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
-  { value: "EMAIL_SENT", label: "Email Sent", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
-  { value: "CALL_NO_ANSWER", label: "Call-No Answer", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
-  { value: "SHORT_PITCH", label: "Short-Pitch", category: "contact", pipelineStage: "CONTACTED", isTerminal: false, requiresLostReason: false },
-  // Follow-up needed
-  { value: "RETURN", label: "Return", category: "follow_up", pipelineStage: null, isTerminal: false, requiresLostReason: false },
-  // Negative outcomes (terminal)
-  { value: "DOOR_SLAM_REJECT", label: "Door Slam/Reject", category: "negative", pipelineStage: "LOST", isTerminal: true, requiresLostReason: false },
-  // Won
-  { value: "SOLD", label: "Sold", category: "won", pipelineStage: "WON", isTerminal: true, requiresLostReason: false },
+  { value: "NOT_HOME", label: "Not Home", category: "contact", pipelineStage: "NOT_HOME", isTerminal: false, requiresLostReason: false },
+  { value: "RETURN", label: "Return", category: "follow_up", pipelineStage: "RETURN", isTerminal: false, requiresLostReason: false },
+  { value: "DOOR_SLAM_REJECT", label: "Door Slam/Reject", category: "negative", pipelineStage: "DOOR_SLAM_REJECT", isTerminal: true, requiresLostReason: false },
+  { value: "SHORT_PITCH", label: "Short-Pitch", category: "contact", pipelineStage: "SHORT_PITCH", isTerminal: false, requiresLostReason: false },
+  { value: "CALLED", label: "Called", category: "contact", pipelineStage: "CALLED", isTerminal: false, requiresLostReason: false },
+  { value: "EMAIL_SENT", label: "Email Sent", category: "contact", pipelineStage: "EMAIL_SENT", isTerminal: false, requiresLostReason: false },
+  { value: "CALL_NO_ANSWER", label: "Call-No Answer", category: "contact", pipelineStage: "CALL_NO_ANSWER", isTerminal: false, requiresLostReason: false },
+  { value: "SOLD", label: "Sold", category: "won", pipelineStage: "SOLD", isTerminal: true, requiresLostReason: false },
 ];
 
 // Derived mappings for backward compatibility
@@ -648,10 +651,6 @@ export const terminalDispositions: LeadDisposition[] = dispositionMetadata.filte
 
 export const getDispositionInfo = (disposition: LeadDisposition): DispositionInfo | undefined =>
   dispositionMetadata.find(d => d.value === disposition);
-
-// Lead pipeline stages for funnel tracking
-export const leadPipelineStages = ["NEW", "CONTACTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"] as const;
-export type LeadPipelineStage = typeof leadPipelineStages[number];
 
 // Lead loss reasons - expanded
 export const leadLossReasons = [
