@@ -1502,17 +1502,23 @@ export async function registerRoutes(
       
       if (!order) return res.status(404).json({ message: "Order not found" });
       
-      // REPs can only modify their own orders
-      if (user.role === "REP" && order.repId !== user.repId) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      // Check if user is admin-level (can edit any order)
+      const isAdminLevel = ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role);
       
-      // MANAGERs can only modify their team's orders
-      if (user.role === "MANAGER") {
-        const teamMembers = await storage.getTeamMembers(user.id);
-        const teamRepIds = [...teamMembers.map(m => m.repId), user.repId];
-        if (!teamRepIds.includes(order.repId)) {
-          return res.status(403).json({ message: "Access denied" });
+      // Order locking: non-admin roles can only edit their own orders
+      if (!isAdminLevel) {
+        // REPs, MDU, SUPERVISOR can only modify their own orders
+        if (["REP", "MDU", "SUPERVISOR"].includes(user.role) && order.repId !== user.repId) {
+          return res.status(403).json({ message: "Orders are locked to their creator. Contact admin to make changes." });
+        }
+        
+        // MANAGERs can only modify their team's orders
+        if (user.role === "MANAGER") {
+          const teamMembers = await storage.getTeamMembers(user.id);
+          const teamRepIds = [...teamMembers.map(m => m.repId), user.repId];
+          if (!teamRepIds.includes(order.repId)) {
+            return res.status(403).json({ message: "Access denied" });
+          }
         }
       }
       
@@ -1526,17 +1532,24 @@ export async function registerRoutes(
       if (order.approvalStatus === "APPROVED") {
         // Approved orders: only status + customer contact can be updated
         allowedFields = [...statusFields, "customerPhone", "customerEmail", "customerAddress", "accountNumber"];
+        // ADMIN/EXECUTIVE/OPERATIONS can also change repId on approved orders
+        if (isAdminLevel) {
+          allowedFields.push("repId");
+        }
       } else if (order.approvalStatus === "UNAPPROVED") {
-        if (user.role === "ADMIN") {
-          // Admin can modify all non-financial fields on unapproved orders
-          allowedFields = [...statusFields, ...customerFields, ...orderFields];
+        if (isAdminLevel) {
+          // Admin-level can modify all fields including repId on unapproved orders
+          allowedFields = [...statusFields, ...customerFields, ...orderFields, "repId"];
         } else {
-          // REPs and MANAGERs can modify customer + order fields on their unapproved orders
+          // REPs and MANAGERs can modify customer + order fields on their unapproved orders (not repId)
           allowedFields = [...statusFields, ...customerFields, ...orderFields];
         }
       } else {
         // Rejected orders - allow limited edits for resubmission
         allowedFields = [...customerFields, ...orderFields];
+        if (isAdminLevel) {
+          allowedFields.push("repId");
+        }
       }
       
       // Extract only whitelisted fields
@@ -8448,7 +8461,13 @@ export async function registerRoutes(
   app.get("/api/admin/mdu/pending", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const orders = await storage.getPendingMduStagingOrders();
-      res.json(orders);
+      // Never send encrypted SSN to client - only masked display
+      const safeOrders = orders.map((order: any) => {
+        const { customerSsnEncrypted, ...safeOrder } = order;
+        const ssnDisplay = safeOrder.customerSsnLast4 ? `***-**-${safeOrder.customerSsnLast4}` : null;
+        return { ...safeOrder, customerSsnDisplay: ssnDisplay, hasSsn: !!customerSsnEncrypted };
+      });
+      res.json(safeOrders);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch pending MDU orders" });
     }
@@ -8458,9 +8477,120 @@ export async function registerRoutes(
   app.get("/api/admin/mdu/orders", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const orders = await storage.getMduStagingOrders();
-      res.json(orders);
+      // Never send encrypted SSN to client - only masked display
+      const safeOrders = orders.map((order: any) => {
+        const { customerSsnEncrypted, ...safeOrder } = order;
+        const ssnDisplay = safeOrder.customerSsnLast4 ? `***-**-${safeOrder.customerSsnLast4}` : null;
+        return { ...safeOrder, customerSsnDisplay: ssnDisplay, hasSsn: !!customerSsnEncrypted };
+      });
+      res.json(safeOrders);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch MDU orders" });
+    }
+  });
+
+  // Admin/Executive: View full SSN (explicit request with audit logging)
+  app.get("/api/admin/mdu/:id/ssn", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      // Only ADMIN, OPERATIONS, EXECUTIVE can view full SSN
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Not authorized to view SSN" });
+      }
+      
+      const { id } = req.params;
+      const order = await storage.getMduStagingOrderById(id);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      const orderData = order as any;
+      if (!orderData.customerSsnEncrypted) {
+        return res.status(404).json({ message: "No SSN on file for this order" });
+      }
+      
+      const decryptedSsn = decryptSsn(orderData.customerSsnEncrypted);
+      
+      // Audit log SSN access
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "view_ssn",
+        tableName: "mdu_staging_orders",
+        recordId: id,
+        afterJson: JSON.stringify({ accessedBy: user.repId, accessedByRole: user.role }),
+      });
+      
+      res.json({ ssn: decryptedSsn });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to retrieve SSN" });
+    }
+  });
+
+  // Admin: Create regular order from MDU staging order with rep assignment
+  app.post("/api/admin/mdu/:id/promote", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { id } = req.params;
+      const { assignToRepId } = req.body;
+      
+      const mduOrder = await storage.getMduStagingOrderById(id);
+      if (!mduOrder) {
+        return res.status(404).json({ message: "MDU order not found" });
+      }
+      if (mduOrder.status !== "APPROVED") {
+        return res.status(400).json({ message: "Order must be approved before promoting to regular order" });
+      }
+      if (mduOrder.promotedToOrderId) {
+        return res.status(400).json({ message: "Order has already been promoted" });
+      }
+
+      // Validate the target rep if provided
+      const targetRepId = assignToRepId || mduOrder.mduRepId;
+      const targetUser = await storage.getUserByRepId(targetRepId);
+      if (!targetUser) {
+        return res.status(400).json({ message: "Target rep not found" });
+      }
+
+      // Create the main sales order
+      const mainOrderData: any = {
+        repId: targetRepId,
+        clientId: mduOrder.clientId,
+        providerId: mduOrder.providerId,
+        serviceId: mduOrder.serviceId,
+        dateSold: mduOrder.dateSold,
+        installDate: mduOrder.installDate,
+        installTime: mduOrder.installTime,
+        installType: mduOrder.installType,
+        accountNumber: mduOrder.accountNumber,
+        tvSold: mduOrder.tvSold,
+        mobileSold: mduOrder.mobileSold,
+        mobileProductType: mduOrder.mobileProductType,
+        mobilePortedStatus: mduOrder.mobilePortedStatus,
+        mobileLinesQty: mduOrder.mobileLinesQty,
+        customerName: mduOrder.customerName,
+        customerAddress: mduOrder.customerAddress,
+        customerPhone: mduOrder.customerPhone,
+        customerEmail: mduOrder.customerEmail,
+      };
+
+      const mainOrder = await storage.createOrder(mainOrderData);
+
+      // Update MDU staging order with promotion info
+      await storage.updateMduStagingOrder(id, {
+        promotedToOrderId: mainOrder.id,
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "promote_mdu_to_order",
+        tableName: "mdu_staging_orders",
+        recordId: id,
+        afterJson: JSON.stringify({ promotedToOrderId: mainOrder.id, assignedToRepId: targetRepId }),
+      });
+
+      res.json({ mduOrder: await storage.getMduStagingOrderById(id), mainOrder });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to promote MDU order" });
     }
   });
 

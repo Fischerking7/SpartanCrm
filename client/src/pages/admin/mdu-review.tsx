@@ -7,9 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { CheckCircle, XCircle, Clock, Eye, Building2 } from "lucide-react";
+import { CheckCircle, XCircle, Clock, Eye, Building2, ArrowRight } from "lucide-react";
 import type { Provider, Service, Client, User } from "@shared/schema";
 
 interface MduStagingOrder {
@@ -45,7 +46,9 @@ export default function AdminMduReview() {
   const { toast } = useToast();
   const [selectedOrder, setSelectedOrder] = useState<MduStagingOrder | null>(null);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [showPromoteDialog, setShowPromoteDialog] = useState(false);
   const [rejectionNote, setRejectionNote] = useState("");
+  const [promoteRepId, setPromoteRepId] = useState("");
 
   const { data: pendingOrders, isLoading } = useQuery<MduStagingOrder[]>({
     queryKey: ["/api/admin/mdu/pending"],
@@ -116,6 +119,33 @@ export default function AdminMduReview() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to reject order", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const promoteMutation = useMutation({
+    mutationFn: async ({ id, assignToRepId }: { id: string; assignToRepId?: string }) => {
+      const res = await fetch(`/api/admin/mdu/${id}/promote`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ assignToRepId }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to promote order");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/mdu/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/mdu/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setShowPromoteDialog(false);
+      setSelectedOrder(null);
+      setPromoteRepId("");
+      toast({ title: "Order promoted to main orders" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to promote order", description: error.message, variant: "destructive" });
     },
   });
 
@@ -232,6 +262,9 @@ export default function AdminMduReview() {
                     <div className="flex items-center gap-3">
                       <span className="font-medium">{order.customerName}</span>
                       {getStatusBadge(order.status)}
+                      {order.promotedToOrderId && (
+                        <Badge variant="outline" className="text-xs">In Orders</Badge>
+                      )}
                     </div>
                     <div className="text-sm text-muted-foreground">
                       Rep: {getRepName(order.mduRepId)} • 
@@ -242,8 +275,21 @@ export default function AdminMduReview() {
                       <p className="text-sm text-destructive">Reason: {order.rejectionNote}</p>
                     )}
                   </div>
-                  <div className="text-sm text-muted-foreground">
-                    {order.reviewedAt ? new Date(order.reviewedAt).toLocaleDateString() : ""}
+                  <div className="flex items-center gap-2">
+                    {order.status === "APPROVED" && !order.promotedToOrderId && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => { setSelectedOrder(order); setPromoteRepId(order.mduRepId); setShowPromoteDialog(true); }}
+                        data-testid={`button-promote-mdu-${order.id}`}
+                      >
+                        <ArrowRight className="h-4 w-4 mr-1" />
+                        Create Order
+                      </Button>
+                    )}
+                    <span className="text-sm text-muted-foreground">
+                      {order.reviewedAt ? new Date(order.reviewedAt).toLocaleDateString() : ""}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -373,6 +419,48 @@ export default function AdminMduReview() {
               data-testid="button-confirm-reject"
             >
               Reject Order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPromoteDialog} onOpenChange={setShowPromoteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Regular Order</DialogTitle>
+            <DialogDescription>
+              Promote this approved MDU order to the main orders table. You can assign it to any rep.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Assign To Rep</Label>
+              <Select value={promoteRepId} onValueChange={setPromoteRepId}>
+                <SelectTrigger data-testid="select-promote-rep">
+                  <SelectValue placeholder="Select rep to assign order" />
+                </SelectTrigger>
+                <SelectContent>
+                  {users?.map((rep) => (
+                    <SelectItem key={rep.id} value={rep.repId}>{rep.name} ({rep.repId}) - {rep.role}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Original MDU Rep: {selectedOrder ? getRepName(selectedOrder.mduRepId) : ""}
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setShowPromoteDialog(false); setPromoteRepId(""); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => selectedOrder && promoteMutation.mutate({ id: selectedOrder.id, assignToRepId: promoteRepId })}
+              disabled={!promoteRepId || promoteMutation.isPending}
+              data-testid="button-confirm-promote"
+            >
+              <ArrowRight className="h-4 w-4 mr-2" />
+              {promoteMutation.isPending ? "Creating..." : "Create Order"}
             </Button>
           </DialogFooter>
         </DialogContent>

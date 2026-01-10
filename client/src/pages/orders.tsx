@@ -366,12 +366,13 @@ export default function Orders() {
   };
 
   const updateJobStatusMutation = useMutation({
-    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string }) => {
+    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType, repId }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string; repId?: string }) => {
       const body: Record<string, string> = {};
       if (jobStatus) body.jobStatus = jobStatus;
       if (installDate !== undefined) body.installDate = installDate;
       if (installTime !== undefined) body.installTime = installTime;
       if (installType !== undefined) body.installType = installType;
+      if (repId !== undefined) body.repId = repId;
       
       const res = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
@@ -740,11 +741,12 @@ export default function Orders() {
       },
       className: "text-right",
     }] : []),
-    {
+    // Payment status only visible to ADMIN and OPERATIONS
+    ...((user?.role === "ADMIN" || user?.role === "OPERATIONS") ? [{
       key: "paymentStatus",
       header: "Payment",
       cell: (row: SalesOrder) => <PaymentStatusBadge status={row.paymentStatus} />,
-    },
+    }] : []),
     ...((user?.role === "OPERATIONS" || isAdminOrExec) ? [{
       key: "delete",
       header: "",
@@ -868,7 +870,7 @@ export default function Orders() {
       </Card>
 
       <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Order Details</DialogTitle>
             <DialogDescription>
@@ -891,8 +893,25 @@ export default function Orders() {
                   <p className="text-sm">{selectedOrder.customerPhone || "-"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Rep ID</Label>
-                  <p className="font-mono">{selectedOrder.repId}</p>
+                  <Label className="text-muted-foreground">Rep ID (Sales ID)</Label>
+                  {isAdminOrExec ? (
+                    <Select
+                      value={selectedOrder.repId}
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, repId: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[180px]" data-testid="select-order-rep">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reps?.map((rep) => (
+                          <SelectItem key={rep.id} value={rep.repId}>{rep.name} ({rep.repId})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="font-mono">{selectedOrder.repId}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Provider</Label>
@@ -1122,7 +1141,8 @@ export default function Orders() {
                 {unapproveMutation.isPending ? "Reversing..." : "Reverse Approval"}
               </Button>
             )}
-            {isAdmin && selectedOrder && selectedOrder.paymentStatus !== "PAID" && (
+            {/* Mark as Paid only visible to ADMIN and OPERATIONS */}
+            {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && selectedOrder && selectedOrder.paymentStatus !== "PAID" && (
               <Button 
                 onClick={() => markPaidMutation.mutate(selectedOrder.id)}
                 disabled={markPaidMutation.isPending}
