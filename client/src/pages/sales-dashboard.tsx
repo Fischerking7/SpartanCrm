@@ -5,6 +5,7 @@ import { DashboardChartsModule } from "@/components/dashboard-charts";
 import { NextDayInstallsCard } from "@/components/next-day-installs";
 import { TeamBreakdownByRepTable } from "@/components/team-breakdown-table";
 import { Leaderboard } from "@/components/leaderboard";
+import { QuotaProgress } from "@/components/quota-progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -123,7 +124,8 @@ export default function SalesDashboard() {
                 teamMtd={isRep ? null : summary.mtd.team}
               />
             </div>
-            <div>
+            <div className="space-y-6">
+              <QuotaProgress />
               <Leaderboard />
             </div>
           </div>

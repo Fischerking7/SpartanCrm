@@ -14,7 +14,7 @@ import {
   splitCommissionAgreements, splitCommissionRecipients, splitCommissionLedger,
   commissionTiers, commissionTierLevels, repTierAssignments, repVolumeTracking,
   scheduledPayRuns, commissionForecasts,
-  emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials,
+  emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -53,6 +53,7 @@ import {
   type NotificationPreference, type InsertNotificationPreference,
   type BackgroundJob,
   type EmployeeCredential, type InsertEmployeeCredential,
+  type SalesGoal, type InsertSalesGoal,
 } from "@shared/schema";
 
 export const storage = {
@@ -3148,6 +3149,46 @@ export const storage = {
   async deleteEmployeeCredential(credentialId: string) {
     const [deleted] = await db.delete(employeeCredentials)
       .where(eq(employeeCredentials.id, credentialId))
+      .returning();
+    return deleted;
+  },
+
+  // Sales Goals
+  async getSalesGoalsByUser(userId: string) {
+    return db.query.salesGoals.findMany({
+      where: eq(salesGoals.userId, userId),
+      orderBy: [desc(salesGoals.periodStart)],
+    });
+  },
+
+  async getAllSalesGoals() {
+    return db.query.salesGoals.findMany({
+      orderBy: [desc(salesGoals.periodStart)],
+    });
+  },
+
+  async getSalesGoalById(id: string) {
+    return db.query.salesGoals.findFirst({
+      where: eq(salesGoals.id, id),
+    });
+  },
+
+  async createSalesGoal(data: InsertSalesGoal) {
+    const [goal] = await db.insert(salesGoals).values(data).returning();
+    return goal;
+  },
+
+  async updateSalesGoal(id: string, data: Partial<InsertSalesGoal>) {
+    const [goal] = await db.update(salesGoals)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(salesGoals.id, id))
+      .returning();
+    return goal;
+  },
+
+  async deleteSalesGoal(id: string) {
+    const [deleted] = await db.delete(salesGoals)
+      .where(eq(salesGoals.id, id))
       .returning();
     return deleted;
   },

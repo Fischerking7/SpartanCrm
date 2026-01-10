@@ -1068,6 +1068,141 @@ export async function registerRoutes(
     }
   });
 
+  // Quota progress endpoint - current user's goal attainment
+  app.get("/api/dashboard/quota-progress", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      
+      // Get current month date range
+      const monthStart = new Date(nyNow.getFullYear(), nyNow.getMonth(), 1);
+      const monthEnd = new Date(nyNow.getFullYear(), nyNow.getMonth() + 1, 0);
+      const formatDate = (d: Date) => d.toISOString().split("T")[0];
+      
+      // Find active goal for this user and period
+      const userGoals = await storage.getSalesGoalsByUser(user.id);
+      const currentGoal = userGoals.find(g => {
+        const start = new Date(g.periodStart);
+        const end = new Date(g.periodEnd);
+        return start <= monthEnd && end >= monthStart;
+      });
+      
+      // Get orders for the period
+      const allOrders = await storage.getOrders({ repId: user.repId });
+      const periodOrders = allOrders.filter(order => {
+        const orderDate = new Date(order.dateSold);
+        return orderDate >= monthStart && orderDate <= monthEnd;
+      });
+      
+      const soldCount = periodOrders.length;
+      const connectsCount = periodOrders.filter(o => o.jobStatus === "COMPLETED").length;
+      const earnedDollars = periodOrders
+        .filter(o => o.approvalStatus === "APPROVED")
+        .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      
+      // Calculate progress percentages
+      const salesProgress = currentGoal?.salesTarget && currentGoal.salesTarget > 0 
+        ? Math.min(100, Math.round((soldCount / currentGoal.salesTarget) * 100)) 
+        : null;
+      const connectsProgress = currentGoal?.connectsTarget && currentGoal.connectsTarget > 0 
+        ? Math.min(100, Math.round((connectsCount / currentGoal.connectsTarget) * 100)) 
+        : null;
+      const revenueProgress = currentGoal?.revenueTarget && parseFloat(currentGoal.revenueTarget) > 0 
+        ? Math.min(100, Math.round((earnedDollars / parseFloat(currentGoal.revenueTarget)) * 100)) 
+        : null;
+      
+      // Calculate days remaining in period
+      const daysInMonth = Math.ceil((monthEnd.getTime() - monthStart.getTime()) / (1000 * 60 * 60 * 24));
+      const daysPassed = Math.ceil((nyNow.getTime() - monthStart.getTime()) / (1000 * 60 * 60 * 24));
+      const daysRemaining = Math.max(0, daysInMonth - daysPassed);
+      const expectedProgress = Math.round((daysPassed / daysInMonth) * 100);
+      
+      res.json({
+        period: "monthly",
+        periodStart: formatDate(monthStart),
+        periodEnd: formatDate(monthEnd),
+        daysRemaining,
+        expectedProgress,
+        hasGoal: !!currentGoal,
+        goals: currentGoal ? {
+          salesTarget: currentGoal.salesTarget,
+          connectsTarget: currentGoal.connectsTarget,
+          revenueTarget: parseFloat(currentGoal.revenueTarget),
+        } : null,
+        actual: {
+          soldCount,
+          connectsCount,
+          earnedDollars,
+        },
+        progress: {
+          sales: salesProgress,
+          connects: connectsProgress,
+          revenue: revenueProgress,
+        },
+      });
+    } catch (error) {
+      console.error("Quota progress error:", error);
+      res.status(500).json({ message: "Failed to get quota progress" });
+    }
+  });
+
+  // Admin: Manage sales goals
+  app.get("/api/admin/sales-goals", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const goals = await storage.getAllSalesGoals();
+      const users = await storage.getUsers();
+      const goalsWithUsers = goals.map(g => ({
+        ...g,
+        userName: users.find(u => u.id === g.userId)?.name || "Unknown",
+        userRepId: users.find(u => u.id === g.userId)?.repId || "",
+      }));
+      res.json(goalsWithUsers);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get sales goals" });
+    }
+  });
+
+  app.post("/api/admin/sales-goals", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const goalData = {
+        ...req.body,
+        createdByUserId: user.id,
+      };
+      const newGoal = await storage.createSalesGoal(goalData);
+      res.status(201).json(newGoal);
+    } catch (error) {
+      console.error("Create sales goal error:", error);
+      res.status(500).json({ message: "Failed to create sales goal" });
+    }
+  });
+
+  app.patch("/api/admin/sales-goals/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const updatedGoal = await storage.updateSalesGoal(id, req.body);
+      if (!updatedGoal) {
+        return res.status(404).json({ message: "Goal not found" });
+      }
+      res.json(updatedGoal);
+    } catch (error) {
+      console.error("Update sales goal error:", error);
+      res.status(500).json({ message: "Failed to update sales goal" });
+    }
+  });
+
+  app.delete("/api/admin/sales-goals/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteSalesGoal(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete sales goal error:", error);
+      res.status(500).json({ message: "Failed to delete sales goal" });
+    }
+  });
+
   // Team routes
   app.get("/api/team/members", auth, managerOrAdmin, async (req: AuthRequest, res) => {
     try {
