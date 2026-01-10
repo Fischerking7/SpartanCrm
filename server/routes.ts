@@ -3952,12 +3952,21 @@ export async function registerRoutes(
       };
       
       // Prepare leads sheet data
+      // Build full address from available fields (some imports use customerAddress, others use houseNumber/streetName)
+      const buildAddress = (lead: any) => {
+        // If customerAddress exists, use it
+        if (lead.customerAddress) return lead.customerAddress;
+        // Otherwise build from individual fields
+        const parts = [lead.houseNumber, lead.street, lead.streetName, lead.aptUnit, lead.city, lead.state].filter(Boolean);
+        return parts.join(" ");
+      };
+      
       const leadsData = leadPool.map(lead => ({
         "Lead ID": lead.id,
         "Customer Name": lead.customerName || "",
         "Phone": lead.customerPhone || "",
         "Email": lead.customerEmail || "",
-        "Address": lead.customerAddress || "",
+        "Address": buildAddress(lead),
         "Zip Code": lead.zipCode || "",
         "Disposition": lead.disposition,
         "Rep ID": lead.repId || "",
