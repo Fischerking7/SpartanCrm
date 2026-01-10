@@ -584,27 +584,14 @@ export default function Orders() {
       key: "actions",
       header: "",
       cell: (row: SalesOrder) => (
-        <div className="flex items-center gap-1">
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => setSelectedOrder(row)}
-            data-testid={`button-view-order-${row.id}`}
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
-          {(user?.role === "OPERATIONS" || (isAdminOrExec && row.approvalStatus === "UNAPPROVED")) && (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="text-destructive"
-              onClick={() => handleDeleteOrder(row.id)}
-              data-testid={`button-delete-order-${row.id}`}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => setSelectedOrder(row)}
+          data-testid={`button-view-order-${row.id}`}
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
       ),
     },
     {
@@ -758,6 +745,23 @@ export default function Orders() {
       header: "Payment",
       cell: (row: SalesOrder) => <PaymentStatusBadge status={row.paymentStatus} />,
     },
+    ...((user?.role === "OPERATIONS" || isAdminOrExec) ? [{
+      key: "delete",
+      header: "",
+      cell: (row: SalesOrder) => (
+        (user?.role === "OPERATIONS" || row.approvalStatus === "UNAPPROVED") ? (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="text-destructive"
+            onClick={() => handleDeleteOrder(row.id)}
+            data-testid={`button-delete-order-${row.id}`}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        ) : null
+      ),
+    }] : []),
   ];
 
   return (
