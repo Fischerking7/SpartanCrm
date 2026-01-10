@@ -2898,14 +2898,34 @@ export async function registerRoutes(
   });
 
   // Get approved orders not yet linked to a pay run
+  // If weekEndingDate is provided, filter orders by approval date falling within that pay week
   app.get("/api/admin/payruns/unlinked-orders", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
+      const weekEndingDate = req.query.weekEndingDate as string | undefined;
       const orders = await storage.getOrders();
-      const unlinked = orders.filter(o => 
+      
+      let unlinked = orders.filter(o => 
         o.approvalStatus === "APPROVED" && 
         o.paymentStatus === "UNPAID" && 
         !o.payRunId
       );
+      
+      // If weekEndingDate is provided, filter by approval date within the pay week
+      // Pay week is 7 days ending on weekEndingDate (inclusive)
+      if (weekEndingDate) {
+        const weekEnd = new Date(weekEndingDate);
+        weekEnd.setHours(23, 59, 59, 999);
+        const weekStart = new Date(weekEndingDate);
+        weekStart.setDate(weekStart.getDate() - 6);
+        weekStart.setHours(0, 0, 0, 0);
+        
+        unlinked = unlinked.filter(o => {
+          if (!o.approvedAt) return false;
+          const approvedAt = new Date(o.approvedAt);
+          return approvedAt >= weekStart && approvedAt <= weekEnd;
+        });
+      }
+      
       res.json(unlinked);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });

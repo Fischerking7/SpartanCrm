@@ -111,13 +111,16 @@ export default function PayRuns() {
   });
 
   const { data: unlinkedOrders } = useQuery<SalesOrder[]>({
-    queryKey: ["/api/admin/payruns/unlinked-orders"],
+    queryKey: ["/api/admin/payruns/unlinked-orders", selectedPayRun?.weekEndingDate],
     queryFn: async () => {
-      const res = await fetch("/api/admin/payruns/unlinked-orders", { headers: getAuthHeaders() });
+      const url = selectedPayRun?.weekEndingDate
+        ? `/api/admin/payruns/unlinked-orders?weekEndingDate=${selectedPayRun.weekEndingDate}`
+        : "/api/admin/payruns/unlinked-orders";
+      const res = await fetch(url, { headers: getAuthHeaders() });
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: showLinkDialog,
+    enabled: showLinkDialog && !!selectedPayRun,
   });
 
   const { data: poolEntries, refetch: refetchPool } = useQuery<PoolEntry[]>({
@@ -1050,12 +1053,17 @@ export default function PayRuns() {
           <DialogHeader>
             <DialogTitle>Link Orders to Pay Run</DialogTitle>
             <DialogDescription>
-              Select approved orders to include in this pay run.
+              {selectedPayRun && (() => {
+                const weekEnd = new Date(selectedPayRun.weekEndingDate);
+                const weekStart = new Date(selectedPayRun.weekEndingDate);
+                weekStart.setDate(weekStart.getDate() - 6);
+                return `Showing orders approved between ${weekStart.toLocaleDateString()} and ${weekEnd.toLocaleDateString()}`;
+              })()}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {unlinkedOrders?.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">No unlinked orders available</p>
+              <p className="text-muted-foreground text-center py-8">No orders were approved during this pay week</p>
             ) : (
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {unlinkedOrders?.map((order) => (
@@ -1069,10 +1077,13 @@ export default function PayRuns() {
                       onCheckedChange={() => toggleOrderSelection(order.id)}
                       data-testid={`checkbox-order-${order.id}`}
                     />
-                    <div className="flex-1 grid grid-cols-4 gap-2">
+                    <div className="flex-1 grid grid-cols-5 gap-2">
                       <span className="font-mono text-sm">{order.invoiceNumber}</span>
                       <span className="font-mono">{order.repId}</span>
                       <span className="truncate">{order.customerName}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {order.approvedAt ? new Date(order.approvedAt).toLocaleDateString() : '-'}
+                      </span>
                       <span className="font-mono text-right">
                         ${(parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned)).toFixed(2)}
                       </span>
