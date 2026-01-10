@@ -2005,8 +2005,8 @@ export async function registerRoutes(
     }
   });
 
-  // Admin reference data routes
-  app.get("/api/admin/users", auth, adminOnly, async (req, res) => {
+  // Admin reference data routes (executives can view, admins can modify)
+  app.get("/api/admin/users", auth, executiveOrAdmin, async (req, res) => {
     try {
       const users = await storage.getUsers();
       res.json(users.map(u => ({ ...u, passwordHash: undefined })));
@@ -2015,7 +2015,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/users", auth, adminOnly, async (req, res) => {
+  app.get("/api/users", auth, executiveOrAdmin, async (req, res) => {
     try {
       const users = await storage.getUsers();
       res.json(users.map(u => ({ ...u, passwordHash: undefined })));
