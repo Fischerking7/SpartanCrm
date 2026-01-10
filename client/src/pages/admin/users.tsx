@@ -67,6 +67,26 @@ function PasswordField({ value, label }: { value: string | null; label: string }
 }
 
 function UserCredentialsSection({ userId, enabled }: { userId: string; enabled: boolean }) {
+  const { toast } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [editingCred, setEditingCred] = useState<EmployeeCredential | null>(null);
+  const [credForm, setCredForm] = useState({
+    entryLabel: "",
+    peopleSoftNumber: "",
+    networkId: "",
+    tempPassword: "",
+    workEmail: "",
+    rtr: "",
+    rtrPassword: "",
+    authenticatorUsername: "",
+    authenticatorPassword: "",
+    ipadPin: "",
+    deviceNumber: "",
+    gmail: "",
+    gmailPassword: "",
+    notes: "",
+  });
+
   const { data: credentials, isLoading } = useQuery<EmployeeCredential[]>({
     queryKey: ["/api/admin/employee-credentials/user", userId],
     queryFn: async () => {
@@ -77,48 +97,227 @@ function UserCredentialsSection({ userId, enabled }: { userId: string; enabled: 
     enabled,
   });
 
+  const createMutation = useMutation({
+    mutationFn: async (data: typeof credForm) => {
+      const res = await fetch(`/api/admin/employee-credentials/user/${userId}`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to create credentials");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/employee-credentials/user", userId] });
+      setShowForm(false);
+      resetCredForm();
+      toast({ title: "Credentials added" });
+    },
+    onError: () => toast({ title: "Failed to add credentials", variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: typeof credForm }) => {
+      const res = await fetch(`/api/admin/employee-credentials/${id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to update credentials");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/employee-credentials/user", userId] });
+      setEditingCred(null);
+      setShowForm(false);
+      resetCredForm();
+      toast({ title: "Credentials updated" });
+    },
+    onError: () => toast({ title: "Failed to update credentials", variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/admin/employee-credentials/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/employee-credentials/user", userId] });
+      toast({ title: "Credentials deleted" });
+    },
+    onError: () => toast({ title: "Failed to delete", variant: "destructive" }),
+  });
+
+  const resetCredForm = () => setCredForm({ entryLabel: "", peopleSoftNumber: "", networkId: "", tempPassword: "", workEmail: "", rtr: "", rtrPassword: "", authenticatorUsername: "", authenticatorPassword: "", ipadPin: "", deviceNumber: "", gmail: "", gmailPassword: "", notes: "" });
+
+  const openEditForm = (cred: EmployeeCredential) => {
+    setEditingCred(cred);
+    setCredForm({
+      entryLabel: cred.entryLabel || "",
+      peopleSoftNumber: cred.peopleSoftNumber || "",
+      networkId: cred.networkId || "",
+      tempPassword: cred.tempPassword || "",
+      workEmail: cred.workEmail || "",
+      rtr: cred.rtr || "",
+      rtrPassword: cred.rtrPassword || "",
+      authenticatorUsername: cred.authenticatorUsername || "",
+      authenticatorPassword: cred.authenticatorPassword || "",
+      ipadPin: cred.ipadPin || "",
+      deviceNumber: cred.deviceNumber || "",
+      gmail: cred.gmail || "",
+      gmailPassword: cred.gmailPassword || "",
+      notes: cred.notes || "",
+    });
+    setShowForm(true);
+  };
+
+  const handleSubmit = () => {
+    if (editingCred) {
+      updateMutation.mutate({ id: editingCred.id, data: credForm });
+    } else {
+      createMutation.mutate(credForm);
+    }
+  };
+
   if (isLoading) return <Skeleton className="h-20 w-full" />;
-  if (!credentials?.length) return <p className="text-sm text-muted-foreground py-4">No credentials on file</p>;
 
   return (
     <div className="space-y-4">
-      {credentials.map((cred) => (
-        <div key={cred.id} className="border rounded-lg p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <Badge variant="outline">{cred.entryLabel || "Default"}</Badge>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-            {cred.peopleSoftNumber && (
-              <div><Label className="text-xs text-muted-foreground">PeopleSoft #</Label><p className="font-mono">{cred.peopleSoftNumber}</p></div>
-            )}
-            {cred.networkId && (
-              <div><Label className="text-xs text-muted-foreground">Network ID</Label><p className="font-mono">{cred.networkId}</p></div>
-            )}
-            {cred.workEmail && (
-              <div><Label className="text-xs text-muted-foreground">Work Email</Label><p className="font-mono">{cred.workEmail}</p></div>
-            )}
-            {cred.deviceNumber && (
-              <div><Label className="text-xs text-muted-foreground">Device #</Label><p className="font-mono">{cred.deviceNumber}</p></div>
-            )}
-            <PasswordField value={cred.tempPassword} label="Temp Password" />
-            <PasswordField value={cred.rtrPassword} label="RTR Password" />
-            <PasswordField value={cred.authenticatorPassword} label="Authenticator Password" />
-            <PasswordField value={cred.ipadPin} label="iPad PIN" />
-            <PasswordField value={cred.gmailPassword} label="Gmail Password" />
-          </div>
-          {cred.notes && (
-            <div className="pt-2 border-t">
-              <Label className="text-xs text-muted-foreground">Notes</Label>
-              <p className="text-sm whitespace-pre-wrap">{cred.notes}</p>
+      <div className="flex justify-end">
+        <Button size="sm" onClick={() => { resetCredForm(); setEditingCred(null); setShowForm(true); }} data-testid="button-add-credential">
+          <Plus className="h-4 w-4 mr-1" /> Add Credentials
+        </Button>
+      </div>
+      
+      {!credentials?.length ? (
+        <p className="text-sm text-muted-foreground py-4">No credentials on file</p>
+      ) : (
+        credentials.map((cred) => (
+          <div key={cred.id} className="border rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Badge variant="outline">{cred.entryLabel || "Default"}</Badge>
+              <div className="flex gap-1">
+                <Button size="icon" variant="ghost" onClick={() => openEditForm(cred)} data-testid={`button-edit-credential-${cred.id}`}>
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(cred.id)} data-testid={`button-delete-credential-${cred.id}`}>
+                  <Trash2 className="h-4 w-4 text-red-600" />
+                </Button>
+              </div>
             </div>
-          )}
-        </div>
-      ))}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+              {cred.peopleSoftNumber && <div><Label className="text-xs text-muted-foreground">PeopleSoft #</Label><p className="font-mono">{cred.peopleSoftNumber}</p></div>}
+              {cred.networkId && <div><Label className="text-xs text-muted-foreground">Network ID</Label><p className="font-mono">{cred.networkId}</p></div>}
+              {cred.workEmail && <div><Label className="text-xs text-muted-foreground">Work Email</Label><p className="font-mono">{cred.workEmail}</p></div>}
+              {cred.deviceNumber && <div><Label className="text-xs text-muted-foreground">Device #</Label><p className="font-mono">{cred.deviceNumber}</p></div>}
+              <PasswordField value={cred.tempPassword} label="Temp Password" />
+              <PasswordField value={cred.rtrPassword} label="RTR Password" />
+              <PasswordField value={cred.authenticatorPassword} label="Authenticator Password" />
+              <PasswordField value={cred.ipadPin} label="iPad PIN" />
+              <PasswordField value={cred.gmailPassword} label="Gmail Password" />
+            </div>
+            {cred.notes && (
+              <div className="pt-2 border-t">
+                <Label className="text-xs text-muted-foreground">Notes</Label>
+                <p className="text-sm whitespace-pre-wrap">{cred.notes}</p>
+              </div>
+            )}
+          </div>
+        ))
+      )}
+
+      <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditingCred(null); resetCredForm(); } }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingCred ? "Edit Credentials" : "Add Credentials"}</DialogTitle>
+            <DialogDescription>Enter employee credentials information</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Entry Label</Label>
+              <Input value={credForm.entryLabel} onChange={(e) => setCredForm({ ...credForm, entryLabel: e.target.value })} placeholder="e.g., Primary, Backup" data-testid="input-entry-label" />
+            </div>
+            <div className="space-y-2">
+              <Label>PeopleSoft #</Label>
+              <Input value={credForm.peopleSoftNumber} onChange={(e) => setCredForm({ ...credForm, peopleSoftNumber: e.target.value })} data-testid="input-peoplesoft" />
+            </div>
+            <div className="space-y-2">
+              <Label>Network ID</Label>
+              <Input value={credForm.networkId} onChange={(e) => setCredForm({ ...credForm, networkId: e.target.value })} data-testid="input-network-id" />
+            </div>
+            <div className="space-y-2">
+              <Label>Temp Password</Label>
+              <Input value={credForm.tempPassword} onChange={(e) => setCredForm({ ...credForm, tempPassword: e.target.value })} data-testid="input-temp-password" />
+            </div>
+            <div className="space-y-2">
+              <Label>Work Email</Label>
+              <Input value={credForm.workEmail} onChange={(e) => setCredForm({ ...credForm, workEmail: e.target.value })} data-testid="input-work-email" />
+            </div>
+            <div className="space-y-2">
+              <Label>RTR</Label>
+              <Input value={credForm.rtr} onChange={(e) => setCredForm({ ...credForm, rtr: e.target.value })} data-testid="input-rtr" />
+            </div>
+            <div className="space-y-2">
+              <Label>RTR Password</Label>
+              <Input value={credForm.rtrPassword} onChange={(e) => setCredForm({ ...credForm, rtrPassword: e.target.value })} data-testid="input-rtr-password" />
+            </div>
+            <div className="space-y-2">
+              <Label>Authenticator Username</Label>
+              <Input value={credForm.authenticatorUsername} onChange={(e) => setCredForm({ ...credForm, authenticatorUsername: e.target.value })} data-testid="input-auth-username" />
+            </div>
+            <div className="space-y-2">
+              <Label>Authenticator Password</Label>
+              <Input value={credForm.authenticatorPassword} onChange={(e) => setCredForm({ ...credForm, authenticatorPassword: e.target.value })} data-testid="input-auth-password" />
+            </div>
+            <div className="space-y-2">
+              <Label>iPad PIN</Label>
+              <Input value={credForm.ipadPin} onChange={(e) => setCredForm({ ...credForm, ipadPin: e.target.value })} data-testid="input-ipad-pin" />
+            </div>
+            <div className="space-y-2">
+              <Label>Device Number</Label>
+              <Input value={credForm.deviceNumber} onChange={(e) => setCredForm({ ...credForm, deviceNumber: e.target.value })} data-testid="input-device-number" />
+            </div>
+            <div className="space-y-2">
+              <Label>Gmail</Label>
+              <Input value={credForm.gmail} onChange={(e) => setCredForm({ ...credForm, gmail: e.target.value })} data-testid="input-gmail" />
+            </div>
+            <div className="space-y-2">
+              <Label>Gmail Password</Label>
+              <Input value={credForm.gmailPassword} onChange={(e) => setCredForm({ ...credForm, gmailPassword: e.target.value })} data-testid="input-gmail-password" />
+            </div>
+            <div className="col-span-2 space-y-2">
+              <Label>Notes</Label>
+              <Input value={credForm.notes} onChange={(e) => setCredForm({ ...credForm, notes: e.target.value })} data-testid="input-notes" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowForm(false); setEditingCred(null); resetCredForm(); }}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-save-credential">
+              {editingCred ? "Update" : "Add"} Credentials
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 function UserBankingSection({ userId, enabled }: { userId: string; enabled: boolean }) {
+  const { toast } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [bankForm, setBankForm] = useState({
+    accountHolderName: "",
+    bankName: "",
+    accountType: "checking",
+    routingNumber: "",
+    accountNumber: "",
+    isPrimary: false,
+  });
+
   const { data: accounts, isLoading } = useQuery<BankAccount[]>({
     queryKey: ["/api/admin/bank-accounts", userId],
     queryFn: async () => {
@@ -129,40 +328,145 @@ function UserBankingSection({ userId, enabled }: { userId: string; enabled: bool
     enabled,
   });
 
+  const createMutation = useMutation({
+    mutationFn: async (data: typeof bankForm) => {
+      const res = await fetch("/api/admin/bank-accounts", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ ...data, userId }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to add bank account");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/bank-accounts", userId] });
+      setShowForm(false);
+      resetBankForm();
+      toast({ title: "Bank account added" });
+    },
+    onError: (error: Error) => toast({ title: "Failed to add bank account", description: error.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/admin/bank-accounts/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/bank-accounts", userId] });
+      toast({ title: "Bank account removed" });
+    },
+    onError: () => toast({ title: "Failed to remove bank account", variant: "destructive" }),
+  });
+
+  const resetBankForm = () => setBankForm({ accountHolderName: "", bankName: "", accountType: "checking", routingNumber: "", accountNumber: "", isPrimary: false });
+
   if (isLoading) return <Skeleton className="h-20 w-full" />;
-  if (!accounts?.length) return <p className="text-sm text-muted-foreground py-4">No bank accounts on file</p>;
 
   return (
     <div className="space-y-4">
-      {accounts.map((account) => (
-        <div key={account.id} className="border rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
+      <div className="flex justify-end">
+        <Button size="sm" onClick={() => { resetBankForm(); setShowForm(true); }} data-testid="button-add-bank-account">
+          <Plus className="h-4 w-4 mr-1" /> Add Bank Account
+        </Button>
+      </div>
+      
+      {!accounts?.length ? (
+        <p className="text-sm text-muted-foreground py-4">No bank accounts on file</p>
+      ) : (
+        accounts.map((account) => (
+          <div key={account.id} className="border rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">{account.bankName}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {account.isPrimary && <Badge variant="default">Primary</Badge>}
+                <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(account.id)} data-testid={`button-delete-bank-${account.id}`}>
+                  <Trash2 className="h-4 w-4 text-red-600" />
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <Label className="text-xs text-muted-foreground">Account Holder</Label>
+                <p>{account.accountHolderName}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Account Type</Label>
+                <p className="capitalize">{account.accountType}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Routing #</Label>
+                <p className="font-mono">••••{account.routingNumber.slice(-4)}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Account #</Label>
+                <p className="font-mono">••••{account.accountNumber.slice(-4)}</p>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+
+      <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); resetBankForm(); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add Bank Account</DialogTitle>
+            <DialogDescription>Enter bank account details for direct deposit</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Account Holder Name</Label>
+              <Input value={bankForm.accountHolderName} onChange={(e) => setBankForm({ ...bankForm, accountHolderName: e.target.value })} placeholder="Full legal name" data-testid="input-account-holder" />
+            </div>
+            <div className="space-y-2">
+              <Label>Bank Name</Label>
+              <Input value={bankForm.bankName} onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })} placeholder="e.g., Chase, Bank of America" data-testid="input-bank-name" />
+            </div>
+            <div className="space-y-2">
+              <Label>Account Type</Label>
+              <Select value={bankForm.accountType} onValueChange={(v) => setBankForm({ ...bankForm, accountType: v })}>
+                <SelectTrigger data-testid="select-account-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="checking">Checking</SelectItem>
+                  <SelectItem value="savings">Savings</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Routing Number</Label>
+                <Input value={bankForm.routingNumber} onChange={(e) => setBankForm({ ...bankForm, routingNumber: e.target.value.replace(/\D/g, "").slice(0, 9) })} placeholder="9 digits" maxLength={9} data-testid="input-routing" />
+              </div>
+              <div className="space-y-2">
+                <Label>Account Number</Label>
+                <Input value={bankForm.accountNumber} onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value.replace(/\D/g, "") })} placeholder="Account number" data-testid="input-account-number" />
+              </div>
+            </div>
             <div className="flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-muted-foreground" />
-              <span className="font-medium">{account.bankName}</span>
-            </div>
-            {account.isPrimary && <Badge variant="default">Primary</Badge>}
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div>
-              <Label className="text-xs text-muted-foreground">Account Holder</Label>
-              <p>{account.accountHolderName}</p>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Account Type</Label>
-              <p>{account.accountType}</p>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Routing #</Label>
-              <p className="font-mono">••••{account.routingNumber.slice(-4)}</p>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Account #</Label>
-              <p className="font-mono">••••{account.accountNumber.slice(-4)}</p>
+              <input type="checkbox" id="isPrimary" checked={bankForm.isPrimary} onChange={(e) => setBankForm({ ...bankForm, isPrimary: e.target.checked })} className="rounded" data-testid="checkbox-primary" />
+              <Label htmlFor="isPrimary" className="cursor-pointer">Set as primary account</Label>
             </div>
           </div>
-        </div>
-      ))}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowForm(false); resetBankForm(); }}>Cancel</Button>
+            <Button onClick={() => createMutation.mutate(bankForm)} disabled={!bankForm.accountHolderName || !bankForm.bankName || bankForm.routingNumber.length !== 9 || !bankForm.accountNumber || createMutation.isPending} data-testid="button-save-bank">
+              Add Bank Account
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

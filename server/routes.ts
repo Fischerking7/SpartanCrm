@@ -589,9 +589,9 @@ export async function registerRoutes(
   app.get("/api/profile/credentials", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      const credentials = await storage.getUserCredentials(user.id);
+      const credentials = await storage.getEmployeeCredentialsByUser(user.id);
       // Mask sensitive fields for non-admin users viewing their own data
-      const masked = credentials.map(c => ({
+      const masked = credentials.map((c: any) => ({
         ...c,
         tempPassword: c.tempPassword ? "••••••••" : null,
         rtrPassword: c.rtrPassword ? "••••••••" : null,
@@ -609,11 +609,11 @@ export async function registerRoutes(
     try {
       const user = req.user!;
       const accounts = await storage.getUserBankAccounts(user.id);
-      // Mask sensitive fields
+      // Return with masked account numbers (only last 4 visible)
       const masked = accounts.map(a => ({
         ...a,
         routingNumber: "•••••" + a.routingNumber.slice(-4),
-        accountNumber: "•••••" + a.accountNumber.slice(-4),
+        accountNumber: "•••••" + a.accountNumberLast4,
       }));
       res.json(masked);
     } catch (error: any) {
