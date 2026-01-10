@@ -8377,6 +8377,11 @@ export async function registerRoutes(
         customerAddress: req.body.customerAddress,
         customerPhone: req.body.customerPhone,
         customerEmail: req.body.customerEmail,
+        customerBirthday: req.body.customerBirthday,
+        customerSsnLast4: req.body.customerSsnLast4,
+        creditCardLast4: req.body.creditCardLast4,
+        creditCardExpiry: req.body.creditCardExpiry,
+        creditCardName: req.body.creditCardName,
         notes: req.body.notes,
       };
       // Remove undefined values

@@ -34,6 +34,11 @@ interface MduStagingOrder {
   customerAddress?: string;
   customerPhone?: string;
   customerEmail?: string;
+  customerBirthday?: string;
+  customerSsnLast4?: string;
+  creditCardLast4?: string;
+  creditCardExpiry?: string;
+  creditCardName?: string;
   notes?: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
   rejectionNote?: string;
@@ -63,6 +68,11 @@ export default function MduOrders() {
     customerAddress: "",
     customerPhone: "",
     customerEmail: "",
+    customerBirthday: "",
+    customerSsnLast4: "",
+    creditCardLast4: "",
+    creditCardExpiry: "",
+    creditCardName: "",
     notes: "",
   });
 
@@ -175,6 +185,11 @@ export default function MduOrders() {
       customerAddress: "",
       customerPhone: "",
       customerEmail: "",
+      customerBirthday: "",
+      customerSsnLast4: "",
+      creditCardLast4: "",
+      creditCardExpiry: "",
+      creditCardName: "",
       notes: "",
     });
   };
@@ -198,6 +213,11 @@ export default function MduOrders() {
       customerAddress: order.customerAddress || "",
       customerPhone: order.customerPhone || "",
       customerEmail: order.customerEmail || "",
+      customerBirthday: order.customerBirthday || "",
+      customerSsnLast4: order.customerSsnLast4 || "",
+      creditCardLast4: order.creditCardLast4 || "",
+      creditCardExpiry: order.creditCardExpiry || "",
+      creditCardName: order.creditCardName || "",
       notes: order.notes || "",
     });
     setEditingOrder(order);
@@ -352,15 +372,86 @@ export default function MduOrders() {
                 data-testid="input-customer-address"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="customerEmail">Email</Label>
-              <Input
-                id="customerEmail"
-                type="email"
-                value={formData.customerEmail}
-                onChange={e => setFormData({ ...formData, customerEmail: e.target.value })}
-                data-testid="input-customer-email"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="customerEmail">Email</Label>
+                <Input
+                  id="customerEmail"
+                  type="email"
+                  value={formData.customerEmail}
+                  onChange={e => setFormData({ ...formData, customerEmail: e.target.value })}
+                  data-testid="input-customer-email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="customerBirthday">Birthday</Label>
+                <Input
+                  id="customerBirthday"
+                  type="date"
+                  value={formData.customerBirthday}
+                  onChange={e => setFormData({ ...formData, customerBirthday: e.target.value })}
+                  data-testid="input-customer-birthday"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="customerSsnLast4">SSN (Last 4 digits)</Label>
+                <Input
+                  id="customerSsnLast4"
+                  value={formData.customerSsnLast4}
+                  onChange={e => {
+                    const value = e.target.value.replace(/\D/g, "").slice(0, 4);
+                    setFormData({ ...formData, customerSsnLast4: value });
+                  }}
+                  placeholder="1234"
+                  maxLength={4}
+                  data-testid="input-customer-ssn-last4"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="creditCardLast4">Credit Card (Last 4 digits)</Label>
+                <Input
+                  id="creditCardLast4"
+                  value={formData.creditCardLast4}
+                  onChange={e => {
+                    const value = e.target.value.replace(/\D/g, "").slice(0, 4);
+                    setFormData({ ...formData, creditCardLast4: value });
+                  }}
+                  placeholder="1234"
+                  maxLength={4}
+                  data-testid="input-credit-card-last4"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="creditCardExpiry">Card Expiry (MM/YY)</Label>
+                <Input
+                  id="creditCardExpiry"
+                  value={formData.creditCardExpiry}
+                  onChange={e => {
+                    let value = e.target.value.replace(/[^\d/]/g, "");
+                    if (value.length === 2 && !value.includes("/") && e.target.value.length > formData.creditCardExpiry.length) {
+                      value = value + "/";
+                    }
+                    setFormData({ ...formData, creditCardExpiry: value.slice(0, 5) });
+                  }}
+                  placeholder="MM/YY"
+                  maxLength={5}
+                  data-testid="input-credit-card-expiry"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="creditCardName">Name on Card</Label>
+                <Input
+                  id="creditCardName"
+                  value={formData.creditCardName}
+                  onChange={e => setFormData({ ...formData, creditCardName: e.target.value })}
+                  placeholder="John Doe"
+                  data-testid="input-credit-card-name"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
