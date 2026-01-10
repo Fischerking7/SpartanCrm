@@ -3958,6 +3958,7 @@ export async function registerRoutes(
         "Phone": lead.customerPhone || "",
         "Email": lead.customerEmail || "",
         "Address": lead.customerAddress || "",
+        "Zip Code": lead.zipCode || "",
         "Disposition": lead.disposition,
         "Rep ID": lead.repId || "",
         "Rep Name": getRepName(lead.repId),
