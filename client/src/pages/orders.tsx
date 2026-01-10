@@ -122,6 +122,7 @@ export default function Orders() {
             const mduOrder = await res.json();
             setNewOrderForm(f => ({
               ...f,
+              repId: mduOrder.mduRepId || "",
               customerName: mduOrder.customerName || "",
               customerAddress: mduOrder.customerAddress || "",
               customerPhone: mduOrder.customerPhone || "",
@@ -135,6 +136,8 @@ export default function Orders() {
               installTime: mduOrder.installTime || "",
               installType: mduOrder.installType || "",
               hasTv: mduOrder.tvSold || false,
+              hasMobile: mduOrder.mobileSold || false,
+              mobileLinesQty: mduOrder.mobileLinesQty || 0,
               notes: mduOrder.notes || "",
             }));
             setShowNewOrderDialog(true);
