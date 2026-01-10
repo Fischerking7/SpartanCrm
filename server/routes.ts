@@ -2058,7 +2058,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/users", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/users", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { password, name, repId, role, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
       if (!password || !name || !repId) {
@@ -2115,7 +2115,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/users/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/users/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const { password, name, role, repId, status, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
@@ -2199,7 +2199,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/users/:id/deactivate", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/users/:id/deactivate", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const user = await storage.updateUser(id, { status: "DEACTIVATED" });
@@ -2210,7 +2210,7 @@ export async function registerRoutes(
     }
   });
   
-  app.delete("/api/admin/users/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/users/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const targetUser = await storage.getUserById(id);
