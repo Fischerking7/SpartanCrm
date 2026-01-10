@@ -181,7 +181,7 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
   switch (role) {
     case "REP":
       return {
-        sales: [MENU.orders, MENU.quickEntry, MENU.leads, MENU.dashboard, MENU.adjustments],
+        sales: [MENU.quickEntry, MENU.leads, MENU.orders, MENU.dashboard, MENU.adjustments],
         ...base,
       };
     case "MDU":
@@ -197,7 +197,7 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
       };
     case "EXECUTIVE":
       return {
-        sales: [MENU.orders, MENU.leads, MENU.salesPipeline, MENU.dashboard, MENU.reports, MENU.approvals, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit],
+        sales: [MENU.quickEntry, MENU.leads, MENU.orders, MENU.salesPipeline, MENU.dashboard, MENU.reports, MENU.approvals, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit],
         ...base,
       };
     default:
