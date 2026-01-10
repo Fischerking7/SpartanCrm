@@ -45,6 +45,8 @@ import {
   Target,
   Key,
   Filter,
+  BellRing,
+  Settings2,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -61,7 +63,8 @@ const repMenuItems: MenuItem[] = [
   { title: "My Credentials", url: "/my-credentials", icon: Key },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
-  { title: "Notifications", url: "/notification-settings", icon: Bell },
+  { title: "Alerts", url: "/notifications", icon: BellRing },
+  { title: "Settings", url: "/notification-settings", icon: Settings2 },
 ];
 
 const mduMenuItems: MenuItem[] = [
@@ -71,7 +74,8 @@ const mduMenuItems: MenuItem[] = [
   { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "My Credentials", url: "/my-credentials", icon: Key },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
-  { title: "Notifications", url: "/notification-settings", icon: Bell },
+  { title: "Alerts", url: "/notifications", icon: BellRing },
+  { title: "Settings", url: "/notification-settings", icon: Settings2 },
 ];
 
 const salesLeaderMenuItems: MenuItem[] = [
@@ -86,7 +90,8 @@ const salesLeaderMenuItems: MenuItem[] = [
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
-  { title: "Notifications", url: "/notification-settings", icon: Bell },
+  { title: "Alerts", url: "/notifications", icon: BellRing },
+  { title: "Settings", url: "/notification-settings", icon: Settings2 },
 ];
 
 const executiveMenuItems: MenuItem[] = [
@@ -105,6 +110,8 @@ const executiveMenuItems: MenuItem[] = [
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
   { title: "Audit Log", url: "/audit", icon: History },
+  { title: "Alerts", url: "/notifications", icon: BellRing },
+  { title: "Settings", url: "/notification-settings", icon: Settings2 },
 ];
 
 const adminOperations: MenuItem[] = [
@@ -136,7 +143,8 @@ const adminPersonal: MenuItem[] = [
   { title: "Commission Forecast", url: "/commission-forecast", icon: Target },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "My Credentials", url: "/my-credentials", icon: Key },
-  { title: "Notifications", url: "/notification-settings", icon: Bell },
+  { title: "Alerts", url: "/notifications", icon: BellRing },
+  { title: "Settings", url: "/notification-settings", icon: Settings2 },
 ];
 
 const adminResources: MenuItem[] = [

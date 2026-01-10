@@ -8335,6 +8335,56 @@ export async function registerRoutes(
     }
   });
 
+  // ========== User Notifications (In-App) ==========
+
+  // Get current user's notifications
+  app.get("/api/notifications", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      const notifications = await storage.getUserNotifications(user.id, limit);
+      res.json(notifications);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get unread notification count
+  app.get("/api/notifications/unread-count", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const count = await storage.getUnreadNotificationCount(user.id);
+      res.json({ count });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Mark a single notification as read
+  app.patch("/api/notifications/:id/read", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const notification = await storage.markNotificationRead(req.params.id, user.id);
+      if (!notification) {
+        return res.status(404).json({ message: "Notification not found" });
+      }
+      res.json(notification);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Mark all notifications as read
+  app.post("/api/notifications/mark-all-read", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const count = await storage.markAllNotificationsRead(user.id);
+      res.json({ markedRead: count });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ========== Employee Credentials (Multi-Entry) ==========
 
   // Get current user's all credential entries

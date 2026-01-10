@@ -46,6 +46,7 @@ import AdminEmployeeCredentials from "@/pages/admin/employee-credentials";
 import MduOrders from "@/pages/mdu-orders";
 import AdminMduReview from "@/pages/admin/mdu-review";
 import SalesPipeline from "@/pages/sales-pipeline";
+import Notifications from "@/pages/notifications";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -164,6 +165,7 @@ function Router() {
         <Route path="/knowledge" component={Knowledge} />
         <Route path="/my-pay" component={MyPayHistory} />
         <Route path="/commission-forecast" component={CommissionForecast} />
+        <Route path="/notifications" component={Notifications} />
         <Route path="/notification-settings" component={NotificationSettings} />
         <Route path="/my-credentials" component={MyCredentials} />
         <Route path="/change-password" component={ChangePassword} />

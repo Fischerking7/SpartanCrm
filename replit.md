@@ -59,3 +59,4 @@ Key entities include Users, Clients, SalesOrders, Incentives, Chargebacks, PayRu
 - **QuickBooks Online Integration**: OAuth 2.0 connection for invoice syncing, journal entry posting, and account mapping. Requires `QB_CLIENT_ID`, `QB_CLIENT_SECRET`, `QB_REDIRECT_URI`, `QB_ENVIRONMENT`.
 - **Background Scheduler**: Manages automated tasks like scheduled pay run creation, chargeback auto-matching, and email notifications.
 - **Email Notifications**: Queue-based system for user notifications via SMTP. Requires `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`.
+- **Automated Alerts System**: Background jobs for pending approval alerts (orders pending > X days, every 6 hours) and low performance warnings (reps below 50% quota, daily check after day 7). In-app notification center at `/notifications` with read/unread tracking. Notification types include ORDER_APPROVED, ORDER_REJECTED, PENDING_APPROVAL_ALERT, CHARGEBACK_ALERT, LOW_PERFORMANCE_WARNING, and PAY_RUN_FINALIZED.
