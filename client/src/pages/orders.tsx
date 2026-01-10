@@ -85,11 +85,12 @@ export default function Orders() {
   const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS";
   const isTouchDevice = useIsTouchDevice();
 
-  // Handle pre-filling form from lead query params
+  // Handle pre-filling form from lead or MDU query params
   useEffect(() => {
     if (searchString) {
       const params = new URLSearchParams(searchString);
       const fromLead = params.get("fromLead");
+      const fromMdu = params.get("fromMdu");
       const customerName = params.get("customerName");
       const customerAddress = params.get("customerAddress");
       const customerPhone = params.get("customerPhone");
@@ -107,12 +108,50 @@ export default function Orders() {
           accountNumber: accountNumber || "",
         }));
         setShowNewOrderDialog(true);
-        // Clear the URL params after processing
         setLocation("/orders", { replace: true });
         toast({
           title: "Lead information loaded",
           description: "Customer details have been pre-filled from the lead.",
         });
+      } else if (fromMdu) {
+        // Fetch MDU order data securely from backend (not via URL params)
+        const fetchMduOrder = async () => {
+          try {
+            const res = await fetch(`/api/admin/mdu/${fromMdu}/prefill`, { headers: getAuthHeaders() });
+            if (!res.ok) throw new Error("Failed to fetch MDU order");
+            const mduOrder = await res.json();
+            setNewOrderForm(f => ({
+              ...f,
+              customerName: mduOrder.customerName || "",
+              customerAddress: mduOrder.customerAddress || "",
+              customerPhone: mduOrder.customerPhone || "",
+              customerEmail: mduOrder.customerEmail || "",
+              accountNumber: mduOrder.accountNumber || "",
+              providerId: mduOrder.providerId || "",
+              clientId: mduOrder.clientId || "",
+              serviceId: mduOrder.serviceId || "",
+              dateSold: mduOrder.dateSold || "",
+              installDate: mduOrder.installDate || "",
+              installTime: mduOrder.installTime || "",
+              installType: mduOrder.installType || "",
+              hasTv: mduOrder.tvSold || false,
+              notes: mduOrder.notes || "",
+            }));
+            setShowNewOrderDialog(true);
+            toast({
+              title: "MDU order loaded",
+              description: "Order details have been pre-filled from the MDU staging order.",
+            });
+          } catch (error) {
+            toast({
+              title: "Failed to load MDU order",
+              description: "Could not fetch the MDU order details.",
+              variant: "destructive",
+            });
+          }
+        };
+        fetchMduOrder();
+        setLocation("/orders", { replace: true });
       }
     }
   }, [searchString]);

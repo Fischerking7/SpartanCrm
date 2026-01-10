@@ -149,6 +149,7 @@ function Router() {
   }
 
   const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS";
+  const canReviewMdu = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE";
   const canViewReports = user.role !== "REP";
 
   return (
@@ -171,15 +172,22 @@ function Router() {
         {canViewReports && <Route path="/reports" component={Reports} />}
         {canViewReports && <Route path="/executive-reports" component={ExecutiveReports} />}
         
-        {isAdmin && (
+        {canReviewMdu && <Route path="/admin/mdu-review" component={AdminMduReview} />}
+        
+        {(isAdmin || user.role === "EXECUTIVE") && (
           <>
             <Route path="/approvals" component={Approvals} />
             <Route path="/payruns" component={PayRuns} />
-            <Route path="/accounting" component={Accounting} />
             <Route path="/export-history" component={ExportHistory} />
-            <Route path="/recalculate" component={Recalculate} />
             <Route path="/queues" component={Queues} />
             <Route path="/audit" component={Audit} />
+          </>
+        )}
+        
+        {isAdmin && (
+          <>
+            <Route path="/accounting" component={Accounting} />
+            <Route path="/recalculate" component={Recalculate} />
             <Route path="/admin/users" component={AdminUsers} />
             <Route path="/admin/providers" component={AdminProviders} />
             <Route path="/admin/clients" component={AdminClients} />
@@ -191,7 +199,6 @@ function Router() {
             <Route path="/admin/payroll-advanced" component={AdminPayrollAdvanced} />
             <Route path="/admin/quickbooks" component={AdminQuickBooks} />
             <Route path="/admin/employee-credentials" component={AdminEmployeeCredentials} />
-            <Route path="/admin/mdu-review" component={AdminMduReview} />
           </>
         )}
         

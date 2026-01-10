@@ -94,6 +94,7 @@ const executiveMenuItems: MenuItem[] = [
   { title: "My Commissions", url: "/commissions", icon: DollarSign },
   { title: "My Pay", url: "/my-pay", icon: Calendar },
   { title: "Approvals Queue", url: "/approvals", icon: CheckSquare },
+  { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
   { title: "Pay Runs", url: "/payruns", icon: Calendar },
   { title: "Export History", url: "/export-history", icon: Download },
   { title: "Reports", url: "/reports", icon: BarChart3 },
@@ -106,6 +107,7 @@ const executiveMenuItems: MenuItem[] = [
 const adminOperations: MenuItem[] = [
   { title: "Orders", url: "/orders", icon: FileText },
   { title: "Approvals", url: "/approvals", icon: CheckSquare },
+  { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
   { title: "Pay Runs", url: "/payruns", icon: Calendar },
   { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
 ];

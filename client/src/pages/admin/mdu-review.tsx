@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { CheckCircle, XCircle, Clock, Eye, Building2, ArrowRight } from "lucide-react";
+import { CheckCircle, XCircle, Clock, Eye, Building2, ArrowRight, FileText } from "lucide-react";
+import { useLocation } from "wouter";
 import type { Provider, Service, Client, User } from "@shared/schema";
 
 interface MduStagingOrder {
@@ -44,11 +45,16 @@ interface MduStagingOrder {
 
 export default function AdminMduReview() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [selectedOrder, setSelectedOrder] = useState<MduStagingOrder | null>(null);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showPromoteDialog, setShowPromoteDialog] = useState(false);
   const [rejectionNote, setRejectionNote] = useState("");
   const [promoteRepId, setPromoteRepId] = useState("");
+  
+  const handleCreateOrder = (orderId: string) => {
+    setLocation(`/orders?fromMdu=${orderId}`);
+  };
 
   const { data: pendingOrders, isLoading } = useQuery<MduStagingOrder[]>({
     queryKey: ["/api/admin/mdu/pending"],
@@ -218,10 +224,19 @@ export default function AdminMduReview() {
                       Sold: {new Date(order.dateSold).toLocaleDateString()}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Button size="sm" variant="outline" onClick={() => setSelectedOrder(order)} data-testid={`button-view-mdu-${order.id}`}>
                       <Eye className="h-4 w-4 mr-1" />
                       View
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleCreateOrder(order.id)}
+                      data-testid={`button-create-order-mdu-${order.id}`}
+                    >
+                      <FileText className="h-4 w-4 mr-1" />
+                      Create Order
                     </Button>
                     <Button
                       size="sm"

@@ -8685,6 +8685,45 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Get MDU order data for prefilling regular order form (excludes sensitive data)
+  app.get("/api/admin/mdu/:id/prefill", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const mduOrder = await storage.getMduStagingOrderById(id);
+      if (!mduOrder) {
+        return res.status(404).json({ message: "MDU order not found" });
+      }
+      // Whitelist only non-sensitive fields needed for order creation - explicitly exclude all PII/financial data
+      const safeData = {
+        id: mduOrder.id,
+        mduRepId: mduOrder.mduRepId,
+        clientId: mduOrder.clientId,
+        providerId: mduOrder.providerId,
+        serviceId: mduOrder.serviceId,
+        dateSold: mduOrder.dateSold,
+        installDate: mduOrder.installDate,
+        installTime: mduOrder.installTime,
+        installType: mduOrder.installType,
+        accountNumber: mduOrder.accountNumber,
+        tvSold: mduOrder.tvSold,
+        mobileSold: mduOrder.mobileSold,
+        mobileProductType: mduOrder.mobileProductType,
+        mobilePortedStatus: mduOrder.mobilePortedStatus,
+        mobileLinesQty: mduOrder.mobileLinesQty,
+        customerName: mduOrder.customerName,
+        customerAddress: mduOrder.customerAddress,
+        customerPhone: mduOrder.customerPhone,
+        customerEmail: mduOrder.customerEmail,
+        notes: mduOrder.notes,
+        status: mduOrder.status,
+        createdAt: mduOrder.createdAt,
+      };
+      res.json(safeData);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch MDU order" });
+    }
+  });
+
   // Admin: Reject MDU staging order
   app.post("/api/admin/mdu/:id/reject", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
