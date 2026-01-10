@@ -4,7 +4,7 @@ import {
   users, providers, clients, services, rateCards, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues,
-  auditLogs, exportBatches, counters, overrideEarnings, leads, commissionLineItems, mobileLineItems,
+  auditLogs, exportBatches, counters, overrideEarnings, leads, leadDispositionHistory, commissionLineItems, mobileLineItems,
   overrideDeductionPool, overrideDistributions, knowledgeDocuments,
   payrollSchedules, payRunApprovals, deductionTypes, userDeductions,
   advances, advanceRepayments, userTaxProfiles, userPaymentMethods,
@@ -58,6 +58,7 @@ import {
   type MduStagingOrder, type InsertMduStagingOrder,
   type ScheduledReport, type InsertScheduledReport,
   type CommissionDispute, type InsertCommissionDispute,
+  type LeadDispositionHistory, type InsertLeadDispositionHistory,
 } from "@shared/schema";
 
 export const storage = {
@@ -1967,13 +1968,66 @@ export const storage = {
     return lead;
   },
   
-  async updateLeadDisposition(id: string, disposition: string) {
+  async updateLeadDisposition(id: string, disposition: string, changedByUserId?: string, notes?: string) {
+    // Get the current lead to capture previous disposition
+    const currentLead = await db.query.leads.findFirst({ where: eq(leads.id, id) });
+    const previousDisposition = currentLead?.disposition || null;
+    
+    // Update the lead
     const [lead] = await db.update(leads).set({ 
       disposition, 
       dispositionAt: new Date(),
       updatedAt: new Date() 
     }).where(eq(leads.id, id)).returning();
+    
+    // Record the disposition change in history
+    if (lead && previousDisposition !== disposition) {
+      await db.insert(leadDispositionHistory).values({
+        leadId: id,
+        disposition,
+        previousDisposition,
+        changedByUserId,
+        notes,
+      });
+    }
+    
     return lead;
+  },
+  
+  async getLeadDispositionHistory(leadId: string) {
+    return db.query.leadDispositionHistory.findMany({
+      where: eq(leadDispositionHistory.leadId, leadId),
+      orderBy: [desc(leadDispositionHistory.createdAt)],
+    });
+  },
+  
+  async getLeadPool(filters?: { repId?: string; disposition?: string; search?: string }) {
+    const conditions = [isNull(leads.deletedAt)];
+    
+    if (filters?.repId) {
+      conditions.push(eq(leads.repId, filters.repId));
+    }
+    if (filters?.disposition && filters.disposition !== "ALL") {
+      conditions.push(eq(leads.disposition, filters.disposition));
+    }
+    if (filters?.search) {
+      const searchTerm = `%${filters.search}%`;
+      conditions.push(
+        or(
+          ilike(leads.customerName, searchTerm),
+          ilike(leads.customerPhone, searchTerm),
+          ilike(leads.customerEmail, searchTerm),
+          ilike(leads.street, searchTerm),
+          ilike(leads.city, searchTerm),
+          ilike(leads.accountNumber, searchTerm)
+        )!
+      );
+    }
+    
+    return db.query.leads.findMany({
+      where: and(...conditions),
+      orderBy: [desc(leads.updatedAt)],
+    });
   },
   
   async updateLead(id: string, data: Partial<InsertLead>) {

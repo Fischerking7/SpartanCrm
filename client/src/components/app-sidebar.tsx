@@ -66,7 +66,7 @@ const MENU = {
   
   // Dashboard & Analytics
   dashboard: { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  salesPipeline: { title: "Sales Pipeline", url: "/sales-pipeline", icon: Filter },
+  leadPool: { title: "Lead Pool", url: "/sales-pipeline", icon: Users },
   reports: { title: "Reports", url: "/reports", icon: BarChart3 },
   execReports: { title: "Executive Reports", url: "/executive-reports", icon: TrendingUp },
   
@@ -149,7 +149,7 @@ const adminAccountingItems: MenuItem[] = [
 // Admin: Insights group
 const adminInsightsItems: MenuItem[] = [
   MENU.dashboard,
-  MENU.salesPipeline,
+  MENU.leadPool,
   MENU.reports,
   MENU.execReports,
 ];
@@ -192,12 +192,12 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
     case "SUPERVISOR":
     case "MANAGER":
       return {
-        sales: [MENU.orders, MENU.quickEntry, MENU.leads, MENU.salesPipeline, MENU.dashboard, MENU.reports, MENU.adjustments],
+        sales: [MENU.orders, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.adjustments],
         ...base,
       };
     case "EXECUTIVE":
       return {
-        sales: [MENU.quickEntry, MENU.leads, MENU.orders, MENU.salesPipeline, MENU.dashboard, MENU.reports, MENU.approvals, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users],
+        sales: [MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.approvals, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users],
         ...base,
       };
     default:

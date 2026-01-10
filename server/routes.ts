@@ -3763,8 +3763,8 @@ export async function registerRoutes(
       // Get the mapped pipeline stage from disposition
       const mappedStage = dispositionToPipelineStage[disposition as LeadDisposition];
       
-      // Update disposition
-      const updated = await storage.updateLeadDisposition(id, disposition);
+      // Update disposition (with history tracking)
+      const updated = await storage.updateLeadDisposition(id, disposition, req.user!.id);
       
       // Auto-update pipeline stage if disposition maps to one
       if (mappedStage) {
@@ -3897,6 +3897,65 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Lead assign error:", error);
       res.status(500).json({ message: "Failed to assign lead" });
+    }
+  });
+
+  // Get lead pool - all leads with filtering (SUPERVISOR+ for all, REP for own)
+  app.get("/api/leads/pool", auth, async (req: AuthRequest, res) => {
+    try {
+      const { repId, disposition, search } = req.query;
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(req.user!.role);
+      
+      const filters: { repId?: string; disposition?: string; search?: string } = {
+        disposition: typeof disposition === "string" ? disposition : undefined,
+        search: typeof search === "string" ? search : undefined,
+      };
+      
+      // REPs can only see their own leads, SUPERVISOR+ can see all or filter by rep
+      if (!isAdmin) {
+        filters.repId = req.user!.repId;
+      } else if (typeof repId === "string" && repId !== "ALL") {
+        filters.repId = repId;
+      }
+      
+      const leadPool = await storage.getLeadPool(filters);
+      res.json(leadPool);
+    } catch (error) {
+      console.error("Lead pool error:", error);
+      res.status(500).json({ message: "Failed to fetch lead pool" });
+    }
+  });
+
+  // Get lead disposition history
+  app.get("/api/leads/:id/history", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Verify lead exists
+      const lead = await storage.getLeadById(id);
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      
+      // REP can only see history for own leads, SUPERVISOR+ can see all
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(req.user!.role);
+      if (!isAdmin && lead.repId !== req.user!.repId) {
+        return res.status(403).json({ message: "Not authorized to view this lead's history" });
+      }
+      
+      const history = await storage.getLeadDispositionHistory(id);
+      
+      // Enrich history with user names
+      const users = await storage.getUsers();
+      const enrichedHistory = history.map(h => ({
+        ...h,
+        changedByName: users.find(u => u.id === h.changedByUserId)?.name || "System",
+      }));
+      
+      res.json(enrichedHistory);
+    } catch (error) {
+      console.error("Lead history error:", error);
+      res.status(500).json({ message: "Failed to fetch lead history" });
     }
   });
 

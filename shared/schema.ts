@@ -716,6 +716,12 @@ export const leads = pgTable("leads", {
   interestedProviderId: varchar("interested_provider_id").references(() => providers.id),
   interestedServiceId: varchar("interested_service_id").references(() => services.id),
   
+  // Deduplication fields
+  normalizedPhone: text("normalized_phone"),
+  normalizedEmail: text("normalized_email"),
+  addressHash: text("address_hash"),
+  dedupeGroupId: varchar("dedupe_group_id"),
+  
   deletedAt: timestamp("deleted_at"),
   deletedByUserId: varchar("deleted_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -732,6 +738,29 @@ export const insertLeadSchema = createInsertSchema(leads).omit({
 });
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = z.infer<typeof insertLeadSchema>;
+
+// Lead Disposition History - tracks all disposition changes for each lead
+export const leadDispositionHistory = pgTable("lead_disposition_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").references(() => leads.id).notNull(),
+  disposition: text("disposition").notNull(),
+  previousDisposition: text("previous_disposition"),
+  changedByUserId: varchar("changed_by_user_id").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const leadDispositionHistoryRelations = relations(leadDispositionHistory, ({ one }) => ({
+  lead: one(leads, { fields: [leadDispositionHistory.leadId], references: [leads.id] }),
+  changedBy: one(users, { fields: [leadDispositionHistory.changedByUserId], references: [users.id] }),
+}));
+
+export const insertLeadDispositionHistorySchema = createInsertSchema(leadDispositionHistory).omit({
+  id: true,
+  createdAt: true,
+});
+export type LeadDispositionHistory = typeof leadDispositionHistory.$inferSelect;
+export type InsertLeadDispositionHistory = z.infer<typeof insertLeadDispositionHistorySchema>;
 
 // Knowledge Documents table - for reference files (PDFs, Word docs, images)
 export const knowledgeDocumentTypeEnum = pgEnum("knowledge_document_type", ["PDF", "WORD", "IMAGE", "OTHER"]);
