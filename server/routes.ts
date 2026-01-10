@@ -1215,7 +1215,7 @@ export async function registerRoutes(
       }
       
       // Define strict whitelists based on approval status and role
-      const statusFields = ["jobStatus", "installDate"];
+      const statusFields = ["jobStatus", "installDate", "installTime", "installType"];
       const customerFields = ["customerName", "customerPhone", "customerEmail", "customerAddress", "accountNumber"];
       const orderFields = ["clientId", "providerId", "serviceId", "dateSold", "tvSold", "mobileSold", "mobileProductType", "mobilePortedStatus", "mobileLinesQty", "notes"];
       
