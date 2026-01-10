@@ -581,6 +581,33 @@ export default function Orders() {
 
   const columns = [
     {
+      key: "actions",
+      header: "",
+      cell: (row: SalesOrder) => (
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => setSelectedOrder(row)}
+            data-testid={`button-view-order-${row.id}`}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          {isAdminOrExec && row.approvalStatus === "UNAPPROVED" && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="text-destructive"
+              onClick={() => handleDeleteOrder(row.id)}
+              data-testid={`button-delete-order-${row.id}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      ),
+    },
+    {
       key: "invoiceNumber",
       header: "Invoice #",
       cell: (row: SalesOrder) => (
@@ -730,33 +757,6 @@ export default function Orders() {
       key: "paymentStatus",
       header: "Payment",
       cell: (row: SalesOrder) => <PaymentStatusBadge status={row.paymentStatus} />,
-    },
-    {
-      key: "actions",
-      header: "",
-      cell: (row: SalesOrder) => (
-        <div className="flex items-center gap-1">
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => setSelectedOrder(row)}
-            data-testid={`button-view-order-${row.id}`}
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
-          {isAdminOrExec && row.approvalStatus === "UNAPPROVED" && (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="text-destructive"
-              onClick={() => handleDeleteOrder(row.id)}
-              data-testid={`button-delete-order-${row.id}`}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-      ),
     },
   ];
 
