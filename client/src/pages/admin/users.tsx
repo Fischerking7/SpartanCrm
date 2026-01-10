@@ -732,10 +732,10 @@ export default function AdminUsers() {
     const hasSupervisor = formData.assignedSupervisorId !== __NONE__;
     const hasManager = formData.assignedManagerId !== __NONE__;
     
-    if (role === "REP") {
+    if (role === "REP" || role === "MDU") {
       const hasExecutive = formData.assignedExecutiveId !== __NONE__;
       if (!hasSupervisor && !hasManager && !hasExecutive) {
-        warnings.push("Rep must be assigned to a Supervisor, Manager, or Executive");
+        warnings.push(`${role === "MDU" ? "MDU" : "Rep"} must be assigned to a Supervisor, Manager, or Executive`);
       }
       if (hasSupervisor && hasManager) {
         const supervisor = supervisors.find(s => s.id === formData.assignedSupervisorId);
@@ -773,9 +773,9 @@ export default function AdminUsers() {
     user.repId.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const showSupervisorField = formData.role === "REP";
-  const showManagerField = formData.role === "REP" || formData.role === "SUPERVISOR";
-  const showExecutiveField = formData.role === "REP" || formData.role === "SUPERVISOR" || formData.role === "MANAGER";
+  const showSupervisorField = formData.role === "REP" || formData.role === "MDU";
+  const showManagerField = formData.role === "REP" || formData.role === "MDU" || formData.role === "SUPERVISOR";
+  const showExecutiveField = formData.role === "REP" || formData.role === "MDU" || formData.role === "SUPERVISOR" || formData.role === "MANAGER";
 
   return (
     <div className="p-6 space-y-6">
@@ -887,10 +887,12 @@ export default function AdminUsers() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="REP">Rep</SelectItem>
+                  <SelectItem value="MDU">MDU</SelectItem>
                   <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
                   <SelectItem value="MANAGER">Manager</SelectItem>
                   <SelectItem value="EXECUTIVE">Executive</SelectItem>
                   <SelectItem value="ADMIN">Admin</SelectItem>
+                  <SelectItem value="OPERATIONS">Operations</SelectItem>
                 </SelectContent>
               </Select>
             </div>
