@@ -476,7 +476,8 @@ export default function Orders() {
       const provider = providers?.find(p => p.id === order.providerId);
       const client = clients?.find(c => c.id === order.clientId);
       const overrideAmount = getOverrideAmount(order);
-      const baseCommission = parseFloat(order.baseCommissionEarned);
+      const grossCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
+      const netCommission = grossCommission - overrideAmount;
       return [
         order.invoiceNumber || "",
         order.repId,
@@ -486,9 +487,9 @@ export default function Orders() {
         order.installDate || "",
         order.installType ? (typeLabels[order.installType] || order.installType) : "",
         order.approvalStatus,
-        baseCommission.toFixed(2),
+        grossCommission.toFixed(2),
         overrideAmount.toFixed(2),
-        (baseCommission - overrideAmount).toFixed(2),
+        netCommission.toFixed(2),
         client?.name || "",
         provider?.name || "",
       ];
@@ -710,11 +711,14 @@ export default function Orders() {
     {
       key: "baseCommissionEarned",
       header: "Commission",
-      cell: (row: SalesOrder) => (
-        <span className="font-mono text-right block">
-          ${parseFloat(row.baseCommissionEarned).toFixed(2)}
-        </span>
-      ),
+      cell: (row: SalesOrder) => {
+        const grossCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
+        return (
+          <span className="font-mono text-right block">
+            ${grossCommission.toFixed(2)}
+          </span>
+        );
+      },
       className: "text-right",
     },
     ...(isAdminOrExec ? [{
