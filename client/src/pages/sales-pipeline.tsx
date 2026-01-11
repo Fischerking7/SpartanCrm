@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -20,7 +21,8 @@ import {
   MapPin,
   History,
   Download,
-  Filter
+  Filter,
+  Trash2
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { dispositionMetadata, type Lead, type LeadDisposition } from "@shared/schema";
@@ -57,8 +59,10 @@ export default function SalesPipeline() {
     leadName: ""
   });
   const [isExporting, setIsExporting] = useState(false);
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(false);
 
   const canExport = ["OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
+  const canBulkDelete = ["OPERATIONS", "EXECUTIVE", "ADMIN"].includes(user?.role || "");
 
   const { data: leadPool, isLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/pool", selectedRepId, selectedDisposition, searchTerm],
@@ -109,6 +113,33 @@ export default function SalesPipeline() {
 
   const handleDispositionChange = (leadId: string, newDisposition: string) => {
     updateDispositionMutation.mutate({ leadId, disposition: newDisposition });
+  };
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (repId: string) => {
+      const res = await apiRequest("DELETE", `/api/leads/by-user/${repId}`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/pool"] });
+      toast({ title: "Leads deleted", description: data.message });
+      setDeleteConfirmDialog(false);
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete leads", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleBulkDelete = () => {
+    if (selectedRepId && selectedRepId !== "ALL") {
+      bulkDeleteMutation.mutate(selectedRepId);
+    }
+  };
+
+  const getSelectedRepName = () => {
+    if (!selectedRepId || selectedRepId === "ALL") return "";
+    const rep = reps?.find(r => r.repId === selectedRepId);
+    return rep?.name || selectedRepId;
   };
 
   const openHistory = (lead: Lead) => {
@@ -239,6 +270,17 @@ export default function SalesPipeline() {
                 ))}
               </SelectContent>
             </Select>
+            {canBulkDelete && selectedRepId && selectedRepId !== "ALL" && (
+              <Button 
+                variant="destructive" 
+                onClick={() => setDeleteConfirmDialog(true)}
+                disabled={bulkDeleteMutation.isPending}
+                data-testid="button-bulk-delete-leads"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete All for {getSelectedRepName()}
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -384,6 +426,29 @@ export default function SalesPipeline() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteConfirmDialog} onOpenChange={setDeleteConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete All Leads for {getSelectedRepName()}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all {leadPool?.length || 0} leads assigned to {getSelectedRepName()}. 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleBulkDelete}
+              disabled={bulkDeleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-bulk-delete"
+            >
+              {bulkDeleteMutation.isPending ? "Deleting..." : "Delete All Leads"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

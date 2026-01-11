@@ -4449,6 +4449,38 @@ export async function registerRoutes(
     }
   });
 
+  // Bulk delete all leads for a specific user (ADMIN/OPERATIONS/EXECUTIVE only)
+  app.delete("/api/leads/by-user/:repId", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { repId } = req.params;
+      if (!repId) {
+        return res.status(400).json({ message: "repId required" });
+      }
+      
+      // Verify the rep exists
+      const targetRep = await storage.getUserByRepId(repId);
+      if (!targetRep) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      const deletedLeads = await storage.softDeleteLeadsByRepId(repId, req.user!.id);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "bulk_delete_leads_by_user",
+        tableName: "leads",
+        afterJson: JSON.stringify({ repId, count: deletedLeads.length, targetUserName: targetRep.name }),
+      });
+      
+      res.json({ 
+        message: `Deleted ${deletedLeads.length} leads for ${targetRep.name}`, 
+        count: deletedLeads.length 
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete leads" });
+    }
+  });
+
   // Bulk assign leads to a different rep (SUPERVISOR+)
   // Enforces hierarchy: caller can only assign leads owned by users at or below their role level
   // and can only assign to users at or below their role level

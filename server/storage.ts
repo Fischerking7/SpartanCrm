@@ -2073,6 +2073,15 @@ export const storage = {
       .returning();
     return result;
   },
+
+  // Bulk soft delete all leads for a specific rep
+  async softDeleteLeadsByRepId(repId: string, deletedByUserId: string) {
+    const result = await db.update(leads)
+      .set({ deletedAt: new Date(), deletedByUserId, updatedAt: new Date() })
+      .where(and(eq(leads.repId, repId), isNull(leads.deletedAt)))
+      .returning();
+    return result;
+  },
   
   // Bulk assign leads to a different rep
   async assignLeadsToRep(ids: string[], newRepId: string) {
