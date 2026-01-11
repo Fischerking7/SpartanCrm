@@ -1466,14 +1466,20 @@ export async function registerRoutes(
         const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
         appliedRateCardId = rateCard.id;
         
-        // Calculate override deductions to subtract from rep's commission (always apply)
+        // Check if sales rep is an EXECUTIVE (exempt from override deductions)
+        const salesRep = await storage.getUserByRepId(order.repId);
+        const isExecutiveSale = salesRep?.role === "EXECUTIVE";
+        
+        // Calculate override deductions to subtract from rep's commission (NOT for executives)
         let totalDeductions = 0;
-        totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
-        if (order.tvSold) {
-          totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
-        }
-        if (order.mobileSold) {
-          totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+        if (!isExecutiveSale) {
+          totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+          if (order.tvSold) {
+            totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
+          }
+          if (order.mobileSold) {
+            totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+          }
         }
         baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
       }
@@ -1808,15 +1814,21 @@ export async function registerRoutes(
           // Calculate total commission from line items
           baseCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0).toFixed(2);
           
-          // Calculate override deductions to subtract from rep's commission
+          // Check if sales rep is an EXECUTIVE (exempt from override deductions)
+          const salesRep = await storage.getUserByRepId(order.repId);
+          const isExecutiveSale = salesRep?.role === "EXECUTIVE";
+          
+          // Calculate override deductions to subtract from rep's commission (NOT for executives)
           let totalDeductions = 0;
-          const baseDeduction = parseFloat(rateCard.overrideDeduction || "0");
-          totalDeductions += baseDeduction;
-          if (order.tvSold) {
-            totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
-          }
-          if (order.mobileSold) {
-            totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+          if (!isExecutiveSale) {
+            const baseDeduction = parseFloat(rateCard.overrideDeduction || "0");
+            totalDeductions += baseDeduction;
+            if (order.tvSold) {
+              totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
+            }
+            if (order.mobileSold) {
+              totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+            }
           }
           
           // Net commission is gross minus deductions
