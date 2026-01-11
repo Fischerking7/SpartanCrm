@@ -8431,11 +8431,20 @@ export async function registerRoutes(
   // COMMISSION FORECASTING ENDPOINTS
   // =====================================================
 
-  // Get commission forecast for current user
+  // Get commission forecast for current user (or any user for ADMIN/OPERATOR/EXECUTIVE)
   app.get("/api/commission-forecast", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
       const period = (req.query.period as string) || "MONTH";
+      const requestedUserId = req.query.userId as string | undefined;
+      
+      // Determine target user ID
+      let targetUserId = user.id;
+      
+      // ADMIN, OPERATOR, and EXECUTIVE can view any user's forecast
+      if (requestedUserId && ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
+        targetUserId = requestedUserId;
+      }
       
       const now = new Date();
       let periodStart: Date;
@@ -8458,7 +8467,7 @@ export async function registerRoutes(
       }
       
       const forecast = await storage.calculateCommissionForecast(
-        user.id,
+        targetUserId,
         period,
         periodStart.toISOString().split("T")[0],
         periodEnd.toISOString().split("T")[0]

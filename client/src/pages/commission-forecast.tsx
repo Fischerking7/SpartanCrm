@@ -3,9 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TrendingUp, Clock, DollarSign, BarChart3, Target, Calendar } from "lucide-react";
+import { TrendingUp, Clock, DollarSign, BarChart3, Target, Calendar, User } from "lucide-react";
 import { useState } from "react";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, useAuth } from "@/lib/auth";
+import type { User as UserType } from "@shared/schema";
 
 interface ForecastData {
   period: { type: string; start: string; end: string };
@@ -16,12 +17,39 @@ interface ForecastData {
 }
 
 export default function CommissionForecast() {
+  const { user: currentUser } = useAuth();
   const [period, setPeriod] = useState("MONTH");
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  
+  // Check if current user can view other users' forecasts
+  const canViewOthers = Boolean(currentUser && ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(currentUser.role));
+  
+  // Fetch users list for admin/operator/executive to select from
+  const { data: users = [] } = useQuery<UserType[]>({
+    queryKey: ["/api/admin/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/users", {
+        headers: getAuthHeaders(),
+        credentials: "include",
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: canViewOthers,
+  });
+  
+  // Filter to only show commission-earning roles (exclude ADMIN and OPERATIONS)
+  const commissionEarningUsers = users.filter((u: UserType) => 
+    ["REP", "MDU", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && u.status === "ACTIVE"
+  );
   
   const { data: forecast, isLoading } = useQuery<ForecastData>({
-    queryKey: ["/api/commission-forecast", period],
+    queryKey: ["/api/commission-forecast", period, selectedUserId],
     queryFn: async () => {
-      const res = await fetch(`/api/commission-forecast?period=${period}`, {
+      const url = selectedUserId 
+        ? `/api/commission-forecast?period=${period}&userId=${selectedUserId}`
+        : `/api/commission-forecast?period=${period}`;
+      const res = await fetch(url, {
         headers: getAuthHeaders(),
         credentials: "include",
       });
@@ -29,6 +57,9 @@ export default function CommissionForecast() {
       return res.json();
     },
   });
+  
+  // Get selected user's name for display
+  const selectedUser = selectedUserId ? users.find((u: UserType) => u.id === selectedUserId) : null;
 
   const formatCurrency = (value: string | number) => {
     const num = typeof value === "string" ? parseFloat(value) : value;
@@ -47,21 +78,46 @@ export default function CommissionForecast() {
 
   return (
     <div className="container mx-auto p-6 max-w-4xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Commission Forecast</h1>
-          <p className="text-muted-foreground">Your projected earnings based on pending orders and trends</p>
+      <div className="flex flex-col gap-4 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold" data-testid="text-page-title">Commission Forecast</h1>
+            <p className="text-muted-foreground">
+              {selectedUser 
+                ? `Forecast for ${selectedUser.name}` 
+                : "Your projected earnings based on pending orders and trends"}
+            </p>
+          </div>
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-40" data-testid="select-period">
+              <SelectValue placeholder="Select period" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="WEEK">This Week</SelectItem>
+              <SelectItem value="MONTH">This Month</SelectItem>
+              <SelectItem value="QUARTER">This Quarter</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <Select value={period} onValueChange={setPeriod}>
-          <SelectTrigger className="w-40" data-testid="select-period">
-            <SelectValue placeholder="Select period" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="WEEK">This Week</SelectItem>
-            <SelectItem value="MONTH">This Month</SelectItem>
-            <SelectItem value="QUARTER">This Quarter</SelectItem>
-          </SelectContent>
-        </Select>
+        
+        {canViewOthers && (
+          <div className="flex items-center gap-2">
+            <User className="h-4 w-4 text-muted-foreground" />
+            <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+              <SelectTrigger className="w-64" data-testid="select-user">
+                <SelectValue placeholder="View your own forecast" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">My Forecast</SelectItem>
+                {commissionEarningUsers.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.name} ({u.repId}) - {u.role}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
