@@ -19,7 +19,7 @@ interface ForecastData {
 export default function CommissionForecast() {
   const { user: currentUser } = useAuth();
   const [period, setPeriod] = useState("MONTH");
-  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [selectedUserId, setSelectedUserId] = useState<string>("__self__");
   
   // Check if current user can view other users' forecasts
   const canViewOthers = Boolean(currentUser && ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(currentUser.role));
@@ -46,7 +46,7 @@ export default function CommissionForecast() {
   const { data: forecast, isLoading } = useQuery<ForecastData>({
     queryKey: ["/api/commission-forecast", period, selectedUserId],
     queryFn: async () => {
-      const url = selectedUserId 
+      const url = selectedUserId && selectedUserId !== "__self__"
         ? `/api/commission-forecast?period=${period}&userId=${selectedUserId}`
         : `/api/commission-forecast?period=${period}`;
       const res = await fetch(url, {
@@ -59,7 +59,7 @@ export default function CommissionForecast() {
   });
   
   // Get selected user's name for display
-  const selectedUser = selectedUserId ? users.find((u: UserType) => u.id === selectedUserId) : null;
+  const selectedUser = selectedUserId && selectedUserId !== "__self__" ? users.find((u: UserType) => u.id === selectedUserId) : null;
 
   const formatCurrency = (value: string | number) => {
     const num = typeof value === "string" ? parseFloat(value) : value;
@@ -108,7 +108,7 @@ export default function CommissionForecast() {
                 <SelectValue placeholder="View your own forecast" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">My Forecast</SelectItem>
+                <SelectItem value="__self__">My Forecast</SelectItem>
                 {commissionEarningUsers.map((u) => (
                   <SelectItem key={u.id} value={u.id}>
                     {u.name} ({u.repId}) - {u.role}
