@@ -2001,7 +2001,7 @@ export const storage = {
     });
   },
   
-  async getLeadPool(filters?: { repId?: string; disposition?: string; search?: string }) {
+  async getLeadPool(filters?: { repId?: string; disposition?: string; search?: string; page?: number; limit?: number }) {
     const conditions = [isNull(leads.deletedAt)];
     
     if (filters?.repId) {
@@ -2024,10 +2024,27 @@ export const storage = {
       );
     }
     
-    return db.query.leads.findMany({
-      where: and(...conditions),
+    const whereClause = and(...conditions);
+    
+    // Get total count for pagination
+    const countResult = await db.select({ count: sql<number>`count(*)` })
+      .from(leads)
+      .where(whereClause);
+    const total = Number(countResult[0]?.count || 0);
+    
+    // Apply pagination
+    const page = filters?.page || 1;
+    const limit = filters?.limit || 50;
+    const offset = (page - 1) * limit;
+    
+    const data = await db.query.leads.findMany({
+      where: whereClause,
       orderBy: [desc(leads.updatedAt)],
+      limit,
+      offset,
     });
+    
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   },
   
   async updateLead(id: string, data: Partial<InsertLead>) {

@@ -22,7 +22,9 @@ import {
   History,
   Download,
   Filter,
-  Trash2
+  Trash2,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { dispositionMetadata, type Lead, type LeadDisposition } from "@shared/schema";
@@ -47,12 +49,21 @@ function getDispositionColor(value: string) {
   return DISPOSITION_COLORS[value] || "bg-gray-500";
 }
 
+interface LeadPoolResponse {
+  data: Lead[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export default function SalesPipeline() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDisposition, setSelectedDisposition] = useState<string>("ALL");
   const [selectedRepId, setSelectedRepId] = useState<string>("ALL");
+  const [currentPage, setCurrentPage] = useState(1);
   const [historyDialog, setHistoryDialog] = useState<{ open: boolean; leadId: string | null; leadName: string }>({ 
     open: false, 
     leadId: null,
@@ -64,18 +75,30 @@ export default function SalesPipeline() {
   const canExport = ["OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
   const canBulkDelete = ["OPERATIONS", "EXECUTIVE", "ADMIN"].includes(user?.role || "");
 
-  const { data: leadPool, isLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/leads/pool", selectedRepId, selectedDisposition, searchTerm],
+  // Reset to page 1 when filters change
+  const handleFilterChange = (setter: (v: string) => void, value: string) => {
+    setter(value);
+    setCurrentPage(1);
+  };
+
+  const { data: leadPoolResponse, isLoading } = useQuery<LeadPoolResponse>({
+    queryKey: ["/api/leads/pool", selectedRepId, selectedDisposition, searchTerm, currentPage],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (selectedRepId && selectedRepId !== "ALL") params.set("repId", selectedRepId);
       if (selectedDisposition && selectedDisposition !== "ALL") params.set("disposition", selectedDisposition);
       if (searchTerm) params.set("search", searchTerm);
+      params.set("page", currentPage.toString());
+      params.set("limit", "50");
       const res = await fetch(`/api/leads/pool?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch lead pool");
       return res.json();
     },
   });
+
+  const leadPool = leadPoolResponse?.data || [];
+  const totalLeads = leadPoolResponse?.total || 0;
+  const totalPages = leadPoolResponse?.totalPages || 1;
 
   const { data: reps } = useQuery<any[]>({
     queryKey: ["/api/admin/users"],
@@ -211,7 +234,7 @@ export default function SalesPipeline() {
             </Button>
           )}
           <Badge variant="outline" className="text-lg px-4 py-1">
-            {leadPool?.length || 0} leads
+            {totalLeads} total leads
           </Badge>
         </div>
       </div>
@@ -221,7 +244,7 @@ export default function SalesPipeline() {
           <Card 
             key={d.value} 
             className={`cursor-pointer transition-all ${selectedDisposition === d.value ? 'ring-2 ring-primary' : 'hover-elevate'}`}
-            onClick={() => setSelectedDisposition(selectedDisposition === d.value ? "ALL" : d.value)}
+            onClick={() => { handleFilterChange(setSelectedDisposition, selectedDisposition === d.value ? "ALL" : d.value); }}
             data-testid={`card-disposition-${d.value}`}
           >
             <CardContent className="p-3 text-center">
@@ -241,12 +264,12 @@ export default function SalesPipeline() {
               <Input
                 placeholder="Search by name, phone, email, address..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                 className="pl-9"
                 data-testid="input-search-leads"
               />
             </div>
-            <Select value={selectedRepId} onValueChange={setSelectedRepId}>
+            <Select value={selectedRepId} onValueChange={(v) => handleFilterChange(setSelectedRepId, v)}>
               <SelectTrigger className="w-[180px]" data-testid="select-rep-filter">
                 <SelectValue placeholder="All Reps" />
               </SelectTrigger>
@@ -259,7 +282,7 @@ export default function SalesPipeline() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={selectedDisposition} onValueChange={setSelectedDisposition}>
+            <Select value={selectedDisposition} onValueChange={(v) => handleFilterChange(setSelectedDisposition, v)}>
               <SelectTrigger className="w-[180px]" data-testid="select-disposition-filter">
                 <SelectValue placeholder="All Dispositions" />
               </SelectTrigger>
@@ -382,6 +405,40 @@ export default function SalesPipeline() {
             </ScrollArea>
           )}
         </CardContent>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t">
+            <div className="text-sm text-muted-foreground">
+              Showing {((currentPage - 1) * 50) + 1}-{Math.min(currentPage * 50, totalLeads)} of {totalLeads} leads
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage <= 1 || isLoading}
+                data-testid="button-prev-page"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <div className="flex items-center gap-1 px-2">
+                <span className="text-sm font-medium">Page {currentPage} of {totalPages}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages || isLoading}
+                data-testid="button-next-page"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Dialog open={historyDialog.open} onOpenChange={(open) => setHistoryDialog({ ...historyDialog, open })}>
@@ -432,7 +489,7 @@ export default function SalesPipeline() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete All Leads for {getSelectedRepName()}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete all {leadPool?.length || 0} leads assigned to {getSelectedRepName()}. 
+              This will permanently delete all {totalLeads} leads assigned to {getSelectedRepName()}. 
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

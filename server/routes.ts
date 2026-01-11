@@ -3912,15 +3912,17 @@ export async function registerRoutes(
     }
   });
 
-  // Get lead pool - all leads with filtering (SUPERVISOR+ for all, REP for own)
+  // Get lead pool - all leads with filtering and pagination (SUPERVISOR+ for all, REP for own)
   app.get("/api/leads/pool", auth, async (req: AuthRequest, res) => {
     try {
-      const { repId, disposition, search } = req.query;
+      const { repId, disposition, search, page, limit } = req.query;
       const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(req.user!.role);
       
-      const filters: { repId?: string; disposition?: string; search?: string } = {
+      const filters: { repId?: string; disposition?: string; search?: string; page?: number; limit?: number } = {
         disposition: typeof disposition === "string" ? disposition : undefined,
         search: typeof search === "string" ? search : undefined,
+        page: typeof page === "string" ? parseInt(page, 10) : 1,
+        limit: typeof limit === "string" ? Math.min(parseInt(limit, 10), 100) : 50, // Max 100 per page
       };
       
       // REPs can only see their own leads, SUPERVISOR+ can see all or filter by rep
@@ -3930,8 +3932,8 @@ export async function registerRoutes(
         filters.repId = repId;
       }
       
-      const leadPool = await storage.getLeadPool(filters);
-      res.json(leadPool);
+      const result = await storage.getLeadPool(filters);
+      res.json(result);
     } catch (error) {
       console.error("Lead pool error:", error);
       res.status(500).json({ message: "Failed to fetch lead pool" });
@@ -3946,15 +3948,17 @@ export async function registerRoutes(
       }
 
       const { repId, disposition, search } = req.query;
-      const filters: { repId?: string; disposition?: string; search?: string } = {
+      const filters: { repId?: string; disposition?: string; search?: string; limit?: number } = {
         disposition: typeof disposition === "string" ? disposition : undefined,
         search: typeof search === "string" ? search : undefined,
+        limit: 10000, // Export up to 10k leads at once
       };
       if (typeof repId === "string" && repId !== "ALL") {
         filters.repId = repId;
       }
 
-      const leadPool = await storage.getLeadPool(filters);
+      const result = await storage.getLeadPool(filters);
+      const leadPool = result.data;
       const users = await storage.getUsers();
       const getUserName = (userId: string) => users.find(u => u.id === userId)?.name || userId;
       const getRepName = (repId: string | null) => {
