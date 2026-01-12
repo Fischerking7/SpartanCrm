@@ -408,13 +408,16 @@ export default function Orders() {
   };
 
   const updateJobStatusMutation = useMutation({
-    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType, repId }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string; repId?: string }) => {
+    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType, repId, clientId, providerId, serviceId }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string; repId?: string; clientId?: string; providerId?: string; serviceId?: string }) => {
       const body: Record<string, string> = {};
       if (jobStatus) body.jobStatus = jobStatus;
       if (installDate !== undefined) body.installDate = installDate;
       if (installTime !== undefined) body.installTime = installTime;
       if (installType !== undefined) body.installType = installType;
       if (repId !== undefined) body.repId = repId;
+      if (clientId !== undefined) body.clientId = clientId;
+      if (providerId !== undefined) body.providerId = providerId;
+      if (serviceId !== undefined) body.serviceId = serviceId;
       
       const res = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
@@ -958,12 +961,67 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
+                  <Label className="text-muted-foreground">Client</Label>
+                  {isAdminOrExec ? (
+                    <Select
+                      value={selectedOrder.clientId || ""}
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, clientId: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[180px]" data-testid="select-order-client">
+                        <SelectValue placeholder="Select client" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {clients?.map((client) => (
+                          <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="font-medium">{clients?.find(c => c.id === selectedOrder.clientId)?.name || "-"}</p>
+                  )}
+                </div>
+                <div>
                   <Label className="text-muted-foreground">Provider</Label>
-                  <p className="font-medium">{providers?.find(p => p.id === selectedOrder.providerId)?.name || "-"}</p>
+                  {isAdminOrExec ? (
+                    <Select
+                      value={selectedOrder.providerId || ""}
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, providerId: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[180px]" data-testid="select-order-provider">
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {providers?.map((provider) => (
+                          <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="font-medium">{providers?.find(p => p.id === selectedOrder.providerId)?.name || "-"}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Service</Label>
-                  <p className="font-medium">{services?.find(s => s.id === selectedOrder.serviceId)?.name || "-"}</p>
+                  {isAdminOrExec ? (
+                    <Select
+                      value={selectedOrder.serviceId || ""}
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, serviceId: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[180px]" data-testid="select-order-service">
+                        <SelectValue placeholder="Select service" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {services?.map((service) => (
+                          <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="font-medium">{services?.find(s => s.id === selectedOrder.serviceId)?.name || "-"}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Account Number</Label>
