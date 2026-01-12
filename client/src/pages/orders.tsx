@@ -471,16 +471,41 @@ export default function Orders() {
       "DIRECT_SHIP": "Direct Ship",
       "TECH_INSTALL": "Tech Install",
     };
-    const headers = ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Approval Status", "Base Commission", "Incentive", "Gross Commission", "Override", "Net Commission", "Client", "Provider", "User Name"];
+    // Admin/Exec see full breakdown with override; REPs see only commission (net)
+    const headers = isAdminOrExec 
+      ? ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Approval Status", "Base Commission", "Incentive", "Gross Commission", "Override", "Net Commission", "Client", "Provider", "User Name"]
+      : ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Approval Status", "Commission", "Client", "Provider"];
     const rows = filteredOrders.map(order => {
       const provider = providers?.find(p => p.id === order.providerId);
       const client = clients?.find(c => c.id === order.clientId);
-      const user = reps?.find(r => r.repId === order.repId);
+      const repUser = reps?.find(r => r.repId === order.repId);
       const overrideAmount = getOverrideAmount(order);
       const baseCommission = parseFloat(order.baseCommissionEarned);
       const incentive = parseFloat(order.incentiveEarned || "0");
       const grossCommission = baseCommission + incentive;
       const netCommission = grossCommission - overrideAmount;
+      
+      if (isAdminOrExec) {
+        return [
+          order.invoiceNumber || "",
+          order.repId,
+          order.customerName,
+          order.accountNumber || "",
+          order.dateSold,
+          order.installDate || "",
+          order.installType ? (typeLabels[order.installType] || order.installType) : "",
+          order.approvalStatus,
+          baseCommission.toFixed(2),
+          incentive.toFixed(2),
+          grossCommission.toFixed(2),
+          overrideAmount.toFixed(2),
+          netCommission.toFixed(2),
+          client?.name || "",
+          provider?.name || "",
+          repUser?.name || "",
+        ];
+      }
+      // REPs only see net commission
       return [
         order.invoiceNumber || "",
         order.repId,
@@ -490,14 +515,9 @@ export default function Orders() {
         order.installDate || "",
         order.installType ? (typeLabels[order.installType] || order.installType) : "",
         order.approvalStatus,
-        baseCommission.toFixed(2),
-        incentive.toFixed(2),
-        grossCommission.toFixed(2),
-        overrideAmount.toFixed(2),
         netCommission.toFixed(2),
         client?.name || "",
         provider?.name || "",
-        user?.name || "",
       ];
     });
     
@@ -719,9 +739,21 @@ export default function Orders() {
       header: "Commission",
       cell: (row: SalesOrder) => {
         const grossCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
+        // For REPs, show net commission (after override deduction)
+        // For Admin/Exec, show gross (they see override column separately)
+        if (isAdminOrExec) {
+          return (
+            <span className="font-mono text-right block">
+              ${grossCommission.toFixed(2)}
+            </span>
+          );
+        }
+        // REP/MDU/SUPERVISOR/MANAGER see net commission
+        const overrideAmount = getOverrideAmount(row);
+        const netCommission = grossCommission - overrideAmount;
         return (
           <span className="font-mono text-right block">
-            ${grossCommission.toFixed(2)}
+            ${netCommission.toFixed(2)}
           </span>
         );
       },
@@ -1132,7 +1164,15 @@ export default function Orders() {
                         <div className="flex justify-between gap-2 border-t pt-2 font-semibold">
                           <span>Total Earned</span>
                           <span className="font-mono">
-                            ${(parseFloat(selectedOrder.baseCommissionEarned) + parseFloat(selectedOrder.incentiveEarned)).toFixed(2)}
+                            {(() => {
+                              const gross = parseFloat(selectedOrder.baseCommissionEarned) + parseFloat(selectedOrder.incentiveEarned);
+                              // REPs see net (after override), Admin/Exec see gross
+                              if (isAdminOrExec) {
+                                return `$${gross.toFixed(2)}`;
+                              }
+                              const overrideAmt = getOverrideAmount(selectedOrder);
+                              return `$${(gross - overrideAmt).toFixed(2)}`;
+                            })()}
                           </span>
                         </div>
                       </>
