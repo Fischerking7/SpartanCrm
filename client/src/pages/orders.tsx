@@ -1550,7 +1550,6 @@ export default function Orders() {
                           <SelectItem value="3_GIG">3 Gig</SelectItem>
                           <SelectItem value="1_GIG">1 Gig</SelectItem>
                           <SelectItem value="BYOD">BYOD</SelectItem>
-                          <SelectItem value="OTHER">Other</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

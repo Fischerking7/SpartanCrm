@@ -21,7 +21,6 @@ const MOBILE_PRODUCT_TYPES = [
   { value: "3_GIG", label: "3 Gig" },
   { value: "1_GIG", label: "1 Gig" },
   { value: "BYOD", label: "BYOD" },
-  { value: "OTHER", label: "Other" },
 ];
 
 const TV_SOLD_OPTIONS = [
