@@ -1600,8 +1600,8 @@ export async function registerRoutes(
             const newMobileLines = [];
             for (let i = 0; i < mergedOrder.mobileLinesQty; i++) {
               newMobileLines.push({
-                mobileProductType: mergedOrder.mobileProductType || null,
-                mobilePortedStatus: mergedOrder.mobilePortedStatus || null,
+                mobileProductType: mergedOrder.mobileProductType || "UNLIMITED",
+                mobilePortedStatus: mergedOrder.mobilePortedStatus || "NON_PORTED",
               });
             }
             await storage.createMobileLineItems(id, newMobileLines);
