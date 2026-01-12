@@ -409,7 +409,7 @@ export default function Orders() {
   };
 
   const updateJobStatusMutation = useMutation({
-    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType, repId, clientId, providerId, serviceId, tvSold, mobileSold }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string; repId?: string; clientId?: string; providerId?: string; serviceId?: string; tvSold?: boolean; mobileSold?: boolean }) => {
+    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType, repId, clientId, providerId, serviceId, tvSold, mobileSold, mobileProductType }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string; repId?: string; clientId?: string; providerId?: string; serviceId?: string; tvSold?: boolean; mobileSold?: boolean; mobileProductType?: string }) => {
       const body: Record<string, any> = {};
       if (jobStatus) body.jobStatus = jobStatus;
       if (installDate !== undefined) body.installDate = installDate;
@@ -421,6 +421,7 @@ export default function Orders() {
       if (serviceId !== undefined) body.serviceId = serviceId;
       if (tvSold !== undefined) body.tvSold = tvSold;
       if (mobileSold !== undefined) body.mobileSold = mobileSold;
+      if (mobileProductType !== undefined) body.mobileProductType = mobileProductType;
       
       const res = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
@@ -1044,6 +1045,26 @@ export default function Orders() {
                     </Label>
                   </div>
                 </div>
+                {selectedOrder.mobileSold && (
+                  <div>
+                    <Label className="text-muted-foreground">Mobile Type</Label>
+                    <Select
+                      value={selectedOrder.mobileProductType || ""}
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, mobileProductType: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[140px]" data-testid="select-mobile-product-type">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="UNLIMITED">Unlimited</SelectItem>
+                        <SelectItem value="3_GIG">3 Gig</SelectItem>
+                        <SelectItem value="1_GIG">1 Gig</SelectItem>
+                        <SelectItem value="BYOD">BYOD</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div>
                   <Label className="text-muted-foreground">Account Number</Label>
                   <p className="font-mono">{selectedOrder.accountNumber || "-"}</p>
