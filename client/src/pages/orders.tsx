@@ -962,66 +962,54 @@ export default function Orders() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Client</Label>
-                  {isAdminOrExec ? (
-                    <Select
-                      value={selectedOrder.clientId || ""}
-                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, clientId: value })}
-                      disabled={updateJobStatusMutation.isPending}
-                    >
-                      <SelectTrigger className="w-[180px]" data-testid="select-order-client">
-                        <SelectValue placeholder="Select client" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {clients?.map((client) => (
-                          <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p className="font-medium">{clients?.find(c => c.id === selectedOrder.clientId)?.name || "-"}</p>
-                  )}
+                  <Select
+                    value={selectedOrder.clientId || ""}
+                    onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, clientId: value })}
+                    disabled={updateJobStatusMutation.isPending}
+                  >
+                    <SelectTrigger className="w-[180px]" data-testid="select-order-client">
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients?.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Provider</Label>
-                  {isAdminOrExec ? (
-                    <Select
-                      value={selectedOrder.providerId || ""}
-                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, providerId: value })}
-                      disabled={updateJobStatusMutation.isPending}
-                    >
-                      <SelectTrigger className="w-[180px]" data-testid="select-order-provider">
-                        <SelectValue placeholder="Select provider" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {providers?.map((provider) => (
-                          <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p className="font-medium">{providers?.find(p => p.id === selectedOrder.providerId)?.name || "-"}</p>
-                  )}
+                  <Select
+                    value={selectedOrder.providerId || ""}
+                    onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, providerId: value })}
+                    disabled={updateJobStatusMutation.isPending}
+                  >
+                    <SelectTrigger className="w-[180px]" data-testid="select-order-provider">
+                      <SelectValue placeholder="Select provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {providers?.map((provider) => (
+                        <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Service</Label>
-                  {isAdminOrExec ? (
-                    <Select
-                      value={selectedOrder.serviceId || ""}
-                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, serviceId: value })}
-                      disabled={updateJobStatusMutation.isPending}
-                    >
-                      <SelectTrigger className="w-[180px]" data-testid="select-order-service">
-                        <SelectValue placeholder="Select service" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {services?.map((service) => (
-                          <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p className="font-medium">{services?.find(s => s.id === selectedOrder.serviceId)?.name || "-"}</p>
-                  )}
+                  <Select
+                    value={selectedOrder.serviceId || ""}
+                    onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, serviceId: value })}
+                    disabled={updateJobStatusMutation.isPending}
+                  >
+                    <SelectTrigger className="w-[180px]" data-testid="select-order-service">
+                      <SelectValue placeholder="Select service" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {services?.map((service) => (
+                        <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Account Number</Label>
