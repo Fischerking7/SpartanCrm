@@ -84,6 +84,7 @@ export default function Orders() {
   };
 
   const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS";
+  const isOperations = user?.role === "OPERATIONS";
   const isTouchDevice = useIsTouchDevice();
 
   // Handle pre-filling form from lead or MDU query params
