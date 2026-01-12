@@ -1589,6 +1589,25 @@ export async function registerRoutes(
         };
         const dateSold = updateData.dateSold ?? order.dateSold;
         
+        // If mobile fields changed, update/recreate mobile line items
+        const mobileFieldsChanged = updateData.mobileProductType !== undefined || 
+                                     updateData.mobilePortedStatus !== undefined ||
+                                     updateData.mobileSold !== undefined;
+        if (mobileFieldsChanged) {
+          // Delete existing mobile line items and recreate with new values
+          await storage.deleteMobileLineItemsByOrderId(id);
+          if (mergedOrder.mobileSold && mergedOrder.mobileLinesQty > 0) {
+            const newMobileLines = [];
+            for (let i = 0; i < mergedOrder.mobileLinesQty; i++) {
+              newMobileLines.push({
+                mobileProductType: mergedOrder.mobileProductType || null,
+                mobilePortedStatus: mergedOrder.mobilePortedStatus || null,
+              });
+            }
+            await storage.createMobileLineItems(id, newMobileLines);
+          }
+        }
+        
         const rateCard = await storage.findMatchingRateCard(mergedOrder as any, dateSold);
         if (rateCard) {
           // Delete existing commission line items and regenerate
