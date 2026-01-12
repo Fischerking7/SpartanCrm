@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2 } from "lucide-react";
@@ -408,8 +409,8 @@ export default function Orders() {
   };
 
   const updateJobStatusMutation = useMutation({
-    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType, repId, clientId, providerId, serviceId }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string; repId?: string; clientId?: string; providerId?: string; serviceId?: string }) => {
-      const body: Record<string, string> = {};
+    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType, repId, clientId, providerId, serviceId, tvSold, mobileSold }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string; repId?: string; clientId?: string; providerId?: string; serviceId?: string; tvSold?: boolean; mobileSold?: boolean }) => {
+      const body: Record<string, any> = {};
       if (jobStatus) body.jobStatus = jobStatus;
       if (installDate !== undefined) body.installDate = installDate;
       if (installTime !== undefined) body.installTime = installTime;
@@ -418,6 +419,8 @@ export default function Orders() {
       if (clientId !== undefined) body.clientId = clientId;
       if (providerId !== undefined) body.providerId = providerId;
       if (serviceId !== undefined) body.serviceId = serviceId;
+      if (tvSold !== undefined) body.tvSold = tvSold;
+      if (mobileSold !== undefined) body.mobileSold = mobileSold;
       
       const res = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
@@ -1010,6 +1013,36 @@ export default function Orders() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">TV Sold</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Switch
+                      id="detail-tv-sold"
+                      checked={selectedOrder.tvSold || false}
+                      onCheckedChange={(checked) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, tvSold: checked })}
+                      disabled={updateJobStatusMutation.isPending}
+                      data-testid="switch-tv-sold"
+                    />
+                    <Label htmlFor="detail-tv-sold" className="text-sm cursor-pointer">
+                      {selectedOrder.tvSold ? "Yes" : "No"}
+                    </Label>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Mobile Sold</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Switch
+                      id="detail-mobile-sold"
+                      checked={selectedOrder.mobileSold || false}
+                      onCheckedChange={(checked) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, mobileSold: checked })}
+                      disabled={updateJobStatusMutation.isPending}
+                      data-testid="switch-mobile-sold"
+                    />
+                    <Label htmlFor="detail-mobile-sold" className="text-sm cursor-pointer">
+                      {selectedOrder.mobileSold ? "Yes" : "No"}
+                    </Label>
+                  </div>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Account Number</Label>
