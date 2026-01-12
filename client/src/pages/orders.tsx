@@ -436,6 +436,7 @@ export default function Orders() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", data.id, "commission-lines"] });
       setSelectedOrder(data);
       toast({ title: "Order updated" });
     },
