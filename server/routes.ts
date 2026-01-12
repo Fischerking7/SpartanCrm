@@ -1577,18 +1577,28 @@ export async function registerRoutes(
       if (needsRecalc && order.approvalStatus !== "APPROVED") {
         // Build merged order for recalculation
         const mergedOrder = {
+          ...order,
           providerId: updateData.providerId ?? order.providerId,
           serviceId: updateData.serviceId ?? order.serviceId,
           clientId: updateData.clientId ?? order.clientId,
           tvSold: updateData.tvSold ?? order.tvSold,
           mobileSold: updateData.mobileSold ?? order.mobileSold,
           mobileLinesQty: updateData.mobileLinesQty ?? order.mobileLinesQty,
+          mobileProductType: updateData.mobileProductType ?? order.mobileProductType,
+          mobilePortedStatus: updateData.mobilePortedStatus ?? order.mobilePortedStatus,
         };
         const dateSold = updateData.dateSold ?? order.dateSold;
         
         const rateCard = await storage.findMatchingRateCard(mergedOrder as any, dateSold);
         if (rateCard) {
-          updateData.baseCommissionEarned = storage.calculateCommission(rateCard, mergedOrder as any).toString();
+          // Delete existing commission line items and regenerate
+          await storage.deleteCommissionLineItemsByOrderId(id);
+          const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, mergedOrder as any);
+          await storage.createCommissionLineItems(id, lineItems);
+          
+          // Calculate total commission from line items
+          const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
+          updateData.baseCommissionEarned = grossCommission.toFixed(2);
           updateData.appliedRateCardId = rateCard.id;
           updateData.commissionSource = "CALCULATED";
           updateData.calcAt = new Date();
