@@ -184,9 +184,28 @@ export default function AdminQuickBooks() {
     return () => window.removeEventListener("message", handleMessage);
   }, [toast]);
 
-  const handleConnect = () => {
-    // Direct navigation to server endpoint that handles the redirect
-    window.location.href = "/api/quickbooks/connect";
+  const handleConnect = async () => {
+    try {
+      // Fetch the auth URL with proper authentication
+      const response = await apiRequest("GET", "/api/admin/quickbooks/authorize");
+      const data = await response.json();
+      if (data.authUrl) {
+        // Now redirect the browser to QuickBooks
+        window.location.href = data.authUrl;
+      } else {
+        toast({ 
+          title: "Connection Failed", 
+          description: "No authorization URL received",
+          variant: "destructive"
+        });
+      }
+    } catch (error: any) {
+      toast({ 
+        title: "Connection Failed", 
+        description: error.message || "Failed to start QuickBooks connection",
+        variant: "destructive"
+      });
+    }
   };
 
   const disconnectMutation = useMutation({
