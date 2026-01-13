@@ -161,6 +161,7 @@ export function getAuthorizationUrl(state: string): string {
 }
 
 export async function exchangeCodeForTokens(code: string, realmId: string, userId: string): Promise<void> {
+  console.log("exchangeCodeForTokens called with:", { realmId, userId });
   const config = getConfig();
   
   const auth = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64");
@@ -191,8 +192,10 @@ export async function exchangeCodeForTokens(code: string, realmId: string, userI
   const companyInfo = await fetchCompanyInfo(tokens.access_token, realmId, config.environment);
 
   const existing = await db.query.quickbooksConnection.findFirst();
+  console.log("Existing connection:", existing ? "found" : "none");
   
   if (existing) {
+    console.log("Updating existing connection with userId:", userId);
     await db.update(quickbooksConnection)
       .set({
         realmId,
@@ -206,17 +209,26 @@ export async function exchangeCodeForTokens(code: string, realmId: string, userI
         updatedAt: new Date(),
       })
       .where(eq(quickbooksConnection.id, existing.id));
+    console.log("Update successful");
   } else {
-    await db.insert(quickbooksConnection).values({
-      realmId,
-      companyName: companyInfo?.CompanyName || null,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      accessTokenExpiresAt,
-      refreshTokenExpiresAt,
-      isConnected: true,
-      connectedByUserId: userId,
-    });
+    console.log("Inserting new connection with userId:", userId);
+    try {
+      await db.insert(quickbooksConnection).values({
+        realmId,
+        companyName: companyInfo?.CompanyName || null,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        accessTokenExpiresAt,
+        refreshTokenExpiresAt,
+        isConnected: true,
+        connectedByUserId: userId,
+      });
+      console.log("Insert successful");
+    } catch (insertError: any) {
+      console.error("Insert error:", insertError.message);
+      console.error("Insert error details:", insertError);
+      throw insertError;
+    }
   }
 }
 
