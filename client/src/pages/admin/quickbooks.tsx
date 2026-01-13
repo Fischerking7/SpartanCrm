@@ -184,25 +184,10 @@ export default function AdminQuickBooks() {
     return () => window.removeEventListener("message", handleMessage);
   }, [toast]);
 
-  const connectMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("GET", "/api/admin/quickbooks/authorize");
-      const data = await response.json();
-      if (data.authUrl) {
-        // Redirect the whole page to QuickBooks OAuth
-        window.location.href = data.authUrl;
-      } else {
-        throw new Error("No authorization URL received");
-      }
-    },
-    onError: (error: any) => {
-      toast({ 
-        title: "Connection Failed", 
-        description: error.message || "Failed to start QuickBooks connection",
-        variant: "destructive"
-      });
-    },
-  });
+  const handleConnect = () => {
+    // Direct navigation to server endpoint that handles the redirect
+    window.location.href = "/api/quickbooks/connect";
+  };
 
   const disconnectMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/admin/quickbooks/disconnect"),
@@ -418,15 +403,10 @@ export default function AdminQuickBooks() {
                   </Alert>
                   
                   <Button 
-                    onClick={() => connectMutation.mutate()}
-                    disabled={connectMutation.isPending}
+                    onClick={handleConnect}
                     data-testid="button-connect-qb"
                   >
-                    {connectMutation.isPending ? (
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Link2 className="w-4 h-4 mr-2" />
-                    )}
+                    <Link2 className="w-4 h-4 mr-2" />
                     Connect to QuickBooks
                   </Button>
                 </div>

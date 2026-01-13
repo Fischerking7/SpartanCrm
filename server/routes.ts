@@ -7266,7 +7266,7 @@ export async function registerRoutes(
     }
   });
 
-  // Get QuickBooks OAuth authorization URL
+  // Get QuickBooks OAuth authorization URL (returns JSON)
   app.get("/api/admin/quickbooks/authorize", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
@@ -7275,6 +7275,18 @@ export async function registerRoutes(
       res.json({ authUrl, state });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to get authorization URL" });
+    }
+  });
+
+  // Direct redirect to QuickBooks OAuth (no auth required for redirect)
+  app.get("/api/quickbooks/connect", async (req, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const state = crypto.randomBytes(16).toString("hex");
+      const authUrl = qb.getAuthorizationUrl(state);
+      res.redirect(authUrl);
+    } catch (error: any) {
+      res.status(500).send("Failed to connect to QuickBooks: " + error.message);
     }
   });
 
