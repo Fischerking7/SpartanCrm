@@ -2377,6 +2377,8 @@ export async function registerRoutes(
         (!providerId || rc.providerId === providerId)
       );
       
+      console.log(`[services/available] clientId=${clientId}, providerId=${providerId}, activeRateCards=${activeRateCards.length}, serviceIds=${activeRateCards.map(rc => rc.serviceId).join(', ')}`);
+      
       // Get unique service IDs from matching rate cards
       const serviceIds = Array.from(new Set(activeRateCards.map(rc => rc.serviceId).filter(Boolean))) as string[];
       
@@ -2385,6 +2387,8 @@ export async function registerRoutes(
       const availableServices = allServices
         .filter(s => s.active && serviceIds.includes(s.id))
         .map(s => ({ id: s.id, code: s.code, name: s.name }));
+      
+      console.log(`[services/available] returning ${availableServices.length} services: ${availableServices.map(s => s.name).join(', ')}`);
       
       res.json(availableServices);
     } catch (error) { 
