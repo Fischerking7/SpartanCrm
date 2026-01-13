@@ -968,103 +968,136 @@ export default function Orders() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Client</Label>
-                  <Select
-                    value={selectedOrder.clientId || ""}
-                    onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, clientId: value })}
-                    disabled={updateJobStatusMutation.isPending}
-                  >
-                    <SelectTrigger className="w-[180px]" data-testid="select-order-client">
-                      <SelectValue placeholder="Select client" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients?.map((client) => (
-                        <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isOperations ? (
+                    <Select
+                      value={selectedOrder.clientId || ""}
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, clientId: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[180px]" data-testid="select-order-client">
+                        <SelectValue placeholder="Select client" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {clients?.map((client) => (
+                          <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="font-medium">{clients?.find(c => c.id === selectedOrder.clientId)?.name || "-"}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Provider</Label>
-                  <Select
-                    value={selectedOrder.providerId || ""}
-                    onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, providerId: value })}
-                    disabled={updateJobStatusMutation.isPending}
-                  >
-                    <SelectTrigger className="w-[180px]" data-testid="select-order-provider">
-                      <SelectValue placeholder="Select provider" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {providers?.map((provider) => (
-                        <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isOperations ? (
+                    <Select
+                      value={selectedOrder.providerId || ""}
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, providerId: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[180px]" data-testid="select-order-provider">
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {providers?.map((provider) => (
+                          <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="font-medium">{providers?.find(p => p.id === selectedOrder.providerId)?.name || "-"}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Service</Label>
-                  <Select
-                    value={selectedOrder.serviceId || ""}
-                    onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, serviceId: value })}
-                    disabled={updateJobStatusMutation.isPending}
-                  >
-                    <SelectTrigger className="w-[180px]" data-testid="select-order-service">
-                      <SelectValue placeholder="Select service" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {services?.map((service) => (
-                        <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isOperations ? (
+                    <Select
+                      value={selectedOrder.serviceId || ""}
+                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, serviceId: value })}
+                      disabled={updateJobStatusMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[180px]" data-testid="select-order-service">
+                        <SelectValue placeholder="Select service" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {services?.map((service) => (
+                          <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="font-medium">{services?.find(s => s.id === selectedOrder.serviceId)?.name || "-"}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">TV Sold</Label>
                   <div className="flex items-center gap-2 mt-1">
-                    <Switch
-                      id="detail-tv-sold"
-                      checked={selectedOrder.tvSold || false}
-                      onCheckedChange={(checked) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, tvSold: checked })}
-                      disabled={updateJobStatusMutation.isPending}
-                      data-testid="switch-tv-sold"
-                    />
-                    <Label htmlFor="detail-tv-sold" className="text-sm cursor-pointer">
-                      {selectedOrder.tvSold ? "Yes" : "No"}
-                    </Label>
+                    {isOperations ? (
+                      <>
+                        <Switch
+                          id="detail-tv-sold"
+                          checked={selectedOrder.tvSold || false}
+                          onCheckedChange={(checked) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, tvSold: checked })}
+                          disabled={updateJobStatusMutation.isPending}
+                          data-testid="switch-tv-sold"
+                        />
+                        <Label htmlFor="detail-tv-sold" className="text-sm cursor-pointer">
+                          {selectedOrder.tvSold ? "Yes" : "No"}
+                        </Label>
+                      </>
+                    ) : (
+                      <p className="font-medium">{selectedOrder.tvSold ? "Yes" : "No"}</p>
+                    )}
                   </div>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Mobile Sold</Label>
                   <div className="flex items-center gap-2 mt-1">
-                    <Switch
-                      id="detail-mobile-sold"
-                      checked={selectedOrder.mobileSold || false}
-                      onCheckedChange={(checked) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, mobileSold: checked })}
-                      disabled={updateJobStatusMutation.isPending}
-                      data-testid="switch-mobile-sold"
-                    />
-                    <Label htmlFor="detail-mobile-sold" className="text-sm cursor-pointer">
-                      {selectedOrder.mobileSold ? "Yes" : "No"}
-                    </Label>
+                    {isOperations ? (
+                      <>
+                        <Switch
+                          id="detail-mobile-sold"
+                          checked={selectedOrder.mobileSold || false}
+                          onCheckedChange={(checked) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, mobileSold: checked })}
+                          disabled={updateJobStatusMutation.isPending}
+                          data-testid="switch-mobile-sold"
+                        />
+                        <Label htmlFor="detail-mobile-sold" className="text-sm cursor-pointer">
+                          {selectedOrder.mobileSold ? "Yes" : "No"}
+                        </Label>
+                      </>
+                    ) : (
+                      <p className="font-medium">{selectedOrder.mobileSold ? "Yes" : "No"}</p>
+                    )}
                   </div>
                 </div>
                 {selectedOrder.mobileSold && (
                   <div>
                     <Label className="text-muted-foreground">Mobile Type</Label>
-                    <Select
-                      value={selectedOrder.mobileProductType || ""}
-                      onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, mobileProductType: value })}
-                      disabled={updateJobStatusMutation.isPending}
-                    >
-                      <SelectTrigger className="w-[140px]" data-testid="select-mobile-product-type">
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="UNLIMITED">Unlimited</SelectItem>
-                        <SelectItem value="3_GIG">3 Gig</SelectItem>
-                        <SelectItem value="1_GIG">1 Gig</SelectItem>
-                        <SelectItem value="BYOD">BYOD</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {isOperations ? (
+                      <Select
+                        value={selectedOrder.mobileProductType || ""}
+                        onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, mobileProductType: value })}
+                        disabled={updateJobStatusMutation.isPending}
+                      >
+                        <SelectTrigger className="w-[140px]" data-testid="select-mobile-product-type">
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="UNLIMITED">Unlimited</SelectItem>
+                          <SelectItem value="3_GIG">3 Gig</SelectItem>
+                          <SelectItem value="1_GIG">1 Gig</SelectItem>
+                          <SelectItem value="BYOD">BYOD</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="font-medium">
+                        {selectedOrder.mobileProductType === "UNLIMITED" ? "Unlimited" :
+                         selectedOrder.mobileProductType === "3_GIG" ? "3 Gig" :
+                         selectedOrder.mobileProductType === "1_GIG" ? "1 Gig" :
+                         selectedOrder.mobileProductType === "BYOD" ? "BYOD" : "-"}
+                      </p>
+                    )}
                   </div>
                 )}
                 <div>
