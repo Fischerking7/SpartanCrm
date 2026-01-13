@@ -7302,6 +7302,7 @@ export async function registerRoutes(
   app.get("/api/auth/quickbooks/callback", async (req, res) => {
     try {
       const { code, realmId, state } = req.query;
+      console.log("QuickBooks callback received:", { code: code ? "present" : "missing", realmId, state });
       
       if (!code || !realmId || !state) {
         return res.status(400).send("Missing authorization code, realm ID, or state");
@@ -7315,6 +7316,7 @@ export async function registerRoutes(
       let userId: string;
       try {
         const decoded = Buffer.from(state as string, "base64url").toString();
+        console.log("Decoded state:", decoded);
         const parts = decoded.split(":");
         if (parts.length !== 3) {
           throw new Error("Invalid state format");
@@ -7322,14 +7324,17 @@ export async function registerRoutes(
         const [uid, nonce, receivedSig] = parts;
         const payload = `${uid}:${nonce}`;
         const expectedSig = crypto.createHmac("sha256", secret).update(payload).digest("hex").substring(0, 16);
+        console.log("State validation:", { uid, receivedSig, expectedSig, match: receivedSig === expectedSig });
         if (receivedSig !== expectedSig) {
           throw new Error("Invalid state signature");
         }
         userId = uid;
-      } catch (e) {
+      } catch (e: any) {
+        console.error("State validation error:", e.message);
         return res.status(400).send("Invalid or tampered state parameter");
       }
 
+      console.log("Calling exchangeCodeForTokens with userId:", userId);
       const qb = await import("./quickbooks");
       await qb.exchangeCodeForTokens(code as string, realmId as string, userId);
       
