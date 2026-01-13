@@ -187,8 +187,13 @@ export default function AdminQuickBooks() {
   const connectMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("GET", "/api/admin/quickbooks/authorize");
-      const { authUrl } = await response.json();
-      window.open(authUrl, "qb_oauth", "width=600,height=700,scrollbars=yes");
+      const data = await response.json();
+      if (data.authUrl) {
+        // Redirect the whole page to QuickBooks OAuth
+        window.location.href = data.authUrl;
+      } else {
+        throw new Error("No authorization URL received");
+      }
     },
     onError: (error: any) => {
       toast({ 

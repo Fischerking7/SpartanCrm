@@ -7290,20 +7290,8 @@ export async function registerRoutes(
       const qb = await import("./quickbooks");
       await qb.exchangeCodeForTokens(code as string, realmId as string, "system");
       
-      res.send(`
-        <html>
-          <body>
-            <h2>QuickBooks Connected Successfully!</h2>
-            <p>You can close this window and return to Iron Crest CRM.</p>
-            <script>
-              if (window.opener) {
-                window.opener.postMessage({ type: 'QUICKBOOKS_CONNECTED' }, '*');
-                setTimeout(() => window.close(), 2000);
-              }
-            </script>
-          </body>
-        </html>
-      `);
+      // Redirect back to QuickBooks admin page
+      res.redirect("/admin/quickbooks?connected=true");
     } catch (error: any) {
       console.error("QuickBooks callback error:", error);
       res.status(500).send(`QuickBooks connection failed: ${error.message}`);
