@@ -7270,7 +7270,15 @@ export async function registerRoutes(
   app.get("/api/admin/quickbooks/authorize", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
-      const state = crypto.randomBytes(16).toString("hex");
+      const userId = req.user!.id;
+      const nonce = crypto.randomBytes(8).toString("hex");
+      const payload = `${userId}:${nonce}`;
+      const secret = process.env.QB_CLIENT_SECRET;
+      if (!secret) {
+        return res.status(500).json({ message: "QuickBooks not configured" });
+      }
+      const signature = crypto.createHmac("sha256", secret).update(payload).digest("hex").substring(0, 16);
+      const state = Buffer.from(`${payload}:${signature}`).toString("base64url");
       const authUrl = qb.getAuthorizationUrl(state);
       res.json({ authUrl, state });
     } catch (error: any) {
@@ -7295,12 +7303,35 @@ export async function registerRoutes(
     try {
       const { code, realmId, state } = req.query;
       
-      if (!code || !realmId) {
-        return res.status(400).send("Missing authorization code or realm ID");
+      if (!code || !realmId || !state) {
+        return res.status(400).send("Missing authorization code, realm ID, or state");
+      }
+
+      const secret = process.env.QB_CLIENT_SECRET;
+      if (!secret) {
+        return res.status(500).send("QuickBooks not configured");
+      }
+
+      let userId: string;
+      try {
+        const decoded = Buffer.from(state as string, "base64url").toString();
+        const parts = decoded.split(":");
+        if (parts.length !== 3) {
+          throw new Error("Invalid state format");
+        }
+        const [uid, nonce, receivedSig] = parts;
+        const payload = `${uid}:${nonce}`;
+        const expectedSig = crypto.createHmac("sha256", secret).update(payload).digest("hex").substring(0, 16);
+        if (receivedSig !== expectedSig) {
+          throw new Error("Invalid state signature");
+        }
+        userId = uid;
+      } catch (e) {
+        return res.status(400).send("Invalid or tampered state parameter");
       }
 
       const qb = await import("./quickbooks");
-      await qb.exchangeCodeForTokens(code as string, realmId as string, "system");
+      await qb.exchangeCodeForTokens(code as string, realmId as string, userId);
       
       // Redirect back to QuickBooks admin page
       res.redirect("/admin/quickbooks?connected=true");
