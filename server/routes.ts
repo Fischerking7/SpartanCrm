@@ -7279,7 +7279,7 @@ export async function registerRoutes(
   });
 
   // QuickBooks OAuth callback
-  app.get("/api/quickbooks/callback", async (req, res) => {
+  app.get("/api/auth/quickbooks/callback", async (req, res) => {
     try {
       const { code, realmId, state } = req.query;
       
