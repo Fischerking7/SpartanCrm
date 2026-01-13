@@ -227,7 +227,7 @@ export async function exchangeCodeForTokens(code: string, realmId: string, userI
         accessTokenExpiresAt,
         refreshTokenExpiresAt,
         isConnected: true,
-        connectedByUserId: connectedBy,
+        // connectedByUserId removed completely for debugging
       });
       console.log("Insert successful");
     } catch (insertError: any) {
