@@ -7,7 +7,8 @@ import {
   payRuns,
   payStatements,
   clients,
-  providers
+  providers,
+  users
 } from "@shared/schema";
 import { eq, and, isNull, desc, inArray, sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -193,9 +194,18 @@ export async function exchangeCodeForTokens(code: string, realmId: string, userI
 
   const existing = await db.query.quickbooksConnection.findFirst();
   console.log("Existing connection:", existing ? "found" : "none");
+  console.log("Attempting to save connection for userId:", userId);
+  
+  // Verify the user exists before attempting to use the foreign key
+  const userCheck = await db.query.users.findFirst({
+    where: eq(users.id, userId)
+  });
+  console.log("User check result:", userCheck ? `found: ${userCheck.repId}` : "NOT FOUND");
+  
+  const connectedBy = userCheck ? userId : null;
   
   if (existing) {
-    console.log("Updating existing connection with userId:", userId);
+    console.log("Updating existing connection");
     await db.update(quickbooksConnection)
       .set({
         realmId,
@@ -205,13 +215,13 @@ export async function exchangeCodeForTokens(code: string, realmId: string, userI
         accessTokenExpiresAt,
         refreshTokenExpiresAt,
         isConnected: true,
-        connectedByUserId: userId,
+        connectedByUserId: connectedBy,
         updatedAt: new Date(),
       })
       .where(eq(quickbooksConnection.id, existing.id));
     console.log("Update successful");
   } else {
-    console.log("Inserting new connection with userId:", userId);
+    console.log("Inserting new connection");
     try {
       await db.insert(quickbooksConnection).values({
         realmId,
@@ -221,7 +231,7 @@ export async function exchangeCodeForTokens(code: string, realmId: string, userI
         accessTokenExpiresAt,
         refreshTokenExpiresAt,
         isConnected: true,
-        connectedByUserId: userId,
+        connectedByUserId: connectedBy,
       });
       console.log("Insert successful");
     } catch (insertError: any) {
