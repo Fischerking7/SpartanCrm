@@ -30,6 +30,11 @@ export default function Orders() {
   const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [approvalFilter, setApprovalFilter] = useState<string>("all");
+  const [providerFilter, setProviderFilter] = useState<string>("all");
+  const [clientFilter, setClientFilter] = useState<string>("all");
+  const [dateFromFilter, setDateFromFilter] = useState<string>("");
+  const [dateToFilter, setDateToFilter] = useState<string>("");
   const [exportFilter, setExportFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("createdAt_desc");
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
@@ -623,13 +628,20 @@ export default function Orders() {
     const matchesSearch =
       order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.repId.toLowerCase().includes(searchTerm.toLowerCase());
+      order.repId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.accountNumber?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || order.jobStatus === statusFilter;
+    const matchesApproval = approvalFilter === "all" || order.approvalStatus === approvalFilter;
+    const matchesProvider = providerFilter === "all" || order.providerId === providerFilter;
+    const matchesClient = clientFilter === "all" || order.clientId === clientFilter;
+    const orderDate = order.dateSold?.split('T')[0] || order.dateSold;
+    const matchesDateFrom = !dateFromFilter || orderDate >= dateFromFilter;
+    const matchesDateTo = !dateToFilter || orderDate <= dateToFilter;
     const matchesExport = exportFilter === "all" || 
       (exportFilter === "exported" && order.exportedToAccounting) ||
       (exportFilter === "unexported" && !order.exportedToAccounting) ||
       (exportFilter === "ready" && order.approvalStatus === "APPROVED" && !order.exportedToAccounting);
-    return matchesSearch && matchesStatus && matchesExport;
+    return matchesSearch && matchesStatus && matchesApproval && matchesProvider && matchesClient && matchesDateFrom && matchesDateTo && matchesExport;
   }).sort((a, b) => {
     const [field, direction] = sortBy.split("_");
     const multiplier = direction === "asc" ? 1 : -1;
@@ -865,21 +877,72 @@ export default function Orders() {
                 data-testid="input-search-orders"
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]" data-testid="select-status-filter">
-                <Filter className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Filter by status" />
+            <Select value={providerFilter} onValueChange={setProviderFilter}>
+              <SelectTrigger className="w-[140px]" data-testid="select-provider-filter">
+                <SelectValue placeholder="Provider" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="all">All Providers</SelectItem>
+                {providers?.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={clientFilter} onValueChange={setClientFilter}>
+              <SelectTrigger className="w-[130px]" data-testid="select-client-filter">
+                <SelectValue placeholder="Client" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Clients</SelectItem>
+                {clients?.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[140px]" data-testid="select-status-filter">
+                <SelectValue placeholder="Job Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Job Status</SelectItem>
                 <SelectItem value="PENDING">Pending</SelectItem>
                 <SelectItem value="COMPLETED">Completed</SelectItem>
                 <SelectItem value="CANCELED">Canceled</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={approvalFilter} onValueChange={setApprovalFilter}>
+              <SelectTrigger className="w-[150px]" data-testid="select-approval-filter">
+                <SelectValue placeholder="Approval" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Approvals</SelectItem>
+                <SelectItem value="APPROVED">Approved</SelectItem>
+                <SelectItem value="UNAPPROVED">Unapproved</SelectItem>
+                <SelectItem value="REJECTED">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-2">
+              <Input
+                type="date"
+                value={dateFromFilter}
+                onChange={(e) => setDateFromFilter(e.target.value)}
+                className="w-[140px]"
+                placeholder="From"
+                data-testid="input-date-from"
+              />
+              <span className="text-muted-foreground">to</span>
+              <Input
+                type="date"
+                value={dateToFilter}
+                onChange={(e) => setDateToFilter(e.target.value)}
+                className="w-[140px]"
+                placeholder="To"
+                data-testid="input-date-to"
+              />
+            </div>
             {isAdmin && (
               <Select value={exportFilter} onValueChange={setExportFilter}>
-                <SelectTrigger className="w-[180px]" data-testid="select-export-filter">
+                <SelectTrigger className="w-[160px]" data-testid="select-export-filter">
                   <SelectValue placeholder="Export status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1107,6 +1170,12 @@ export default function Orders() {
                 <div>
                   <Label className="text-muted-foreground">Date Sold</Label>
                   <p>{new Date(selectedOrder.dateSold).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Created At</Label>
+                  <p className="text-sm">
+                    {selectedOrder.createdAt ? new Date(selectedOrder.createdAt).toLocaleString() : "-"}
+                  </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Install Date</Label>
