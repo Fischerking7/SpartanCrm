@@ -196,13 +196,9 @@ export async function exchangeCodeForTokens(code: string, realmId: string, userI
   console.log("Existing connection:", existing ? "found" : "none");
   console.log("Attempting to save connection for userId:", userId);
   
-  // Verify the user exists before attempting to use the foreign key
-  const userCheck = await db.query.users.findFirst({
-    where: eq(users.id, userId)
-  });
-  console.log("User check result:", userCheck ? `found: ${userCheck.repId}` : "NOT FOUND");
-  
-  const connectedBy = userCheck ? userId : null;
+  // Temporarily skip user validation to debug foreign key issue
+  console.log("Skipping user validation, setting connectedByUserId to null");
+  const connectedBy = null; // Temporarily null to bypass foreign key constraint
   
   if (existing) {
     console.log("Updating existing connection");
