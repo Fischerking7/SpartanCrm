@@ -63,7 +63,14 @@ Key entities include Users, Clients, SalesOrders, Incentives, Chargebacks, PayRu
 - **multer**: For handling file uploads.
 - **@radix-ui/*, tailwindcss, class-variance-authority, lucide-react**: For UI development.
 - **@tanstack/react-query, react-hook-form, zod**: For state management, forms, and validation.
-- **QuickBooks Online Integration**: OAuth 2.0 connection for invoice syncing, journal entry posting, and account mapping. Requires `QB_CLIENT_ID`, `QB_CLIENT_SECRET`, `QB_REDIRECT_URI`, `QB_ENVIRONMENT`.
+- **QuickBooks Online Integration**: Deep OAuth 2.0 integration with enhanced reliability and comprehensive features:
+  - **Reliability**: Proactive token refresh with 5-minute buffer, concurrent refresh prevention, retry with exponential backoff for transient failures, idempotency key generation
+  - **Account Mapping**: Map commission expense, accounts payable, revenue accounts, plus QuickBooks classes and departments for detailed tracking
+  - **Reconciliation Dashboard**: Visual summary of orders and pay runs sync status, value totals (synced vs unsynced), recent failures display
+  - **Exception Queue**: Failed sync operations with enriched entity details, retry count tracking, one-click retry functionality
+  - **Health Monitoring**: 24-hour sync health metrics (success rate, counts), failures by type breakdown, environment info (sandbox/production), audit log tracking
+  - **Two-way Payment Sync**: Fetch payments from QuickBooks, check invoice payment status, batch payment status sync
+  - Requires `QB_CLIENT_ID`, `QB_CLIENT_SECRET`, `QB_REDIRECT_URI`, `QB_ENVIRONMENT`.
 - **Background Scheduler**: Manages automated tasks like scheduled pay run creation, chargeback auto-matching, and email notifications.
 - **Email Notifications**: Queue-based system for user notifications via SMTP. Requires `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`.
 - **Automated Alerts System**: Background jobs for pending approval alerts (orders pending > X days, every 6 hours) and low performance warnings (reps below 50% quota, daily check after day 7). In-app notification center at `/notifications` with read/unread tracking. Notification types include ORDER_APPROVED, ORDER_REJECTED, PENDING_APPROVAL_ALERT, CHARGEBACK_ALERT, LOW_PERFORMANCE_WARNING, and PAY_RUN_FINALIZED.

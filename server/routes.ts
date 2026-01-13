@@ -7468,6 +7468,119 @@ export async function registerRoutes(
     }
   });
 
+  // Get exception queue (failed syncs with enriched details)
+  app.get("/api/admin/quickbooks/exception-queue", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const limit = parseInt(req.query.limit as string) || 50;
+      const exceptions = await qb.getExceptionQueue(limit);
+      res.json(exceptions);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get exception queue" });
+    }
+  });
+
+  // Get reconciliation data
+  app.get("/api/admin/quickbooks/reconciliation", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const data = await qb.getReconciliationData();
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get reconciliation data" });
+    }
+  });
+
+  // Get sync health metrics
+  app.get("/api/admin/quickbooks/health", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const metrics = await qb.getSyncHealthMetrics();
+      res.json(metrics);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get health metrics" });
+    }
+  });
+
+  // Get environment info
+  app.get("/api/admin/quickbooks/environment", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const envInfo = qb.getEnvironmentInfo();
+      res.json(envInfo);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get environment info" });
+    }
+  });
+
+  // Get audit logs
+  app.get("/api/admin/quickbooks/audit-logs", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const limit = parseInt(req.query.limit as string) || 100;
+      const logs = qb.getQBAuditLogs(limit);
+      res.json(logs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get audit logs" });
+    }
+  });
+
+  // Fetch QB classes
+  app.get("/api/admin/quickbooks/classes", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const classes = await qb.fetchQBClasses();
+      res.json(classes);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch QB classes" });
+    }
+  });
+
+  // Fetch QB departments
+  app.get("/api/admin/quickbooks/departments", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const departments = await qb.fetchQBDepartments();
+      res.json(departments);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch QB departments" });
+    }
+  });
+
+  // Fetch QB items
+  app.get("/api/admin/quickbooks/items", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const items = await qb.fetchQBItems();
+      res.json(items);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch QB items" });
+    }
+  });
+
+  // Sync payment statuses
+  app.post("/api/admin/quickbooks/sync-payments", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const result = await qb.syncPaymentStatuses();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Save advanced mapping
+  app.post("/api/admin/quickbooks/advanced-mappings", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const qb = await import("./quickbooks");
+      const { mappingType, qbId, qbName, qbAccountType } = req.body;
+      await qb.saveAdvancedMapping(mappingType, qbId, qbName, { qbAccountType });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // ========== NEW PAYROLL FEATURES ROUTES ==========
 
   // Tax Documents (1099s)
