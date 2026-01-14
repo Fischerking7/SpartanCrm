@@ -3187,9 +3187,10 @@ export async function registerRoutes(
   // Accounting Export/Import
   app.post("/api/admin/accounting/export-approved", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const orders = await storage.getApprovedUnexported();
+      const { reexport } = req.body;
+      const orders = reexport ? await storage.getAllApproved() : await storage.getApprovedUnexported();
       if (orders.length === 0) {
-        return res.status(400).json({ message: "No orders to export" });
+        return res.status(400).json({ message: reexport ? "No approved orders to export" : "No new orders to export" });
       }
 
       const batch = await storage.createExportBatch(req.user!.id, orders.length, `export-${new Date().toISOString()}.csv`);

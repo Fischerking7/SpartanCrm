@@ -781,6 +781,17 @@ export const storage = {
       },
     });
   },
+  async getAllApproved() {
+    return db.query.salesOrders.findMany({
+      where: eq(salesOrders.approvalStatus, "APPROVED"),
+      orderBy: [desc(salesOrders.createdAt)],
+      with: {
+        client: true,
+        provider: true,
+        service: true,
+      },
+    });
+  },
 
   // Invoice Numbering
   async generateInvoiceNumber(): Promise<string> {

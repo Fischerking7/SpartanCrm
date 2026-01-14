@@ -11,11 +11,13 @@ import { queryClient } from "@/lib/queryClient";
 import { Download, Upload, FileSpreadsheet, DollarSign, Layers } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import type { PayRun } from "@shared/schema";
 
 export default function Accounting() {
   const { toast } = useToast();
   const [selectedPayRunId, setSelectedPayRunId] = useState<string>("");
+  const [reexportAll, setReexportAll] = useState(false);
   const paymentFileRef = useRef<HTMLInputElement>(null);
   const chargebackFileRef = useRef<HTMLInputElement>(null);
 
@@ -63,10 +65,11 @@ export default function Accounting() {
   });
 
   const exportMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (reexport: boolean) => {
       const res = await fetch("/api/admin/accounting/export-approved", {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ reexport }),
       });
       if (!res.ok) {
         const error = await res.json();
@@ -85,7 +88,7 @@ export default function Accounting() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      toast({ title: "Export completed", description: "Approved orders have been exported and marked." });
+      toast({ title: "Export completed", description: reexportAll ? "All approved orders have been exported." : "New approved orders have been exported." });
     },
     onError: (error: Error) => {
       toast({ title: "Export failed", description: error.message, variant: "destructive" });
@@ -222,18 +225,29 @@ export default function Accounting() {
             <CardHeader>
               <CardTitle className="text-lg">Export Approved Orders</CardTitle>
               <CardDescription>
-                Export all approved, unexported orders to CSV for QuickBooks import.
+                Export approved orders to CSV for QuickBooks import.
                 Orders will be marked as exported after download.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="reexport-toggle"
+                  checked={reexportAll}
+                  onCheckedChange={setReexportAll}
+                  data-testid="switch-reexport"
+                />
+                <Label htmlFor="reexport-toggle" className="text-sm">
+                  Re-export all approved orders (includes previously exported)
+                </Label>
+              </div>
               <Button
-                onClick={() => exportMutation.mutate()}
+                onClick={() => exportMutation.mutate(reexportAll)}
                 disabled={exportMutation.isPending}
                 data-testid="button-export-approved"
               >
                 <Download className="h-4 w-4 mr-2" />
-                {exportMutation.isPending ? "Exporting..." : "Export Approved Orders"}
+                {exportMutation.isPending ? "Exporting..." : reexportAll ? "Re-export All Orders" : "Export New Orders"}
               </Button>
             </CardContent>
           </Card>
