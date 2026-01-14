@@ -3214,6 +3214,22 @@ export async function registerRoutes(
         // Base commission from rate card
         const baseCommission = parseFloat(o.baseCommissionEarned || "0");
         const incentive = parseFloat(o.incentiveEarned || "0");
+        
+        // Get commission line items for TV commission
+        const commissionLines = await storage.getCommissionLineItemsByOrderId(o.id);
+        const tvCommission = commissionLines
+          .filter((line: any) => line.serviceCategory === "VIDEO")
+          .reduce((sum: number, line: any) => sum + parseFloat(line.totalAmount || "0"), 0);
+        
+        // Get mobile line items for mobile quantity and commission
+        const mobileLines = await storage.getMobileLineItemsByOrderId(o.id);
+        const mobileQuantitySold = mobileLines.length;
+        const mobileCommission = mobileLines
+          .reduce((sum: number, line: any) => sum + parseFloat(line.commissionAmount || "0"), 0);
+        
+        // Calculate overall combined commission (Base + TV + Mobile)
+        const combinedCommission = baseCommission + tvCommission + mobileCommission;
+        
         const grossCommission = baseCommission + incentive;
         
         // Get override deductions for this order from the pool
@@ -3243,6 +3259,10 @@ export async function registerRoutes(
           "Install Type": o.installType ? (typeLabels[o.installType] || o.installType) : "",
           "Approval Status": o.approvalStatus || "",
           "Base Commission": baseCommission.toFixed(2),
+          "TV Commission": tvCommission.toFixed(2),
+          "Mobile Qty Sold": mobileQuantitySold.toString(),
+          "Mobile Commission": mobileCommission.toFixed(2),
+          "Combined Commission": combinedCommission.toFixed(2),
           "Incentive": incentive.toFixed(2),
           "Gross Commission": grossCommission.toFixed(2),
           "Override": totalOverrideDeduction.toFixed(2),
