@@ -415,7 +415,7 @@ export default function Orders() {
   };
 
   const updateJobStatusMutation = useMutation({
-    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType, repId, clientId, providerId, serviceId, tvSold, mobileSold, mobileProductType }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string; repId?: string; clientId?: string; providerId?: string; serviceId?: string; tvSold?: boolean; mobileSold?: boolean; mobileProductType?: string }) => {
+    mutationFn: async ({ orderId, jobStatus, installDate, installTime, installType, repId, clientId, providerId, serviceId, tvSold, mobileSold, mobileProductType, customerName, customerPhone, customerEmail, customerAddress, accountNumber }: { orderId: string; jobStatus?: string; installDate?: string; installTime?: string; installType?: string; repId?: string; clientId?: string; providerId?: string; serviceId?: string; tvSold?: boolean; mobileSold?: boolean; mobileProductType?: string; customerName?: string; customerPhone?: string; customerEmail?: string; customerAddress?: string; accountNumber?: string }) => {
       const body: Record<string, any> = {};
       if (jobStatus) body.jobStatus = jobStatus;
       if (installDate !== undefined) body.installDate = installDate;
@@ -428,6 +428,11 @@ export default function Orders() {
       if (tvSold !== undefined) body.tvSold = tvSold;
       if (mobileSold !== undefined) body.mobileSold = mobileSold;
       if (mobileProductType !== undefined) body.mobileProductType = mobileProductType;
+      if (customerName !== undefined) body.customerName = customerName;
+      if (customerPhone !== undefined) body.customerPhone = customerPhone;
+      if (customerEmail !== undefined) body.customerEmail = customerEmail;
+      if (customerAddress !== undefined) body.customerAddress = customerAddress;
+      if (accountNumber !== undefined) body.accountNumber = accountNumber;
       
       const res = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
@@ -998,15 +1003,54 @@ export default function Orders() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-muted-foreground">Customer</Label>
-                  <p className="font-medium">{selectedOrder.customerName}</p>
+                  {isOperations ? (
+                    <Input
+                      defaultValue={selectedOrder.customerName}
+                      onBlur={(e) => {
+                        if (e.target.value !== selectedOrder.customerName) {
+                          updateJobStatusMutation.mutate({ orderId: selectedOrder.id, customerName: e.target.value });
+                        }
+                      }}
+                      className="w-[180px]"
+                      data-testid="input-order-customer-name"
+                    />
+                  ) : (
+                    <p className="font-medium">{selectedOrder.customerName}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Email</Label>
-                  <p className="text-sm">{selectedOrder.customerEmail || "-"}</p>
+                  {isOperations ? (
+                    <Input
+                      defaultValue={selectedOrder.customerEmail || ""}
+                      onBlur={(e) => {
+                        if (e.target.value !== (selectedOrder.customerEmail || "")) {
+                          updateJobStatusMutation.mutate({ orderId: selectedOrder.id, customerEmail: e.target.value });
+                        }
+                      }}
+                      className="w-[180px]"
+                      data-testid="input-order-customer-email"
+                    />
+                  ) : (
+                    <p className="text-sm">{selectedOrder.customerEmail || "-"}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Phone</Label>
-                  <p className="text-sm">{selectedOrder.customerPhone || "-"}</p>
+                  {isOperations ? (
+                    <Input
+                      defaultValue={selectedOrder.customerPhone || ""}
+                      onBlur={(e) => {
+                        if (e.target.value !== (selectedOrder.customerPhone || "")) {
+                          updateJobStatusMutation.mutate({ orderId: selectedOrder.id, customerPhone: e.target.value });
+                        }
+                      }}
+                      className="w-[180px]"
+                      data-testid="input-order-customer-phone"
+                    />
+                  ) : (
+                    <p className="text-sm">{selectedOrder.customerPhone || "-"}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Rep ID (Sales ID)</Label>
@@ -1165,7 +1209,37 @@ export default function Orders() {
                 )}
                 <div>
                   <Label className="text-muted-foreground">Account Number</Label>
-                  <p className="font-mono">{selectedOrder.accountNumber || "-"}</p>
+                  {isOperations ? (
+                    <Input
+                      defaultValue={selectedOrder.accountNumber || ""}
+                      onBlur={(e) => {
+                        if (e.target.value !== (selectedOrder.accountNumber || "")) {
+                          updateJobStatusMutation.mutate({ orderId: selectedOrder.id, accountNumber: e.target.value });
+                        }
+                      }}
+                      className="w-[180px] font-mono"
+                      data-testid="input-order-account-number"
+                    />
+                  ) : (
+                    <p className="font-mono">{selectedOrder.accountNumber || "-"}</p>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Address</Label>
+                  {isOperations ? (
+                    <Input
+                      defaultValue={selectedOrder.customerAddress || ""}
+                      onBlur={(e) => {
+                        if (e.target.value !== (selectedOrder.customerAddress || "")) {
+                          updateJobStatusMutation.mutate({ orderId: selectedOrder.id, customerAddress: e.target.value });
+                        }
+                      }}
+                      className="w-[180px]"
+                      data-testid="input-order-customer-address"
+                    />
+                  ) : (
+                    <p className="text-sm">{selectedOrder.customerAddress || "-"}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Date Sold</Label>

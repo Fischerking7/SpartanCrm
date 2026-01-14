@@ -1538,9 +1538,9 @@ export async function registerRoutes(
       if (order.approvalStatus === "APPROVED") {
         // Approved orders: only status + customer contact can be updated
         allowedFields = [...statusFields, "customerPhone", "customerEmail", "customerAddress", "accountNumber"];
-        // ADMIN/EXECUTIVE/OPERATIONS can also change repId, provider, client, service on approved orders
+        // ADMIN/EXECUTIVE/OPERATIONS can also change repId, provider, client, service, and customerName on approved orders
         if (isAdminLevel) {
-          allowedFields.push("repId", "providerId", "clientId", "serviceId");
+          allowedFields.push("repId", "providerId", "clientId", "serviceId", "customerName");
         }
       } else if (order.approvalStatus === "UNAPPROVED") {
         if (isAdminLevel) {
