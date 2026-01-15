@@ -3782,6 +3782,133 @@ export async function registerRoutes(
     }
   });
 
+  // Get Sales Pipeline data - disposition funnel for MANAGER+ and OPERATIONS
+  app.get("/api/leads/pipeline", auth, async (req: AuthRequest, res) => {
+    try {
+      const allowedRoles = ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"];
+      if (!allowedRoles.includes(req.user!.role)) {
+        return res.status(403).json({ message: "Only managers and above can view sales pipeline" });
+      }
+      
+      const users = await storage.getUsers();
+      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+      
+      // Get all leads
+      const allLeads = await storage.getAllLeadsForReporting({});
+      
+      // Filter to leads from users at or below caller's level
+      const accessibleLeads = allLeads.filter(lead => {
+        const leadOwner = users.find(u => u.repId === lead.repId);
+        if (!leadOwner) return false;
+        const ownerLevel = ROLE_HIERARCHY[leadOwner.role] || 0;
+        return ownerLevel <= callerLevel;
+      });
+      
+      // Aggregate by disposition
+      const dispositionCounts: Record<string, number> = {};
+      for (const lead of accessibleLeads) {
+        const dispo = lead.disposition || "NONE";
+        dispositionCounts[dispo] = (dispositionCounts[dispo] || 0) + 1;
+      }
+      
+      // Aggregate by rep with disposition breakdown
+      const repData: Record<string, { repId: string; name: string; role: string; dispositions: Record<string, number>; total: number }> = {};
+      for (const lead of accessibleLeads) {
+        const rep = users.find(u => u.repId === lead.repId);
+        if (!rep) continue;
+        
+        if (!repData[lead.repId]) {
+          repData[lead.repId] = {
+            repId: lead.repId,
+            name: rep.name,
+            role: rep.role,
+            dispositions: {},
+            total: 0,
+          };
+        }
+        
+        const dispo = lead.disposition || "NONE";
+        repData[lead.repId].dispositions[dispo] = (repData[lead.repId].dispositions[dispo] || 0) + 1;
+        repData[lead.repId].total++;
+      }
+      
+      // Calculate conversion metrics
+      const totalLeads = accessibleLeads.length;
+      const soldCount = dispositionCounts["SOLD"] || 0;
+      const negotiationCount = dispositionCounts["NEGOTIATION"] || 0;
+      const returnCount = dispositionCounts["RETURN"] || 0;
+      const rejectCount = dispositionCounts["DOOR_SLAM_REJECT"] || 0;
+      
+      res.json({
+        totalLeads,
+        dispositionCounts,
+        repBreakdown: Object.values(repData).sort((a, b) => b.total - a.total),
+        metrics: {
+          conversionRate: totalLeads > 0 ? ((soldCount / totalLeads) * 100).toFixed(1) : "0.0",
+          negotiationRate: totalLeads > 0 ? ((negotiationCount / totalLeads) * 100).toFixed(1) : "0.0",
+          returnRate: totalLeads > 0 ? ((returnCount / totalLeads) * 100).toFixed(1) : "0.0",
+          rejectRate: totalLeads > 0 ? ((rejectCount / totalLeads) * 100).toFixed(1) : "0.0",
+        },
+      });
+    } catch (error) {
+      console.error("Sales pipeline error:", error);
+      res.status(500).json({ message: "Failed to fetch sales pipeline data" });
+    }
+  });
+
+  // Create a single lead (EXECUTIVE, OPERATIONS, ADMIN only)
+  app.post("/api/leads", auth, async (req: AuthRequest, res) => {
+    try {
+      const allowedRoles = ["EXECUTIVE", "OPERATIONS", "ADMIN"];
+      if (!allowedRoles.includes(req.user!.role)) {
+        return res.status(403).json({ message: "Only executives, operations, and admins can create leads manually" });
+      }
+      
+      const { 
+        repId, customerName, houseNumber, aptUnit, streetName, street, 
+        city, state, zipCode, customerPhone, customerEmail, accountNumber, 
+        customerStatus, discoReason, notes 
+      } = req.body;
+      
+      // Validate repId
+      if (!repId) {
+        return res.status(400).json({ message: "Rep ID is required" });
+      }
+      
+      const users = await storage.getUsers();
+      const targetUser = users.find(u => u.repId === repId && !u.deletedAt && u.status === "ACTIVE");
+      if (!targetUser) {
+        return res.status(400).json({ message: `Rep '${repId}' not found` });
+      }
+      
+      const lead = await storage.createLead({
+        repId,
+        customerName: customerName || null,
+        houseNumber: houseNumber || null,
+        aptUnit: aptUnit || null,
+        streetName: streetName || null,
+        street: street || null,
+        city: city || null,
+        state: state || null,
+        zipCode: zipCode || null,
+        customerPhone: customerPhone || null,
+        customerEmail: customerEmail || null,
+        accountNumber: accountNumber || null,
+        customerStatus: customerStatus || null,
+        discoReason: discoReason || null,
+        notes: notes || null,
+        customerAddress: null,
+        importedBy: req.user!.id,
+        disposition: "NONE",
+      });
+      
+      res.status(201).json(lead);
+    } catch (error) {
+      console.error("Create lead error:", error);
+      res.status(500).json({ message: "Failed to create lead" });
+    }
+  });
+
   app.patch("/api/leads/:id/notes", auth, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;

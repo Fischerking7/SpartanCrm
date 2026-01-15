@@ -609,7 +609,7 @@ export type InsertCommissionLineItem = z.infer<typeof insertCommissionLineItemSc
 // Lead dispositions - simplified for field operations
 export const leadDispositions = [
   "NONE", "NOT_HOME", "RETURN", "DOOR_SLAM_REJECT", "SHORT_PITCH",
-  "CALLED", "EMAIL_SENT", "CALL_NO_ANSWER", "SOLD"
+  "CALLED", "EMAIL_SENT", "CALL_NO_ANSWER", "NEGOTIATION", "SOLD"
 ] as const;
 export type LeadDisposition = typeof leadDispositions[number];
 
@@ -627,7 +627,7 @@ export interface DispositionInfo {
 // Lead pipeline stages for funnel tracking - matches dispositions
 export const leadPipelineStages = [
   "NOT_HOME", "RETURN", "DOOR_SLAM_REJECT", "SHORT_PITCH",
-  "CALLED", "EMAIL_SENT", "CALL_NO_ANSWER", "SOLD"
+  "CALLED", "EMAIL_SENT", "CALL_NO_ANSWER", "NEGOTIATION", "SOLD"
 ] as const;
 export type LeadPipelineStage = typeof leadPipelineStages[number];
 
@@ -640,6 +640,7 @@ export const dispositionMetadata: DispositionInfo[] = [
   { value: "CALLED", label: "Called", category: "contact", pipelineStage: "CALLED", isTerminal: false, requiresLostReason: false },
   { value: "EMAIL_SENT", label: "Email Sent", category: "contact", pipelineStage: "EMAIL_SENT", isTerminal: false, requiresLostReason: false },
   { value: "CALL_NO_ANSWER", label: "Call-No Answer", category: "contact", pipelineStage: "CALL_NO_ANSWER", isTerminal: false, requiresLostReason: false },
+  { value: "NEGOTIATION", label: "Negotiation", category: "positive", pipelineStage: "NEGOTIATION", isTerminal: false, requiresLostReason: false },
   { value: "SOLD", label: "Sold", category: "won", pipelineStage: "SOLD", isTerminal: true, requiresLostReason: false },
 ];
 

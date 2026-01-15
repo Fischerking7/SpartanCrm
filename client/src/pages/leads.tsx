@@ -12,8 +12,9 @@ import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench } from "lucide-react";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench, Plus, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
 import { dispositionMetadata, terminalDispositions, type Lead, type LeadDisposition } from "@shared/schema";
 
@@ -49,11 +50,33 @@ export default function Leads() {
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
   const [bulkAssignTargetRepId, setBulkAssignTargetRepId] = useState<string>("");
+  
+  // Manual lead creation state
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newLeadForm, setNewLeadForm] = useState({
+    repId: "",
+    customerName: "",
+    houseNumber: "",
+    aptUnit: "",
+    streetName: "",
+    city: "",
+    state: "",
+    zipCode: "",
+    customerPhone: "",
+    customerEmail: "",
+    accountNumber: "",
+    notes: "",
+  });
+  
+  // Tab state for Sales Pipeline
+  const [activeTab, setActiveTab] = useState<string>("leads");
 
   const canImport = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
   const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
   const canBulkManage = canAssignToOthers; // SUPERVISOR+ can multi-select and bulk manage
   const isAdmin = ["ADMIN", "OPERATIONS"].includes(user?.role || "");
+  const canCreateLead = ["EXECUTIVE", "OPERATIONS", "ADMIN"].includes(user?.role || "");
+  const canViewPipeline = ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
 
   const getStreetAddress = (lead: Lead): string => {
     let street = "";
@@ -136,6 +159,18 @@ export default function Leads() {
   const { data: leadCounts } = useQuery<{ repId: string; name: string; role: string; count: number }[]>({
     queryKey: ["/api/leads/counts"],
     enabled: canAssignToOthers,
+  });
+
+  // Fetch sales pipeline data for MANAGER+ and OPERATIONS
+  interface PipelineData {
+    totalLeads: number;
+    dispositionCounts: Record<string, number>;
+    repBreakdown: { repId: string; name: string; role: string; dispositions: Record<string, number>; total: number }[];
+    metrics: { conversionRate: string; negotiationRate: string; returnRate: string; rejectRate: string };
+  }
+  const { data: pipelineData, isLoading: pipelineLoading } = useQuery<PipelineData>({
+    queryKey: ["/api/leads/pipeline"],
+    enabled: canViewPipeline,
   });
 
   const buildQueryUrl = () => {
@@ -398,6 +433,45 @@ export default function Leads() {
     },
   });
 
+  // Create lead mutation
+  const createLeadMutation = useMutation({
+    mutationFn: async (data: typeof newLeadForm) => {
+      const res = await fetch("/api/leads", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create lead");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/counts"] });
+      setShowCreateDialog(false);
+      setNewLeadForm({
+        repId: "",
+        customerName: "",
+        houseNumber: "",
+        aptUnit: "",
+        streetName: "",
+        city: "",
+        state: "",
+        zipCode: "",
+        customerPhone: "",
+        customerEmail: "",
+        accountNumber: "",
+        notes: "",
+      });
+      toast({ title: "Lead created successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to create lead", description: error.message, variant: "destructive" });
+    },
+  });
+
   // Multi-select handlers
   const toggleLeadSelection = (leadId: string) => {
     setSelectedLeadIds(prev => {
@@ -503,10 +577,10 @@ export default function Leads() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold" data-testid="text-page-title">
-            {viewingRepName ? `${viewingRepName}'s Leads` : "My Leads"}
+            {activeTab === "pipeline" ? "Sales Pipeline" : viewingRepName ? `${viewingRepName}'s Leads` : "My Leads"}
           </h1>
           <p className="text-muted-foreground">
-            {viewingRepName ? `Viewing leads for ${viewingRepName}` : "View and manage your imported leads"}
+            {activeTab === "pipeline" ? "Disposition flow and conversion metrics" : viewingRepName ? `Viewing leads for ${viewingRepName}` : "View and manage your imported leads"}
           </p>
         </div>
         <div className="flex items-center gap-4 flex-wrap">
@@ -527,6 +601,12 @@ export default function Leads() {
                 </SelectContent>
               </Select>
             </div>
+          )}
+          {canCreateLead && (
+            <Button onClick={() => setShowCreateDialog(true)} data-testid="button-create-lead">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Lead
+            </Button>
           )}
           {canImport && (
             <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-leads">
@@ -554,6 +634,129 @@ export default function Leads() {
         </div>
       </div>
 
+      {canViewPipeline && (
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList>
+            <TabsTrigger value="leads" data-testid="tab-leads">
+              <UserPlus className="h-4 w-4 mr-2" />
+              Leads
+            </TabsTrigger>
+            <TabsTrigger value="pipeline" data-testid="tab-pipeline">
+              <TrendingUp className="h-4 w-4 mr-2" />
+              Sales Pipeline
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="pipeline" className="space-y-6">
+            {pipelineLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <span className="text-muted-foreground">Loading pipeline data...</span>
+              </div>
+            ) : pipelineData ? (
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">Total Leads</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{pipelineData.totalLeads}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">Conversion Rate</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold text-green-600">{pipelineData.metrics.conversionRate}%</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">In Negotiation</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold text-blue-600">{pipelineData.metrics.negotiationRate}%</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">Return Rate</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold text-yellow-600">{pipelineData.metrics.returnRate}%</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">Rejection Rate</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold text-red-600">{pipelineData.metrics.rejectRate}%</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Disposition Breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      {dispositionMetadata.map(d => (
+                        <div key={d.value} className="flex items-center justify-between p-3 border rounded-md">
+                          <span className="text-sm">{d.label}</span>
+                          <Badge variant={d.category === "won" ? "default" : d.category === "negative" ? "destructive" : "secondary"}>
+                            {pipelineData.dispositionCounts[d.value] || 0}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Rep Performance</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {pipelineData.repBreakdown.length === 0 ? (
+                        <p className="text-muted-foreground text-center py-4">No data available</p>
+                      ) : (
+                        pipelineData.repBreakdown.map(rep => (
+                          <div key={rep.repId} className="flex items-center justify-between p-3 border rounded-md">
+                            <div>
+                              <p className="font-medium">{rep.name}</p>
+                              <p className="text-xs text-muted-foreground">{rep.repId} - {rep.role}</p>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="text-right">
+                                <p className="text-sm font-medium">{rep.total} leads</p>
+                                <div className="flex gap-2 text-xs">
+                                  <span className="text-green-600">{rep.dispositions.SOLD || 0} sold</span>
+                                  <span className="text-blue-600">{rep.dispositions.NEGOTIATION || 0} negotiating</span>
+                                  <span className="text-yellow-600">{rep.dispositions.RETURN || 0} return</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">No pipeline data available</div>
+            )}
+          </TabsContent>
+          
+        </Tabs>
+      )}
+
+      {(!canViewPipeline || activeTab === "leads") && (
+      <div className="space-y-6">
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
@@ -1151,6 +1354,153 @@ export default function Leads() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Create Lead Dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />
+              Create New Lead
+            </DialogTitle>
+            <DialogDescription>
+              Manually add a new lead to the system.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto p-1">
+            <div className="col-span-2 space-y-2">
+              <Label>Assign to Rep *</Label>
+              <Select value={newLeadForm.repId} onValueChange={(v) => setNewLeadForm(f => ({ ...f, repId: v }))}>
+                <SelectTrigger data-testid="select-create-lead-rep">
+                  <SelectValue placeholder="Select a rep" />
+                </SelectTrigger>
+                <SelectContent>
+                  {assignableUsers.map(u => (
+                    <SelectItem key={u.id} value={u.repId}>
+                      {u.name} ({u.repId}) - {u.role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Customer Name</Label>
+              <Input
+                placeholder="John Smith"
+                value={newLeadForm.customerName}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, customerName: e.target.value }))}
+                data-testid="input-create-lead-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Phone</Label>
+              <Input
+                placeholder="555-123-4567"
+                value={newLeadForm.customerPhone}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, customerPhone: e.target.value }))}
+                data-testid="input-create-lead-phone"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input
+                placeholder="email@example.com"
+                value={newLeadForm.customerEmail}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, customerEmail: e.target.value }))}
+                data-testid="input-create-lead-email"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Account Number</Label>
+              <Input
+                placeholder="ACC-12345"
+                value={newLeadForm.accountNumber}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, accountNumber: e.target.value }))}
+                data-testid="input-create-lead-account"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>House Number</Label>
+              <Input
+                placeholder="123"
+                value={newLeadForm.houseNumber}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, houseNumber: e.target.value }))}
+                data-testid="input-create-lead-house"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Apt/Unit</Label>
+              <Input
+                placeholder="Apt 4B"
+                value={newLeadForm.aptUnit}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, aptUnit: e.target.value }))}
+                data-testid="input-create-lead-apt"
+              />
+            </div>
+            <div className="col-span-2 space-y-2">
+              <Label>Street Name</Label>
+              <Input
+                placeholder="Main Street"
+                value={newLeadForm.streetName}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, streetName: e.target.value }))}
+                data-testid="input-create-lead-street"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>City</Label>
+              <Input
+                placeholder="Philadelphia"
+                value={newLeadForm.city}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, city: e.target.value }))}
+                data-testid="input-create-lead-city"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>State</Label>
+              <Input
+                placeholder="PA"
+                value={newLeadForm.state}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, state: e.target.value }))}
+                data-testid="input-create-lead-state"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Zip Code</Label>
+              <Input
+                placeholder="19103"
+                value={newLeadForm.zipCode}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, zipCode: e.target.value }))}
+                data-testid="input-create-lead-zip"
+              />
+            </div>
+            <div className="col-span-2 space-y-2">
+              <Label>Notes</Label>
+              <Textarea
+                placeholder="Additional notes about this lead..."
+                value={newLeadForm.notes}
+                onChange={(e) => setNewLeadForm(f => ({ ...f, notes: e.target.value }))}
+                data-testid="input-create-lead-notes"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => createLeadMutation.mutate(newLeadForm)}
+              disabled={!newLeadForm.repId || createLeadMutation.isPending}
+              data-testid="button-confirm-create-lead"
+            >
+              {createLeadMutation.isPending ? "Creating..." : "Create Lead"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      </div>
+      )}
     </div>
   );
 }
