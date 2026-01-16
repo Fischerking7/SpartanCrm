@@ -3,7 +3,7 @@ import { eq, and, desc, sql, lte, gte, or, isNull, ilike, inArray, notInArray, n
 import {
   users, providers, clients, services, rateCards, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
-  payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues,
+  payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues, orderExceptions,
   auditLogs, exportBatches, counters, overrideEarnings, leads, leadDispositionHistory, commissionLineItems, mobileLineItems,
   overrideDeductionPool, overrideDistributions, knowledgeDocuments,
   payrollSchedules, payRunApprovals, deductionTypes, userDeductions,
@@ -59,6 +59,7 @@ import {
   type ScheduledReport, type InsertScheduledReport,
   type CommissionDispute, type InsertCommissionDispute,
   type LeadDispositionHistory, type InsertLeadDispositionHistory,
+  type OrderException, type InsertOrderException,
 } from "@shared/schema";
 
 export const storage = {
@@ -952,6 +953,23 @@ export const storage = {
       resolvedAt: new Date(),
       resolutionNote: note,
     }).where(eq(rateIssues.id, id)).returning();
+    return record;
+  },
+
+  // Order Exceptions (flagged orders)
+  async getOrderExceptions() {
+    return db.query.orderExceptions.findMany({ orderBy: [desc(orderExceptions.createdAt)] });
+  },
+  async createOrderException(data: InsertOrderException) {
+    const [record] = await db.insert(orderExceptions).values(data).returning();
+    return record;
+  },
+  async resolveOrderException(id: string, userId: string, note: string) {
+    const [record] = await db.update(orderExceptions).set({
+      resolvedByUserId: userId,
+      resolvedAt: new Date(),
+      resolutionNote: note,
+    }).where(eq(orderExceptions.id, id)).returning();
     return record;
   },
 

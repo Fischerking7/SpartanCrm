@@ -3691,10 +3691,35 @@ export async function registerRoutes(
         result = await storage.resolveUnmatchedChargeback(id, req.user!.id, resolutionNote);
       } else if (type === "rate-issues") {
         result = await storage.resolveRateIssue(id, req.user!.id, resolutionNote);
+      } else if (type === "order-exceptions") {
+        result = await storage.resolveOrderException(id, req.user!.id, resolutionNote);
       }
       await storage.createAuditLog({ action: `resolve_${type}`, tableName: type.replace(/-/g, "_"), recordId: id, afterJson: JSON.stringify(result), userId: req.user!.id });
       res.json(result);
     } catch (error) { res.status(500).json({ message: "Failed to resolve" }); }
+  });
+
+  // Order Exceptions (flagged orders)
+  app.get("/api/admin/queues/order-exceptions", auth, executiveOrAdmin, async (req, res) => {
+    try { res.json(await storage.getOrderExceptions()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.post("/api/orders/:id/flag", auth, async (req: AuthRequest, res) => {
+    try {
+      const { reason } = req.body;
+      if (!reason || typeof reason !== "string") {
+        return res.status(400).json({ message: "Reason is required" });
+      }
+      const order = await storage.getSalesOrderById(req.params.id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      const exception = await storage.createOrderException({
+        salesOrderId: req.params.id,
+        reason,
+        flaggedByUserId: req.user!.id,
+      });
+      await storage.createAuditLog({ action: "flag_order", tableName: "order_exceptions", recordId: exception.id, afterJson: JSON.stringify(exception), userId: req.user!.id });
+      res.json(exception);
+    } catch (error) { res.status(500).json({ message: "Failed to flag order" }); }
   });
 
   // Audit Log
