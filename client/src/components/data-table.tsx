@@ -5,6 +5,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableFooter,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -22,6 +23,7 @@ interface DataTableProps<T> {
   emptyMessage?: string;
   onRowClick?: (row: T) => void;
   testId?: string;
+  footer?: React.ReactNode;
 }
 
 export function DataTable<T extends { id?: string }>({
@@ -31,6 +33,7 @@ export function DataTable<T extends { id?: string }>({
   emptyMessage = "No data found",
   onRowClick,
   testId,
+  footer,
 }: DataTableProps<T>) {
   if (isLoading) {
     return (
@@ -97,6 +100,7 @@ export function DataTable<T extends { id?: string }>({
             </TableRow>
           ))}
         </TableBody>
+        {footer && <TableFooter>{footer}</TableFooter>}
       </Table>
     </div>
   );
