@@ -1431,6 +1431,46 @@ export async function registerRoutes(
   app.get("/api/orders/:id/commission-lines", auth, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
+      const user = req.user!;
+      
+      // Verify user has access to this order
+      const order = await storage.getOrderById(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      
+      // REP and MDU can only view their own orders' commission lines
+      if (["REP", "MDU"].includes(user.role) && order.repId !== user.repId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // SUPERVISOR can view their own + their team's orders
+      if (user.role === "SUPERVISOR") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        const allowedRepIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+        if (!allowedRepIds.includes(order.repId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      
+      // MANAGER can view their org tree's orders
+      if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        const allowedRepIds = [user.repId, ...scope.allRepRepIds];
+        if (!allowedRepIds.includes(order.repId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      
+      // EXECUTIVE can view their org tree's orders
+      if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        const allowedRepIds = [user.repId, ...scope.allRepRepIds];
+        if (!allowedRepIds.includes(order.repId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      
+      // ADMIN and OPERATIONS can view all orders
+      
       const lineItems = await storage.getCommissionLineItemsByOrderId(id);
       res.json(lineItems);
     } catch (error) {
@@ -3707,11 +3747,18 @@ export async function registerRoutes(
   app.post("/api/orders/:id/flag", auth, async (req: AuthRequest, res) => {
     try {
       const { reason } = req.body;
+      const user = req.user!;
       if (!reason || typeof reason !== "string") {
         return res.status(400).json({ message: "Reason is required" });
       }
       const order = await storage.getOrderById(req.params.id);
       if (!order) return res.status(404).json({ message: "Order not found" });
+      
+      // REP and MDU can only flag their own orders
+      if (["REP", "MDU"].includes(user.role) && order.repId !== user.repId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
       const exception = await storage.createOrderException({
         salesOrderId: req.params.id,
         reason,
