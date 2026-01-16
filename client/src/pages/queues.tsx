@@ -12,8 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { AlertTriangle, DollarSign, FileText, Check } from "lucide-react";
-import type { UnmatchedPayment, UnmatchedChargeback, RateIssue } from "@shared/schema";
+import { AlertTriangle, DollarSign, FileText, Check, Flag } from "lucide-react";
+import type { UnmatchedPayment, UnmatchedChargeback, RateIssue, OrderException } from "@shared/schema";
 
 export default function Queues() {
   const { toast } = useToast();
@@ -51,6 +51,15 @@ export default function Queues() {
     },
   });
 
+  const { data: orderExceptions, isLoading: exceptionsLoading } = useQuery<OrderException[]>({
+    queryKey: ["/api/admin/queues/order-exceptions"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/queues/order-exceptions", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
   const resolveMutation = useMutation({
     mutationFn: async ({ type, id, note }: { type: string; id: string; note: string }) => {
       const res = await fetch(`/api/admin/queues/${type}/${id}/resolve`, {
@@ -68,6 +77,7 @@ export default function Queues() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/queues/unmatched-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/queues/unmatched-chargebacks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/queues/rate-issues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/queues/order-exceptions"] });
       setResolvingItem(null);
       setResolutionNote("");
       toast({ title: "Issue resolved" });
@@ -246,9 +256,69 @@ export default function Queues() {
     },
   ];
 
+  const exceptionColumns = [
+    {
+      key: "salesOrderId",
+      header: "Order",
+      cell: (row: OrderException) => (
+        <span className="font-mono text-sm">{row.salesOrderId.slice(0, 8)}...</span>
+      ),
+    },
+    {
+      key: "reason",
+      header: "Reason",
+      cell: (row: OrderException) => <span className="text-sm">{row.reason}</span>,
+    },
+    {
+      key: "flaggedBy",
+      header: "Flagged By",
+      cell: (row: OrderException) => (
+        <span className="text-sm text-muted-foreground">{row.flaggedByUserId.slice(0, 8)}...</span>
+      ),
+    },
+    {
+      key: "createdAt",
+      header: "Flagged",
+      cell: (row: OrderException) => (
+        <span className="text-sm text-muted-foreground">
+          {new Date(row.createdAt).toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (row: OrderException) => (
+        row.resolvedAt ? (
+          <Badge variant="default">Resolved</Badge>
+        ) : (
+          <Badge variant="secondary">Pending</Badge>
+        )
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      cell: (row: OrderException) => (
+        !row.resolvedAt && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setResolvingItem({ type: "order-exceptions", id: row.id })}
+            data-testid={`button-resolve-exception-${row.id}`}
+          >
+            <Check className="h-4 w-4 mr-1" />
+            Resolve
+          </Button>
+        )
+      ),
+    },
+  ];
+
   const unresolvedPayments = unmatchedPayments?.filter(p => !p.resolvedAt) || [];
   const unresolvedChargebacks = unmatchedChargebacks?.filter(c => !c.resolvedAt) || [];
   const unresolvedRates = rateIssues?.filter(r => !r.resolvedAt) || [];
+  const unresolvedExceptions = orderExceptions?.filter(e => !e.resolvedAt) || [];
 
   return (
     <div className="p-6 space-y-6">
@@ -280,6 +350,13 @@ export default function Queues() {
             Rate Issues
             {unresolvedRates.length > 0 && (
               <Badge variant="destructive" className="ml-2">{unresolvedRates.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="flagged" data-testid="tab-flagged">
+            <Flag className="h-4 w-4 mr-2" />
+            Flagged Orders
+            {unresolvedExceptions.length > 0 && (
+              <Badge variant="destructive" className="ml-2">{unresolvedExceptions.length}</Badge>
             )}
           </TabsTrigger>
         </TabsList>
@@ -321,6 +398,20 @@ export default function Queues() {
                 isLoading={ratesLoading}
                 emptyMessage="No rate issues"
                 testId="table-rate-issues"
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="flagged">
+          <Card>
+            <CardContent className="pt-6">
+              <DataTable
+                columns={exceptionColumns}
+                data={unresolvedExceptions}
+                isLoading={exceptionsLoading}
+                emptyMessage="No flagged orders"
+                testId="table-flagged-orders"
               />
             </CardContent>
           </Card>

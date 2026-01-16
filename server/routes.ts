@@ -3710,7 +3710,7 @@ export async function registerRoutes(
       if (!reason || typeof reason !== "string") {
         return res.status(400).json({ message: "Reason is required" });
       }
-      const order = await storage.getSalesOrderById(req.params.id);
+      const order = await storage.getOrderById(req.params.id);
       if (!order) return res.status(404).json({ message: "Order not found" });
       const exception = await storage.createOrderException({
         salesOrderId: req.params.id,

@@ -15,7 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2 } from "lucide-react";
+import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag } from "lucide-react";
 import type { SalesOrder, Client, Provider, Service, User, CommissionLineItem, RateCard } from "@shared/schema";
 
 interface MobileLineEntry {
@@ -45,6 +45,8 @@ export default function Orders() {
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fromLeadId, setFromLeadId] = useState<string | null>(null);
+  const [flaggingOrder, setFlaggingOrder] = useState<SalesOrder | null>(null);
+  const [flagReason, setFlagReason] = useState("");
 
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
@@ -617,6 +619,31 @@ export default function Orders() {
     },
   });
 
+  const flagOrderMutation = useMutation({
+    mutationFn: async ({ orderId, reason }: { orderId: string; reason: string }) => {
+      const res = await fetch(`/api/orders/${orderId}/flag`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to flag order");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/queues/order-exceptions"] });
+      setFlaggingOrder(null);
+      setFlagReason("");
+      toast({ title: "Order flagged", description: "Order has been sent to the exception queue" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to flag order", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleCreateOrder = () => {
     if (!newOrderForm.customerName || !newOrderForm.dateSold) {
       toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
@@ -832,6 +859,21 @@ export default function Orders() {
       header: "Payment",
       cell: (row: SalesOrder) => <PaymentStatusBadge status={row.paymentStatus} />,
     }] : []),
+    {
+      key: "flag",
+      header: "",
+      cell: (row: SalesOrder) => (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="text-orange-500 hover:text-orange-600"
+          onClick={(e) => { e.stopPropagation(); setFlaggingOrder(row); }}
+          data-testid={`button-flag-order-${row.id}`}
+        >
+          <Flag className="h-4 w-4" />
+        </Button>
+      ),
+    },
     ...((user?.role === "OPERATIONS" || isAdminOrExec) ? [{
       key: "delete",
       header: "",
@@ -1925,6 +1967,51 @@ export default function Orders() {
               data-testid="button-confirm-import"
             >
               {isImporting ? "Importing..." : "Import"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!flaggingOrder} onOpenChange={() => { setFlaggingOrder(null); setFlagReason(""); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Flag className="h-5 w-5 text-orange-500" />
+              Flag Order for Review
+            </DialogTitle>
+            <DialogDescription>
+              This order will be sent to the exception queue for review. Please provide a reason.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {flaggingOrder && (
+            <div className="bg-muted p-3 rounded-md text-sm space-y-1">
+              <p><span className="font-medium">Customer:</span> {flaggingOrder.customerName}</p>
+              <p><span className="font-medium">Invoice:</span> {flaggingOrder.invoiceNumber || "N/A"}</p>
+              <p><span className="font-medium">Rep ID:</span> {flaggingOrder.repId}</p>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label>Reason for flagging *</Label>
+            <Textarea
+              placeholder="Describe why this order needs review..."
+              value={flagReason}
+              onChange={(e) => setFlagReason(e.target.value)}
+              data-testid="input-flag-reason"
+            />
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setFlaggingOrder(null); setFlagReason(""); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => flaggingOrder && flagOrderMutation.mutate({ orderId: flaggingOrder.id, reason: flagReason })}
+              disabled={!flagReason.trim() || flagOrderMutation.isPending}
+              data-testid="button-confirm-flag"
+            >
+              {flagOrderMutation.isPending ? "Flagging..." : "Flag Order"}
             </Button>
           </DialogFooter>
         </DialogContent>
