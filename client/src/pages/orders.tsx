@@ -845,6 +845,28 @@ export default function Orders() {
             {user?.role === "REP" ? "Your orders" : user?.role === "MANAGER" ? "Team orders" : "All orders"}
           </p>
         </div>
+        {isAdmin && filteredOrders && (() => {
+          const totals = filteredOrders.reduce((acc, order) => {
+            const base = parseFloat(order.baseCommissionEarned);
+            const incentive = parseFloat(order.incentiveEarned || "0");
+            const override = getOverrideAmount(order);
+            return {
+              gross: acc.gross + base + incentive,
+              override: acc.override + override,
+            };
+          }, { gross: 0, override: 0 });
+          return (
+            <div className="bg-muted/50 rounded-md px-4 py-2 text-right">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Commission Pool</p>
+              <p className="text-xl font-bold font-mono text-green-600" data-testid="text-total-commission">
+                ${totals.gross.toFixed(2)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {filteredOrders.length} orders | Override: ${totals.override.toFixed(2)}
+              </p>
+            </div>
+          );
+        })()}
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin && (
             <>
