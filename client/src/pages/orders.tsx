@@ -5,7 +5,6 @@ import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
 import { JobStatusBadge, ApprovalStatusBadge, PaymentStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, NativeSelect, useIsTouchDevice } from "@/components/ui/select";
@@ -799,6 +798,21 @@ export default function Orders() {
       },
       className: "text-right",
     }] : []),
+    ...(isAdminOrExec ? [{
+      key: "totalCommission",
+      header: "Total",
+      cell: (row: SalesOrder) => {
+        const gross = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
+        const override = getOverrideAmount(row);
+        const total = gross + override;
+        return (
+          <span className="font-mono text-right block font-semibold text-green-600">
+            ${total.toFixed(2)}
+          </span>
+        );
+      },
+      className: "text-right",
+    }] : []),
     {
       key: "provider",
       header: "Provider",
@@ -987,34 +1001,6 @@ export default function Orders() {
             isLoading={isLoading}
             emptyMessage="No orders found"
             testId="table-orders"
-            footer={isAdmin && filteredOrders?.length ? (() => {
-              const totals = filteredOrders.reduce((acc, order) => {
-                const base = parseFloat(order.baseCommissionEarned);
-                const incentive = parseFloat(order.incentiveEarned || "0");
-                const override = getOverrideAmount(order);
-                return {
-                  gross: acc.gross + base + incentive,
-                  override: acc.override + override,
-                };
-              }, { gross: 0, override: 0 });
-              const colCount = columns.length;
-              const commissionColIndex = columns.findIndex(c => c.key === "baseCommissionEarned");
-              const overrideColIndex = columns.findIndex(c => c.key === "overrideAmount");
-              return (
-                <TableRow className="bg-muted/50 font-semibold" data-testid="row-totals">
-                  {columns.map((col, idx) => (
-                    <TableCell key={col.key} className={col.className}>
-                      {idx === 0 ? "Totals" : 
-                       col.key === "baseCommissionEarned" ? (
-                        <span className="font-mono text-green-600">${totals.gross.toFixed(2)}</span>
-                       ) : col.key === "overrideAmount" ? (
-                        <span className="font-mono text-muted-foreground">${totals.override.toFixed(2)}</span>
-                       ) : ""}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              );
-            })() : undefined}
           />
         </CardContent>
       </Card>
