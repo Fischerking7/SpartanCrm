@@ -538,6 +538,35 @@ export const rateIssues = pgTable("rate_issues", {
   resolutionNote: text("resolution_note"),
 });
 
+// Order Exceptions table - for flagged orders
+export const orderExceptions = pgTable("order_exceptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  salesOrderId: varchar("sales_order_id").notNull().references(() => salesOrders.id),
+  reason: text("reason").notNull(),
+  flaggedByUserId: varchar("flagged_by_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  resolvedByUserId: varchar("resolved_by_user_id").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  resolutionNote: text("resolution_note"),
+});
+
+export const orderExceptionsRelations = relations(orderExceptions, ({ one }) => ({
+  salesOrder: one(salesOrders, { fields: [orderExceptions.salesOrderId], references: [salesOrders.id] }),
+  flaggedBy: one(users, { fields: [orderExceptions.flaggedByUserId], references: [users.id], relationName: "flaggedExceptions" }),
+  resolvedBy: one(users, { fields: [orderExceptions.resolvedByUserId], references: [users.id], relationName: "resolvedExceptions" }),
+}));
+
+export const insertOrderExceptionSchema = createInsertSchema(orderExceptions).omit({
+  id: true,
+  createdAt: true,
+  resolvedByUserId: true,
+  resolvedAt: true,
+  resolutionNote: true,
+});
+
+export type OrderException = typeof orderExceptions.$inferSelect;
+export type InsertOrderException = z.infer<typeof insertOrderExceptionSchema>;
+
 // Audit Log table
 export const auditLogs = pgTable("audit_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
