@@ -272,7 +272,7 @@ export function AppSidebar() {
 
   if (!user) return null;
 
-  const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS";
+  const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE";
 
   const getInitials = (name: string) => {
     return name

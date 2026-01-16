@@ -88,7 +88,7 @@ export default function Orders() {
     }));
   };
 
-  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS";
+  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE";
   const isOperations = user?.role === "OPERATIONS";
   const isTouchDevice = useIsTouchDevice();
 

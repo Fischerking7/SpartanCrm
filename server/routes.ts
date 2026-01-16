@@ -1447,9 +1447,9 @@ export async function registerRoutes(
       const order = await storage.getOrderById(id);
       if (!order) return res.status(404).json({ message: "Order not found" });
       
-      // Only admins can recalculate commissions
-      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
-        return res.status(403).json({ message: "Only admins can recalculate commissions" });
+      // Only admins and executives can recalculate commissions
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Only admins and executives can recalculate commissions" });
       }
       
       // Delete existing commission line items
@@ -1622,6 +1622,11 @@ export async function registerRoutes(
           updateData.commissionSource = "CALCULATED";
           updateData.calcAt = new Date();
         }
+      }
+      
+      // When jobStatus changes to COMPLETED, reset approvalStatus to UNAPPROVED to re-enter approval queue
+      if (updateData.jobStatus === "COMPLETED" && order.jobStatus !== "COMPLETED") {
+        updateData.approvalStatus = "UNAPPROVED";
       }
       
       const updated = await storage.updateOrder(id, updateData);
@@ -6050,8 +6055,8 @@ export async function registerRoutes(
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      // Only ADMIN and OPERATIONS can see all override earnings
-      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
+      // ADMIN, OPERATIONS, and EXECUTIVE can see all override earnings
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
       
@@ -9217,8 +9222,8 @@ export async function registerRoutes(
   app.get("/api/scheduled-reports", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      // ADMIN/OPERATIONS can see all, others see only their own
-      const reports = ["ADMIN", "OPERATIONS"].includes(user.role)
+      // ADMIN/OPERATIONS/EXECUTIVE can see all, others see only their own
+      const reports = ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)
         ? await storage.getScheduledReports()
         : await storage.getScheduledReports(user.id);
       res.json(reports);
@@ -9286,8 +9291,8 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Scheduled report not found" });
       }
       
-      // Check ownership or admin
-      if (existing.userId !== user.id && !["ADMIN", "OPERATIONS"].includes(user.role)) {
+      // Check ownership or admin/executive
+      if (existing.userId !== user.id && !["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
       
@@ -9320,7 +9325,7 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Scheduled report not found" });
       }
       
-      if (existing.userId !== user.id && !["ADMIN", "OPERATIONS"].includes(user.role)) {
+      if (existing.userId !== user.id && !["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
       
