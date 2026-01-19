@@ -7466,11 +7466,12 @@ export async function registerRoutes(
           incentivesTotal += parseFloat(order.incentiveEarned || "0");
         }
         
-        // Get chargebacks in this period
-        const chargebacks = await storage.getChargebacksByRepId(repId);
+        // Get chargebacks in this period for this rep
+        const allChargebacks = await storage.getChargebacks();
         let chargebacksTotal = 0;
-        for (const cb of chargebacks) {
-          const cbDate = cb.paidDate ? new Date(cb.paidDate) : null;
+        for (const cb of allChargebacks) {
+          if (cb.repId !== repId) continue;
+          const cbDate = cb.chargebackDate ? new Date(cb.chargebackDate) : null;
           if (cbDate && cbDate >= startDate && cbDate <= endDate) {
             chargebacksTotal += parseFloat(cb.amount || "0");
           }
