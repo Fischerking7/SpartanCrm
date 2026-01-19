@@ -1068,7 +1068,7 @@ function WeeklyPayStubsTab() {
             Generate Weekly Pay Stubs
           </CardTitle>
           <CardDescription>
-            Create pay stubs for all reps with paid orders in the selected week
+            Create pay stubs for all reps with paid orders based on install date in the selected week
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

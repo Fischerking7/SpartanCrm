@@ -7421,12 +7421,13 @@ export async function registerRoutes(
       const periodStart = startDate.toISOString().split("T")[0];
       const periodEnd = endDate.toISOString().split("T")[0];
       
-      // Get all PAID orders within this date range
+      // Get all PAID orders with install date within this date range
       const allOrders = await storage.getOrders({});
       const paidOrders = allOrders.filter(order => {
-        if (order.paymentStatus !== "PAID" || !order.paidDate) return false;
-        const paidDate = new Date(order.paidDate);
-        return paidDate >= startDate && paidDate <= endDate;
+        if (order.paymentStatus !== "PAID") return false;
+        if (!order.installDate) return false;
+        const installDate = new Date(order.installDate);
+        return installDate >= startDate && installDate <= endDate;
       });
       
       if (paidOrders.length === 0) {
