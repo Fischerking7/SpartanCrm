@@ -1039,6 +1039,36 @@ function WeeklyPayStubsTab() {
   });
   const [lastResult, setLastResult] = useState<{ generated: number; periodStart: string; periodEnd: string; statements: any[] } | null>(null);
 
+  const exportToCSV = () => {
+    if (!lastResult || lastResult.statements.length === 0) return;
+    
+    const headers = ["Rep Name", "Rep ID", "Period Start", "Period End", "Gross Commission", "Incentives", "Chargebacks", "Deductions", "Net Pay", "Status"];
+    const rows = lastResult.statements.map((stmt: any) => [
+      stmt.user?.name || "Unknown",
+      stmt.user?.repId || stmt.userId,
+      lastResult.periodStart,
+      lastResult.periodEnd,
+      stmt.grossCommission,
+      stmt.incentivesTotal,
+      stmt.chargebacksTotal,
+      stmt.deductionsTotal,
+      stmt.netPay,
+      stmt.status
+    ]);
+    
+    const csvContent = [headers, ...rows].map(row => row.map((cell: any) => `"${cell}"`).join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `pay-stubs-${lastResult.periodEnd}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast({ title: "Export complete", description: "Pay stubs exported to CSV" });
+  };
+
   const generateMutation = useMutation({
     mutationFn: async (date: string) => {
       const res = await apiRequest("POST", "/api/admin/payroll/generate-weekly-stubs", { weekEndingDate: date });
@@ -1094,10 +1124,18 @@ function WeeklyPayStubsTab() {
 
           {lastResult && lastResult.generated > 0 && (
             <div className="mt-6">
-              <h3 className="font-medium mb-2">Generated Pay Stubs ({lastResult.generated})</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Period: {lastResult.periodStart} to {lastResult.periodEnd}
-              </p>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-medium">Generated Pay Stubs ({lastResult.generated})</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Period: {lastResult.periodStart} to {lastResult.periodEnd}
+                  </p>
+                </div>
+                <Button variant="outline" onClick={exportToCSV} data-testid="button-export-csv">
+                  <ArrowDownCircle className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
