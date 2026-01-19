@@ -15,7 +15,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag } from "lucide-react";
+import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag, Smartphone } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { SalesOrder, Client, Provider, Service, User, CommissionLineItem, RateCard } from "@shared/schema";
 
 interface MobileLineEntry {
@@ -47,6 +48,7 @@ export default function Orders() {
   const [fromLeadId, setFromLeadId] = useState<string | null>(null);
   const [flaggingOrder, setFlaggingOrder] = useState<SalesOrder | null>(null);
   const [flagReason, setFlagReason] = useState("");
+  const [activeTab, setActiveTab] = useState<"orders" | "mobile">("orders");
 
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
@@ -384,11 +386,15 @@ export default function Orders() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setShowNewOrderDialog(false);
       resetNewOrderForm();
-      toast({ title: "Order created successfully" });
+      if (data._mobileOrderCreated) {
+        toast({ title: "Orders created successfully", description: "A separate mobile order has been created in the Mobile Orders tab" });
+      } else {
+        toast({ title: "Order created successfully" });
+      }
     },
     onError: (error: Error) => {
       toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
@@ -657,6 +663,9 @@ export default function Orders() {
   };
 
   const filteredOrders = orders?.filter((order) => {
+    const matchesTab = activeTab === "mobile" 
+      ? (order as any).isMobileOrder === true 
+      : (order as any).isMobileOrder !== true;
     const matchesSearch =
       order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -673,7 +682,7 @@ export default function Orders() {
       (exportFilter === "exported" && order.exportedToAccounting) ||
       (exportFilter === "unexported" && !order.exportedToAccounting) ||
       (exportFilter === "ready" && order.approvalStatus === "APPROVED" && !order.exportedToAccounting);
-    return matchesSearch && matchesStatus && matchesApproval && matchesProvider && matchesClient && matchesDateFrom && matchesDateTo && matchesExport;
+    return matchesTab && matchesSearch && matchesStatus && matchesApproval && matchesProvider && matchesClient && matchesDateFrom && matchesDateTo && matchesExport;
   }).sort((a, b) => {
     const [field, direction] = sortBy.split("_");
     const multiplier = direction === "asc" ? 1 : -1;
@@ -925,6 +934,28 @@ export default function Orders() {
           </Button>
         </div>
       </div>
+
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile")}>
+        <TabsList>
+          <TabsTrigger value="orders" data-testid="tab-my-orders">
+            {user?.role === "REP" ? "My Orders" : user?.role === "MANAGER" ? "Team Orders" : "All Orders"}
+            {orders && (
+              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
+                {orders.filter(o => !(o as any).isMobileOrder).length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="mobile" data-testid="tab-mobile-orders">
+            <Smartphone className="h-4 w-4 mr-1" />
+            Mobile Orders
+            {orders && (
+              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
+                {orders.filter(o => (o as any).isMobileOrder === true).length}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <Card>
         <CardHeader className="pb-4">

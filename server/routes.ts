@@ -1303,7 +1303,7 @@ export async function registerRoutes(
       const user = req.user!;
       
       // Validate required fields
-      const { clientId, providerId, serviceId, dateSold, customerName, mobileLines, repId: submittedRepId } = req.body;
+      const { clientId, providerId, serviceId, dateSold, customerName, mobileLines, repId: submittedRepId, hasMobile, hasTv } = req.body;
       if (!clientId || !providerId || !serviceId || !dateSold || !customerName) {
         return res.status(400).json({ message: "Missing required fields: clientId, providerId, serviceId, dateSold, customerName" });
       }
@@ -1318,110 +1318,134 @@ export async function registerRoutes(
         }
       }
       
-      // Strict whitelist of allowed fields for order creation
-      const allowedFields = [
-        "clientId", "providerId", "serviceId", "dateSold", "customerName",
-        "customerPhone", "customerEmail", "customerAddress", "accountNumber",
-        "installDate", "tvSold", "mobileSold", "mobileProductType", "mobilePortedStatus", "mobileLinesQty", "notes"
-      ];
-      
-      const orderData: Record<string, any> = {};
-      for (const field of allowedFields) {
-        if (req.body[field] !== undefined) {
-          orderData[field] = req.body[field];
+      // Helper function to create an order and calculate commission
+      const createOrderWithCommission = async (orderData: Record<string, any>, mobileLineData?: typeof mobileLines) => {
+        const data = { 
+          ...orderData,
+          repId: assignedRepId,
+          jobStatus: "PENDING" as const,
+          approvalStatus: "UNAPPROVED" as const,
+          baseCommissionEarned: "0",
+          appliedRateCardId: null,
+          commissionSource: "CALCULATED" as const,
+          calcAt: null,
+          incentiveEarned: "0",
+          commissionPaid: "0",
+          paymentStatus: "UNPAID" as const,
+          exportedToAccounting: false,
+        };
+        
+        const order = await storage.createOrder(data as any);
+        
+        // Create mobile line items if this is a mobile order
+        if (mobileLineData && mobileLineData.length > 0) {
+          for (let i = 0; i < mobileLineData.length; i++) {
+            const line = mobileLineData[i];
+            await storage.createMobileLineItem({
+              salesOrderId: order.id,
+              lineNumber: i + 1,
+              mobileProductType: line.mobileProductType || "OTHER",
+              mobilePortedStatus: line.mobilePortedStatus || "NON_PORTED",
+            });
+          }
         }
-      }
-      
-      // Handle mobile lines array - set legacy fields for backward compatibility
-      const hasMobileLines = Array.isArray(mobileLines) && mobileLines.length > 0;
-      if (hasMobileLines) {
-        orderData.mobileSold = true;
-        orderData.mobileLinesQty = mobileLines.length;
-        // Set legacy single-value fields from first line for backward compatibility
-        orderData.mobileProductType = mobileLines[0].mobileProductType || null;
-        orderData.mobilePortedStatus = mobileLines[0].mobilePortedStatus || null;
-      } else if (req.body.hasMobile || req.body.mobileSold) {
-        orderData.mobileSold = true;
-      }
-      
-      // Handle hasTv -> tvSold mapping
-      if (req.body.hasTv !== undefined) {
-        orderData.tvSold = !!req.body.hasTv;
-      }
-      
-      // System-controlled fields - cannot be set by user
-      // Create order first without commission, then calculate after mobile lines exist
-      const data = { 
-        ...orderData,
-        repId: assignedRepId,
-        jobStatus: "PENDING" as const,
-        approvalStatus: "UNAPPROVED" as const,
-        baseCommissionEarned: "0",
-        appliedRateCardId: null,
-        commissionSource: "CALCULATED" as const,
-        calcAt: null,
-        incentiveEarned: "0",
-        commissionPaid: "0",
-        paymentStatus: "UNPAID" as const,
-        exportedToAccounting: false,
+        
+        // Calculate commission
+        let baseCommission = "0";
+        let appliedRateCardId: string | null = null;
+        
+        const rateCard = await storage.findMatchingRateCard(order, dateSold);
+        if (rateCard) {
+          const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
+          await storage.createCommissionLineItems(order.id, lineItems);
+          
+          const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
+          appliedRateCardId = rateCard.id;
+          
+          const salesRepUser = await storage.getUserByRepId(assignedRepId);
+          const isExecutiveSale = salesRepUser?.role === "EXECUTIVE";
+          
+          let totalDeductions = 0;
+          if (!isExecutiveSale) {
+            totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+            if (order.tvSold) {
+              totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
+            }
+            if (order.mobileSold) {
+              totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+            }
+          }
+          baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
+        }
+        
+        const updatedOrder = await storage.updateOrder(order.id, {
+          baseCommissionEarned: baseCommission,
+          appliedRateCardId,
+          calcAt: rateCard ? new Date() : null,
+        });
+        
+        await storage.createAuditLog({ action: "create_order", tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(updatedOrder), userId: user.id });
+        return updatedOrder;
       };
       
-      const order = await storage.createOrder(data as any);
+      // Base order data (non-mobile fields)
+      const baseFields = ["clientId", "providerId", "serviceId", "dateSold", "customerName",
+        "customerPhone", "customerEmail", "customerAddress", "accountNumber", "installDate", "notes"];
       
-      // Create mobile line items if provided - must be done BEFORE commission calculation
-      if (hasMobileLines) {
-        for (let i = 0; i < mobileLines.length; i++) {
-          const line = mobileLines[i];
-          await storage.createMobileLineItem({
-            salesOrderId: order.id,
-            lineNumber: i + 1,
-            mobileProductType: line.mobileProductType || "OTHER",
-            mobilePortedStatus: line.mobilePortedStatus || "NON_PORTED",
-          });
+      const baseOrderData: Record<string, any> = {};
+      for (const field of baseFields) {
+        if (req.body[field] !== undefined) {
+          baseOrderData[field] = req.body[field];
         }
       }
       
-      // Now calculate commission using the async method that looks up per-line rate cards
-      let baseCommission = "0";
-      let appliedRateCardId: string | null = null;
+      const hasMobileLines = Array.isArray(mobileLines) && mobileLines.length > 0;
+      const wantsMobile = hasMobile || hasMobileLines;
+      const wantsTv = hasTv || req.body.tvSold;
       
-      const rateCard = await storage.findMatchingRateCard(order, dateSold);
-      if (rateCard) {
-        // Use the async version that properly looks up mobile-specific rate cards per line
-        const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
-        await storage.createCommissionLineItems(order.id, lineItems);
+      const createdOrders: any[] = [];
+      
+      // If mobile is selected, create a SEPARATE mobile order
+      if (wantsMobile) {
+        const mobileOrderData = {
+          ...baseOrderData,
+          tvSold: false,
+          mobileSold: true,
+          isMobileOrder: true,
+          mobileLinesQty: hasMobileLines ? mobileLines.length : 0,
+          mobileProductType: hasMobileLines ? mobileLines[0].mobileProductType : null,
+          mobilePortedStatus: hasMobileLines ? mobileLines[0].mobilePortedStatus : null,
+        };
         
-        // Sum up all line item commissions (gross)
-        const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
-        appliedRateCardId = rateCard.id;
-        
-        // Check if sales rep is an EXECUTIVE (exempt from override deductions)
-        const salesRepUser = await storage.getUserByRepId(assignedRepId);
-        const isExecutiveSale = salesRepUser?.role === "EXECUTIVE";
-        
-        // Subtract override deductions for net commission (NOT for executives)
-        let totalDeductions = 0;
-        if (!isExecutiveSale) {
-          totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
-          if (order.tvSold) {
-            totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
-          }
-          if (order.mobileSold) {
-            totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
-          }
-        }
-        baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
+        const mobileOrder = await createOrderWithCommission(mobileOrderData, hasMobileLines ? mobileLines : undefined);
+        createdOrders.push(mobileOrder);
       }
       
-      // Update order with calculated commission
-      const updatedOrder = await storage.updateOrder(order.id, {
-        baseCommissionEarned: baseCommission,
-        appliedRateCardId,
-        calcAt: rateCard ? new Date() : null,
-      });
+      // If TV or just a base order (no mobile-only), create the base order
+      if (wantsTv || !wantsMobile) {
+        const regularOrderData = {
+          ...baseOrderData,
+          tvSold: !!wantsTv,
+          mobileSold: false,
+          isMobileOrder: false,
+        };
+        
+        const regularOrder = await createOrderWithCommission(regularOrderData);
+        createdOrders.push(regularOrder);
+      }
       
-      await storage.createAuditLog({ action: "create_order", tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(updatedOrder), userId: user.id });
-      res.json(updatedOrder);
+      // Return the first order for backward compatibility, or all orders if mobile was split
+      if (createdOrders.length === 1) {
+        res.json(createdOrders[0]);
+      } else {
+        // Return the non-mobile order as primary, with a note about the mobile order
+        const primaryOrder = createdOrders.find(o => !o.isMobileOrder) || createdOrders[0];
+        res.json({ 
+          ...primaryOrder, 
+          _mobileOrderCreated: true,
+          _mobileOrderId: createdOrders.find(o => o.isMobileOrder)?.id
+        });
+      }
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to create order" });
     }
