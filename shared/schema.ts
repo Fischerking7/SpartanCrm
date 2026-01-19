@@ -164,6 +164,7 @@ export const salesOrders = pgTable("sales_orders", {
   accountNumber: text("account_number"),
   tvSold: boolean("tv_sold").notNull().default(false),
   mobileSold: boolean("mobile_sold").notNull().default(false),
+  isMobileOrder: boolean("is_mobile_order").notNull().default(false),
   mobileProductType: mobileProductTypeEnum("mobile_product_type"),
   mobilePortedStatus: mobilePortedStatusEnum("mobile_ported_status"),
   mobileLinesQty: integer("mobile_lines_qty").notNull().default(0),
