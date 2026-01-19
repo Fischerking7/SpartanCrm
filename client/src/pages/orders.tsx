@@ -632,6 +632,26 @@ export default function Orders() {
     toast({ title: "Export successful", description: `${filteredOrders.length} orders exported` });
   };
 
+  // Prefill mobile order form from current regular order form
+  const prefillMobileFromOrder = () => {
+    setMobileOrderForm({
+      providerId: newOrderForm.providerId,
+      clientId: newOrderForm.clientId,
+      serviceId: newOrderForm.serviceId,
+      customerName: newOrderForm.customerName,
+      dateSold: newOrderForm.dateSold,
+      customerPhone: newOrderForm.customerPhone,
+      customerAddress: newOrderForm.customerAddress,
+      accountNumber: newOrderForm.accountNumber,
+      repId: newOrderForm.repId,
+      // Reset mobile-specific fields to avoid stale data
+      mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
+    });
+    setShowNewOrderDialog(false);
+    setShowMobileOrderDialog(true);
+    toast({ title: "Mobile form pre-filled", description: "Customer info copied from order form" });
+  };
+
   const handleDeleteOrder = async (orderId: string) => {
     if (!confirm("Are you sure you want to permanently delete this order? This action cannot be undone.")) {
       return;
@@ -1943,9 +1963,18 @@ export default function Orders() {
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="outline" onClick={() => { setShowNewOrderDialog(false); resetNewOrderForm(); }}>
               Cancel
+            </Button>
+            <Button 
+              variant="secondary"
+              onClick={prefillMobileFromOrder}
+              disabled={!newOrderForm.customerName}
+              data-testid="button-add-mobile-order"
+            >
+              <Smartphone className="h-4 w-4 mr-2" />
+              Add Mobile Order
             </Button>
             <Button 
               onClick={handleCreateOrder} 
