@@ -1031,6 +1031,105 @@ function AdvancesTab() {
   );
 }
 
+function WeeklyPayStubsTab() {
+  const { toast } = useToast();
+  const [weekEndingDate, setWeekEndingDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split("T")[0];
+  });
+  const [lastResult, setLastResult] = useState<{ generated: number; periodStart: string; periodEnd: string; statements: any[] } | null>(null);
+
+  const generateMutation = useMutation({
+    mutationFn: async (date: string) => {
+      const res = await apiRequest("POST", "/api/admin/payroll/generate-weekly-stubs", { weekEndingDate: date });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setLastResult(data);
+      if (data.generated > 0) {
+        toast({ title: "Pay stubs generated", description: `${data.generated} pay stubs created for period ${data.periodStart} to ${data.periodEnd}` });
+      } else {
+        toast({ title: "No pay stubs generated", description: data.message || "No paid orders found in this period", variant: "destructive" });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to generate pay stubs", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Receipt className="h-5 w-5" />
+            Generate Weekly Pay Stubs
+          </CardTitle>
+          <CardDescription>
+            Create pay stubs for all reps with paid orders in the selected week
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-end gap-4">
+            <div className="space-y-2">
+              <Label>Week Ending Date</Label>
+              <Input
+                type="date"
+                value={weekEndingDate}
+                onChange={(e) => setWeekEndingDate(e.target.value)}
+                className="w-48"
+                data-testid="input-week-ending-date"
+              />
+            </div>
+            <Button
+              onClick={() => generateMutation.mutate(weekEndingDate)}
+              disabled={generateMutation.isPending || !weekEndingDate}
+              data-testid="button-generate-stubs"
+            >
+              {generateMutation.isPending ? "Generating..." : "Generate Pay Stubs"}
+            </Button>
+          </div>
+
+          {lastResult && lastResult.generated > 0 && (
+            <div className="mt-6">
+              <h3 className="font-medium mb-2">Generated Pay Stubs ({lastResult.generated})</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Period: {lastResult.periodStart} to {lastResult.periodEnd}
+              </p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Rep</TableHead>
+                    <TableHead>Gross Commission</TableHead>
+                    <TableHead>Incentives</TableHead>
+                    <TableHead>Deductions</TableHead>
+                    <TableHead>Net Pay</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lastResult.statements.map((stmt: any) => (
+                    <TableRow key={stmt.id}>
+                      <TableCell>{stmt.userId}</TableCell>
+                      <TableCell>{formatCurrency(stmt.grossCommission)}</TableCell>
+                      <TableCell>{formatCurrency(stmt.incentivesTotal)}</TableCell>
+                      <TableCell>{formatCurrency(stmt.deductionsTotal)}</TableCell>
+                      <TableCell className="font-medium">{formatCurrency(stmt.netPay)}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{stmt.status}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function AdminPayroll() {
   return (
     <div className="p-6 space-y-6">
@@ -1040,10 +1139,14 @@ export default function AdminPayroll() {
       </div>
 
       <Tabs defaultValue="schedules" className="space-y-4">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="schedules" data-testid="tab-schedules">
             <Calendar className="h-4 w-4 mr-2" />
             Schedules
+          </TabsTrigger>
+          <TabsTrigger value="pay-stubs" data-testid="tab-pay-stubs">
+            <Receipt className="h-4 w-4 mr-2" />
+            Weekly Pay Stubs
           </TabsTrigger>
           <TabsTrigger value="deduction-types" data-testid="tab-deduction-types">
             <Settings className="h-4 w-4 mr-2" />
@@ -1061,6 +1164,9 @@ export default function AdminPayroll() {
 
         <TabsContent value="schedules">
           <SchedulesTab />
+        </TabsContent>
+        <TabsContent value="pay-stubs">
+          <WeeklyPayStubsTab />
         </TabsContent>
         <TabsContent value="deduction-types">
           <DeductionTypesTab />

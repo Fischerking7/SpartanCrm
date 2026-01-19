@@ -7401,6 +7401,185 @@ export async function registerRoutes(
     }
   });
 
+  // Generate weekly pay stubs from PAID orders
+  app.post("/api/admin/payroll/generate-weekly-stubs", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { weekEndingDate } = req.body;
+      if (!weekEndingDate) {
+        return res.status(400).json({ message: "Week ending date is required" });
+      }
+      
+      // Calculate week start (7 days before week ending)
+      const endDate = new Date(weekEndingDate);
+      const startDate = new Date(endDate);
+      startDate.setDate(startDate.getDate() - 6);
+      
+      const periodStart = startDate.toISOString().split("T")[0];
+      const periodEnd = endDate.toISOString().split("T")[0];
+      
+      // Get all PAID orders within this date range
+      const allOrders = await storage.getOrders({});
+      const paidOrders = allOrders.filter(order => {
+        if (order.paymentStatus !== "PAID" || !order.paidDate) return false;
+        const paidDate = new Date(order.paidDate);
+        return paidDate >= startDate && paidDate <= endDate;
+      });
+      
+      if (paidOrders.length === 0) {
+        return res.json({ generated: 0, message: "No paid orders found in this period", statements: [] });
+      }
+      
+      // Create a pay run for these weekly stubs
+      const payRun = await storage.createPayRun({
+        name: `Weekly Pay Stubs - ${periodEnd}`,
+        weekEndingDate: periodEnd,
+        payDate: periodEnd,
+        status: "FINALIZED",
+        createdByUserId: req.user!.id,
+      });
+      
+      // Group orders by rep
+      const ordersByRep: Record<string, typeof paidOrders> = {};
+      for (const order of paidOrders) {
+        if (!ordersByRep[order.repId]) ordersByRep[order.repId] = [];
+        ordersByRep[order.repId].push(order);
+      }
+      
+      const statements: any[] = [];
+      const currentYear = new Date().getFullYear();
+      
+      for (const [repId, repOrders] of Object.entries(ordersByRep)) {
+        const user = await storage.getUserByRepId(repId);
+        if (!user) continue;
+        
+        // Calculate gross commission from paid orders
+        let grossCommission = 0;
+        let incentivesTotal = 0;
+        for (const order of repOrders) {
+          grossCommission += parseFloat(order.baseCommissionEarned);
+          incentivesTotal += parseFloat(order.incentiveEarned || "0");
+        }
+        
+        // Get chargebacks in this period
+        const chargebacks = await storage.getChargebacksByRepId(repId);
+        let chargebacksTotal = 0;
+        for (const cb of chargebacks) {
+          const cbDate = cb.paidDate ? new Date(cb.paidDate) : null;
+          if (cbDate && cbDate >= startDate && cbDate <= endDate) {
+            chargebacksTotal += parseFloat(cb.amount || "0");
+          }
+        }
+        
+        // Get override earnings for this user in this period
+        const overrideEarnings = await storage.getOverrideEarningsByPayRun(payRun.id, user.id);
+        let overrideEarningsTotal = 0;
+        for (const oe of overrideEarnings) {
+          overrideEarningsTotal += parseFloat(oe.amount || "0");
+        }
+        
+        // Get active deductions
+        const userDeductions = await storage.getActiveUserDeductions(user.id);
+        let deductionsTotal = 0;
+        const deductionDetails: { userDeductionId?: string; deductionTypeName: string; amount: string }[] = [];
+        for (const ud of userDeductions) {
+          const deductionType = await storage.getDeductionTypeById(ud.deductionTypeId);
+          const deductionAmount = parseFloat(ud.amount || "0");
+          deductionsTotal += deductionAmount;
+          deductionDetails.push({
+            userDeductionId: ud.id,
+            deductionTypeName: deductionType?.name || "Unknown",
+            amount: deductionAmount.toFixed(2)
+          });
+        }
+        
+        // Get YTD totals
+        const ytd = await storage.getYTDTotalsForUser(user.id, currentYear);
+        
+        // Calculate net pay
+        const grossTotal = grossCommission + incentivesTotal + overrideEarningsTotal;
+        const netPay = grossTotal - chargebacksTotal - deductionsTotal;
+        
+        // Create pay statement
+        const statement = await storage.createPayStatement({
+          payRunId: payRun.id,
+          userId: user.id,
+          periodStart,
+          periodEnd,
+          grossCommission: grossCommission.toFixed(2),
+          overrideEarningsTotal: overrideEarningsTotal.toFixed(2),
+          incentivesTotal: incentivesTotal.toFixed(2),
+          chargebacksTotal: chargebacksTotal.toFixed(2),
+          adjustmentsTotal: "0",
+          deductionsTotal: deductionsTotal.toFixed(2),
+          advancesApplied: "0",
+          taxWithheld: "0",
+          netPay: netPay.toFixed(2),
+          status: "ISSUED",
+          ytdGross: (parseFloat(ytd.totalGross) + grossTotal).toFixed(2),
+          ytdDeductions: (parseFloat(ytd.totalDeductions) + deductionsTotal).toFixed(2),
+          ytdNetPay: (parseFloat(ytd.totalNetPay) + netPay).toFixed(2),
+        });
+        
+        // Issue the statement immediately
+        await storage.issuePayStatement(statement.id);
+        
+        // Create line items for each paid order
+        for (const order of repOrders) {
+          await storage.createPayStatementLineItem({
+            payStatementId: statement.id,
+            category: "Commission",
+            description: `Order ${order.invoiceNumber || order.id} - ${order.customerName}`,
+            sourceType: "sales_order",
+            sourceId: order.id,
+            amount: order.baseCommissionEarned,
+          });
+          
+          if (parseFloat(order.incentiveEarned || "0") > 0) {
+            await storage.createPayStatementLineItem({
+              payStatementId: statement.id,
+              category: "Incentive",
+              description: `Incentive for ${order.invoiceNumber || order.id}`,
+              sourceType: "sales_order",
+              sourceId: order.id,
+              amount: order.incentiveEarned,
+            });
+          }
+        }
+        
+        // Create deduction records
+        for (const ded of deductionDetails) {
+          await storage.createPayStatementDeduction({
+            payStatementId: statement.id,
+            userDeductionId: ded.userDeductionId,
+            deductionTypeName: ded.deductionTypeName,
+            amount: ded.amount,
+          });
+        }
+        
+        statements.push(statement);
+      }
+      
+      await storage.createAuditLog({
+        action: "generate_weekly_pay_stubs",
+        tableName: "pay_statements",
+        recordId: payRun.id,
+        afterJson: JSON.stringify({ count: statements.length, periodStart, periodEnd }),
+        userId: req.user!.id,
+      });
+      
+      res.json({ 
+        generated: statements.length, 
+        payRunId: payRun.id,
+        periodStart,
+        periodEnd,
+        statements 
+      });
+    } catch (error: any) {
+      console.error("Generate weekly stubs error:", error);
+      res.status(500).json({ message: error.message || "Failed to generate weekly pay stubs" });
+    }
+  });
+
   // Issue a pay statement
   app.post("/api/admin/payroll/statements/:id/issue", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
