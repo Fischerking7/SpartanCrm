@@ -796,13 +796,11 @@ export default function Orders() {
       header: "Approval",
       cell: (row: SalesOrder) => <ApprovalStatusBadge status={row.approvalStatus} />,
     },
-    {
+    ...(activeTab === "orders" ? [{
       key: "baseCommissionEarned",
       header: "Commission",
       cell: (row: SalesOrder) => {
         const grossCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
-        // For REPs, show net commission (after override deduction)
-        // For Admin/Exec, show gross (they see override column separately)
         if (isAdminOrExec) {
           return (
             <span className="font-mono text-right block">
@@ -810,7 +808,6 @@ export default function Orders() {
             </span>
           );
         }
-        // REP/MDU/SUPERVISOR/MANAGER see net commission
         const overrideAmount = getOverrideAmount(row);
         const netCommission = grossCommission - overrideAmount;
         return (
@@ -820,12 +817,57 @@ export default function Orders() {
         );
       },
       className: "text-right",
-    },
-    ...(isAdminOrExec ? [{
+    }] : []),
+    ...(activeTab === "orders" && isAdminOrExec ? [{
       key: "overrideAmount",
       header: "Override",
       cell: (row: SalesOrder) => {
         const amount = getOverrideAmount(row);
+        return (
+          <span className="font-mono text-right block text-muted-foreground">
+            ${amount.toFixed(2)}
+          </span>
+        );
+      },
+      className: "text-right",
+    }] : []),
+    ...(activeTab === "mobile" ? [{
+      key: "mobileLinesQty",
+      header: "Lines",
+      cell: (row: SalesOrder) => (
+        <span className="font-mono text-right block">
+          {(row as any).mobileLinesQty || 0}
+        </span>
+      ),
+      className: "text-right",
+    }] : []),
+    ...(activeTab === "mobile" ? [{
+      key: "mobileCommission",
+      header: "Mobile Commission",
+      cell: (row: SalesOrder) => {
+        const grossCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
+        if (isAdminOrExec) {
+          return (
+            <span className="font-mono text-right block">
+              ${grossCommission.toFixed(2)}
+            </span>
+          );
+        }
+        const mobileOverride = parseFloat((row as any).mobileOverrideDeduction || "0");
+        const netCommission = grossCommission - mobileOverride;
+        return (
+          <span className="font-mono text-right block">
+            ${netCommission.toFixed(2)}
+          </span>
+        );
+      },
+      className: "text-right",
+    }] : []),
+    ...(activeTab === "mobile" && isAdminOrExec ? [{
+      key: "mobileOverride",
+      header: "Mobile Override",
+      cell: (row: SalesOrder) => {
+        const amount = parseFloat((row as any).mobileOverrideDeduction || "0");
         return (
           <span className="font-mono text-right block text-muted-foreground">
             ${amount.toFixed(2)}
@@ -839,7 +881,9 @@ export default function Orders() {
       header: "Total",
       cell: (row: SalesOrder) => {
         const gross = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
-        const override = getOverrideAmount(row);
+        const override = activeTab === "mobile" 
+          ? parseFloat((row as any).mobileOverrideDeduction || "0")
+          : getOverrideAmount(row);
         const total = gross + override;
         return (
           <span className="font-mono text-right block font-semibold text-green-600">
