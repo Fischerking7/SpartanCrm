@@ -1046,6 +1046,8 @@ function WeeklyPayStubsTab() {
     },
     onSuccess: (data) => {
       setLastResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payroll/payruns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payroll/statements"] });
       if (data.generated > 0) {
         toast({ title: "Pay stubs generated", description: `${data.generated} pay stubs created for period ${data.periodStart} to ${data.periodEnd}` });
       } else {
@@ -1109,8 +1111,13 @@ function WeeklyPayStubsTab() {
                 </TableHeader>
                 <TableBody>
                   {lastResult.statements.map((stmt: any) => (
-                    <TableRow key={stmt.id}>
-                      <TableCell>{stmt.userId}</TableCell>
+                    <TableRow key={stmt.id} data-testid={`row-statement-${stmt.id}`}>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{stmt.user?.name || "Unknown"}</div>
+                          <div className="text-xs text-muted-foreground">{stmt.user?.repId || stmt.userId}</div>
+                        </div>
+                      </TableCell>
                       <TableCell>{formatCurrency(stmt.grossCommission)}</TableCell>
                       <TableCell>{formatCurrency(stmt.incentivesTotal)}</TableCell>
                       <TableCell>{formatCurrency(stmt.deductionsTotal)}</TableCell>

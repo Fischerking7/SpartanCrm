@@ -7404,10 +7404,14 @@ export async function registerRoutes(
   // Generate weekly pay stubs from PAID orders
   app.post("/api/admin/payroll/generate-weekly-stubs", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const { weekEndingDate } = req.body;
-      if (!weekEndingDate) {
-        return res.status(400).json({ message: "Week ending date is required" });
+      const bodySchema = z.object({
+        weekEndingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format, expected YYYY-MM-DD")
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message });
       }
+      const { weekEndingDate } = parsed.data;
       
       // Calculate week start (7 days before week ending)
       const endDate = new Date(weekEndingDate);
@@ -7556,7 +7560,10 @@ export async function registerRoutes(
           });
         }
         
-        statements.push(statement);
+        statements.push({
+          ...statement,
+          user: { id: user.id, name: user.name, repId: user.repId }
+        });
       }
       
       await storage.createAuditLog({
