@@ -7477,12 +7477,8 @@ export async function registerRoutes(
           }
         }
         
-        // Get override earnings for this user in this period
-        const overrideEarnings = await storage.getOverrideEarningsByPayRun(payRun.id, user.id);
-        let overrideEarningsTotal = 0;
-        for (const oe of overrideEarnings) {
-          overrideEarningsTotal += parseFloat(oe.amount || "0");
-        }
+        // Weekly pay stubs exclude override earnings - they are handled separately
+        // Override deductions were already applied when calculating baseCommissionEarned on orders
         
         // Get active deductions
         const userDeductions = await storage.getActiveUserDeductions(user.id);
@@ -7502,18 +7498,18 @@ export async function registerRoutes(
         // Get YTD totals
         const ytd = await storage.getYTDTotalsForUser(user.id, currentYear);
         
-        // Calculate net pay
-        const grossTotal = grossCommission + incentivesTotal + overrideEarningsTotal;
+        // Calculate net pay (excluding override earnings - they are handled separately)
+        const grossTotal = grossCommission + incentivesTotal;
         const netPay = grossTotal - chargebacksTotal - deductionsTotal;
         
-        // Create pay statement
+        // Create pay statement (override earnings excluded from weekly stubs)
         const statement = await storage.createPayStatement({
           payRunId: payRun.id,
           userId: user.id,
           periodStart,
           periodEnd,
           grossCommission: grossCommission.toFixed(2),
-          overrideEarningsTotal: overrideEarningsTotal.toFixed(2),
+          overrideEarningsTotal: "0",
           incentivesTotal: incentivesTotal.toFixed(2),
           chargebacksTotal: chargebacksTotal.toFixed(2),
           adjustmentsTotal: "0",
