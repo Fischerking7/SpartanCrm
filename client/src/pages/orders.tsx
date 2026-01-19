@@ -754,7 +754,7 @@ export default function Orders() {
   };
 
   const filteredOrders = orders?.filter((order) => {
-    const isMobile = (order as any).isMobileOrder === true || (order as any).mobileSold === true;
+    const isMobile = (order as any).isMobileOrder === true;
     const matchesTab = activeTab === "mobile" 
       ? isMobile
       : !isMobile;
@@ -1081,7 +1081,7 @@ export default function Orders() {
             {user?.role === "REP" ? "My Orders" : user?.role === "MANAGER" ? "Team Orders" : "All Orders"}
             {orders && (
               <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
-                {orders.filter(o => !(o as any).isMobileOrder && !(o as any).mobileSold).length}
+                {orders.filter(o => !(o as any).isMobileOrder).length}
               </span>
             )}
           </TabsTrigger>
@@ -1090,7 +1090,7 @@ export default function Orders() {
             Mobile Orders
             {orders && (
               <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
-                {orders.filter(o => (o as any).isMobileOrder === true || (o as any).mobileSold === true).length}
+                {orders.filter(o => (o as any).isMobileOrder === true).length}
               </span>
             )}
           </TabsTrigger>
