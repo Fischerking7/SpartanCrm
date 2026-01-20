@@ -961,16 +961,16 @@ export default function Orders() {
       key: "mobileCommission",
       header: "Mobile Commission",
       cell: (row: SalesOrder) => {
-        const grossCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
+        const mobileCommission = parseFloat((row as any).mobileCommissionTotal || "0");
         if (isAdminOrExec) {
           return (
             <span className="font-mono text-right block">
-              ${grossCommission.toFixed(2)}
+              ${mobileCommission.toFixed(2)}
             </span>
           );
         }
         const mobileOverride = parseFloat((row as any).mobileOverrideDeduction || "0");
-        const netCommission = grossCommission - mobileOverride;
+        const netCommission = mobileCommission - mobileOverride;
         return (
           <span className="font-mono text-right block">
             ${netCommission.toFixed(2)}
@@ -996,7 +996,9 @@ export default function Orders() {
       key: "totalCommission",
       header: "Total",
       cell: (row: SalesOrder) => {
-        const gross = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
+        const gross = activeTab === "mobile"
+          ? parseFloat((row as any).mobileCommissionTotal || "0")
+          : parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
         const override = activeTab === "mobile" 
           ? parseFloat((row as any).mobileOverrideDeduction || "0")
           : getOverrideAmount(row);

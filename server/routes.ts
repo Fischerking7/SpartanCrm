@@ -1374,7 +1374,17 @@ export async function registerRoutes(
         orders = await storage.getOrders({ repId: user.repId, limit });
       }
 
-      res.json(orders);
+      // Get mobile commission totals for all orders (for mobile orders tab)
+      const orderIds = orders.map((o: any) => o.id);
+      const mobileCommissionTotals = await storage.getMobileCommissionTotalsByOrderIds(orderIds);
+      
+      // Attach mobile commission total to each order
+      const ordersWithMobileCommission = orders.map((order: any) => ({
+        ...order,
+        mobileCommissionTotal: mobileCommissionTotals.get(order.id) || "0",
+      }));
+
+      res.json(ordersWithMobileCommission);
     } catch (error) {
       console.error("Get orders error:", error);
       res.status(500).json({ message: "Failed to get orders" });
