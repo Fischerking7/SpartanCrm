@@ -632,24 +632,39 @@ export default function Orders() {
     toast({ title: "Export successful", description: `${filteredOrders.length} orders exported` });
   };
 
-  // Prefill mobile order form from current regular order form
-  const prefillMobileFromOrder = () => {
-    setMobileOrderForm({
-      providerId: newOrderForm.providerId,
-      clientId: newOrderForm.clientId,
-      serviceId: newOrderForm.serviceId,
-      customerName: newOrderForm.customerName,
-      dateSold: newOrderForm.dateSold,
-      customerPhone: newOrderForm.customerPhone,
-      customerAddress: newOrderForm.customerAddress,
-      accountNumber: newOrderForm.accountNumber,
-      repId: newOrderForm.repId,
-      // Reset mobile-specific fields to avoid stale data
-      mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
-    });
-    setShowNewOrderDialog(false);
-    setShowMobileOrderDialog(true);
-    toast({ title: "Mobile form pre-filled", description: "Customer info copied from order form" });
+  // Submit original order then open mobile order form
+  const submitOrderThenOpenMobile = async () => {
+    if (!newOrderForm.customerName || !newOrderForm.dateSold) {
+      toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
+      return;
+    }
+    if (isAdmin && !newOrderForm.repId) {
+      toast({ title: "Missing required fields", description: "Rep ID is required", variant: "destructive" });
+      return;
+    }
+    
+    try {
+      // Submit the original order first
+      await createOrderMutation.mutateAsync(newOrderForm);
+      
+      // Then prefill and open mobile form
+      setMobileOrderForm({
+        providerId: newOrderForm.providerId,
+        clientId: newOrderForm.clientId,
+        serviceId: newOrderForm.serviceId,
+        customerName: newOrderForm.customerName,
+        dateSold: newOrderForm.dateSold,
+        customerPhone: newOrderForm.customerPhone,
+        customerAddress: newOrderForm.customerAddress,
+        accountNumber: newOrderForm.accountNumber,
+        repId: newOrderForm.repId,
+        mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
+      });
+      setShowMobileOrderDialog(true);
+      toast({ title: "Order created", description: "Now add mobile order details" });
+    } catch (error: any) {
+      // Error already handled by mutation's onError
+    }
   };
 
   const handleDeleteOrder = async (orderId: string) => {
@@ -1969,12 +1984,12 @@ export default function Orders() {
             </Button>
             <Button 
               variant="secondary"
-              onClick={prefillMobileFromOrder}
-              disabled={!newOrderForm.customerName}
+              onClick={submitOrderThenOpenMobile}
+              disabled={!newOrderForm.customerName || !newOrderForm.dateSold || createOrderMutation.isPending}
               data-testid="button-add-mobile-order"
             >
               <Smartphone className="h-4 w-4 mr-2" />
-              Add Mobile Order
+              {createOrderMutation.isPending ? "Creating..." : "Create & Add Mobile"}
             </Button>
             <Button 
               onClick={handleCreateOrder} 
