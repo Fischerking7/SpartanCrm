@@ -24,6 +24,15 @@ interface MobileLineEntry {
   mobilePortedStatus: string;
 }
 
+// Parse date string as local date to avoid timezone issues
+function formatLocalDate(dateStr: string): string {
+  if (!dateStr) return "";
+  const parts = dateStr.split("T")[0].split("-");
+  if (parts.length !== 3) return dateStr;
+  const [year, month, day] = parts.map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString();
+}
+
 export default function Orders() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -869,7 +878,7 @@ export default function Orders() {
       header: "Date Sold",
       cell: (row: SalesOrder) => (
         <span className="text-sm text-muted-foreground">
-          {new Date(row.dateSold).toLocaleDateString()}
+          {formatLocalDate(row.dateSold)}
         </span>
       ),
     },
@@ -878,7 +887,7 @@ export default function Orders() {
       header: "Install Date",
       cell: (row: SalesOrder) => (
         <span className="text-sm text-muted-foreground">
-          {row.installDate ? new Date(row.installDate).toLocaleDateString() : "-"}
+          {row.installDate ? formatLocalDate(row.installDate) : "-"}
         </span>
       ),
     },
@@ -1486,7 +1495,7 @@ export default function Orders() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Date Sold</Label>
-                  <p>{new Date(selectedOrder.dateSold).toLocaleDateString()}</p>
+                  <p>{formatLocalDate(selectedOrder.dateSold)}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Created At</Label>
