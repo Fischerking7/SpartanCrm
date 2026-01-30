@@ -16,6 +16,7 @@ import {
   scheduledPayRuns, commissionForecasts,
   emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
   mduStagingOrders, scheduledReports, commissionDisputes,
+  financeImports, financeImportRowsRaw, financeImportRows, arExpectations, clientColumnMappings,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -60,6 +61,11 @@ import {
   type CommissionDispute, type InsertCommissionDispute,
   type LeadDispositionHistory, type InsertLeadDispositionHistory,
   type OrderException, type InsertOrderException,
+  type FinanceImport, type InsertFinanceImport,
+  type FinanceImportRowRaw, type InsertFinanceImportRowRaw,
+  type FinanceImportRow, type InsertFinanceImportRow,
+  type ArExpectation, type InsertArExpectation,
+  type ClientColumnMapping, type InsertClientColumnMapping,
 } from "@shared/schema";
 
 export const storage = {
@@ -3677,5 +3683,234 @@ export const storage = {
       .from(commissionDisputes)
       .where(inArray(commissionDisputes.status, ["PENDING", "UNDER_REVIEW"]));
     return result?.count || 0;
+  },
+
+  // Finance Imports
+  async getFinanceImports(clientId?: string) {
+    if (clientId) {
+      return db.query.financeImports.findMany({
+        where: eq(financeImports.clientId, clientId),
+        orderBy: [desc(financeImports.importedAt)],
+        with: { client: true, importedBy: true }
+      });
+    }
+    return db.query.financeImports.findMany({
+      orderBy: [desc(financeImports.importedAt)],
+      with: { client: true, importedBy: true }
+    });
+  },
+
+  async getFinanceImportById(id: string) {
+    return db.query.financeImports.findFirst({
+      where: eq(financeImports.id, id),
+      with: { client: true, importedBy: true }
+    });
+  },
+
+  async getFinanceImportByClientAndHash(clientId: string, fileHash: string) {
+    return db.query.financeImports.findFirst({
+      where: and(eq(financeImports.clientId, clientId), eq(financeImports.fileHash, fileHash))
+    });
+  },
+
+  async createFinanceImport(data: InsertFinanceImport) {
+    const [result] = await db.insert(financeImports).values(data).returning();
+    return result;
+  },
+
+  async updateFinanceImport(id: string, data: Partial<FinanceImport>) {
+    const [result] = await db.update(financeImports)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(financeImports.id, id))
+      .returning();
+    return result;
+  },
+
+  // Finance Import Raw Rows
+  async createFinanceImportRowsRaw(data: InsertFinanceImportRowRaw[]) {
+    if (data.length === 0) return [];
+    return db.insert(financeImportRowsRaw).values(data).returning();
+  },
+
+  async getFinanceImportRowsRaw(financeImportId: string) {
+    return db.select()
+      .from(financeImportRowsRaw)
+      .where(eq(financeImportRowsRaw.financeImportId, financeImportId))
+      .orderBy(asc(financeImportRowsRaw.rowIndex));
+  },
+
+  // Finance Import Rows (normalized)
+  async createFinanceImportRows(data: InsertFinanceImportRow[]) {
+    if (data.length === 0) return [];
+    return db.insert(financeImportRows).values(data).returning();
+  },
+
+  async getFinanceImportRows(financeImportId: string, matchStatus?: string) {
+    if (matchStatus) {
+      return db.select()
+        .from(financeImportRows)
+        .where(and(
+          eq(financeImportRows.financeImportId, financeImportId),
+          eq(financeImportRows.matchStatus, matchStatus as any)
+        ))
+        .orderBy(asc(financeImportRows.id));
+    }
+    return db.select()
+      .from(financeImportRows)
+      .where(eq(financeImportRows.financeImportId, financeImportId))
+      .orderBy(asc(financeImportRows.id));
+  },
+
+  async getFinanceImportRowById(id: string) {
+    return db.query.financeImportRows.findFirst({
+      where: eq(financeImportRows.id, id),
+      with: { matchedOrder: true }
+    });
+  },
+
+  async updateFinanceImportRow(id: string, data: Partial<FinanceImportRow>) {
+    const [result] = await db.update(financeImportRows)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(financeImportRows.id, id))
+      .returning();
+    return result;
+  },
+
+  async getFinanceImportRowCounts(financeImportId: string) {
+    const results = await db.select({
+      matchStatus: financeImportRows.matchStatus,
+      clientStatus: financeImportRows.clientStatus,
+      count: sql<number>`COUNT(*)::int`
+    })
+      .from(financeImportRows)
+      .where(eq(financeImportRows.financeImportId, financeImportId))
+      .groupBy(financeImportRows.matchStatus, financeImportRows.clientStatus);
+    return results;
+  },
+
+  // AR Expectations
+  async createArExpectation(data: InsertArExpectation) {
+    const [result] = await db.insert(arExpectations).values(data).returning();
+    return result;
+  },
+
+  async getArExpectations(clientId?: string, status?: string) {
+    const conditions = [];
+    if (clientId) conditions.push(eq(arExpectations.clientId, clientId));
+    if (status) conditions.push(eq(arExpectations.status, status as any));
+    
+    return db.query.arExpectations.findMany({
+      where: conditions.length > 0 ? and(...conditions) : undefined,
+      orderBy: [desc(arExpectations.createdAt)],
+      with: { client: true, order: true }
+    });
+  },
+
+  async getArExpectationByRowId(financeImportRowId: string) {
+    return db.query.arExpectations.findFirst({
+      where: eq(arExpectations.financeImportRowId, financeImportRowId)
+    });
+  },
+
+  async updateArExpectation(id: string, data: Partial<ArExpectation>) {
+    const [result] = await db.update(arExpectations)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(arExpectations.id, id))
+      .returning();
+    return result;
+  },
+
+  async getArSummaryByClient() {
+    return db.select({
+      clientId: arExpectations.clientId,
+      status: arExpectations.status,
+      totalCents: sql<number>`SUM(expected_amount_cents)::int`,
+      count: sql<number>`COUNT(*)::int`
+    })
+      .from(arExpectations)
+      .groupBy(arExpectations.clientId, arExpectations.status);
+  },
+
+  // Client Column Mappings
+  async getClientColumnMappings(clientId: string) {
+    return db.select()
+      .from(clientColumnMappings)
+      .where(eq(clientColumnMappings.clientId, clientId))
+      .orderBy(desc(clientColumnMappings.createdAt));
+  },
+
+  async createClientColumnMapping(data: InsertClientColumnMapping) {
+    const [result] = await db.insert(clientColumnMappings).values(data).returning();
+    return result;
+  },
+
+  async updateClientColumnMapping(id: string, data: Partial<ClientColumnMapping>) {
+    const [result] = await db.update(clientColumnMappings)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(clientColumnMappings.id, id))
+      .returning();
+    return result;
+  },
+
+  async getDefaultClientColumnMapping(clientId: string) {
+    return db.query.clientColumnMappings.findFirst({
+      where: and(eq(clientColumnMappings.clientId, clientId), eq(clientColumnMappings.isDefault, true))
+    });
+  },
+
+  // Finance Reports
+  async getEnrolledReportByRep(startDate: string, endDate: string) {
+    return db.select({
+      repId: salesOrders.repId,
+      enrolledCount: sql<number>`COUNT(*) FILTER (WHERE ${salesOrders.clientAcceptanceStatus} = 'ACCEPTED')::int`,
+      rejectedCount: sql<number>`COUNT(*) FILTER (WHERE ${salesOrders.clientAcceptanceStatus} = 'REJECTED')::int`,
+      totalExpectedCents: sql<number>`COALESCE(SUM(${salesOrders.expectedAmountCents}) FILTER (WHERE ${salesOrders.clientAcceptanceStatus} = 'ACCEPTED'), 0)::int`
+    })
+      .from(salesOrders)
+      .where(and(
+        gte(salesOrders.dateSold, startDate),
+        lte(salesOrders.dateSold, endDate)
+      ))
+      .groupBy(salesOrders.repId);
+  },
+
+  async getEnrolledReportGlobal(startDate: string, endDate: string) {
+    const [result] = await db.select({
+      enrolledCount: sql<number>`COUNT(*) FILTER (WHERE ${salesOrders.clientAcceptanceStatus} = 'ACCEPTED')::int`,
+      rejectedCount: sql<number>`COUNT(*) FILTER (WHERE ${salesOrders.clientAcceptanceStatus} = 'REJECTED')::int`,
+      pendingCount: sql<number>`COUNT(*) FILTER (WHERE ${salesOrders.clientAcceptanceStatus} IS NULL OR ${salesOrders.clientAcceptanceStatus} = 'PENDING')::int`,
+      totalExpectedCents: sql<number>`COALESCE(SUM(${salesOrders.expectedAmountCents}) FILTER (WHERE ${salesOrders.clientAcceptanceStatus} = 'ACCEPTED'), 0)::int`
+    })
+      .from(salesOrders)
+      .where(and(
+        gte(salesOrders.dateSold, startDate),
+        lte(salesOrders.dateSold, endDate)
+      ));
+    return result;
+  },
+
+  // Orders matching for finance - find potential matches for a finance row
+  async findOrdersForMatching(clientId: string, saleDateStart: string, saleDateEnd: string, customerNameNorm?: string) {
+    return db.select()
+      .from(salesOrders)
+      .where(and(
+        eq(salesOrders.clientId, clientId),
+        gte(salesOrders.dateSold, saleDateStart),
+        lte(salesOrders.dateSold, saleDateEnd),
+        isNull(salesOrders.clientAcceptedAt) // Not already matched
+      ));
+  },
+
+  async setOrderClientAcceptance(orderId: string, status: "ACCEPTED" | "REJECTED" | "PENDING", expectedAmountCents?: number) {
+    const [result] = await db.update(salesOrders)
+      .set({
+        clientAcceptanceStatus: status,
+        clientAcceptedAt: status === "ACCEPTED" ? new Date() : null,
+        expectedAmountCents: expectedAmountCents,
+        updatedAt: new Date()
+      })
+      .where(eq(salesOrders.id, orderId))
+      .returning();
+    return result;
   },
 };
