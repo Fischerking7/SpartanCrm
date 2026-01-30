@@ -19,6 +19,7 @@ import Leads from "@/pages/leads";
 import Commissions from "@/pages/commissions";
 import PayRuns from "@/pages/payruns";
 import Accounting from "@/pages/accounting";
+import Finance from "@/pages/finance";
 import Queues from "@/pages/queues";
 import Audit from "@/pages/audit";
 import Adjustments from "@/pages/adjustments";
@@ -196,6 +197,7 @@ function Router() {
         {isAdmin && (
           <>
             <Route path="/accounting" component={Accounting} />
+            <Route path="/finance" component={Finance} />
             <Route path="/recalculate" component={Recalculate} />
             <Route path="/admin/providers" component={AdminProviders} />
             <Route path="/admin/clients" component={AdminClients} />

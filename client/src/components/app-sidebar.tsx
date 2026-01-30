@@ -83,6 +83,7 @@ const MENU = {
   
   // Accounting & Audit
   accounting: { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
+  finance: { title: "Finance & AR", url: "/finance", icon: DollarSign },
   exports: { title: "Export History", url: "/export-history", icon: Download },
   recalculate: { title: "Recalculate", url: "/recalculate", icon: Calculator },
   queues: { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
@@ -138,6 +139,7 @@ const adminOpsItems: MenuItem[] = [
 // Admin: Accounting group
 const adminAccountingItems: MenuItem[] = [
   MENU.accounting,
+  MENU.finance,
   MENU.exports,
   MENU.recalculate,
   MENU.queues,
