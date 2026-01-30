@@ -1348,16 +1348,26 @@ export async function registerRoutes(
     try {
       const user = req.user!;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const viewMode = req.query.viewMode as string | undefined; // "own", "team", "global" for EXECUTIVE
       let orders;
 
       if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         // Admin/Founder sees all orders
         orders = await storage.getOrders({ limit });
       } else if (user.role === "EXECUTIVE") {
-        // Executive sees orders from their org tree (managers and their reps)
-        const scope = await storage.getExecutiveScope(user.id);
-        const teamRepIds = [...scope.allRepRepIds, user.repId]; // Include executive's own orders
-        orders = await storage.getOrders({ teamRepIds, limit });
+        // Executive can toggle between own, team, and global views
+        if (viewMode === "own") {
+          // Only their own orders
+          orders = await storage.getOrders({ repId: user.repId, limit });
+        } else if (viewMode === "global") {
+          // All orders (like ADMIN)
+          orders = await storage.getOrders({ limit });
+        } else {
+          // Default: team view - orders from their org tree
+          const scope = await storage.getExecutiveScope(user.id);
+          const teamRepIds = [...scope.allRepRepIds, user.repId];
+          orders = await storage.getOrders({ teamRepIds, limit });
+        }
       } else if (user.role === "MANAGER") {
         // Manager sees direct reps + reps under their supervisors
         const scope = await storage.getManagerScope(user.id);
@@ -5082,15 +5092,29 @@ export async function registerRoutes(
   app.get("/api/commissions", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
+      const viewMode = req.query.viewMode as string | undefined; // "own", "team", "global" for EXECUTIVE
       const isRep = user.role === "REP";
       
-      // Get user's own orders with earned commissions (approved orders)
-      const allOrders = await storage.getOrders();
-      const myOrders = allOrders.filter((o: SalesOrder) => 
-        o.repId === user.repId && 
-        o.jobStatus === "COMPLETED" && 
-        o.jobStatus === "COMPLETED"
-      );
+      // Get orders based on role and viewMode
+      let ordersToQuery: SalesOrder[];
+      if (user.role === "EXECUTIVE" && viewMode === "global") {
+        ordersToQuery = await storage.getOrders();
+      } else if (user.role === "EXECUTIVE" && viewMode === "team") {
+        const scope = await storage.getExecutiveScope(user.id);
+        const teamRepIds = [...scope.allRepRepIds, user.repId];
+        ordersToQuery = await storage.getOrders({ teamRepIds });
+      } else {
+        ordersToQuery = await storage.getOrders();
+      }
+      
+      // For "own" view or default behavior, filter to user's own orders
+      // For "own" view, filter to user's own orders only; for team/global, include all from the queried set
+      const allOrders = ordersToQuery;
+      const showGlobalOrTeam = (user.role === "EXECUTIVE" && (viewMode === "global" || viewMode === "team")) ||
+                               user.role === "ADMIN" || user.role === "OPERATIONS";
+      const myOrders = showGlobalOrTeam
+        ? allOrders.filter((o: SalesOrder) => o.jobStatus === "COMPLETED")
+        : allOrders.filter((o: SalesOrder) => o.repId === user.repId && o.jobStatus === "COMPLETED");
       
       // Get commission line items for service breakdown
       const allLineItems = await Promise.all(
@@ -5166,13 +5190,16 @@ export async function registerRoutes(
         .filter((o: SalesOrder) => o.approvedAt && new Date(o.approvedAt) >= monthStart)
         .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       
-      // Get pending orders (not yet completed but still active) for this rep
-      const pendingOrders = allOrders.filter((o: SalesOrder) => 
-        o.repId === user.repId && 
-        o.jobStatus !== "COMPLETED" &&
-        o.jobStatus !== "CANCELED" &&
-        o.jobStatus !== "CANCELED"
-      );
+      // Get pending orders (not yet completed but still active) based on view mode
+      const pendingOrders = showGlobalOrTeam
+        ? allOrders.filter((o: SalesOrder) => 
+            o.jobStatus !== "COMPLETED" && o.jobStatus !== "CANCELED"
+          )
+        : allOrders.filter((o: SalesOrder) => 
+            o.repId === user.repId && 
+            o.jobStatus !== "COMPLETED" &&
+            o.jobStatus !== "CANCELED"
+          );
       
       // Calculate pending commissions (estimated from baseCommissionEarned which is pre-calculated)
       const pendingWeekly = pendingOrders

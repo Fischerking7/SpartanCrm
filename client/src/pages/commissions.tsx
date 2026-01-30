@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DollarSign, TrendingUp, Users, FileText, Calendar, CalendarDays, Wifi, Smartphone, Tv, Clock, Target } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -58,11 +60,14 @@ interface CommissionsData {
 
 export default function Commissions() {
   const { user } = useAuth();
+  const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("own");
+  const isExecutive = user?.role === "EXECUTIVE";
 
   const { data, isLoading } = useQuery<CommissionsData>({
-    queryKey: ["/api/commissions"],
+    queryKey: ["/api/commissions", isExecutive ? execViewMode : null],
     queryFn: async () => {
-      const res = await fetch("/api/commissions", { headers: getAuthHeaders() });
+      const url = isExecutive ? `/api/commissions?viewMode=${execViewMode}` : "/api/commissions";
+      const res = await fetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch commissions");
       return res.json();
     },
@@ -93,13 +98,43 @@ export default function Commissions() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold" data-testid="text-page-title">
-          {isRep ? "My Commissions" : "Commissions Overview"}
-        </h1>
-        <p className="text-muted-foreground">
-          Track your commission earnings and performance
-        </p>
+      <div className="flex items-center gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold" data-testid="text-page-title">
+            {isRep ? "My Commissions" : isExecutive ? (execViewMode === "own" ? "My Commissions" : execViewMode === "team" ? "Team Commissions" : "Global Commissions") : "Commissions Overview"}
+          </h1>
+          <p className="text-muted-foreground">
+            Track your commission earnings and performance
+          </p>
+        </div>
+        {isExecutive && (
+          <div className="flex items-center gap-1 border rounded-md p-1" data-testid="exec-view-toggle">
+            <Button
+              size="sm"
+              variant={execViewMode === "own" ? "default" : "ghost"}
+              onClick={() => setExecViewMode("own")}
+              data-testid="button-view-own"
+            >
+              My Sales
+            </Button>
+            <Button
+              size="sm"
+              variant={execViewMode === "team" ? "default" : "ghost"}
+              onClick={() => setExecViewMode("team")}
+              data-testid="button-view-team"
+            >
+              My Team
+            </Button>
+            <Button
+              size="sm"
+              variant={execViewMode === "global" ? "default" : "ghost"}
+              onClick={() => setExecViewMode("global")}
+              data-testid="button-view-global"
+            >
+              Global
+            </Button>
+          </div>
+        )}
       </div>
 
       {isRep && (

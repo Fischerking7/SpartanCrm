@@ -27,6 +27,12 @@ The application uses a monorepo structure:
 ### Role-Based Access Control
 The system implements seven distinct user roles (REP, MDU, SUPERVISOR, MANAGER, EXECUTIVE, ADMIN, OPERATIONS) with strict data isolation and permissions tailored to sales operations.
 
+### Executive View Mode Toggle
+EXECUTIVE users have a special toggle on Orders and Commissions pages that allows switching between:
+- **My Sales**: View only their own orders and commissions
+- **My Team**: View orders and commissions from their organizational tree (managers and their reps)
+- **Global**: View all orders and commissions across the entire organization (same as ADMIN/OPERATIONS)
+
 ### Core Business Logic
 - **Earned Commissions**: Defined by orders with `jobStatus=COMPLETED` and `approvalStatus=APPROVED`.
 - **Paid Commissions**: Linked to orders with imported payment data from QuickBooks.

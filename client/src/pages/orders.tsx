@@ -59,6 +59,7 @@ export default function Orders() {
   const [activeTab, setActiveTab] = useState<"orders" | "mobile">("orders");
   const [showMobileOrderDialog, setShowMobileOrderDialog] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("global");
 
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
@@ -130,6 +131,7 @@ export default function Orders() {
 
   const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE";
   const isOperations = user?.role === "OPERATIONS";
+  const isExecutive = user?.role === "EXECUTIVE";
   const isTouchDevice = useIsTouchDevice();
 
   // Handle pre-filling form from lead or MDU query params
@@ -269,9 +271,10 @@ export default function Orders() {
   };
 
   const { data: orders, isLoading } = useQuery<SalesOrder[]>({
-    queryKey: ["/api/orders"],
+    queryKey: ["/api/orders", isExecutive ? execViewMode : null],
     queryFn: async () => {
-      const res = await fetch("/api/orders", { headers: getAuthHeaders() });
+      const url = isExecutive ? `/api/orders?viewMode=${execViewMode}` : "/api/orders";
+      const res = await fetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch orders");
       return res.json();
     },
@@ -1113,11 +1116,42 @@ export default function Orders() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold">Orders</h1>
-          <p className="text-muted-foreground">
-            {user?.role === "REP" ? "Your orders" : user?.role === "MANAGER" ? "Team orders" : "All orders"}
-          </p>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-semibold">Orders</h1>
+            <p className="text-muted-foreground">
+              {user?.role === "REP" ? "Your orders" : user?.role === "MANAGER" ? "Team orders" : 
+               isExecutive ? (execViewMode === "own" ? "My orders" : execViewMode === "team" ? "Team orders" : "All orders") : "All orders"}
+            </p>
+          </div>
+          {isExecutive && (
+            <div className="flex items-center gap-1 border rounded-md p-1" data-testid="exec-view-toggle">
+              <Button
+                size="sm"
+                variant={execViewMode === "own" ? "default" : "ghost"}
+                onClick={() => setExecViewMode("own")}
+                data-testid="button-view-own"
+              >
+                My Sales
+              </Button>
+              <Button
+                size="sm"
+                variant={execViewMode === "team" ? "default" : "ghost"}
+                onClick={() => setExecViewMode("team")}
+                data-testid="button-view-team"
+              >
+                My Team
+              </Button>
+              <Button
+                size="sm"
+                variant={execViewMode === "global" ? "default" : "ghost"}
+                onClick={() => setExecViewMode("global")}
+                data-testid="button-view-global"
+              >
+                Global
+              </Button>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && selectedOrderIds.size > 0 && (
