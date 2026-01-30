@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getAuthHeaders } from "@/lib/auth";
+import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { StatsCard } from "@/components/stats-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -204,21 +204,26 @@ interface ProductionMetrics {
 }
 
 export default function Reports() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [period, setPeriod] = useState("this_month");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [groupBy, setGroupBy] = useState("day");
+  const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("global");
+
+  const isExecutive = user?.role === "EXECUTIVE";
 
   const buildQueryString = () => {
     const params = new URLSearchParams({ period });
     if (period === "custom" && customStartDate) params.set("startDate", customStartDate);
     if (period === "custom" && customEndDate) params.set("endDate", customEndDate);
+    if (isExecutive) params.set("viewMode", execViewMode);
     return params.toString();
   };
 
   const { data: summary, isLoading: summaryLoading } = useQuery<ReportSummary>({
-    queryKey: ["/api/reports/summary", period, customStartDate, customEndDate],
+    queryKey: ["/api/reports/summary", period, customStartDate, customEndDate, execViewMode],
     queryFn: async () => {
       const res = await fetch(`/api/reports/summary?${buildQueryString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch summary");
@@ -227,16 +232,17 @@ export default function Reports() {
   });
 
   const { data: production, isLoading: productionLoading } = useQuery<ProductionMetrics>({
-    queryKey: ["/api/reports/production"],
+    queryKey: ["/api/reports/production", execViewMode],
     queryFn: async () => {
-      const res = await fetch("/api/reports/production", { headers: getAuthHeaders() });
+      const params = isExecutive ? `?viewMode=${execViewMode}` : "";
+      const res = await fetch(`/api/reports/production${params}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch production");
       return res.json();
     },
   });
 
   const { data: salesByRep } = useQuery<{ data: RepData[] }>({
-    queryKey: ["/api/reports/sales-by-rep", period, customStartDate, customEndDate],
+    queryKey: ["/api/reports/sales-by-rep", period, customStartDate, customEndDate, execViewMode],
     queryFn: async () => {
       const res = await fetch(`/api/reports/sales-by-rep?${buildQueryString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
@@ -245,7 +251,7 @@ export default function Reports() {
   });
 
   const { data: salesByProvider } = useQuery<{ data: ProviderData[] }>({
-    queryKey: ["/api/reports/sales-by-provider", period, customStartDate, customEndDate],
+    queryKey: ["/api/reports/sales-by-provider", period, customStartDate, customEndDate, execViewMode],
     queryFn: async () => {
       const res = await fetch(`/api/reports/sales-by-provider?${buildQueryString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
@@ -254,7 +260,7 @@ export default function Reports() {
   });
 
   const { data: salesByService } = useQuery<{ data: ServiceData[] }>({
-    queryKey: ["/api/reports/sales-by-service", period, customStartDate, customEndDate],
+    queryKey: ["/api/reports/sales-by-service", period, customStartDate, customEndDate, execViewMode],
     queryFn: async () => {
       const res = await fetch(`/api/reports/sales-by-service?${buildQueryString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
@@ -263,11 +269,12 @@ export default function Reports() {
   });
 
   const { data: trendData } = useQuery<{ data: TrendData[] }>({
-    queryKey: ["/api/reports/trend", period, customStartDate, customEndDate, groupBy],
+    queryKey: ["/api/reports/trend", period, customStartDate, customEndDate, groupBy, execViewMode],
     queryFn: async () => {
       const params = new URLSearchParams({ period, groupBy });
       if (period === "custom" && customStartDate) params.set("startDate", customStartDate);
       if (period === "custom" && customEndDate) params.set("endDate", customEndDate);
+      if (isExecutive) params.set("viewMode", execViewMode);
       const res = await fetch(`/api/reports/trend?${params.toString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
@@ -275,7 +282,7 @@ export default function Reports() {
   });
 
   const { data: commissionSummary } = useQuery<{ data: CommissionData[]; totals: { totalEarned: number; totalPaid: number; totalOutstanding: number; totalOrders: number } }>({
-    queryKey: ["/api/reports/commission-summary", period, customStartDate, customEndDate],
+    queryKey: ["/api/reports/commission-summary", period, customStartDate, customEndDate, execViewMode],
     queryFn: async () => {
       const res = await fetch(`/api/reports/commission-summary?${buildQueryString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
@@ -284,7 +291,7 @@ export default function Reports() {
   });
 
   const { data: teamProduction } = useQuery<{ data: TeamProductionData[]; totals: { totalSold: number; totalConnected: number; totalMobileLines: number; totalPendingDollars: number; totalConnectedDollars: number } }>({
-    queryKey: ["/api/reports/team-production", period, customStartDate, customEndDate],
+    queryKey: ["/api/reports/team-production", period, customStartDate, customEndDate, execViewMode],
     queryFn: async () => {
       const res = await fetch(`/api/reports/team-production?${buildQueryString()}`, { headers: getAuthHeaders() });
       if (!res.ok) return { data: [], totals: { totalSold: 0, totalConnected: 0, totalMobileLines: 0, totalPendingDollars: 0, totalConnectedDollars: 0 } };
@@ -294,7 +301,7 @@ export default function Reports() {
   });
 
   const { data: repLeaderboard } = useQuery<{ data: RepLeaderboardData[]; totals: { totalOrders: number; totalConnected: number; totalEarned: number; totalPaid: number; totalMobileLines: number; totalLeads: number; totalConverted: number }; scopeInfo: { role: string; scopeDescription: string; repCount: number } }>({
-    queryKey: ["/api/reports/rep-leaderboard", period, customStartDate, customEndDate],
+    queryKey: ["/api/reports/rep-leaderboard", period, customStartDate, customEndDate, execViewMode],
     queryFn: async () => {
       const res = await fetch(`/api/reports/rep-leaderboard?${buildQueryString()}`, { headers: getAuthHeaders() });
       if (!res.ok) return { data: [], totals: { totalOrders: 0, totalConnected: 0, totalEarned: 0, totalPaid: 0, totalMobileLines: 0, totalLeads: 0, totalConverted: 0 }, scopeInfo: { role: "", scopeDescription: "", repCount: 0 } };
@@ -303,7 +310,7 @@ export default function Reports() {
   });
 
   const { data: overrideInvoices } = useQuery<{ data: OverrideInvoiceData[]; totals: { totalOverrides: string; invoiceCount: number }; recipients: Array<{ id: string; name: string; role: string }> }>({
-    queryKey: ["/api/reports/override-invoices", period, customStartDate, customEndDate],
+    queryKey: ["/api/reports/override-invoices", period, customStartDate, customEndDate, execViewMode],
     queryFn: async () => {
       const res = await fetch(`/api/reports/override-invoices?${buildQueryString()}`, { headers: getAuthHeaders() });
       if (!res.ok) return { data: [], totals: { totalOverrides: "0.00", invoiceCount: 0 }, recipients: [] };
@@ -374,6 +381,34 @@ export default function Reports() {
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          {isExecutive && (
+            <div className="flex items-center gap-2 border rounded-md p-1" data-testid="toggle-exec-view-mode">
+              <Button
+                variant={execViewMode === "own" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setExecViewMode("own")}
+                data-testid="button-view-own"
+              >
+                My Sales
+              </Button>
+              <Button
+                variant={execViewMode === "team" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setExecViewMode("team")}
+                data-testid="button-view-team"
+              >
+                My Team
+              </Button>
+              <Button
+                variant={execViewMode === "global" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setExecViewMode("global")}
+                data-testid="button-view-global"
+              >
+                Global
+              </Button>
+            </div>
+          )}
           <Button variant="outline" onClick={handleExport} data-testid="button-export-report">
             <Download className="h-4 w-4 mr-2" />
             Export

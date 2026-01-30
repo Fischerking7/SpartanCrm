@@ -5295,7 +5295,8 @@ export async function registerRoutes(
   // ==================== REPORTS ====================
   
   // Helper to apply role-based filtering to orders
-  async function applyRoleBasedOrderFilter(orders: SalesOrder[], user: User): Promise<{ filteredOrders: SalesOrder[]; scopeInfo: { role: string; scopeDescription: string; repCount: number } }> {
+  // viewMode is optional and only applies to EXECUTIVE users: "own" | "team" | "global"
+  async function applyRoleBasedOrderFilter(orders: SalesOrder[], user: User, viewMode?: string): Promise<{ filteredOrders: SalesOrder[]; scopeInfo: { role: string; scopeDescription: string; repCount: number } }> {
     let filteredOrders = orders;
     let scopeDescription = "All data";
     let repCount = 0;
@@ -5316,10 +5317,24 @@ export async function registerRoutes(
       scopeDescription = `Your organization (${scope.supervisorIds.length} supervisors, ${scope.allRepRepIds.length} total reps)`;
       repCount = scope.allRepRepIds.length;
     } else if (user.role === "EXECUTIVE") {
-      const scope = await storage.getExecutiveScope(user.id);
-      filteredOrders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
-      scopeDescription = `Your division (${scope.managerIds.length} managers, ${scope.allRepRepIds.length} total reps)`;
-      repCount = scope.allRepRepIds.length;
+      // EXECUTIVE users can switch between own/team/global views
+      if (viewMode === "own") {
+        filteredOrders = orders.filter(o => o.repId === user.repId);
+        scopeDescription = "Your personal sales";
+        repCount = 1;
+      } else if (viewMode === "global") {
+        const allUsers = await storage.getUsers();
+        const salesReps = allUsers.filter(u => ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && !u.deletedAt);
+        scopeDescription = `Company-wide (${salesReps.length} total sales reps)`;
+        repCount = salesReps.length;
+        // No filtering - show all orders
+      } else {
+        // Default to "team" - their organizational tree
+        const scope = await storage.getExecutiveScope(user.id);
+        filteredOrders = orders.filter(o => scope.allRepRepIds.includes(o.repId));
+        scopeDescription = `Your division (${scope.managerIds.length} managers, ${scope.allRepRepIds.length} total reps)`;
+        repCount = scope.allRepRepIds.length;
+      }
     } else if (user.role === "ADMIN" || user.role === "OPERATIONS") {
       const allUsers = await storage.getUsers();
       const salesReps = allUsers.filter(u => ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && !u.deletedAt);
@@ -5410,11 +5425,12 @@ export async function registerRoutes(
   // Production metrics - weekly and MTD pending/connected dollars
   app.get("/api/reports/production", auth, async (req: AuthRequest, res) => {
     try {
+      const { viewMode } = req.query;
       const user = req.user!;
       const now = new Date();
       
       const allOrders = await storage.getOrders({});
-      const { filteredOrders: orders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user);
+      const { filteredOrders: orders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user, viewMode as string | undefined);
       
       // Calculate week start (Monday)
       const dayOfWeek = now.getDay();
@@ -5497,12 +5513,12 @@ export async function registerRoutes(
   // Reports Summary - KPIs
   app.get("/api/reports/summary", auth, async (req: AuthRequest, res) => {
     try {
-      const { period = "this_month", startDate, endDate } = req.query;
+      const { period = "this_month", startDate, endDate, viewMode } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
       const allOrders = await storage.getOrders({});
-      const { filteredOrders: orders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user);
+      const { filteredOrders: orders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user, viewMode as string | undefined);
       
       // Filter by date range (using dateSold)
       const periodOrders = orders.filter(o => {
@@ -5581,13 +5597,13 @@ export async function registerRoutes(
   // Sales by Rep
   app.get("/api/reports/sales-by-rep", auth, async (req: AuthRequest, res) => {
     try {
-      const { period = "this_month", startDate, endDate } = req.query;
+      const { period = "this_month", startDate, endDate, viewMode } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
       const allOrders = await storage.getOrders({});
       const users = await storage.getUsers();
-      const { filteredOrders: orders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user);
+      const { filteredOrders: orders, scopeInfo } = await applyRoleBasedOrderFilter(allOrders, user, viewMode as string | undefined);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);
@@ -5622,13 +5638,13 @@ export async function registerRoutes(
   // Sales by Provider
   app.get("/api/reports/sales-by-provider", auth, async (req: AuthRequest, res) => {
     try {
-      const { period = "this_month", startDate, endDate } = req.query;
+      const { period = "this_month", startDate, endDate, viewMode } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
       const allOrders = await storage.getOrders({});
       const providers = await storage.getProviders();
-      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user, viewMode as string | undefined);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);
@@ -5663,13 +5679,13 @@ export async function registerRoutes(
   // Sales by Service
   app.get("/api/reports/sales-by-service", auth, async (req: AuthRequest, res) => {
     try {
-      const { period = "this_month", startDate, endDate } = req.query;
+      const { period = "this_month", startDate, endDate, viewMode } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
       const allOrders = await storage.getOrders({});
       const services = await storage.getServices();
-      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user, viewMode as string | undefined);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);
@@ -5704,12 +5720,12 @@ export async function registerRoutes(
   // Trend Data
   app.get("/api/reports/trend", auth, async (req: AuthRequest, res) => {
     try {
-      const { period = "this_month", startDate, endDate, groupBy = "day" } = req.query;
+      const { period = "this_month", startDate, endDate, groupBy = "day", viewMode } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
       const allOrders = await storage.getOrders({});
-      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user, viewMode as string | undefined);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);
@@ -5760,13 +5776,13 @@ export async function registerRoutes(
   // Commission Summary - Earned vs Paid
   app.get("/api/reports/commission-summary", auth, async (req: AuthRequest, res) => {
     try {
-      const { period = "this_month", startDate, endDate } = req.query;
+      const { period = "this_month", startDate, endDate, viewMode } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
       const allOrders = await storage.getOrders({});
       const users = await storage.getUsers();
-      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user, viewMode as string | undefined);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);
@@ -6184,7 +6200,7 @@ export async function registerRoutes(
   // Provider/Client Profitability Analysis
   app.get("/api/reports/profitability", auth, async (req: AuthRequest, res) => {
     try {
-      const { period = "this_month", startDate, endDate, type = "provider" } = req.query;
+      const { period = "this_month", startDate, endDate, type = "provider", viewMode } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
@@ -6196,7 +6212,7 @@ export async function registerRoutes(
       const providers = await storage.getProviders();
       const clients = await storage.getClients();
       const rateCards = await storage.getRateCards();
-      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user, viewMode as string | undefined);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);
@@ -6284,7 +6300,7 @@ export async function registerRoutes(
   // Commission Cost Analysis by Product Mix
   app.get("/api/reports/product-mix", auth, async (req: AuthRequest, res) => {
     try {
-      const { period = "this_month", startDate, endDate } = req.query;
+      const { period = "this_month", startDate, endDate, viewMode } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
@@ -6295,7 +6311,7 @@ export async function registerRoutes(
       const allOrders = await storage.getOrders({});
       const services = await storage.getServices();
       const providers = await storage.getProviders();
-      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user);
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user, viewMode as string | undefined);
       
       const periodOrders = orders.filter(o => {
         const orderDate = new Date(o.dateSold);

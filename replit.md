@@ -28,7 +28,7 @@ The application uses a monorepo structure:
 The system implements seven distinct user roles (REP, MDU, SUPERVISOR, MANAGER, EXECUTIVE, ADMIN, OPERATIONS) with strict data isolation and permissions tailored to sales operations.
 
 ### Executive View Mode Toggle
-EXECUTIVE users have a special toggle on Orders and Commissions pages that allows switching between:
+EXECUTIVE users have a special toggle on Orders, Commissions, and Reports pages that allows switching between:
 - **My Sales**: View only their own orders and commissions
 - **My Team**: View orders and commissions from their organizational tree (managers and their reps)
 - **Global**: View all orders and commissions across the entire organization (same as ADMIN/OPERATIONS)
