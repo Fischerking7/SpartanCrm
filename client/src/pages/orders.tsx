@@ -58,6 +58,7 @@ export default function Orders() {
   const [flagReason, setFlagReason] = useState("");
   const [activeTab, setActiveTab] = useState<"orders" | "mobile">("orders");
   const [showMobileOrderDialog, setShowMobileOrderDialog] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
 
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
@@ -715,7 +716,62 @@ export default function Orders() {
     },
   });
 
-  
+  const bulkMarkPaidMutation = useMutation({
+    mutationFn: async (orderIds: string[]) => {
+      const res = await fetch("/api/admin/orders/bulk-mark-paid", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to mark orders as paid");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setSelectedOrderIds(new Set());
+      toast({ title: `${data.marked} orders marked as paid`, description: data.skipped > 0 ? `${data.skipped} orders skipped (already paid)` : undefined });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to mark orders as paid", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleBulkMarkPaid = () => {
+    if (selectedOrderIds.size === 0) {
+      toast({ title: "No orders selected", variant: "destructive" });
+      return;
+    }
+    if (!confirm(`Mark ${selectedOrderIds.size} order(s) as paid?`)) {
+      return;
+    }
+    bulkMarkPaidMutation.mutate(Array.from(selectedOrderIds));
+  };
+
+  const toggleOrderSelection = (orderId: string) => {
+    setSelectedOrderIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleAllOrders = () => {
+    if (!filteredOrders) return;
+    const unpaidOrders = filteredOrders.filter((o: SalesOrder) => o.paymentStatus !== "PAID");
+    if (selectedOrderIds.size === unpaidOrders.length) {
+      setSelectedOrderIds(new Set());
+    } else {
+      setSelectedOrderIds(new Set(unpaidOrders.map((o: SalesOrder) => o.id)));
+    }
+  };
+
   const flagOrderMutation = useMutation({
     mutationFn: async ({ orderId, reason }: { orderId: string; reason: string }) => {
       const res = await fetch(`/api/orders/${orderId}/flag`, {
@@ -800,6 +856,26 @@ export default function Orders() {
   });
 
   const columns = [
+    ...((user?.role === "ADMIN" || user?.role === "OPERATIONS") ? [{
+      key: "select",
+      header: () => (
+        <Checkbox
+          checked={filteredOrders && filteredOrders.filter((o: SalesOrder) => o.paymentStatus !== "PAID").length > 0 && selectedOrderIds.size === filteredOrders.filter((o: SalesOrder) => o.paymentStatus !== "PAID").length}
+          onCheckedChange={toggleAllOrders}
+          data-testid="checkbox-select-all"
+        />
+      ),
+      cell: (row: SalesOrder) => (
+        row.paymentStatus !== "PAID" ? (
+          <Checkbox
+            checked={selectedOrderIds.has(row.id)}
+            onCheckedChange={() => toggleOrderSelection(row.id)}
+            onClick={(e) => e.stopPropagation()}
+            data-testid={`checkbox-select-order-${row.id}`}
+          />
+        ) : null
+      ),
+    }] : []),
     {
       key: "actions",
       header: "",
@@ -1044,6 +1120,17 @@ export default function Orders() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && selectedOrderIds.size > 0 && (
+            <Button 
+              variant="default"
+              onClick={handleBulkMarkPaid}
+              disabled={bulkMarkPaidMutation.isPending}
+              data-testid="button-bulk-mark-paid"
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Mark {selectedOrderIds.size} as Paid
+            </Button>
+          )}
           {isAdmin && (
             <>
               <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-orders">

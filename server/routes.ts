@@ -1832,6 +1832,49 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/orders/bulk-mark-paid", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { orderIds } = req.body;
+      const user = req.user!;
+      
+      if (!Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json({ message: "No orders selected" });
+      }
+      
+      let marked = 0;
+      let skipped = 0;
+      const paidDate = new Date().toISOString().split("T")[0];
+      
+      for (const id of orderIds) {
+        const order = await storage.getOrderById(id);
+        if (!order) {
+          skipped++;
+          continue;
+        }
+        
+        if (order.paymentStatus === "PAID") {
+          skipped++;
+          continue;
+        }
+        
+        const totalCommission = (parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned)).toFixed(2);
+        const updated = await storage.updateOrder(id, {
+          paymentStatus: "PAID",
+          paidDate,
+          commissionPaid: totalCommission,
+        });
+        
+        await storage.createAuditLog({ action: "bulk_mark_paid", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
+        marked++;
+      }
+      
+      await storage.createAuditLog({ action: "bulk_mark_paid", tableName: "sales_orders", afterJson: JSON.stringify({ marked, skipped }), userId: user.id });
+      res.json({ marked, skipped });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to bulk mark orders as paid" });
+    }
+  });
+
   
   // Excel Import for Orders - with file validation
   const upload = multer({ 
