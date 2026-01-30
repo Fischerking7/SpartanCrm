@@ -1,0 +1,177 @@
+You are a senior full-stack engineer building a Finance/Accounting overhaul for our Postgres-backed CRM in Replit.
+
+CONTEXT
+- We no longer export to QuickBooks.
+- Customers pay the bank directly (ACH). We do NOT pay reps through the app.
+- We receive client-provided “sales/acceptance” documents (remittance-like but actually acceptance/production), like:
+  Columns: Customer Name, Service Type, Utility, Client, Date Sold, Status, Usage, Rate, Rejection Reason
+  Example Status values: Enrolled, Rejected (and potentially Pending)
+- This file is NOT proof of cash receipt. It is proof of client acceptance/production and should create expected receivables (AR expectations).
+- Later we may ingest separate payment/remittance or bank deposit data to mark items paid, but that is NOT required for MVP.
+
+GOAL
+Replace the existing “Accounting” tab (currently QuickBooks export/import) with a workflow-driven “Remittance & AR” module:
+1) Import client sales/acceptance file
+2) Map + validate columns (save mapping per client)
+3) Auto-match rows to existing Orders
+4) Post “Client Accepted” status to orders + create AR Expectations for Enrolled rows
+5) Provide exception queue for unmatched/ambiguous rows
+6) Provide reports for Rep/Team/Global: Enrolled (accepted) totals by week/month/YTD and Rejected counts/reasons
+7) Provide AR view: open expected receivables by client + aging
+
+TECH REQUIREMENTS
+- Use Postgres. Add migrations.
+- Use idempotency/dedupe: file_hash to block duplicate imports; row_fingerprint to dedupe rows within import.
+- Audit trail: store created_by, created_at, and maintain immutable raw rows.
+- Locking: after an import is posted, prevent edits to normalized rows except via explicit “Unpost/Repost” admin action (or create adjustments later; for MVP allow unpost if not locked).
+- Performance: include basic indexes for matching (customer name normalized, sale date, client_id).
+
+DATA MODEL (CREATE TABLES)
+Create these tables (with appropriate PKs, FKs, constraints, timestamps):
+1) clients (if not existing): id, name, status, created_at
+2) finance_import
+   - id (uuid)
+   - client_id (fk)
+   - period_start (date, nullable), period_end (date, nullable)
+   - source_type enum: CSV, XLSX
+   - file_name, file_hash (unique per client), imported_at, imported_by
+   - status enum: IMPORTED, MAPPED, MATCHED, POSTED, LOCKED
+   - total_rows, total_amount_cents
+3) finance_import_row_raw (immutable)
+   - id
+   - finance_import_id (fk)
+   - row_index int
+   - raw_json jsonb
+   - raw_text_fingerprint text
+4) finance_import_row (normalized)
+   - id
+   - finance_import_id (fk)
+   - customer_name text
+   - customer_name_norm text (lower, trimmed, remove punctuation)
+   - service_type text
+   - utility text
+   - sale_date date
+   - client_status text
+   - usage_units numeric nullable
+   - expected_amount_cents bigint
+   - rejection_reason text nullable
+   - matched_order_id uuid nullable
+   - match_status enum: UNMATCHED, MATCHED, AMBIGUOUS, IGNORED
+   - match_confidence int default 0
+   - match_reason jsonb nullable
+5) ar_expectation
+   - id (uuid)
+   - client_id (fk)
+   - order_id (fk)
+   - finance_import_row_id (fk unique)
+   - expected_amount_cents bigint
+   - expected_from_date date
+   - status enum: OPEN, PARTIAL, SATISFIED, WRITTEN_OFF
+   - created_at
+6) finance_period (optional for MVP; implement if easy)
+   - id, start_date, end_date, period_type (WEEK/MONTH), status (DRAFT/CLOSED), closed_at, closed_by
+
+NOTES
+- We have an existing orders table. Do NOT change it drastically. Add minimal fields if needed:
+  - orders.client_id (if missing)
+  - orders.status flags: client_accepted_at timestamp nullable
+  - orders.client_acceptance_status enum: ACCEPTED/REJECTED/PENDING nullable
+  - orders.expected_amount_cents nullable (if you already have it keep it)
+- Only set “client accepted” from finance import rows with Status = Enrolled.
+- For Rejected rows, set order acceptance status to REJECTED if matched; store rejection reason in an order_notes/audit table or on the finance row.
+
+MATCHING LOGIC (AUTO)
+Implement an auto-matcher that runs after normalization:
+Given a finance_import_row:
+Score candidate orders where:
+- Same client_id (or client name matches) AND
+- order_date within +/- 7 days of sale_date (configurable) AND
+- customer_name_norm similarity (exact contains match) AND
+- service_type matches order.service_type if available
+Compute match_confidence:
+- +60 if customer_name_norm exact match
+- +40 if customer_name_norm contains or contained-by
+- +20 if service_type match
+- +20 if sale_date within +/- 2 days
+- +10 if expected_amount matches order.expected_amount_cents (if present)
+Pick best candidate.
+If best_confidence >= 85 and unique => MATCHED
+If multiple candidates within 10 points => AMBIGUOUS
+Else => UNMATCHED
+Store match_reason jsonb with scores and candidate order_ids.
+
+POSTING RULES
+When user clicks “Post Import”:
+- Require import status MATCHED (or allow with unresolved exceptions but warn)
+- For each normalized row:
+  - If Status == Enrolled AND match_status == MATCHED:
+      - Mark the order as client accepted (client_acceptance_status=ACCEPTED, client_accepted_at=now)
+      - Create ar_expectation if not exists (unique finance_import_row_id)
+  - If Status == Rejected AND match_status == MATCHED:
+      - Mark order acceptance status REJECTED (optional for MVP)
+- Set finance_import.status = POSTED
+- Optionally LOCK after manager confirmation.
+
+UI / PAGES
+Create a new left-nav page: Finance (or replace Accounting route).
+The page has a header with:
+- Client selector
+- Date range selector (week/month/custom)
+- Status indicator for current import / period
+Tabs:
+1) Import
+   - Upload CSV/XLSX
+   - Preview first 20 rows
+   - Map columns to canonical fields (Customer Name, Service Type, Utility, Client, Date Sold, Status, Usage, Rate, Rejection Reason)
+   - Save mapping template per client
+   - Validate required fields: Customer Name, Date Sold, Status, Rate
+2) Match
+   - Show counts: MATCHED/UNMATCHED/AMBIGUOUS/REJECTED
+   - Table view with filters by match_status and client_status
+   - For UNMATCHED/AMBIGUOUS: allow manual link to an Order via search (order id, customer name)
+   - Allow “Ignore row” with reason (sets match_status=IGNORED)
+   - “Run Auto-Match” button
+3) Post
+   - Summary: total expected $, enrolled $, rejected #
+   - Button: “Post Import” (writes AR expectations + order acceptance status)
+   - After post show created expectations count
+4) AR
+   - Table of ar_expectation OPEN by client, with aging buckets based on expected_from_date
+   - Drill to order
+5) Reports
+   - Rep / Team / Global rollups:
+     - Enrolled (accepted) totals by week/month/YTD
+     - Rejected counts and top rejection reasons
+   - Use efficient SQL group-bys.
+6) Exceptions
+   - List unmatched/ambiguous rows; export as CSV.
+
+API / BACKEND
+Create endpoints (names can vary but must exist):
+- POST /finance/import (upload file, create finance_import, store raw rows)
+- POST /finance/import/:id/map (save mapping, create normalized rows)
+- POST /finance/import/:id/auto-match
+- POST /finance/import/:id/manual-match (row_id + order_id)
+- POST /finance/import/:id/post
+- GET  /finance/import/:id/summary
+- GET  /finance/ar?client_id=&status=OPEN
+- GET  /finance/reports/enrolled?groupBy=rep|team|global&period=week|month|ytd
+
+VALIDATION & DEDUPE
+- Compute file_hash (sha256) from file bytes; enforce uniqueness per client unless “force reimport” admin.
+- Compute row_fingerprint = sha256(client_id + customer_name_norm + sale_date + expected_amount_cents + service_type)
+- If duplicate fingerprint in same import, mark as duplicate and skip or flag.
+
+DELIVERABLES
+- DB migrations
+- Backend endpoints + services
+- UI pages/components for Finance module
+- Seed example import with the sample columns above
+- Basic unit tests for matching + posting invariants (no paid fields set; only acceptance + AR expectation)
+
+IMPORTANT CONSTRAINTS
+- Do not create “paid” or “commission paid” from this file.
+- This file only sets client acceptance and expected receivable.
+- Keep full auditability: raw rows preserved, normalized rows stored, posting traceable.
+
+Now implement this in the codebase using our existing conventions. Provide the files changed, migrations, and how to run locally in Replit.

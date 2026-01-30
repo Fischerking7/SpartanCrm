@@ -27,6 +27,15 @@ export const serviceCategoryEnum = pgEnum("service_category", ["INTERNET", "MOBI
 export const installTypeEnum = pgEnum("install_type", ["AGENT_INSTALL", "DIRECT_SHIP", "TECH_INSTALL"]);
 export const mduOrderStatusEnum = pgEnum("mdu_order_status", ["PENDING", "APPROVED", "REJECTED"]);
 
+// Finance module enums
+export const financeImportStatusEnum = pgEnum("finance_import_status", ["IMPORTED", "MAPPED", "MATCHED", "POSTED", "LOCKED"]);
+export const financeImportSourceTypeEnum = pgEnum("finance_import_source_type", ["CSV", "XLSX"]);
+export const financeMatchStatusEnum = pgEnum("finance_match_status", ["UNMATCHED", "MATCHED", "AMBIGUOUS", "IGNORED"]);
+export const arExpectationStatusEnum = pgEnum("ar_expectation_status", ["OPEN", "PARTIAL", "SATISFIED", "WRITTEN_OFF"]);
+export const clientAcceptanceStatusEnum = pgEnum("client_acceptance_status", ["ACCEPTED", "REJECTED", "PENDING"]);
+export const financePeriodTypeEnum = pgEnum("finance_period_type", ["WEEK", "MONTH"]);
+export const financePeriodStatusEnum = pgEnum("finance_period_status", ["DRAFT", "CLOSED"]);
+
 // Users table with expanded hierarchy
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -197,6 +206,10 @@ export const salesOrders = pgTable("sales_orders", {
   qbInvoiceSyncStatus: text("qb_invoice_sync_status"), // PENDING, SYNCED, FAILED, NOT_APPLICABLE
   qbInvoiceSyncedAt: timestamp("qb_invoice_synced_at"),
   qbInvoiceSyncError: text("qb_invoice_sync_error"),
+  // Client acceptance fields for finance module
+  clientAcceptanceStatus: clientAcceptanceStatusEnum("client_acceptance_status"),
+  clientAcceptedAt: timestamp("client_accepted_at"),
+  expectedAmountCents: integer("expected_amount_cents"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1717,3 +1730,180 @@ export const insertCommissionDisputeSchema = createInsertSchema(commissionDisput
 
 export type CommissionDispute = typeof commissionDisputes.$inferSelect;
 export type InsertCommissionDispute = z.infer<typeof insertCommissionDisputeSchema>;
+
+// Finance Import table - tracks file imports
+export const financeImports = pgTable("finance_imports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  periodStart: date("period_start"),
+  periodEnd: date("period_end"),
+  sourceType: financeImportSourceTypeEnum("source_type").notNull(),
+  fileName: text("file_name").notNull(),
+  fileHash: text("file_hash").notNull(),
+  importedAt: timestamp("imported_at").defaultNow().notNull(),
+  importedByUserId: varchar("imported_by_user_id").notNull().references(() => users.id),
+  status: financeImportStatusEnum("status").notNull().default("IMPORTED"),
+  totalRows: integer("total_rows").notNull().default(0),
+  totalAmountCents: integer("total_amount_cents").notNull().default(0),
+  columnMapping: text("column_mapping"), // JSON string for saved column mapping
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  clientFileHashUnique: uniqueIndex("finance_imports_client_file_hash_unique").on(table.clientId, table.fileHash),
+}));
+
+export const financeImportsRelations = relations(financeImports, ({ one, many }) => ({
+  client: one(clients, { fields: [financeImports.clientId], references: [clients.id] }),
+  importedBy: one(users, { fields: [financeImports.importedByUserId], references: [users.id] }),
+  rawRows: many(financeImportRowsRaw),
+  rows: many(financeImportRows),
+}));
+
+// Finance Import Raw Rows - immutable raw data from file
+export const financeImportRowsRaw = pgTable("finance_import_rows_raw", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  financeImportId: varchar("finance_import_id").notNull().references(() => financeImports.id),
+  rowIndex: integer("row_index").notNull(),
+  rawJson: text("raw_json").notNull(), // JSON string of original row data
+  rawTextFingerprint: text("raw_text_fingerprint").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const financeImportRowsRawRelations = relations(financeImportRowsRaw, ({ one }) => ({
+  financeImport: one(financeImports, { fields: [financeImportRowsRaw.financeImportId], references: [financeImports.id] }),
+}));
+
+// Finance Import Rows - normalized data ready for matching
+export const financeImportRows = pgTable("finance_import_rows", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  financeImportId: varchar("finance_import_id").notNull().references(() => financeImports.id),
+  rawRowId: varchar("raw_row_id").references(() => financeImportRowsRaw.id),
+  customerName: text("customer_name"),
+  customerNameNorm: text("customer_name_norm"), // lowercased, trimmed, punctuation removed
+  serviceType: text("service_type"),
+  utility: text("utility"),
+  saleDate: date("sale_date"),
+  clientStatus: text("client_status"), // Enrolled, Rejected, Pending
+  usageUnits: decimal("usage_units", { precision: 12, scale: 4 }),
+  expectedAmountCents: integer("expected_amount_cents"),
+  rejectionReason: text("rejection_reason"),
+  matchedOrderId: varchar("matched_order_id").references(() => salesOrders.id),
+  matchStatus: financeMatchStatusEnum("match_status").notNull().default("UNMATCHED"),
+  matchConfidence: integer("match_confidence").notNull().default(0),
+  matchReason: text("match_reason"), // JSON with scoring details
+  ignoreReason: text("ignore_reason"),
+  isDuplicate: boolean("is_duplicate").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const financeImportRowsRelations = relations(financeImportRows, ({ one }) => ({
+  financeImport: one(financeImports, { fields: [financeImportRows.financeImportId], references: [financeImports.id] }),
+  rawRow: one(financeImportRowsRaw, { fields: [financeImportRows.rawRowId], references: [financeImportRowsRaw.id] }),
+  matchedOrder: one(salesOrders, { fields: [financeImportRows.matchedOrderId], references: [salesOrders.id] }),
+}));
+
+// AR Expectations - expected receivables from accepted orders
+export const arExpectations = pgTable("ar_expectations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  orderId: varchar("order_id").references(() => salesOrders.id),
+  financeImportRowId: varchar("finance_import_row_id").unique().references(() => financeImportRows.id),
+  expectedAmountCents: integer("expected_amount_cents").notNull(),
+  expectedFromDate: date("expected_from_date").notNull(),
+  status: arExpectationStatusEnum("status").notNull().default("OPEN"),
+  satisfiedAt: timestamp("satisfied_at"),
+  writtenOffAt: timestamp("written_off_at"),
+  writtenOffByUserId: varchar("written_off_by_user_id").references(() => users.id),
+  writtenOffReason: text("written_off_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const arExpectationsRelations = relations(arExpectations, ({ one }) => ({
+  client: one(clients, { fields: [arExpectations.clientId], references: [clients.id] }),
+  order: one(salesOrders, { fields: [arExpectations.orderId], references: [salesOrders.id] }),
+  financeImportRow: one(financeImportRows, { fields: [arExpectations.financeImportRowId], references: [financeImportRows.id] }),
+  writtenOffBy: one(users, { fields: [arExpectations.writtenOffByUserId], references: [users.id] }),
+}));
+
+// Finance Periods - optional period tracking
+export const financePeriods = pgTable("finance_periods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  periodType: financePeriodTypeEnum("period_type").notNull(),
+  status: financePeriodStatusEnum("status").notNull().default("DRAFT"),
+  closedAt: timestamp("closed_at"),
+  closedByUserId: varchar("closed_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const financePeriodsRelations = relations(financePeriods, ({ one }) => ({
+  closedBy: one(users, { fields: [financePeriods.closedByUserId], references: [users.id] }),
+}));
+
+// Client Column Mappings - save column mapping templates per client
+export const clientColumnMappings = pgTable("client_column_mappings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  name: text("name").notNull(),
+  mappingJson: text("mapping_json").notNull(), // JSON with column -> field mappings
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const clientColumnMappingsRelations = relations(clientColumnMappings, ({ one }) => ({
+  client: one(clients, { fields: [clientColumnMappings.clientId], references: [clients.id] }),
+}));
+
+// Insert schemas and types for finance tables
+export const insertFinanceImportSchema = createInsertSchema(financeImports).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true,
+  importedAt: true 
+});
+export type FinanceImport = typeof financeImports.$inferSelect;
+export type InsertFinanceImport = z.infer<typeof insertFinanceImportSchema>;
+
+export const insertFinanceImportRowRawSchema = createInsertSchema(financeImportRowsRaw).omit({ 
+  id: true, 
+  createdAt: true 
+});
+export type FinanceImportRowRaw = typeof financeImportRowsRaw.$inferSelect;
+export type InsertFinanceImportRowRaw = z.infer<typeof insertFinanceImportRowRawSchema>;
+
+export const insertFinanceImportRowSchema = createInsertSchema(financeImportRows).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+export type FinanceImportRow = typeof financeImportRows.$inferSelect;
+export type InsertFinanceImportRow = z.infer<typeof insertFinanceImportRowSchema>;
+
+export const insertArExpectationSchema = createInsertSchema(arExpectations).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+export type ArExpectation = typeof arExpectations.$inferSelect;
+export type InsertArExpectation = z.infer<typeof insertArExpectationSchema>;
+
+export const insertFinancePeriodSchema = createInsertSchema(financePeriods).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+export type FinancePeriod = typeof financePeriods.$inferSelect;
+export type InsertFinancePeriod = z.infer<typeof insertFinancePeriodSchema>;
+
+export const insertClientColumnMappingSchema = createInsertSchema(clientColumnMappings).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+export type ClientColumnMapping = typeof clientColumnMappings.$inferSelect;
+export type InsertClientColumnMapping = z.infer<typeof insertClientColumnMappingSchema>;
