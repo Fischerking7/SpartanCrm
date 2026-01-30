@@ -10335,6 +10335,661 @@ export async function registerRoutes(
     }
   });
 
+  // ===================== FINANCE MODULE ROUTES =====================
+
+  // Helper function to normalize customer name for matching
+  function normalizeCustomerName(name: string): string {
+    return name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  // Helper function to compute file hash
+  async function computeFileHash(buffer: Buffer): Promise<string> {
+    const crypto = await import('crypto');
+    return crypto.createHash('sha256').update(buffer).digest('hex');
+  }
+
+  // Helper to compute row fingerprint
+  function computeRowFingerprint(clientId: string, customerNameNorm: string, saleDate: string, expectedAmountCents: number, serviceType: string): string {
+    const crypto = require('crypto');
+    const data = `${clientId}|${customerNameNorm}|${saleDate}|${expectedAmountCents}|${serviceType}`;
+    return crypto.createHash('sha256').update(data).digest('hex');
+  }
+
+  // Get all finance imports
+  app.get("/api/finance/imports", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const clientId = req.query.clientId as string | undefined;
+      const imports = await storage.getFinanceImports(clientId);
+      res.json(imports);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get finance imports" });
+    }
+  });
+
+  // Get single finance import with summary
+  app.get("/api/finance/imports/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const financeImport = await storage.getFinanceImportById(req.params.id);
+      if (!financeImport) {
+        return res.status(404).json({ message: "Import not found" });
+      }
+      res.json(financeImport);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get finance import" });
+    }
+  });
+
+  // Get finance import summary (counts by status)
+  app.get("/api/finance/imports/:id/summary", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const counts = await storage.getFinanceImportRowCounts(req.params.id);
+      const financeImport = await storage.getFinanceImportById(req.params.id);
+      
+      // Calculate totals
+      let enrolled = 0, rejected = 0, pending = 0;
+      let matched = 0, unmatched = 0, ambiguous = 0, ignored = 0;
+      let totalExpectedCents = 0;
+
+      for (const row of counts) {
+        const status = row.clientStatus?.toUpperCase();
+        if (status === 'ENROLLED' || status === 'ACCEPTED') enrolled += row.count;
+        else if (status === 'REJECTED') rejected += row.count;
+        else pending += row.count;
+
+        if (row.matchStatus === 'MATCHED') matched += row.count;
+        else if (row.matchStatus === 'UNMATCHED') unmatched += row.count;
+        else if (row.matchStatus === 'AMBIGUOUS') ambiguous += row.count;
+        else if (row.matchStatus === 'IGNORED') ignored += row.count;
+      }
+
+      res.json({
+        financeImport,
+        counts: {
+          byClientStatus: { enrolled, rejected, pending },
+          byMatchStatus: { matched, unmatched, ambiguous, ignored },
+          totalRows: financeImport?.totalRows || 0,
+          totalExpectedCents: financeImport?.totalAmountCents || 0
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get import summary" });
+    }
+  });
+
+  // Upload and import a finance file
+  app.post("/api/finance/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const { clientId, periodStart, periodEnd, forceReimport } = req.body;
+      if (!clientId) {
+        return res.status(400).json({ message: "Client ID is required" });
+      }
+
+      // Determine source type
+      const fileName = req.file.originalname;
+      const isXlsx = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+      const sourceType = isXlsx ? 'XLSX' : 'CSV';
+
+      // Compute file hash
+      const fileHash = await computeFileHash(req.file.buffer);
+
+      // Check for duplicate import
+      const existingImport = await storage.getFinanceImportByClientAndHash(clientId, fileHash);
+      if (existingImport && !forceReimport) {
+        return res.status(409).json({ 
+          message: "This file has already been imported for this client",
+          existingImportId: existingImport.id
+        });
+      }
+
+      // Parse file
+      let rows: any[] = [];
+      if (isXlsx) {
+        const XLSX = require('xlsx');
+        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+      } else {
+        const { parse } = require('csv-parse/sync');
+        rows = parse(req.file.buffer, { columns: true, skip_empty_lines: true });
+      }
+
+      if (rows.length === 0) {
+        return res.status(400).json({ message: "File contains no data rows" });
+      }
+
+      // Create finance import record
+      const financeImport = await storage.createFinanceImport({
+        clientId,
+        periodStart: periodStart || null,
+        periodEnd: periodEnd || null,
+        sourceType: sourceType as any,
+        fileName,
+        fileHash,
+        importedByUserId: req.user!.id,
+        status: 'IMPORTED',
+        totalRows: rows.length,
+        totalAmountCents: 0
+      });
+
+      // Store raw rows
+      const rawRows = rows.map((row, index) => ({
+        financeImportId: financeImport.id,
+        rowIndex: index,
+        rawJson: JSON.stringify(row),
+        rawTextFingerprint: computeRowFingerprint(
+          clientId,
+          normalizeCustomerName(row['Customer Name'] || row['customer_name'] || ''),
+          row['Date Sold'] || row['date_sold'] || '',
+          0,
+          row['Service Type'] || row['service_type'] || ''
+        )
+      }));
+
+      await storage.createFinanceImportRowsRaw(rawRows);
+
+      // Get column headers for mapping
+      const columns = Object.keys(rows[0]);
+      const preview = rows.slice(0, 20);
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "finance_import_created",
+        tableName: "finance_imports",
+        recordId: financeImport.id,
+        afterJson: JSON.stringify({ fileName, totalRows: rows.length, clientId })
+      });
+
+      res.json({
+        import: financeImport,
+        columns,
+        preview,
+        totalRows: rows.length
+      });
+    } catch (error: any) {
+      console.error("Finance import error:", error);
+      res.status(500).json({ message: error.message || "Failed to import file" });
+    }
+  });
+
+  // Map columns and normalize rows
+  app.post("/api/finance/imports/:id/map", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { mapping, saveAsDefault } = req.body;
+      // mapping: { customerName: 'Customer Name', saleDate: 'Date Sold', ... }
+
+      const financeImport = await storage.getFinanceImportById(req.params.id);
+      if (!financeImport) {
+        return res.status(404).json({ message: "Import not found" });
+      }
+
+      if (financeImport.status !== 'IMPORTED') {
+        return res.status(400).json({ message: "Import has already been mapped" });
+      }
+
+      // Get raw rows
+      const rawRows = await storage.getFinanceImportRowsRaw(req.params.id);
+
+      // Normalize rows based on mapping
+      const normalizedRows: any[] = [];
+      let totalAmountCents = 0;
+      const seenFingerprints = new Set<string>();
+
+      for (const rawRow of rawRows) {
+        const data = JSON.parse(rawRow.rawJson);
+        
+        const customerName = data[mapping.customerName] || '';
+        const customerNameNorm = normalizeCustomerName(customerName);
+        const serviceType = data[mapping.serviceType] || '';
+        const utility = data[mapping.utility] || '';
+        const saleDate = data[mapping.saleDate] || '';
+        const clientStatus = data[mapping.status] || '';
+        const usageUnits = parseFloat(data[mapping.usage]) || null;
+        const rate = parseFloat(String(data[mapping.rate] || '0').replace(/[$,]/g, '')) || 0;
+        const expectedAmountCents = Math.round(rate * 100);
+        const rejectionReason = data[mapping.rejectionReason] || null;
+
+        // Dedupe by fingerprint
+        const fingerprint = computeRowFingerprint(
+          financeImport.clientId,
+          customerNameNorm,
+          saleDate,
+          expectedAmountCents,
+          serviceType
+        );
+
+        const isDuplicate = seenFingerprints.has(fingerprint);
+        seenFingerprints.add(fingerprint);
+
+        if (!isDuplicate && clientStatus.toUpperCase() === 'ENROLLED') {
+          totalAmountCents += expectedAmountCents;
+        }
+
+        normalizedRows.push({
+          financeImportId: req.params.id,
+          rawRowId: rawRow.id,
+          customerName,
+          customerNameNorm,
+          serviceType,
+          utility,
+          saleDate: saleDate || null,
+          clientStatus,
+          usageUnits: usageUnits?.toString() || null,
+          expectedAmountCents,
+          rejectionReason,
+          matchStatus: 'UNMATCHED',
+          matchConfidence: 0,
+          isDuplicate
+        });
+      }
+
+      await storage.createFinanceImportRows(normalizedRows);
+
+      // Update import status and total
+      await storage.updateFinanceImport(req.params.id, {
+        status: 'MAPPED',
+        totalAmountCents,
+        columnMapping: JSON.stringify(mapping)
+      });
+
+      // Save mapping as default if requested
+      if (saveAsDefault) {
+        // Clear existing default for this client
+        const existingMappings = await storage.getClientColumnMappings(financeImport.clientId);
+        for (const m of existingMappings) {
+          if (m.isDefault) {
+            await storage.updateClientColumnMapping(m.id, { isDefault: false });
+          }
+        }
+        
+        await storage.createClientColumnMapping({
+          clientId: financeImport.clientId,
+          name: 'Default',
+          mappingJson: JSON.stringify(mapping),
+          isDefault: true
+        });
+      }
+
+      res.json({ success: true, normalizedCount: normalizedRows.length, totalAmountCents });
+    } catch (error: any) {
+      console.error("Finance mapping error:", error);
+      res.status(500).json({ message: error.message || "Failed to map columns" });
+    }
+  });
+
+  // Get normalized rows for an import
+  app.get("/api/finance/imports/:id/rows", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const matchStatus = req.query.matchStatus as string | undefined;
+      const rows = await storage.getFinanceImportRows(req.params.id, matchStatus);
+      res.json(rows);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get rows" });
+    }
+  });
+
+  // Run auto-matching for an import
+  app.post("/api/finance/imports/:id/auto-match", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const financeImport = await storage.getFinanceImportById(req.params.id);
+      if (!financeImport) {
+        return res.status(404).json({ message: "Import not found" });
+      }
+
+      if (financeImport.status === 'POSTED' || financeImport.status === 'LOCKED') {
+        return res.status(400).json({ message: "Cannot match a posted or locked import" });
+      }
+
+      const rows = await storage.getFinanceImportRows(req.params.id);
+      let matchedCount = 0;
+      let ambiguousCount = 0;
+
+      for (const row of rows) {
+        if (row.matchStatus === 'MATCHED' || row.matchStatus === 'IGNORED' || row.isDuplicate) {
+          continue;
+        }
+
+        if (!row.saleDate) continue;
+
+        // Find candidate orders within date range
+        const saleDate = new Date(row.saleDate);
+        const startDate = new Date(saleDate);
+        startDate.setDate(startDate.getDate() - 7);
+        const endDate = new Date(saleDate);
+        endDate.setDate(endDate.getDate() + 7);
+
+        const candidates = await storage.findOrdersForMatching(
+          financeImport.clientId,
+          startDate.toISOString().split('T')[0],
+          endDate.toISOString().split('T')[0],
+          row.customerNameNorm || undefined
+        );
+
+        if (candidates.length === 0) continue;
+
+        // Score candidates
+        const scored = candidates.map(order => {
+          let score = 0;
+          const reasons: string[] = [];
+
+          // Customer name matching
+          const orderNameNorm = normalizeCustomerName(order.customerName);
+          if (orderNameNorm === row.customerNameNorm) {
+            score += 60;
+            reasons.push('exact_name_match:+60');
+          } else if (orderNameNorm.includes(row.customerNameNorm || '') || (row.customerNameNorm || '').includes(orderNameNorm)) {
+            score += 40;
+            reasons.push('partial_name_match:+40');
+          }
+
+          // Service type matching
+          if (row.serviceType) {
+            const service = order.serviceId; // Would need to look up service name
+            if (row.serviceType.toLowerCase().includes('internet') || row.serviceType.toLowerCase().includes('fiber')) {
+              score += 20;
+              reasons.push('service_match:+20');
+            }
+          }
+
+          // Date proximity
+          const orderDate = new Date(order.dateSold);
+          const diffDays = Math.abs(saleDate.getTime() - orderDate.getTime()) / (1000 * 60 * 60 * 24);
+          if (diffDays <= 2) {
+            score += 20;
+            reasons.push('close_date:+20');
+          }
+
+          // Amount matching (if we have expected amount on order)
+          if (order.expectedAmountCents && row.expectedAmountCents) {
+            if (order.expectedAmountCents === row.expectedAmountCents) {
+              score += 10;
+              reasons.push('amount_match:+10');
+            }
+          }
+
+          return { order, score, reasons };
+        });
+
+        // Sort by score descending
+        scored.sort((a, b) => b.score - a.score);
+
+        if (scored.length > 0 && scored[0].score >= 85) {
+          // Check if there are multiple high-scoring candidates
+          const topScore = scored[0].score;
+          const closeMatches = scored.filter(s => topScore - s.score <= 10);
+
+          if (closeMatches.length > 1) {
+            // Ambiguous
+            await storage.updateFinanceImportRow(row.id, {
+              matchStatus: 'AMBIGUOUS',
+              matchConfidence: topScore,
+              matchReason: JSON.stringify({
+                candidates: closeMatches.slice(0, 5).map(c => ({
+                  orderId: c.order.id,
+                  score: c.score,
+                  reasons: c.reasons
+                }))
+              })
+            });
+            ambiguousCount++;
+          } else {
+            // Matched
+            await storage.updateFinanceImportRow(row.id, {
+              matchedOrderId: scored[0].order.id,
+              matchStatus: 'MATCHED',
+              matchConfidence: scored[0].score,
+              matchReason: JSON.stringify({
+                orderId: scored[0].order.id,
+                score: scored[0].score,
+                reasons: scored[0].reasons
+              })
+            });
+            matchedCount++;
+          }
+        }
+      }
+
+      // Update import status
+      await storage.updateFinanceImport(req.params.id, { status: 'MATCHED' });
+
+      res.json({ matchedCount, ambiguousCount });
+    } catch (error: any) {
+      console.error("Auto-match error:", error);
+      res.status(500).json({ message: error.message || "Failed to run auto-match" });
+    }
+  });
+
+  // Manual match a row to an order
+  app.post("/api/finance/imports/:id/manual-match", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { rowId, orderId } = req.body;
+      if (!rowId || !orderId) {
+        return res.status(400).json({ message: "Row ID and Order ID are required" });
+      }
+
+      const row = await storage.getFinanceImportRowById(rowId);
+      if (!row || row.financeImportId !== req.params.id) {
+        return res.status(404).json({ message: "Row not found" });
+      }
+
+      const order = await storage.getOrderById(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      await storage.updateFinanceImportRow(rowId, {
+        matchedOrderId: orderId,
+        matchStatus: 'MATCHED',
+        matchConfidence: 100,
+        matchReason: JSON.stringify({ manual: true, matchedBy: req.user!.id })
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to manual match" });
+    }
+  });
+
+  // Ignore a row
+  app.post("/api/finance/imports/:id/ignore-row", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { rowId, reason } = req.body;
+      if (!rowId) {
+        return res.status(400).json({ message: "Row ID is required" });
+      }
+
+      await storage.updateFinanceImportRow(rowId, {
+        matchStatus: 'IGNORED',
+        ignoreReason: reason || 'Manually ignored'
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to ignore row" });
+    }
+  });
+
+  // Post an import (create AR expectations and update orders)
+  app.post("/api/finance/imports/:id/post", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const financeImport = await storage.getFinanceImportById(req.params.id);
+      if (!financeImport) {
+        return res.status(404).json({ message: "Import not found" });
+      }
+
+      if (financeImport.status === 'POSTED' || financeImport.status === 'LOCKED') {
+        return res.status(400).json({ message: "Import has already been posted" });
+      }
+
+      const rows = await storage.getFinanceImportRows(req.params.id);
+      let arCreated = 0;
+      let ordersAccepted = 0;
+      let ordersRejected = 0;
+
+      for (const row of rows) {
+        if (row.isDuplicate) continue;
+
+        const status = (row.clientStatus || '').toUpperCase();
+        const isEnrolled = status === 'ENROLLED' || status === 'ACCEPTED';
+        const isRejected = status === 'REJECTED';
+
+        if (row.matchStatus === 'MATCHED' && row.matchedOrderId) {
+          if (isEnrolled) {
+            // Mark order as accepted
+            await storage.setOrderClientAcceptance(
+              row.matchedOrderId,
+              'ACCEPTED',
+              row.expectedAmountCents || undefined
+            );
+            ordersAccepted++;
+
+            // Create AR expectation if not exists
+            const existingAr = await storage.getArExpectationByRowId(row.id);
+            if (!existingAr) {
+              await storage.createArExpectation({
+                clientId: financeImport.clientId,
+                orderId: row.matchedOrderId,
+                financeImportRowId: row.id,
+                expectedAmountCents: row.expectedAmountCents || 0,
+                expectedFromDate: row.saleDate || new Date().toISOString().split('T')[0],
+                status: 'OPEN'
+              });
+              arCreated++;
+            }
+          } else if (isRejected) {
+            // Mark order as rejected
+            await storage.setOrderClientAcceptance(row.matchedOrderId, 'REJECTED');
+            ordersRejected++;
+          }
+        }
+      }
+
+      // Update import status
+      await storage.updateFinanceImport(req.params.id, { status: 'POSTED' });
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "finance_import_posted",
+        tableName: "finance_imports",
+        recordId: req.params.id,
+        afterJson: JSON.stringify({ arCreated, ordersAccepted, ordersRejected })
+      });
+
+      res.json({ success: true, arCreated, ordersAccepted, ordersRejected });
+    } catch (error: any) {
+      console.error("Post error:", error);
+      res.status(500).json({ message: error.message || "Failed to post import" });
+    }
+  });
+
+  // Lock an import
+  app.post("/api/finance/imports/:id/lock", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const financeImport = await storage.getFinanceImportById(req.params.id);
+      if (!financeImport) {
+        return res.status(404).json({ message: "Import not found" });
+      }
+
+      if (financeImport.status !== 'POSTED') {
+        return res.status(400).json({ message: "Only posted imports can be locked" });
+      }
+
+      await storage.updateFinanceImport(req.params.id, { status: 'LOCKED' });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to lock import" });
+    }
+  });
+
+  // AR Expectations endpoints
+  app.get("/api/finance/ar", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const clientId = req.query.clientId as string | undefined;
+      const status = req.query.status as string | undefined;
+      const expectations = await storage.getArExpectations(clientId, status);
+      res.json(expectations);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get AR expectations" });
+    }
+  });
+
+  app.get("/api/finance/ar/summary", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const summary = await storage.getArSummaryByClient();
+      res.json(summary);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get AR summary" });
+    }
+  });
+
+  // Finance Reports
+  app.get("/api/finance/reports/enrolled", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const groupBy = req.query.groupBy as string || 'global';
+      const period = req.query.period as string || 'month';
+      
+      // Calculate date range
+      const now = new Date();
+      let startDate: string;
+      let endDate = now.toISOString().split('T')[0];
+
+      switch (period) {
+        case 'week':
+          const weekStart = new Date(now);
+          weekStart.setDate(now.getDate() - now.getDay());
+          startDate = weekStart.toISOString().split('T')[0];
+          break;
+        case 'ytd':
+          startDate = `${now.getFullYear()}-01-01`;
+          break;
+        case 'month':
+        default:
+          startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      }
+
+      if (groupBy === 'rep') {
+        const data = await storage.getEnrolledReportByRep(startDate, endDate);
+        res.json(data);
+      } else {
+        const data = await storage.getEnrolledReportGlobal(startDate, endDate);
+        res.json(data);
+      }
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get report" });
+    }
+  });
+
+  // Get client column mappings
+  app.get("/api/finance/column-mappings", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const clientId = req.query.clientId as string;
+      if (!clientId) {
+        return res.status(400).json({ message: "Client ID is required" });
+      }
+      const mappings = await storage.getClientColumnMappings(clientId);
+      res.json(mappings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get column mappings" });
+    }
+  });
+
+  // Get default column mapping for a client
+  app.get("/api/finance/column-mappings/default", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const clientId = req.query.clientId as string;
+      if (!clientId) {
+        return res.status(400).json({ message: "Client ID is required" });
+      }
+      const mapping = await storage.getDefaultClientColumnMapping(clientId);
+      res.json(mapping || null);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get default mapping" });
+    }
+  });
+
   return httpServer;
 }
 
