@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { StatsCard } from "@/components/stats-card";
 import { DataTable } from "@/components/data-table";
-import { ApprovalStatusBadge, JobStatusBadge } from "@/components/status-badge";
+import { JobStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,8 +16,6 @@ import {
   AlertTriangle,
   FileText,
   Clock,
-  CheckCircle,
-  XCircle,
   Download,
   RefreshCw,
 } from "lucide-react";
@@ -27,7 +25,7 @@ import type { SalesOrder } from "@shared/schema";
 interface AdminStats {
   totalEarnedMTD: number;
   totalPaidMTD: number;
-  pendingApprovals: number;
+  pendingInstalls: number;
   activeReps: number;
   unmatchedPayments: number;
   unmatchedChargebacks: number;
@@ -90,12 +88,13 @@ export default function AdminDashboard() {
     },
   });
 
-  const { data: approvalQueue, isLoading: queueLoading } = useQuery<SalesOrder[]>({
-    queryKey: ["/api/admin/approvals/queue", { limit: 5 }],
+  const { data: pendingOrders, isLoading: pendingLoading } = useQuery<SalesOrder[]>({
+    queryKey: ["/api/orders"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/approvals/queue?limit=5", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch approvals");
-      return res.json();
+      const res = await fetch("/api/orders", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch orders");
+      const orders = await res.json();
+      return orders.filter((o: SalesOrder) => o.jobStatus === "PENDING").slice(0, 5);
     },
   });
 
@@ -133,20 +132,6 @@ export default function AdminDashboard() {
         </span>
       ),
       className: "text-right",
-    },
-    {
-      key: "actions",
-      header: "",
-      cell: (row: SalesOrder) => (
-        <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" className="h-7 px-2" data-testid={`button-approve-${row.id}`}>
-            <CheckCircle className="h-4 w-4 text-green-600" />
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 px-2" data-testid={`button-reject-${row.id}`}>
-            <XCircle className="h-4 w-4 text-red-600" />
-          </Button>
-        </div>
-      ),
     },
   ];
 
@@ -192,10 +177,10 @@ export default function AdminDashboard() {
             isCurrency={false}
           />
           <StatsCard
-            title="Pending Approvals"
-            value={stats?.pendingApprovals || 0}
+            title="Pending Installs"
+            value={stats?.pendingInstalls || 0}
             icon={CheckSquare}
-            testId="stat-pending-approvals"
+            testId="stat-pending-installs"
             isCurrency={false}
           />
         </div>
@@ -205,11 +190,11 @@ export default function AdminDashboard() {
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
             <div>
-              <CardTitle className="text-lg font-medium">Approval Queue</CardTitle>
-              <CardDescription>Orders awaiting approval</CardDescription>
+              <CardTitle className="text-lg font-medium">Pending Orders</CardTitle>
+              <CardDescription>Orders awaiting completion</CardDescription>
             </div>
             <Button variant="outline" size="sm" asChild>
-              <Link href="/approvals" data-testid="link-view-all-approvals">
+              <Link href="/orders" data-testid="link-view-all-orders">
                 View All
               </Link>
             </Button>
@@ -217,10 +202,10 @@ export default function AdminDashboard() {
           <CardContent>
             <DataTable
               columns={queueColumns}
-              data={approvalQueue || []}
-              isLoading={queueLoading}
-              emptyMessage="No orders pending approval"
-              testId="table-approval-queue"
+              data={pendingOrders || []}
+              isLoading={pendingLoading}
+              emptyMessage="No pending orders"
+              testId="table-pending-orders"
             />
           </CardContent>
         </Card>
@@ -288,9 +273,9 @@ export default function AdminDashboard() {
             </CardHeader>
             <CardContent className="space-y-2">
               <Button variant="outline" className="w-full justify-start" asChild>
-                <Link href="/approvals" data-testid="link-bulk-approve">
+                <Link href="/orders" data-testid="link-view-orders">
                   <CheckSquare className="h-4 w-4 mr-2" />
-                  Bulk Approve Orders
+                  Manage Orders
                 </Link>
               </Button>
               <Button variant="outline" className="w-full justify-start" asChild>

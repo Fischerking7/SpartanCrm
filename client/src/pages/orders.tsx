@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
-import { JobStatusBadge, ApprovalStatusBadge, PaymentStatusBadge } from "@/components/status-badge";
+import { JobStatusBadge, PaymentStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,8 +40,7 @@ export default function Orders() {
   const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [approvalFilter, setApprovalFilter] = useState<string>("all");
-  const [providerFilter, setProviderFilter] = useState<string>("all");
+    const [providerFilter, setProviderFilter] = useState<string>("all");
   const [clientFilter, setClientFilter] = useState<string>("all");
   const [dateFromFilter, setDateFromFilter] = useState<string>("");
   const [dateToFilter, setDateToFilter] = useState<string>("");
@@ -580,8 +579,8 @@ export default function Orders() {
     };
     // Admin/Exec see full breakdown with override; REPs see only commission (net)
     const headers = isAdminOrExec 
-      ? ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Approval Status", "Base Commission", "Incentive", "Gross Commission", "Override", "Net Commission", "Client", "Provider", "User Name"]
-      : ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Approval Status", "Commission", "Client", "Provider"];
+      ? ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Base Commission", "Incentive", "Gross Commission", "Override", "Net Commission", "Client", "Provider", "User Name"]
+      : ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Commission", "Client", "Provider"];
     const rows = filteredOrders.map(order => {
       const provider = providers?.find(p => p.id === order.providerId);
       const client = clients?.find(c => c.id === order.clientId);
@@ -601,7 +600,6 @@ export default function Orders() {
           order.dateSold,
           order.installDate || "",
           order.installType ? (typeLabels[order.installType] || order.installType) : "",
-          order.approvalStatus,
           baseCommission.toFixed(2),
           incentive.toFixed(2),
           grossCommission.toFixed(2),
@@ -621,7 +619,6 @@ export default function Orders() {
         order.dateSold,
         order.installDate || "",
         order.installType ? (typeLabels[order.installType] || order.installType) : "",
-        order.approvalStatus,
         netCommission.toFixed(2),
         client?.name || "",
         provider?.name || "",
@@ -718,28 +715,7 @@ export default function Orders() {
     },
   });
 
-  const unapproveMutation = useMutation({
-    mutationFn: async (orderId: string) => {
-      const res = await fetch(`/api/admin/orders/${orderId}/unapprove`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Failed to unapprove");
-      }
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      setSelectedOrder(data);
-      toast({ title: "Order unapproved", description: "Approval status has been reversed" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to unapprove", description: error.message, variant: "destructive" });
-    },
-  });
-
+  
   const flagOrderMutation = useMutation({
     mutationFn: async ({ orderId, reason }: { orderId: string; reason: string }) => {
       const res = await fetch(`/api/orders/${orderId}/flag`, {
@@ -788,7 +764,6 @@ export default function Orders() {
       order.repId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.accountNumber?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || order.jobStatus === statusFilter;
-    const matchesApproval = approvalFilter === "all" || order.approvalStatus === approvalFilter;
     const matchesProvider = providerFilter === "all" || order.providerId === providerFilter;
     const matchesClient = clientFilter === "all" || order.clientId === clientFilter;
     const orderDate = order.dateSold?.split('T')[0] || order.dateSold;
@@ -797,8 +772,8 @@ export default function Orders() {
     const matchesExport = exportFilter === "all" || 
       (exportFilter === "exported" && order.exportedToAccounting) ||
       (exportFilter === "unexported" && !order.exportedToAccounting) ||
-      (exportFilter === "ready" && order.approvalStatus === "APPROVED" && !order.exportedToAccounting);
-    return matchesTab && matchesSearch && matchesStatus && matchesApproval && matchesProvider && matchesClient && matchesDateFrom && matchesDateTo && matchesExport;
+      (exportFilter === "ready" && order.jobStatus === "COMPLETED" && !order.exportedToAccounting);
+    return matchesTab && matchesSearch && matchesStatus && matchesProvider && matchesClient && matchesDateFrom && matchesDateTo && matchesExport;
   }).sort((a, b) => {
     const [field, direction] = sortBy.split("_");
     const multiplier = direction === "asc" ? 1 : -1;
@@ -907,12 +882,7 @@ export default function Orders() {
         );
       },
     },
-    {
-      key: "approvalStatus",
-      header: "Approval",
-      cell: (row: SalesOrder) => <ApprovalStatusBadge status={row.approvalStatus} />,
-    },
-    ...(activeTab === "orders" ? [{
+        ...(activeTab === "orders" ? [{
       key: "baseCommissionEarned",
       header: "Commission",
       cell: (row: SalesOrder) => {
@@ -1049,7 +1019,7 @@ export default function Orders() {
       key: "delete",
       header: "",
       cell: (row: SalesOrder) => (
-        (user?.role === "OPERATIONS" || row.approvalStatus === "UNAPPROVED") ? (
+        (user?.role === "OPERATIONS" || row.jobStatus !== "COMPLETED") ? (
           <Button
             size="icon"
             variant="ghost"
@@ -1169,18 +1139,7 @@ export default function Orders() {
                 <SelectItem value="CANCELED">Canceled</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={approvalFilter} onValueChange={setApprovalFilter}>
-              <SelectTrigger className="w-[150px]" data-testid="select-approval-filter">
-                <SelectValue placeholder="Approval" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Approvals</SelectItem>
-                <SelectItem value="APPROVED">Approved</SelectItem>
-                <SelectItem value="UNAPPROVED">Unapproved</SelectItem>
-                <SelectItem value="REJECTED">Rejected</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2">
               <Input
                 type="date"
                 value={dateFromFilter}
@@ -1576,11 +1535,7 @@ export default function Orders() {
                     </Select>
                   </div>
                 </div>
-                <div>
-                  <Label className="text-muted-foreground">Approval Status</Label>
-                  <div className="mt-1"><ApprovalStatusBadge status={selectedOrder.approvalStatus} /></div>
-                </div>
-              </div>
+                              </div>
               <div className="border-t pt-4">
                 <Label className="text-muted-foreground">Service Breakdown</Label>
                 <div className="mt-2 space-y-2">
@@ -1715,17 +1670,7 @@ export default function Orders() {
             </div>
           )}
           <DialogFooter className="gap-2">
-            {isAdmin && selectedOrder && selectedOrder.approvalStatus !== "UNAPPROVED" && selectedOrder.paymentStatus !== "PAID" && !selectedOrder.payRunId && (
-              <Button 
-                variant="outline"
-                onClick={() => unapproveMutation.mutate(selectedOrder.id)}
-                disabled={unapproveMutation.isPending}
-                data-testid="button-unapprove"
-              >
-                {unapproveMutation.isPending ? "Reversing..." : "Reverse Approval"}
-              </Button>
-            )}
-            {/* Mark as Paid only visible to ADMIN and OPERATIONS */}
+                        {/* Mark as Paid only visible to ADMIN and OPERATIONS */}
             {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && selectedOrder && selectedOrder.paymentStatus !== "PAID" && (
               <Button 
                 onClick={() => markPaidMutation.mutate(selectedOrder.id)}

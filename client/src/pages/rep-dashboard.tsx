@@ -4,7 +4,7 @@ import { ProductionMetricsModule } from "@/components/production-metrics-card";
 import { DashboardChartsModule } from "@/components/dashboard-charts";
 import { NextDayInstallsCard } from "@/components/next-day-installs";
 import { DataTable } from "@/components/data-table";
-import { JobStatusBadge, ApprovalStatusBadge, PaymentStatusBadge } from "@/components/status-badge";
+import { JobStatusBadge, PaymentStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -113,11 +113,6 @@ export default function RepDashboard() {
       key: "jobStatus",
       header: "Job Status",
       cell: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
-    },
-    {
-      key: "approvalStatus",
-      header: "Approval",
-      cell: (row: SalesOrder) => <ApprovalStatusBadge status={row.approvalStatus} />,
     },
     {
       key: "baseCommissionEarned",

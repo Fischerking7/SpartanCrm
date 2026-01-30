@@ -77,7 +77,6 @@ const MENU = {
   myDisputes: { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
   
   // Operations
-  approvals: { title: "Approvals", url: "/approvals", icon: CheckSquare },
   mduReview: { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
   payRuns: { title: "Pay Runs", url: "/payruns", icon: Calendar },
   adjustments: { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
@@ -131,7 +130,6 @@ const preferencesItems: MenuItem[] = [
 const adminOpsItems: MenuItem[] = [
   MENU.orders,
   MENU.leads,
-  MENU.approvals,
   MENU.mduReview,
   MENU.payRuns,
   MENU.adjustments,
@@ -197,7 +195,7 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
       };
     case "EXECUTIVE":
       return {
-        sales: [MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.approvals, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users],
+        sales: [MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users],
         ...base,
       };
     default:

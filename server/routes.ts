@@ -94,7 +94,6 @@ async function createOrderWithCommission(params: CreateOrderParams) {
     ...orderData,
     repId: assignedRepId,
     jobStatus: "PENDING" as const,
-    approvalStatus: "UNAPPROVED" as const,
     baseCommissionEarned: "0",
     appliedRateCardId: null,
     commissionSource: "CALCULATED" as const,
@@ -716,15 +715,15 @@ export async function registerRoutes(
       weekStart.setDate(now.getDate() - now.getDay());
 
       const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
-      const earnedMTD = monthOrders.filter(o => o.approvalStatus === "APPROVED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const earnedMTD = monthOrders.filter(o => o.jobStatus === "COMPLETED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       const paidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
       const weekOrders = orders.filter(o => o.paidDate && new Date(o.paidDate) >= weekStart);
       const paidWeek = weekOrders.reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
-      const pendingApproval = orders.filter(o => o.approvalStatus === "UNAPPROVED").length;
+      const pendingInstall = orders.filter(o => o.jobStatus === "PENDING").length;
       const todayInstalls = orders.filter(o => o.installDate === now.toISOString().split("T")[0]).length;
       const outstanding = earnedMTD - paidMTD;
 
-      res.json({ earnedMTD, paidMTD, paidWeek, chargebacksMTD: 0, outstanding, pendingApproval, todayInstalls });
+      res.json({ earnedMTD, paidMTD, paidWeek, chargebacksMTD: 0, outstanding, pendingInstall, todayInstalls });
     } catch (error) {
       res.status(500).json({ message: "Failed to get stats" });
     }
@@ -742,11 +741,11 @@ export async function registerRoutes(
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
       
-      const teamEarnedMTD = monthOrders.filter(o => o.approvalStatus === "APPROVED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const teamEarnedMTD = monthOrders.filter(o => o.jobStatus === "COMPLETED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       const teamPaidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
-      const pendingApprovals = orders.filter(o => o.approvalStatus === "UNAPPROVED").length;
+      const pendingInstalls = orders.filter(o => o.jobStatus === "PENDING").length;
 
-      res.json({ teamEarnedMTD, teamPaidMTD, pendingApprovals, teamSize: teamMembers.length });
+      res.json({ teamEarnedMTD, teamPaidMTD, pendingInstalls, teamSize: teamMembers.length });
     } catch (error) {
       res.status(500).json({ message: "Failed to get stats" });
     }
@@ -759,9 +758,9 @@ export async function registerRoutes(
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
       
-      const totalEarnedMTD = monthOrders.filter(o => o.approvalStatus === "APPROVED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const totalEarnedMTD = monthOrders.filter(o => o.jobStatus === "COMPLETED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       const totalPaidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
-      const pendingApprovals = orders.filter(o => o.approvalStatus === "UNAPPROVED").length;
+      const pendingInstalls = orders.filter(o => o.jobStatus === "PENDING").length;
       
       const users = await storage.getUsers();
       const activeReps = users.filter(u => u.role === "REP" && u.status === "ACTIVE").length;
@@ -771,7 +770,7 @@ export async function registerRoutes(
       const rateIssues = (await storage.getRateIssues()).filter(r => !r.resolvedAt).length;
       const pendingAdjustments = (await storage.getAdjustments()).filter(a => a.approvalStatus === "UNAPPROVED").length;
 
-      res.json({ totalEarnedMTD, totalPaidMTD, pendingApprovals, activeReps, unmatchedPayments, unmatchedChargebacks, rateIssues, pendingAdjustments });
+      res.json({ totalEarnedMTD, totalPaidMTD, pendingInstalls, activeReps, unmatchedPayments, unmatchedChargebacks, rateIssues, pendingAdjustments });
     } catch (error) {
       res.status(500).json({ message: "Failed to get stats" });
     }
@@ -1087,8 +1086,8 @@ export async function registerRoutes(
           const userOrders = periodOrders.filter(o => o.repId === u.repId);
           const soldCount = userOrders.length;
           const connectsCount = userOrders.filter(o => o.jobStatus === "COMPLETED").length;
-          const approvedOrders = userOrders.filter(o => o.approvalStatus === "APPROVED");
-          const earnedDollars = approvedOrders.reduce((sum, o) => 
+          const completedOrders = userOrders.filter(o => o.jobStatus === "COMPLETED");
+          const earnedDollars = completedOrders.reduce((sum, o) => 
             sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0
           );
           
@@ -1121,7 +1120,7 @@ export async function registerRoutes(
         const myOrders = periodOrders.filter(o => o.repId === currentUserStats.repId);
         const mySoldCount = myOrders.length;
         const myConnects = myOrders.filter(o => o.jobStatus === "COMPLETED").length;
-        const myEarned = myOrders.filter(o => o.approvalStatus === "APPROVED")
+        const myEarned = myOrders.filter(o => o.jobStatus === "COMPLETED")
           .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
         
         const myRank = rankings.filter(r => r.soldCount > mySoldCount).length + 1;
@@ -1182,7 +1181,7 @@ export async function registerRoutes(
       const soldCount = periodOrders.length;
       const connectsCount = periodOrders.filter(o => o.jobStatus === "COMPLETED").length;
       const earnedDollars = periodOrders
-        .filter(o => o.approvalStatus === "APPROVED")
+        .filter(o => o.jobStatus === "COMPLETED")
         .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       
       // Calculate progress percentages
@@ -1298,7 +1297,7 @@ export async function registerRoutes(
 
       const membersWithStats = teamMembers.map(member => {
         const memberOrders = orders.filter(o => o.repId === member.repId && new Date(o.createdAt) >= monthStart);
-        const earnedMTD = memberOrders.filter(o => o.approvalStatus === "APPROVED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned), 0);
+        const earnedMTD = memberOrders.filter(o => o.jobStatus === "COMPLETED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned), 0);
         return { ...member, passwordHash: undefined, earnedMTD, orderCount: memberOrders.length };
       });
 
@@ -1690,26 +1689,21 @@ export async function registerRoutes(
       
       let allowedFields: string[] = [];
       
-      if (order.approvalStatus === "APPROVED") {
-        // Approved orders: only status + customer contact can be updated
+      if (order.jobStatus === "COMPLETED") {
+        // Completed orders: limit editable fields for compliance
         allowedFields = [...statusFields, "customerPhone", "customerEmail", "customerAddress", "accountNumber"];
-        // ADMIN/EXECUTIVE/OPERATIONS can also change repId, provider, client, service, and customerName on approved orders
+        // ADMIN/EXECUTIVE/OPERATIONS can also change repId, provider, client, service, and customerName on completed orders
         if (isAdminLevel) {
           allowedFields.push("repId", "providerId", "clientId", "serviceId", "customerName");
         }
-      } else if (order.approvalStatus === "UNAPPROVED") {
+      } else {
+        // Non-completed orders - allow full edits
         if (isAdminLevel) {
-          // Admin-level can modify all fields including repId on unapproved orders
+          // Admin-level can modify all fields including repId
           allowedFields = [...statusFields, ...customerFields, ...orderFields, "repId"];
         } else {
-          // REPs and MANAGERs can modify customer + order fields on their unapproved orders (not repId)
+          // REPs and MANAGERs can modify customer + order fields (not repId)
           allowedFields = [...statusFields, ...customerFields, ...orderFields];
-        }
-      } else {
-        // Rejected orders - allow limited edits for resubmission
-        allowedFields = [...customerFields, ...orderFields];
-        if (isAdminLevel) {
-          allowedFields.push("repId");
         }
       }
       
@@ -1729,7 +1723,7 @@ export async function registerRoutes(
       const commissionFields = ["providerId", "serviceId", "clientId", "dateSold", "tvSold", "mobileSold", "mobileProductType", "mobilePortedStatus", "mobileLinesQty"];
       const needsRecalc = commissionFields.some(f => updateData[f] !== undefined);
       
-      if (needsRecalc && order.approvalStatus !== "APPROVED") {
+      if (needsRecalc && order.jobStatus !== "COMPLETED") {
         // Build merged order for recalculation
         const mergedOrder = {
           ...order,
@@ -1779,11 +1773,7 @@ export async function registerRoutes(
         }
       }
       
-      // When jobStatus changes to COMPLETED, reset approvalStatus to UNAPPROVED to re-enter approval queue
-      if (updateData.jobStatus === "COMPLETED" && order.jobStatus !== "COMPLETED") {
-        updateData.approvalStatus = "UNAPPROVED";
-      }
-      
+            
       const updated = await storage.updateOrder(id, updateData);
       await storage.createAuditLog({ 
         action: "update_order", 
@@ -1820,146 +1810,7 @@ export async function registerRoutes(
     }
   });
 
-  // Admin approval routes
-  app.get("/api/admin/approvals/queue", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
-    try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
-      let orders = await storage.getPendingApprovals();
-      if (limit) orders = orders.slice(0, limit);
-      res.json(orders);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get approvals" });
-    }
-  });
-
-  app.post("/api/admin/orders/:id/approve", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
-    try {
-      const { id } = req.params;
-      const user = req.user!;
-      const order = await storage.getOrderById(id);
-      if (!order) return res.status(404).json({ message: "Order not found" });
-
-      // Calculate commission using new rate card formula
-      let baseCommission = "0";
-      let rateCard = await storage.findMatchingRateCard(order, order.dateSold);
-      if (rateCard) {
-        // Create commission line items for Internet, Mobile, Video (using async version for per-line mobile)
-        await storage.deleteCommissionLineItemsByOrderId(id); // Clear existing
-        const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
-        await storage.createCommissionLineItems(id, lineItems);
-        
-        // Calculate total commission from line items
-        baseCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0).toFixed(2);
-      } else {
-        await storage.createRateIssue({ salesOrderId: id, type: "MISSING_RATE", details: "No matching rate card found for this order" });
-      }
-
-      // Check if sales rep is an EXECUTIVE (exempt from override deductions)
-      const salesRep = await storage.getUserByRepId(order.repId);
-      const isExecutiveSale = salesRep?.role === "EXECUTIVE";
-      
-      // Calculate override deductions to subtract from rep's commission (NOT for executives)
-      let totalDeductions = 0;
-      if (rateCard && !isExecutiveSale) {
-        // BASE deduction always applies
-        const baseDeduction = parseFloat(rateCard.overrideDeduction || "0");
-        totalDeductions += baseDeduction;
-        
-        // TV deduction only if TV sold
-        if (order.tvSold) {
-          const tvDeduction = parseFloat(rateCard.tvOverrideDeduction || "0");
-          totalDeductions += tvDeduction;
-        }
-        
-        // Mobile deduction only if mobile sold
-        if (order.mobileSold) {
-          const mobileDeduction = parseFloat((rateCard as any).mobileOverrideDeduction || "0");
-          totalDeductions += mobileDeduction;
-        }
-      }
-      
-      // Net commission is gross minus deductions (ensure non-negative)
-      const grossCommission = parseFloat(baseCommission);
-      const netCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
-
-      const updated = await storage.updateOrder(id, {
-        approvalStatus: "APPROVED",
-        approvedByUserId: user.id,
-        approvedAt: new Date(),
-        baseCommissionEarned: netCommission,
-        appliedRateCardId: rateCard?.id || null,
-        calcAt: new Date(),
-        commissionSource: "CALCULATED",
-      });
-
-      // Generate override earnings (pools the deductions for later distribution)
-      const overrideEarnings = await generateOverrideEarnings(order, updated);
-      for (const earning of overrideEarnings) {
-        await storage.createAuditLog({ action: "create_override_earning", tableName: "override_earnings", recordId: earning.id, afterJson: JSON.stringify(earning), userId: user.id });
-      }
-
-      await storage.createAuditLog({ action: "approve_order", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to approve order" });
-    }
-  });
-
-  app.post("/api/admin/orders/:id/reject", auth, adminOnly, async (req: AuthRequest, res) => {
-    try {
-      const { id } = req.params;
-      const { rejectionNote } = req.body;
-      const user = req.user!;
-      const order = await storage.getOrderById(id);
-      if (!order) return res.status(404).json({ message: "Order not found" });
-
-      const updated = await storage.updateOrder(id, {
-        approvalStatus: "REJECTED",
-        rejectionNote,
-        approvedByUserId: user.id,
-        approvedAt: new Date(),
-      });
-
-      await storage.createAuditLog({ action: "reject_order", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to reject order" });
-    }
-  });
-
-  app.post("/api/admin/orders/:id/unapprove", auth, adminOnly, async (req: AuthRequest, res) => {
-    try {
-      const { id } = req.params;
-      const user = req.user!;
-      const order = await storage.getOrderById(id);
-      if (!order) return res.status(404).json({ message: "Order not found" });
-
-      if (order.approvalStatus === "UNAPPROVED") {
-        return res.status(400).json({ message: "Order is already unapproved" });
-      }
-
-      if (order.payRunId) {
-        return res.status(400).json({ message: "Cannot unapprove order that is linked to a pay run" });
-      }
-
-      if (order.paymentStatus === "PAID") {
-        return res.status(400).json({ message: "Cannot unapprove order that has been paid" });
-      }
-
-      const updated = await storage.updateOrder(id, {
-        approvalStatus: "UNAPPROVED",
-        rejectionNote: null,
-        approvedByUserId: null,
-        approvedAt: null,
-      });
-
-      await storage.createAuditLog({ action: "unapprove_order", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to unapprove order" });
-    }
-  });
-
+  
   app.post("/api/admin/orders/:id/mark-paid", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
@@ -1981,75 +1832,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/orders/bulk-approve", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
-    try {
-      const { orderIds } = req.body;
-      const user = req.user!;
-      let approved = 0;
-      let skipped = 0;
-
-      for (const id of orderIds) {
-        const order = await storage.getOrderById(id);
-        if (!order || order.approvalStatus !== "UNAPPROVED") continue;
-
-        let baseCommission = "0";
-        const rateCard = await storage.findMatchingRateCard(order, order.dateSold);
-        if (rateCard) {
-          // Create commission line items for Internet, Mobile, Video (using async version for per-line mobile)
-          await storage.deleteCommissionLineItemsByOrderId(id);
-          const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
-          await storage.createCommissionLineItems(id, lineItems);
-          
-          // Calculate total commission from line items
-          baseCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0).toFixed(2);
-          
-          // Check if sales rep is an EXECUTIVE (exempt from override deductions)
-          const salesRep = await storage.getUserByRepId(order.repId);
-          const isExecutiveSale = salesRep?.role === "EXECUTIVE";
-          
-          // Calculate override deductions to subtract from rep's commission (NOT for executives)
-          let totalDeductions = 0;
-          if (!isExecutiveSale) {
-            const baseDeduction = parseFloat(rateCard.overrideDeduction || "0");
-            totalDeductions += baseDeduction;
-            if (order.tvSold) {
-              totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
-            }
-            if (order.mobileSold) {
-              totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
-            }
-          }
-          
-          // Net commission is gross minus deductions
-          const grossCommission = parseFloat(baseCommission);
-          const netCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
-          
-          const updated = await storage.updateOrder(id, {
-            approvalStatus: "APPROVED",
-            approvedByUserId: user.id,
-            approvedAt: new Date(),
-            baseCommissionEarned: netCommission,
-            appliedRateCardId: rateCard.id,
-            calcAt: new Date(),
-            commissionSource: "CALCULATED",
-          });
-          
-          // Generate override earnings (pools deductions for later distribution)
-          await generateOverrideEarnings(order, updated);
-          approved++;
-        } else {
-          await storage.createRateIssue({ salesOrderId: id, type: "MISSING_RATE", details: "No matching rate card found" });
-          skipped++;
-        }
-      }
-
-      await storage.createAuditLog({ action: "bulk_approve", tableName: "sales_orders", afterJson: JSON.stringify({ approved, skipped }), userId: user.id });
-      res.json({ approved, skipped });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to bulk approve" });
-    }
-  });
-
+  
   // Excel Import for Orders - with file validation
   const upload = multer({ 
     storage: multer.memoryStorage(),
@@ -2178,7 +1961,6 @@ export async function registerRoutes(
             mobileSold: row.mobileSold === true || row.mobileSold === "true" || row.mobileSold === 1 || row.mobileSold === "1" || row.mobileSold?.toString().toLowerCase() === "yes",
             mobileLinesQty: parseInt(row.mobileLinesQty) || 0,
             jobStatus: "PENDING" as const,
-            approvalStatus: "UNAPPROVED" as const,
             paymentStatus: "UNPAID" as const,
             baseCommissionEarned: "0",
             incentiveEarned: "0",
@@ -3120,7 +2902,7 @@ export async function registerRoutes(
       const orders = await storage.getOrders();
       
       let unlinked = orders.filter(o => 
-        o.approvalStatus === "APPROVED" && 
+        o.jobStatus === "COMPLETED" && 
         o.paymentStatus === "UNPAID" && 
         !o.payRunId
       );
@@ -3418,7 +3200,6 @@ export async function registerRoutes(
           "Date Sold": formatDate(o.dateSold),
           "Install Date": formatDate(o.installDate),
           "Install Type": o.installType ? (typeLabels[o.installType] || o.installType) : "",
-          "Approval Status": o.approvalStatus || "",
           "Base Commission": baseCommission.toFixed(2),
           "TV Commission": tvCommission.toFixed(2),
           "Mobile Qty Sold": mobileQuantitySold.toString(),
@@ -3703,12 +3484,11 @@ export async function registerRoutes(
       const clients = await storage.getClients();
 
       const totalOrders = orders.length;
-      const approvedOrders = orders.filter((o: SalesOrder) => o.approvalStatus === "APPROVED").length;
-      const pendingOrders = orders.filter((o: SalesOrder) => o.approvalStatus === "UNAPPROVED").length;
       const completedOrders = orders.filter((o: SalesOrder) => o.jobStatus === "COMPLETED").length;
+      const pendingOrders = orders.filter((o: SalesOrder) => o.jobStatus === "PENDING").length;
       
       const totalEarned = orders
-        .filter((o: SalesOrder) => o.approvalStatus === "APPROVED")
+        .filter((o: SalesOrder) => o.jobStatus === "COMPLETED")
         .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       
       const totalPaid = orders
@@ -3720,14 +3500,14 @@ export async function registerRoutes(
         .map((rep: User) => {
           const repOrders = orders.filter((o: SalesOrder) => o.repId === rep.repId);
           const repEarned = repOrders
-            .filter((o: SalesOrder) => o.approvalStatus === "APPROVED")
+            .filter((o: SalesOrder) => o.jobStatus === "COMPLETED")
             .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
           return {
             repId: rep.repId,
             name: rep.name,
             role: rep.role,
             orderCount: repOrders.length,
-            approvedCount: repOrders.filter((o: SalesOrder) => o.approvalStatus === "APPROVED").length,
+            approvedCount: repOrders.filter((o: SalesOrder) => o.jobStatus === "COMPLETED").length,
             totalEarned: repEarned,
           };
         })
@@ -3737,7 +3517,7 @@ export async function registerRoutes(
       const providerBreakdown = providers.map((provider: Provider) => {
         const providerOrders = orders.filter((o: SalesOrder) => o.providerId === provider.id);
         const earned = providerOrders
-          .filter((o: SalesOrder) => o.approvalStatus === "APPROVED")
+          .filter((o: SalesOrder) => o.jobStatus === "COMPLETED")
           .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
         return {
           id: provider.id,
@@ -3750,7 +3530,7 @@ export async function registerRoutes(
       const clientBreakdown = clients.map((client: Client) => {
         const clientOrders = orders.filter((o: SalesOrder) => o.clientId === client.id);
         const earned = clientOrders
-          .filter((o: SalesOrder) => o.approvalStatus === "APPROVED")
+          .filter((o: SalesOrder) => o.jobStatus === "COMPLETED")
           .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
         return {
           id: client.id,
@@ -3766,7 +3546,7 @@ export async function registerRoutes(
           acc[month] = { month, orders: 0, earned: 0 };
         }
         acc[month].orders++;
-        if (order.approvalStatus === "APPROVED") {
+        if (order.jobStatus === "COMPLETED") {
           acc[month].earned += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
         }
         return acc;
@@ -5266,7 +5046,7 @@ export async function registerRoutes(
       const myOrders = allOrders.filter((o: SalesOrder) => 
         o.repId === user.repId && 
         o.jobStatus === "COMPLETED" && 
-        o.approvalStatus === "APPROVED"
+        o.jobStatus === "COMPLETED"
       );
       
       // Get commission line items for service breakdown
@@ -5348,7 +5128,7 @@ export async function registerRoutes(
         o.repId === user.repId && 
         o.jobStatus !== "COMPLETED" &&
         o.jobStatus !== "CANCELED" &&
-        o.approvalStatus !== "REJECTED"
+        o.jobStatus !== "CANCELED"
       );
       
       // Calculate pending commissions (estimated from baseCommissionEarned which is pre-calculated)
@@ -5593,7 +5373,7 @@ export async function registerRoutes(
         const totalSold = orderSet.length;
         const pendingOrders = orderSet.filter(o => o.jobStatus === "PENDING");
         const connectedOrders = orderSet.filter(o => o.jobStatus === "COMPLETED");
-        const approvedOrders = orderSet.filter(o => o.approvalStatus === "APPROVED");
+        const approvedOrders = orderSet.filter(o => o.jobStatus === "COMPLETED");
         
         const pendingDollars = pendingOrders.reduce((sum, o) => 
           sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
@@ -5662,11 +5442,11 @@ export async function registerRoutes(
       
       const totalOrders = periodOrders.length;
       const completedOrders = periodOrders.filter(o => o.jobStatus === "COMPLETED").length;
-      const approvedOrders = periodOrders.filter(o => o.approvalStatus === "APPROVED").length;
-      const pendingOrders = periodOrders.filter(o => o.approvalStatus === "UNAPPROVED").length;
+      const approvedOrders = periodOrders.filter(o => o.jobStatus === "COMPLETED").length;
+      const pendingOrders = periodOrders.filter(o => o.jobStatus === "PENDING").length;
       
       const totalEarned = periodOrders
-        .filter(o => o.approvalStatus === "APPROVED")
+        .filter(o => o.jobStatus === "COMPLETED")
         .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       
       const totalPaid = periodOrders
@@ -5699,7 +5479,7 @@ export async function registerRoutes(
       
       const prevTotalOrders = prevOrders.length;
       const prevTotalEarned = prevOrders
-        .filter(o => o.approvalStatus === "APPROVED")
+        .filter(o => o.jobStatus === "COMPLETED")
         .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       
       res.json({
@@ -5752,7 +5532,7 @@ export async function registerRoutes(
           repStats[order.repId] = { name: repUser?.name || order.repId, orders: 0, earned: 0, approved: 0 };
         }
         repStats[order.repId].orders++;
-        if (order.approvalStatus === "APPROVED") {
+        if (order.jobStatus === "COMPLETED") {
           repStats[order.repId].approved++;
           repStats[order.repId].earned += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
         }
@@ -5794,7 +5574,7 @@ export async function registerRoutes(
           providerStats[providerId] = { name: provider?.name || "Unknown", orders: 0, earned: 0 };
         }
         providerStats[providerId].orders++;
-        if (order.approvalStatus === "APPROVED") {
+        if (order.jobStatus === "COMPLETED") {
           providerStats[providerId].earned += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
         }
       }
@@ -5835,7 +5615,7 @@ export async function registerRoutes(
           serviceStats[serviceId] = { name: service?.name || "Unknown", orders: 0, earned: 0 };
         }
         serviceStats[serviceId].orders++;
-        if (order.approvalStatus === "APPROVED") {
+        if (order.jobStatus === "COMPLETED") {
           serviceStats[serviceId].earned += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
         }
       }
@@ -5891,7 +5671,7 @@ export async function registerRoutes(
           trendData[key] = { label, orders: 0, earned: 0 };
         }
         trendData[key].orders++;
-        if (order.approvalStatus === "APPROVED") {
+        if (order.jobStatus === "COMPLETED") {
           trendData[key].earned += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
         }
       }
@@ -5931,7 +5711,7 @@ export async function registerRoutes(
           repSummary[order.repId] = { name: repUser?.name || order.repId, earned: 0, paid: 0, outstanding: 0, orders: 0 };
         }
         repSummary[order.repId].orders++;
-        if (order.approvalStatus === "APPROVED") {
+        if (order.jobStatus === "COMPLETED") {
           const earned = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
           const paid = parseFloat(order.commissionPaid);
           repSummary[order.repId].earned += earned;
@@ -6151,10 +5931,10 @@ export async function registerRoutes(
         const ordersSold = repOrders.length;
         const ordersConnected = repOrders.filter(o => o.jobStatus === "COMPLETED").length;
         const ordersPending = repOrders.filter(o => o.jobStatus === "PENDING").length;
-        const ordersApproved = repOrders.filter(o => o.approvalStatus === "APPROVED").length;
+        const ordersApproved = repOrders.filter(o => o.jobStatus === "COMPLETED").length;
         
         const earned = repOrders
-          .filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED")
+          .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
           .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
         
         const paid = repOrders
@@ -6364,7 +6144,7 @@ export async function registerRoutes(
       }> = {};
       
       for (const order of periodOrders) {
-        if (order.approvalStatus !== "APPROVED") continue;
+        if (order.jobStatus !== "COMPLETED") continue;
         
         const entityId = type === "provider" ? order.providerId : order.clientId || "unknown";
         const entity = type === "provider" 
@@ -6468,7 +6248,7 @@ export async function registerRoutes(
       let grandTotalCommission = 0;
       
       for (const order of periodOrders) {
-        if (order.approvalStatus !== "APPROVED") continue;
+        if (order.jobStatus !== "COMPLETED") continue;
         
         const serviceId = order.serviceId;
         const service = services.find(s => s.id === serviceId);
@@ -6522,7 +6302,7 @@ export async function registerRoutes(
       // Also break down by provider
       const providerBreakdown: Record<string, { name: string; totalCommission: number; percentOfTotal: number }> = {};
       for (const order of periodOrders) {
-        if (order.approvalStatus !== "APPROVED") continue;
+        if (order.jobStatus !== "COMPLETED") continue;
         const provider = providers.find(p => p.id === order.providerId);
         if (!providerBreakdown[order.providerId]) {
           providerBreakdown[order.providerId] = {
@@ -8000,7 +7780,7 @@ export async function registerRoutes(
       // Get all approved orders without QB invoice ID
       const ordersToSync = await db.query.salesOrders.findMany({
         where: and(
-          eq(salesOrders.approvalStatus, "APPROVED"),
+          eq(salesOrders.jobStatus, "COMPLETED"),
           sql`${salesOrders.qbInvoiceId} IS NULL`
         ),
       });
@@ -8977,10 +8757,10 @@ export async function registerRoutes(
 
       // Commission totals
       const pendingCommissions = monthOrders
-        .filter(o => o.approvalStatus === "UNAPPROVED" || o.jobStatus === "PENDING")
+        .filter(o => o.jobStatus === "PENDING")
         .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0);
       const connectedCommissions = monthOrders
-        .filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED")
+        .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
         .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0);
 
       // Get services and providers for breakdown
@@ -9032,10 +8812,10 @@ export async function registerRoutes(
           connectedSales: teamOrders.filter(o => o.jobStatus === "COMPLETED").length,
           pendingSales: teamOrders.filter(o => o.jobStatus === "PENDING").length,
           pendingCommissions: teamOrders
-            .filter(o => o.approvalStatus === "UNAPPROVED" || o.jobStatus === "PENDING")
+            .filter(o => o.jobStatus === "PENDING")
             .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
           connectedCommissions: teamOrders
-            .filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED")
+            .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
             .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
         };
       }));
@@ -9140,10 +8920,10 @@ export async function registerRoutes(
           connectedSales: repOrders.filter(o => o.jobStatus === "COMPLETED").length,
           pendingSales: repOrders.filter(o => o.jobStatus === "PENDING").length,
           pendingCommissions: repOrders
-            .filter(o => o.approvalStatus === "UNAPPROVED" || o.jobStatus === "PENDING")
+            .filter(o => o.jobStatus === "PENDING")
             .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
           connectedCommissions: repOrders
-            .filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED")
+            .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
             .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
           serviceBreakdown: Object.entries(serviceBreakdown).map(([category, data]) => ({
             category,

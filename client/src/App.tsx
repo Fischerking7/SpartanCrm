@@ -17,7 +17,6 @@ import AdminDashboard from "@/pages/admin-dashboard";
 import Orders from "@/pages/orders";
 import Leads from "@/pages/leads";
 import Commissions from "@/pages/commissions";
-import Approvals from "@/pages/approvals";
 import PayRuns from "@/pages/payruns";
 import Accounting from "@/pages/accounting";
 import Queues from "@/pages/queues";
@@ -186,7 +185,6 @@ function Router() {
         
         {(isAdmin || user.role === "EXECUTIVE") && (
           <>
-            <Route path="/approvals" component={Approvals} />
             <Route path="/payruns" component={PayRuns} />
             <Route path="/export-history" component={ExportHistory} />
             <Route path="/queues" component={Queues} />
