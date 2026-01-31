@@ -7648,75 +7648,61 @@ export async function registerRoutes(
       // Get clients, providers, services for order details
       const clients = await storage.getClients();
       const services = await storage.getServices();
+      const providers = await storage.getProviders();
       
       // Build Excel content as CSV
       const rows: string[][] = [];
       
       // Header section
-      rows.push(["Team", user.name]);
+      rows.push(["Pay Statement"]);
+      rows.push(["Rep Name", user.name]);
+      rows.push(["Rep ID", user.repId]);
+      rows.push(["Period", `${statement.periodStart} - ${statement.periodEnd}`]);
       rows.push(["Company", "Iron Crest"]);
       rows.push([]);
       
-      // Summary section header
+      // Summary section
       rows.push(["Summary"]);
+      const grossCommission = parseFloat(statement.grossCommission);
+      const incentives = parseFloat(statement.incentivesTotal);
+      const chargebacks = parseFloat(statement.chargebacksTotal);
+      const deductionTotal = parseFloat(statement.deductionsTotal);
+      const netPay = parseFloat(statement.netPay);
       
-      // Calculate status breakdown
-      const enrolledOrders = orders.filter(o => o.jobStatus === "COMPLETED");
-      const pendingOrders = orders.filter(o => o.jobStatus === "PENDING");
-      const rejectedOrders = orders.filter(o => o.approvalStatus === "REJECTED");
-      const totalOrders = orders.length;
-      const acceptedRate = totalOrders > 0 ? ((enrolledOrders.length / totalOrders) * 100).toFixed(0) + "%" : "0%";
-      
-      const personalMeters = parseFloat(statement.grossCommission) + parseFloat(statement.incentivesTotal);
-      const deductionTotal = parseFloat(statement.deductionsTotal) + parseFloat(statement.chargebacksTotal);
-      const finalPay = parseFloat(statement.netPay);
-      
-      // Personal Meters and Summary side by side
-      rows.push(["Personal Meters", personalMeters.toFixed(2), "", "Personal Meters Summary"]);
-      rows.push(["Deduction", (-deductionTotal).toFixed(2), "", "Status", "", "Sum"]);
-      rows.push(["Final pay:", finalPay.toFixed(2), "", "Submitted", "", totalOrders.toString()]);
-      rows.push(["", "", "", "Enrolled", "", enrolledOrders.length.toString()]);
-      rows.push(["", "", "", "Rejected", "", rejectedOrders.length.toString()]);
-      rows.push(["", "", "", "Pending", "", pendingOrders.length.toString()]);
-      rows.push(["", "", "", "Accepted rate", "", acceptedRate]);
+      rows.push(["Gross Commission", "$" + grossCommission.toFixed(2)]);
+      rows.push(["Incentives", "$" + incentives.toFixed(2)]);
+      rows.push(["Chargebacks", "-$" + chargebacks.toFixed(2)]);
+      rows.push(["Deductions", "-$" + deductionTotal.toFixed(2)]);
+      rows.push(["Net Pay", "$" + netPay.toFixed(2)]);
       rows.push([]);
       
-      // Additions And Deductions section
-      rows.push(["Additions And Deductions"]);
-      rows.push([]);
-      rows.push(["", "Deductions"]);
-      rows.push(["", "Reason", "", "", "", "", "Amount"]);
-      
-      for (const ded of deductions) {
-        rows.push(["", ded.deductionTypeName || "Deduction", "", "", "", "", (-parseFloat(ded.amount)).toFixed(2)]);
+      // Deductions breakdown
+      if (deductions.length > 0) {
+        rows.push(["Deductions Breakdown"]);
+        rows.push(["Reason", "Amount"]);
+        for (const ded of deductions) {
+          rows.push([ded.deductionTypeName || "Deduction", "-$" + parseFloat(ded.amount).toFixed(2)]);
+        }
+        rows.push([]);
       }
-      if (parseFloat(statement.chargebacksTotal) > 0) {
-        rows.push(["", "Chargebacks", "", "", "", "", (-parseFloat(statement.chargebacksTotal)).toFixed(2)]);
-      }
-      rows.push([]);
       
-      // Meters Details section
-      rows.push(["Meters Details"]);
-      rows.push([]);
-      rows.push(["Personal Meters Details"]);
-      rows.push(["Customer Name", "Service Type", "Utility", "Client", "Date Sold", "Status", "Usage", "Rate", "Rejection Reason"]);
+      // Order Details section
+      rows.push(["Order Details"]);
+      rows.push(["Invoice Number", "Rep ID", "Account Number", "Service", "Provider", "Install Date", "Net Commission"]);
       
       for (const order of orders) {
         const service = services.find(s => s.id === order.serviceId);
-        const client = clients.find(c => c.id === order.clientId);
-        const rate = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
-        const status = order.jobStatus === "COMPLETED" ? "Enrolled" : order.approvalStatus === "REJECTED" ? "Rejected" : "Pending";
+        const provider = providers.find(p => p.id === order.providerId);
+        const netCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0") - parseFloat(order.overrideDeduction || "0");
         
         rows.push([
-          order.customerName,
+          order.invoiceNumber,
+          user.repId,
+          order.accountNumber || "",
           service?.name || "N/A",
-          "N/A",
-          client?.name || "",
-          order.dateSold,
-          status,
-          "1000",
-          "$" + rate.toFixed(2),
-          order.rejectionNote || ""
+          provider?.name || "N/A",
+          order.installDate || order.dateSold,
+          "$" + netCommission.toFixed(2)
         ]);
       }
       
@@ -7724,7 +7710,7 @@ export async function registerRoutes(
       const csvContent = rows.map(row => row.map(cell => `"${(cell || "").toString().replace(/"/g, '""')}"`).join(",")).join("\n");
       
       res.setHeader("Content-Type", "text/csv");
-      res.setHeader("Content-Disposition", `attachment; filename="pay_stub_${user.repId}_${statement.periodEnd}.csv"`);
+      res.setHeader("Content-Disposition", `attachment; filename="pay_statement_${user.repId}_${statement.periodEnd}.csv"`);
       res.send(csvContent);
     } catch (error: any) {
       console.error("Export pay stub error:", error);
@@ -7837,75 +7823,61 @@ export async function registerRoutes(
       // Get clients, providers, services for order details
       const clients = await storage.getClients();
       const services = await storage.getServices();
+      const providers = await storage.getProviders();
       
       // Build Excel content as CSV
       const rows: string[][] = [];
       
       // Header section
-      rows.push(["Team", user.name]);
+      rows.push(["Pay Statement"]);
+      rows.push(["Rep Name", user.name]);
+      rows.push(["Rep ID", user.repId]);
+      rows.push(["Period", `${statement.periodStart} - ${statement.periodEnd}`]);
       rows.push(["Company", "Iron Crest"]);
       rows.push([]);
       
-      // Summary section header
+      // Summary section
       rows.push(["Summary"]);
+      const grossCommission = parseFloat(statement.grossCommission);
+      const incentives = parseFloat(statement.incentivesTotal);
+      const chargebacks = parseFloat(statement.chargebacksTotal);
+      const deductionTotal = parseFloat(statement.deductionsTotal);
+      const netPay = parseFloat(statement.netPay);
       
-      // Calculate status breakdown
-      const enrolledOrders = orders.filter(o => o.jobStatus === "COMPLETED");
-      const pendingOrders = orders.filter(o => o.jobStatus === "PENDING");
-      const rejectedOrders = orders.filter(o => o.approvalStatus === "REJECTED");
-      const totalOrders = orders.length;
-      const acceptedRate = totalOrders > 0 ? ((enrolledOrders.length / totalOrders) * 100).toFixed(0) + "%" : "0%";
-      
-      const personalMeters = parseFloat(statement.grossCommission) + parseFloat(statement.incentivesTotal);
-      const deductionTotal = parseFloat(statement.deductionsTotal) + parseFloat(statement.chargebacksTotal);
-      const finalPay = parseFloat(statement.netPay);
-      
-      // Personal Meters and Summary side by side
-      rows.push(["Personal Meters", personalMeters.toFixed(2), "", "Personal Meters Summary"]);
-      rows.push(["Deduction", (-deductionTotal).toFixed(2), "", "Status", "", "Sum"]);
-      rows.push(["Final pay:", finalPay.toFixed(2), "", "Submitted", "", totalOrders.toString()]);
-      rows.push(["", "", "", "Enrolled", "", enrolledOrders.length.toString()]);
-      rows.push(["", "", "", "Rejected", "", rejectedOrders.length.toString()]);
-      rows.push(["", "", "", "Pending", "", pendingOrders.length.toString()]);
-      rows.push(["", "", "", "Accepted rate", "", acceptedRate]);
+      rows.push(["Gross Commission", "$" + grossCommission.toFixed(2)]);
+      rows.push(["Incentives", "$" + incentives.toFixed(2)]);
+      rows.push(["Chargebacks", "-$" + chargebacks.toFixed(2)]);
+      rows.push(["Deductions", "-$" + deductionTotal.toFixed(2)]);
+      rows.push(["Net Pay", "$" + netPay.toFixed(2)]);
       rows.push([]);
       
-      // Additions And Deductions section
-      rows.push(["Additions And Deductions"]);
-      rows.push([]);
-      rows.push(["", "Deductions"]);
-      rows.push(["", "Reason", "", "", "", "", "Amount"]);
-      
-      for (const ded of deductions) {
-        rows.push(["", ded.deductionTypeName || "Deduction", "", "", "", "", (-parseFloat(ded.amount)).toFixed(2)]);
+      // Deductions breakdown
+      if (deductions.length > 0) {
+        rows.push(["Deductions Breakdown"]);
+        rows.push(["Reason", "Amount"]);
+        for (const ded of deductions) {
+          rows.push([ded.deductionTypeName || "Deduction", "-$" + parseFloat(ded.amount).toFixed(2)]);
+        }
+        rows.push([]);
       }
-      if (parseFloat(statement.chargebacksTotal) > 0) {
-        rows.push(["", "Chargebacks", "", "", "", "", (-parseFloat(statement.chargebacksTotal)).toFixed(2)]);
-      }
-      rows.push([]);
       
-      // Meters Details section
-      rows.push(["Meters Details"]);
-      rows.push([]);
-      rows.push(["Personal Meters Details"]);
-      rows.push(["Customer Name", "Service Type", "Utility", "Client", "Date Sold", "Status", "Usage", "Rate", "Rejection Reason"]);
+      // Order Details section
+      rows.push(["Order Details"]);
+      rows.push(["Invoice Number", "Rep ID", "Account Number", "Service", "Provider", "Install Date", "Net Commission"]);
       
       for (const order of orders) {
         const service = services.find(s => s.id === order.serviceId);
-        const client = clients.find(c => c.id === order.clientId);
-        const rate = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
-        const status = order.jobStatus === "COMPLETED" ? "Enrolled" : order.approvalStatus === "REJECTED" ? "Rejected" : "Pending";
+        const provider = providers.find(p => p.id === order.providerId);
+        const netCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0") - parseFloat(order.overrideDeduction || "0");
         
         rows.push([
-          order.customerName,
+          order.invoiceNumber,
+          user.repId,
+          order.accountNumber || "",
           service?.name || "N/A",
-          "N/A",
-          client?.name || "",
-          order.dateSold,
-          status,
-          "1000",
-          "$" + rate.toFixed(2),
-          order.rejectionNote || ""
+          provider?.name || "N/A",
+          order.installDate || order.dateSold,
+          "$" + netCommission.toFixed(2)
         ]);
       }
       
@@ -7914,7 +7886,7 @@ export async function registerRoutes(
       
       const periodEnd = new Date(statement.periodEnd).toISOString().split("T")[0];
       res.setHeader("Content-Type", "text/csv");
-      res.setHeader("Content-Disposition", `attachment; filename="PayStub_${user.repId}_${periodEnd}.csv"`);
+      res.setHeader("Content-Disposition", `attachment; filename="PayStatement_${user.repId}_${periodEnd}.csv"`);
       res.send(csvContent);
     } catch (error: any) {
       console.error("Excel export error:", error);
