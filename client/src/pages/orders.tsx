@@ -663,18 +663,12 @@ export default function Orders() {
       return;
     }
     
-    const typeLabels: Record<string, string> = {
-      "AGENT_INSTALL": "Agent Install",
-      "DIRECT_SHIP": "Direct Ship",
-      "TECH_INSTALL": "Tech Install",
-    };
     // Admin/Exec see full breakdown with override; REPs see only commission (net)
     const headers = isAdminOrExec 
-      ? ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Base Commission", "Incentive", "Gross Commission", "Override", "Net Commission", "Client", "Provider", "User Name"]
-      : ["Invoice #", "Rep ID", "Customer Name", "Account #", "Date Sold", "Install Date", "Install Type", "Commission", "Client", "Provider"];
+      ? ["Rep Name", "SLSID", "Customer Name", "Date Sold", "Date Install", "Service", "Gross Commission", "Override"]
+      : ["Rep Name", "SLSID", "Customer Name", "Date Sold", "Date Install", "Service", "Commission"];
     const rows = filteredOrders.map(order => {
-      const provider = providers?.find(p => p.id === order.providerId);
-      const client = clients?.find(c => c.id === order.clientId);
+      const service = services?.find(s => s.id === order.serviceId);
       const repUser = reps?.find(r => r.repId === order.repId);
       const overrideAmount = getOverrideAmount(order);
       const baseCommission = parseFloat(order.baseCommissionEarned);
@@ -684,35 +678,25 @@ export default function Orders() {
       
       if (isAdminOrExec) {
         return [
-          order.invoiceNumber || "",
+          repUser?.name || "",
           order.repId,
           order.customerName,
-          order.accountNumber || "",
           order.dateSold,
           order.installDate || "",
-          order.installType ? (typeLabels[order.installType] || order.installType) : "",
-          baseCommission.toFixed(2),
-          incentive.toFixed(2),
+          service?.name || "",
           grossCommission.toFixed(2),
           overrideAmount.toFixed(2),
-          netCommission.toFixed(2),
-          client?.name || "",
-          provider?.name || "",
-          repUser?.name || "",
         ];
       }
-      // REPs only see net commission
+      // REPs only see net commission (no override column)
       return [
-        order.invoiceNumber || "",
+        repUser?.name || "",
         order.repId,
         order.customerName,
-        order.accountNumber || "",
         order.dateSold,
         order.installDate || "",
-        order.installType ? (typeLabels[order.installType] || order.installType) : "",
+        service?.name || "",
         netCommission.toFixed(2),
-        client?.name || "",
-        provider?.name || "",
       ];
     });
     
