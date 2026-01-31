@@ -665,10 +665,11 @@ export default function Orders() {
     
     // Admin/Exec see full breakdown with override; REPs see only commission (net)
     const headers = isAdminOrExec 
-      ? ["Rep Name", "SLSID", "Customer Name", "Date Sold", "Date Install", "Service", "Gross Commission", "Override"]
-      : ["Rep Name", "SLSID", "Customer Name", "Date Sold", "Date Install", "Service", "Commission"];
+      ? ["Rep Name", "SLSID", "Account Number", "Customer Name", "Date Sold", "Date Install", "Service", "Gross Commission", "Override", "Provider"]
+      : ["Rep Name", "SLSID", "Account Number", "Customer Name", "Date Sold", "Date Install", "Service", "Commission", "Provider"];
     const rows = filteredOrders.map(order => {
       const service = services?.find(s => s.id === order.serviceId);
+      const provider = providers?.find(p => p.id === order.providerId);
       const repUser = reps?.find(r => r.repId === order.repId);
       const overrideAmount = getOverrideAmount(order);
       const baseCommission = parseFloat(order.baseCommissionEarned);
@@ -680,23 +681,27 @@ export default function Orders() {
         return [
           repUser?.name || "",
           order.repId,
+          order.accountNumber || "",
           order.customerName,
           order.dateSold,
           order.installDate || "",
           service?.name || "",
           grossCommission.toFixed(2),
           overrideAmount.toFixed(2),
+          provider?.name || "",
         ];
       }
       // REPs only see net commission (no override column)
       return [
         repUser?.name || "",
         order.repId,
+        order.accountNumber || "",
         order.customerName,
         order.dateSold,
         order.installDate || "",
         service?.name || "",
         netCommission.toFixed(2),
+        provider?.name || "",
       ];
     });
     
