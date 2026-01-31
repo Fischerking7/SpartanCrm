@@ -7638,11 +7638,15 @@ export async function registerRoutes(
       const lineItems = await storage.getPayStatementLineItems(req.params.id);
       const deductions = await storage.getPayStatementDeductions(req.params.id);
       
-      // Get orders linked to this pay run for detailed breakdown
-      let orders: SalesOrder[] = [];
-      if (statement.payRunId) {
-        orders = await storage.getOrdersByPayRunId(statement.payRunId);
-        orders = orders.filter(o => o.repId === user.repId);
+      // Get orders from line items (they store sourceId = order.id)
+      const orders: SalesOrder[] = [];
+      for (const item of lineItems) {
+        if (item.sourceType === "sales_order" && item.sourceId) {
+          const order = await storage.getOrderById(item.sourceId);
+          if (order && !orders.find(o => o.id === order.id)) {
+            orders.push(order);
+          }
+        }
       }
       
       // Get clients, providers, services for order details
@@ -7813,11 +7817,15 @@ export async function registerRoutes(
       const lineItems = await storage.getPayStatementLineItems(req.params.id);
       const deductions = await storage.getPayStatementDeductions(req.params.id);
       
-      // Get orders linked to this pay run for detailed breakdown
-      let orders: SalesOrder[] = [];
-      if (statement.payRunId) {
-        orders = await storage.getOrdersByPayRunId(statement.payRunId);
-        orders = orders.filter(o => o.repId === user.repId);
+      // Get orders from line items (they store sourceId = order.id)
+      const orders: SalesOrder[] = [];
+      for (const item of lineItems) {
+        if (item.sourceType === "sales_order" && item.sourceId) {
+          const order = await storage.getOrderById(item.sourceId);
+          if (order && !orders.find(o => o.id === order.id)) {
+            orders.push(order);
+          }
+        }
       }
       
       // Get clients, providers, services for order details
