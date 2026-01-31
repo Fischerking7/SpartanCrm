@@ -734,16 +734,17 @@ export default function Orders() {
       // Submit the original order first
       await createOrderMutation.mutateAsync(newOrderForm);
       
-      // Then prefill and open mobile form for the SEPARATE mobile order
+      // Prefill mobile form - only carry over customer info, not base order fields
+      // Mobile orders are tracked separately with their own provider/client/service selection
       setMobileOrderForm({
-        providerId: newOrderForm.providerId,
-        clientId: newOrderForm.clientId,
-        serviceId: newOrderForm.serviceId,
-        customerName: newOrderForm.customerName,
+        providerId: "",  // Let user select provider for mobile
+        clientId: "",    // Let user select client for mobile
+        serviceId: "",   // Mobile uses mobileProductType, not serviceId
+        customerName: newOrderForm.customerName,  // Same customer
         dateSold: newOrderForm.dateSold,
         customerPhone: newOrderForm.customerPhone,
         customerAddress: newOrderForm.customerAddress,
-        accountNumber: newOrderForm.accountNumber,
+        accountNumber: "",  // Mobile may have different account
         repId: newOrderForm.repId,
         mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
       });
