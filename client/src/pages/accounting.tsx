@@ -224,7 +224,40 @@ export default function Accounting() {
     },
   });
 
-  const exportPayStubsToCSV = () => {
+  const downloadSingleExcel = async (statementId: string) => {
+    try {
+      const res = await fetch(`/api/admin/payroll/statements/${statementId}/export-excel`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to download");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `pay_stub_${statementId}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast({ title: "Download failed", variant: "destructive" });
+    }
+  };
+
+  const exportAllPayStubsExcel = async () => {
+    if (!lastResult || lastResult.statements.length === 0) return;
+    
+    toast({ title: "Downloading pay stubs...", description: `Exporting ${lastResult.statements.length} pay stubs` });
+    
+    for (const stmt of lastResult.statements) {
+      await downloadSingleExcel(stmt.id);
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    
+    toast({ title: "Export complete", description: `Downloaded ${lastResult.statements.length} pay stubs` });
+  };
+
+  const exportPayStubsSummaryCSV = () => {
     if (!lastResult || lastResult.statements.length === 0) return;
     
     const headers = ["Rep Name", "Rep ID", "Period Start", "Period End", "Gross Commission", "Incentives", "Chargebacks", "Deductions", "Net Pay", "Status"];
@@ -246,12 +279,12 @@ export default function Accounting() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `pay-stubs-${lastResult.periodEnd}.csv`);
+    link.setAttribute("download", `pay-stubs-summary-${lastResult.periodEnd}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    toast({ title: "Export complete", description: "Pay stubs exported to CSV" });
+    toast({ title: "Export complete", description: "Pay stubs summary exported" });
   };
 
   return (
@@ -513,10 +546,16 @@ export default function Accounting() {
                           Period: {lastResult.periodStart} to {lastResult.periodEnd}
                         </p>
                       </div>
-                      <Button variant="outline" onClick={exportPayStubsToCSV} data-testid="button-export-paystubs-csv">
-                        <ArrowDownCircle className="h-4 w-4 mr-2" />
-                        Export CSV
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={exportPayStubsSummaryCSV} data-testid="button-export-summary-csv">
+                          <ArrowDownCircle className="h-4 w-4 mr-2" />
+                          Summary CSV
+                        </Button>
+                        <Button variant="default" onClick={exportAllPayStubsExcel} data-testid="button-export-all-excel">
+                          <FileSpreadsheet className="h-4 w-4 mr-2" />
+                          Download All Excel
+                        </Button>
+                      </div>
                     </div>
                     <Table>
                       <TableHeader>
@@ -527,6 +566,7 @@ export default function Accounting() {
                           <TableHead>Deductions</TableHead>
                           <TableHead>Net Pay</TableHead>
                           <TableHead>Status</TableHead>
+                          <TableHead className="w-[100px]">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -544,6 +584,17 @@ export default function Accounting() {
                             <TableCell className="font-medium">{formatCurrency(stmt.netPay)}</TableCell>
                             <TableCell>
                               <Badge variant="outline">{stmt.status}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Button 
+                                size="icon" 
+                                variant="ghost" 
+                                onClick={() => downloadSingleExcel(stmt.id)}
+                                title="Download Excel"
+                                data-testid={`button-download-excel-${stmt.id}`}
+                              >
+                                <FileSpreadsheet className="h-4 w-4" />
+                              </Button>
                             </TableCell>
                           </TableRow>
                         ))}
