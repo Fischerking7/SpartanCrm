@@ -10655,13 +10655,13 @@ export async function registerRoutes(
       // Parse file
       let rows: any[] = [];
       if (isXlsx) {
-        const XLSX = require('xlsx');
+        const XLSX = await import('xlsx');
         const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
       } else {
-        const { parse } = require('csv-parse/sync');
-        rows = parse(req.file.buffer, { columns: true, skip_empty_lines: true });
+        const csvParse = await import('csv-parse/sync');
+        rows = csvParse.parse(req.file.buffer, { columns: true, skip_empty_lines: true });
       }
 
       if (rows.length === 0) {
