@@ -97,6 +97,29 @@ function downloadPdf(statementId: string) {
     .catch((err) => console.error("PDF download error:", err));
 }
 
+function downloadExcel(statementId: string) {
+  const headers = getAuthHeaders();
+  fetch(`/api/payroll/my-statements/${statementId}/excel`, {
+    headers,
+    credentials: "include",
+  })
+    .then((res) => {
+      if (!res.ok) throw new Error("Failed to download Excel");
+      return res.blob();
+    })
+    .then((blob) => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `PayStub_${statementId}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    })
+    .catch((err) => console.error("Excel download error:", err));
+}
+
 function StatementDetailsDialog({ statementId }: { statementId: string }) {
   const [open, setOpen] = useState(false);
   
@@ -436,8 +459,18 @@ export default function MyPayHistory() {
                           variant="ghost" 
                           onClick={() => downloadPdf(statement.id)}
                           data-testid={`button-download-pdf-${statement.id}`}
+                          title="Download PDF"
                         >
                           <Download className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          onClick={() => downloadExcel(statement.id)}
+                          data-testid={`button-download-excel-${statement.id}`}
+                          title="Download Excel"
+                        >
+                          <FileText className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>
@@ -505,8 +538,18 @@ export default function MyPayHistory() {
                           variant="ghost" 
                           onClick={() => downloadPdf(statement.id)}
                           data-testid={`button-download-pdf-${statement.id}`}
+                          title="Download PDF"
                         >
                           <Download className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          onClick={() => downloadExcel(statement.id)}
+                          data-testid={`button-download-excel-${statement.id}`}
+                          title="Download Excel"
+                        >
+                          <FileText className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>

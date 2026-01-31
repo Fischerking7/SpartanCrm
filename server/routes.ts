@@ -7626,6 +7626,112 @@ export async function registerRoutes(
     }
   });
 
+  // Export pay stub as Excel in the specific format
+  app.get("/api/admin/payroll/statements/:id/export-excel", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const statement = await storage.getPayStatementById(req.params.id);
+      if (!statement) return res.status(404).json({ message: "Statement not found" });
+      
+      const user = await storage.getUserById(statement.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      
+      const lineItems = await storage.getPayStatementLineItems(req.params.id);
+      const deductions = await storage.getPayStatementDeductions(req.params.id);
+      
+      // Get orders linked to this pay run for detailed breakdown
+      let orders: SalesOrder[] = [];
+      if (statement.payRunId) {
+        orders = await storage.getOrdersByPayRunId(statement.payRunId);
+        orders = orders.filter(o => o.repId === user.repId);
+      }
+      
+      // Get clients, providers, services for order details
+      const clients = await storage.getClients();
+      const services = await storage.getServices();
+      
+      // Build Excel content as CSV
+      const rows: string[][] = [];
+      
+      // Header section
+      rows.push(["Team", user.name]);
+      rows.push(["Company", "Iron Crest"]);
+      rows.push([]);
+      
+      // Summary section header
+      rows.push(["Summary"]);
+      
+      // Calculate status breakdown
+      const enrolledOrders = orders.filter(o => o.jobStatus === "COMPLETED");
+      const pendingOrders = orders.filter(o => o.jobStatus === "PENDING");
+      const rejectedOrders = orders.filter(o => o.approvalStatus === "REJECTED");
+      const totalOrders = orders.length;
+      const acceptedRate = totalOrders > 0 ? ((enrolledOrders.length / totalOrders) * 100).toFixed(0) + "%" : "0%";
+      
+      const personalMeters = parseFloat(statement.grossCommission) + parseFloat(statement.incentivesTotal);
+      const deductionTotal = parseFloat(statement.deductionsTotal) + parseFloat(statement.chargebacksTotal);
+      const finalPay = parseFloat(statement.netPay);
+      
+      // Personal Meters and Summary side by side
+      rows.push(["Personal Meters", personalMeters.toFixed(2), "", "Personal Meters Summary"]);
+      rows.push(["Deduction", (-deductionTotal).toFixed(2), "", "Status", "", "Sum"]);
+      rows.push(["Final pay:", finalPay.toFixed(2), "", "Submitted", "", totalOrders.toString()]);
+      rows.push(["", "", "", "Enrolled", "", enrolledOrders.length.toString()]);
+      rows.push(["", "", "", "Rejected", "", rejectedOrders.length.toString()]);
+      rows.push(["", "", "", "Pending", "", pendingOrders.length.toString()]);
+      rows.push(["", "", "", "Accepted rate", "", acceptedRate]);
+      rows.push([]);
+      
+      // Additions And Deductions section
+      rows.push(["Additions And Deductions"]);
+      rows.push([]);
+      rows.push(["", "Deductions"]);
+      rows.push(["", "Reason", "", "", "", "", "Amount"]);
+      
+      for (const ded of deductions) {
+        rows.push(["", ded.deductionTypeName || "Deduction", "", "", "", "", (-parseFloat(ded.amount)).toFixed(2)]);
+      }
+      if (parseFloat(statement.chargebacksTotal) > 0) {
+        rows.push(["", "Chargebacks", "", "", "", "", (-parseFloat(statement.chargebacksTotal)).toFixed(2)]);
+      }
+      rows.push([]);
+      
+      // Meters Details section
+      rows.push(["Meters Details"]);
+      rows.push([]);
+      rows.push(["Personal Meters Details"]);
+      rows.push(["Customer Name", "Service Type", "Utility", "Client", "Date Sold", "Status", "Usage", "Rate", "Rejection Reason"]);
+      
+      for (const order of orders) {
+        const service = services.find(s => s.id === order.serviceId);
+        const client = clients.find(c => c.id === order.clientId);
+        const rate = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
+        const status = order.jobStatus === "COMPLETED" ? "Enrolled" : order.approvalStatus === "REJECTED" ? "Rejected" : "Pending";
+        
+        rows.push([
+          order.customerName,
+          service?.name || "N/A",
+          "N/A",
+          client?.name || "",
+          order.dateSold,
+          status,
+          "1000",
+          "$" + rate.toFixed(2),
+          order.rejectionNote || ""
+        ]);
+      }
+      
+      // Convert to CSV
+      const csvContent = rows.map(row => row.map(cell => `"${(cell || "").toString().replace(/"/g, '""')}"`).join(",")).join("\n");
+      
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="pay_stub_${user.repId}_${statement.periodEnd}.csv"`);
+      res.send(csvContent);
+    } catch (error: any) {
+      console.error("Export pay stub error:", error);
+      res.status(500).json({ message: error.message || "Failed to export pay stub" });
+    }
+  });
+
   // Issue a pay statement
   app.post("/api/admin/payroll/statements/:id/issue", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
@@ -7705,6 +7811,114 @@ export async function registerRoutes(
     } catch (error) {
       console.error("PDF generation error:", error);
       res.status(500).json({ message: "Failed to generate PDF" });
+    }
+  });
+
+  // Excel download for pay statement (rep can download their own)
+  app.get("/api/payroll/my-statements/:id/excel", auth, async (req: AuthRequest, res) => {
+    try {
+      const statement = await storage.getPayStatementById(req.params.id);
+      if (!statement) return res.status(404).json({ message: "Statement not found" });
+      if (statement.userId !== req.user!.id) return res.status(403).json({ message: "Access denied" });
+      
+      const user = await storage.getUserById(req.user!.id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      
+      const lineItems = await storage.getPayStatementLineItems(req.params.id);
+      const deductions = await storage.getPayStatementDeductions(req.params.id);
+      
+      // Get orders linked to this pay run for detailed breakdown
+      let orders: SalesOrder[] = [];
+      if (statement.payRunId) {
+        orders = await storage.getOrdersByPayRunId(statement.payRunId);
+        orders = orders.filter(o => o.repId === user.repId);
+      }
+      
+      // Get clients, providers, services for order details
+      const clients = await storage.getClients();
+      const services = await storage.getServices();
+      
+      // Build Excel content as CSV
+      const rows: string[][] = [];
+      
+      // Header section
+      rows.push(["Team", user.name]);
+      rows.push(["Company", "Iron Crest"]);
+      rows.push([]);
+      
+      // Summary section header
+      rows.push(["Summary"]);
+      
+      // Calculate status breakdown
+      const enrolledOrders = orders.filter(o => o.jobStatus === "COMPLETED");
+      const pendingOrders = orders.filter(o => o.jobStatus === "PENDING");
+      const rejectedOrders = orders.filter(o => o.approvalStatus === "REJECTED");
+      const totalOrders = orders.length;
+      const acceptedRate = totalOrders > 0 ? ((enrolledOrders.length / totalOrders) * 100).toFixed(0) + "%" : "0%";
+      
+      const personalMeters = parseFloat(statement.grossCommission) + parseFloat(statement.incentivesTotal);
+      const deductionTotal = parseFloat(statement.deductionsTotal) + parseFloat(statement.chargebacksTotal);
+      const finalPay = parseFloat(statement.netPay);
+      
+      // Personal Meters and Summary side by side
+      rows.push(["Personal Meters", personalMeters.toFixed(2), "", "Personal Meters Summary"]);
+      rows.push(["Deduction", (-deductionTotal).toFixed(2), "", "Status", "", "Sum"]);
+      rows.push(["Final pay:", finalPay.toFixed(2), "", "Submitted", "", totalOrders.toString()]);
+      rows.push(["", "", "", "Enrolled", "", enrolledOrders.length.toString()]);
+      rows.push(["", "", "", "Rejected", "", rejectedOrders.length.toString()]);
+      rows.push(["", "", "", "Pending", "", pendingOrders.length.toString()]);
+      rows.push(["", "", "", "Accepted rate", "", acceptedRate]);
+      rows.push([]);
+      
+      // Additions And Deductions section
+      rows.push(["Additions And Deductions"]);
+      rows.push([]);
+      rows.push(["", "Deductions"]);
+      rows.push(["", "Reason", "", "", "", "", "Amount"]);
+      
+      for (const ded of deductions) {
+        rows.push(["", ded.deductionTypeName || "Deduction", "", "", "", "", (-parseFloat(ded.amount)).toFixed(2)]);
+      }
+      if (parseFloat(statement.chargebacksTotal) > 0) {
+        rows.push(["", "Chargebacks", "", "", "", "", (-parseFloat(statement.chargebacksTotal)).toFixed(2)]);
+      }
+      rows.push([]);
+      
+      // Meters Details section
+      rows.push(["Meters Details"]);
+      rows.push([]);
+      rows.push(["Personal Meters Details"]);
+      rows.push(["Customer Name", "Service Type", "Utility", "Client", "Date Sold", "Status", "Usage", "Rate", "Rejection Reason"]);
+      
+      for (const order of orders) {
+        const service = services.find(s => s.id === order.serviceId);
+        const client = clients.find(c => c.id === order.clientId);
+        const rate = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
+        const status = order.jobStatus === "COMPLETED" ? "Enrolled" : order.approvalStatus === "REJECTED" ? "Rejected" : "Pending";
+        
+        rows.push([
+          order.customerName,
+          service?.name || "N/A",
+          "N/A",
+          client?.name || "",
+          order.dateSold,
+          status,
+          "1000",
+          "$" + rate.toFixed(2),
+          order.rejectionNote || ""
+        ]);
+      }
+      
+      // Convert to CSV
+      const csvContent = rows.map(row => row.map(cell => `"${(cell || "").toString().replace(/"/g, '""')}"`).join(",")).join("\n");
+      
+      const periodEnd = new Date(statement.periodEnd).toISOString().split("T")[0];
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="PayStub_${user.repId}_${periodEnd}.csv"`);
+      res.send(csvContent);
+    } catch (error: any) {
+      console.error("Excel export error:", error);
+      res.status(500).json({ message: error.message || "Failed to export Excel" });
     }
   });
 
