@@ -830,6 +830,61 @@ export default function Orders() {
     bulkMarkPaidMutation.mutate(Array.from(selectedOrderIds));
   };
 
+  const bulkDeleteOrdersMutation = useMutation({
+    mutationFn: async (orderIds: string[]) => {
+      const res = await fetch("/api/admin/orders/bulk-delete", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to delete orders");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setSelectedOrderIds(new Set());
+      toast({ title: `${data.deleted} order(s) deleted successfully` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to delete orders", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleBulkDelete = () => {
+    if (selectedOrderIds.size === 0) {
+      toast({ title: "No orders selected", variant: "destructive" });
+      return;
+    }
+    if (!confirm(`Are you sure you want to permanently delete ${selectedOrderIds.size} order(s)? This action cannot be undone.`)) {
+      return;
+    }
+    bulkDeleteOrdersMutation.mutate(Array.from(selectedOrderIds));
+  };
+
+  const reverseApprovalMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await fetch(`/api/admin/orders/${orderId}/reverse-approval`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to reverse approval");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({ title: "Order approval reversed" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to reverse approval", description: error.message, variant: "destructive" });
+    },
+  });
+
   const toggleOrderSelection = (orderId: string) => {
     setSelectedOrderIds(prev => {
       const newSet = new Set(prev);
@@ -1283,6 +1338,17 @@ export default function Orders() {
                 <ThumbsUp className="h-4 w-4 mr-2" />
                 Approve {selectedOrderIds.size}
               </Button>
+              {user?.role === "OPERATIONS" && (
+                <Button 
+                  variant="destructive"
+                  onClick={handleBulkDelete}
+                  disabled={bulkDeleteOrdersMutation.isPending}
+                  data-testid="button-bulk-delete"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete {selectedOrderIds.size}
+                </Button>
+              )}
             </>
           )}
           {isAdmin && (
@@ -2003,6 +2069,22 @@ export default function Orders() {
                   </span>
                 )}
               </div>
+            )}
+            {/* Reverse Approval - for ADMIN/OPERATIONS/EXECUTIVE on approved orders */}
+            {isAdmin && selectedOrder && selectedOrder.approvalStatus === "APPROVED" && (
+              <Button 
+                variant="outline"
+                onClick={() => {
+                  if (confirm("Are you sure you want to reverse this approval? The order will be set back to Pending status.")) {
+                    reverseApprovalMutation.mutate(selectedOrder.id);
+                  }
+                }}
+                disabled={reverseApprovalMutation.isPending}
+                data-testid="button-reverse-approval"
+              >
+                <ThumbsDown className="h-4 w-4 mr-2" />
+                {reverseApprovalMutation.isPending ? "Reversing..." : "Reverse Approval"}
+              </Button>
             )}
             {/* Mark as Paid only visible to ADMIN and OPERATIONS */}
             {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && selectedOrder && selectedOrder.paymentStatus !== "PAID" && (

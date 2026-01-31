@@ -1891,6 +1891,96 @@ export async function registerRoutes(
     }
   });
 
+  // Bulk delete orders - OPERATIONS only
+  app.post("/api/admin/orders/bulk-delete", auth, async (req: AuthRequest, res, next) => {
+    if (req.user?.role !== "OPERATIONS") {
+      return res.status(403).json({ message: "Only OPERATIONS can bulk delete orders" });
+    }
+    next();
+  }, async (req: AuthRequest, res) => {
+    try {
+      const { orderIds } = req.body;
+      const user = req.user!;
+      
+      if (!Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json({ message: "No orders selected" });
+      }
+      
+      let deleted = 0;
+      let failed = 0;
+      
+      for (const id of orderIds) {
+        try {
+          const order = await storage.getOrderById(id);
+          if (!order) {
+            failed++;
+            continue;
+          }
+          
+          await storage.createAuditLog({ 
+            action: "bulk_hard_delete_order", 
+            tableName: "sales_orders", 
+            recordId: id, 
+            beforeJson: JSON.stringify(order), 
+            userId: user.id 
+          });
+          await storage.hardDeleteOrder(id);
+          deleted++;
+        } catch (e) {
+          failed++;
+        }
+      }
+      
+      await storage.createAuditLog({ action: "bulk_delete_orders", tableName: "sales_orders", afterJson: JSON.stringify({ deleted, failed }), userId: user.id });
+      res.json({ deleted, failed });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to bulk delete orders" });
+    }
+  });
+
+  // Reverse approval - sets approved order back to unapproved
+  app.post("/api/admin/orders/:id/reverse-approval", auth, async (req: AuthRequest, res, next) => {
+    const allowedRoles = ["ADMIN", "EXECUTIVE", "OPERATIONS"];
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+    next();
+  }, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user!;
+      
+      const order = await storage.getOrderById(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      
+      if (order.approvalStatus !== "APPROVED") {
+        return res.status(400).json({ message: "Order is not approved" });
+      }
+      
+      const beforeJson = JSON.stringify(order);
+      
+      const updatedOrder = await storage.updateOrder(id, {
+        approvalStatus: "UNAPPROVED",
+        approvedByUserId: null,
+        approvedAt: null,
+        jobStatus: "PENDING",
+      });
+      
+      await storage.createAuditLog({ 
+        action: "reverse_approval", 
+        tableName: "sales_orders", 
+        recordId: id, 
+        beforeJson, 
+        afterJson: JSON.stringify(updatedOrder), 
+        userId: user.id 
+      });
+      
+      res.json(updatedOrder);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to reverse approval" });
+    }
+  });
+
   // Approve order - ADMIN, OPERATIONS, EXECUTIVE only
   app.post("/api/orders/:id/approve", auth, async (req: AuthRequest, res) => {
     try {
