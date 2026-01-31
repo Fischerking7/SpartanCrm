@@ -6419,19 +6419,18 @@ export async function registerRoutes(
           };
         }
         
-        const baseEarned = parseFloat(order.baseCommissionEarned);
-        const incentiveEarned = parseFloat(order.incentiveEarned);
-        const overrideEarned = parseFloat(order.overrideEarned);
+        const baseEarned = parseFloat(order.baseCommissionEarned) || 0;
+        const incentiveEarned = parseFloat(order.incentiveEarned || "0") || 0;
+        const overrideDeduction = parseFloat(order.overrideDeduction || "0") || 0;
         const totalCommissionCost = baseEarned + incentiveEarned;
         
-        // Calculate estimated revenue (use MRC if available, otherwise estimate)
-        const mrc = parseFloat(order.mrc) || 0;
-        const estimatedRevenue = mrc > 0 ? mrc * 12 : totalCommissionCost * 5; // Assume 5x commission as revenue if MRC unknown
+        // Calculate estimated revenue (estimate as 5x commission since MRC is not tracked)
+        const estimatedRevenue = totalCommissionCost * 5;
         
         entityStats[entityId].orders++;
         entityStats[entityId].revenue += estimatedRevenue;
         entityStats[entityId].commissionCost += totalCommissionCost;
-        entityStats[entityId].overrideCost += overrideEarned;
+        entityStats[entityId].overrideCost += overrideDeduction;
       }
       
       // Calculate margins
@@ -6524,15 +6523,15 @@ export async function registerRoutes(
           };
         }
         
-        const baseEarned = parseFloat(order.baseCommissionEarned);
-        const incentiveEarned = parseFloat(order.incentiveEarned);
-        const overrideEarned = parseFloat(order.overrideEarned);
-        const totalCommission = baseEarned + incentiveEarned + overrideEarned;
+        const baseEarned = parseFloat(order.baseCommissionEarned) || 0;
+        const incentiveEarned = parseFloat(order.incentiveEarned || "0") || 0;
+        const overrideDeduction = parseFloat(order.overrideDeduction || "0") || 0;
+        const totalCommission = baseEarned + incentiveEarned;
         
         serviceStats[serviceId].orders++;
         serviceStats[serviceId].baseCommission += baseEarned;
         serviceStats[serviceId].incentiveCommission += incentiveEarned;
-        serviceStats[serviceId].overrideCommission += overrideEarned;
+        serviceStats[serviceId].overrideCommission += overrideDeduction;
         serviceStats[serviceId].totalCommission += totalCommission;
         grandTotalCommission += totalCommission;
       }
@@ -6568,7 +6567,7 @@ export async function registerRoutes(
           };
         }
         providerBreakdown[order.providerId].totalCommission += 
-          parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned) + parseFloat(order.overrideEarned);
+          (parseFloat(order.baseCommissionEarned) || 0) + (parseFloat(order.incentiveEarned || "0") || 0);
       }
       for (const stats of Object.values(providerBreakdown)) {
         stats.percentOfTotal = grandTotalCommission > 0 ? (stats.totalCommission / grandTotalCommission) * 100 : 0;
