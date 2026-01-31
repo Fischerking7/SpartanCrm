@@ -221,14 +221,35 @@ export default function AdminQuickBooks() {
 
   const saveMappingMutation = useMutation({
     mutationFn: async ({ mappingType, accountId }: { mappingType: string; accountId: string }) => {
-      const account = accounts?.find(a => a.Id === accountId);
-      if (!account) throw new Error("Account not found");
+      let itemId = "";
+      let itemName = "";
+      let itemType = "";
+      
+      if (mappingType === "CLASS") {
+        const cls = qbClasses?.find(c => c.Id === accountId);
+        if (!cls) throw new Error("Class not found");
+        itemId = cls.Id;
+        itemName = cls.FullyQualifiedName || cls.Name;
+        itemType = "Class";
+      } else if (mappingType === "DEPARTMENT") {
+        const dept = qbDepartments?.find(d => d.Id === accountId);
+        if (!dept) throw new Error("Department not found");
+        itemId = dept.Id;
+        itemName = dept.FullyQualifiedName || dept.Name;
+        itemType = "Department";
+      } else {
+        const account = accounts?.find(a => a.Id === accountId);
+        if (!account) throw new Error("Account not found");
+        itemId = account.Id;
+        itemName = account.Name;
+        itemType = account.AccountType;
+      }
       
       await apiRequest("POST", "/api/admin/quickbooks/mappings", {
         mappingType,
-        qbAccountId: account.Id,
-        qbAccountName: account.Name,
-        qbAccountType: account.AccountType,
+        qbAccountId: itemId,
+        qbAccountName: itemName,
+        qbAccountType: itemType,
       });
     },
     onSuccess: () => {
