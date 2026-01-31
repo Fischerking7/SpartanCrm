@@ -715,7 +715,7 @@ export async function registerRoutes(
       weekStart.setDate(now.getDate() - now.getDay());
 
       const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
-      const earnedMTD = monthOrders.filter(o => o.jobStatus === "COMPLETED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const earnedMTD = monthOrders.filter(o => o.paymentStatus === "PAID").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       const paidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
       const weekOrders = orders.filter(o => o.paidDate && new Date(o.paidDate) >= weekStart);
       const paidWeek = weekOrders.reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
@@ -741,7 +741,7 @@ export async function registerRoutes(
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
       
-      const teamEarnedMTD = monthOrders.filter(o => o.jobStatus === "COMPLETED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const teamEarnedMTD = monthOrders.filter(o => o.paymentStatus === "PAID").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       const teamPaidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
       const pendingInstalls = orders.filter(o => o.jobStatus === "PENDING").length;
 
@@ -758,7 +758,7 @@ export async function registerRoutes(
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
       
-      const totalEarnedMTD = monthOrders.filter(o => o.jobStatus === "COMPLETED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const totalEarnedMTD = monthOrders.filter(o => o.paymentStatus === "PAID").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
       const totalPaidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
       const pendingInstalls = orders.filter(o => o.jobStatus === "PENDING").length;
       
@@ -1086,8 +1086,8 @@ export async function registerRoutes(
           const userOrders = periodOrders.filter(o => o.repId === u.repId);
           const soldCount = userOrders.length;
           const connectsCount = userOrders.filter(o => o.jobStatus === "COMPLETED").length;
-          const completedOrders = userOrders.filter(o => o.jobStatus === "COMPLETED");
-          const earnedDollars = completedOrders.reduce((sum, o) => 
+          const paidOrders = userOrders.filter(o => o.paymentStatus === "PAID");
+          const earnedDollars = paidOrders.reduce((sum, o) => 
             sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0
           );
           
@@ -1120,7 +1120,7 @@ export async function registerRoutes(
         const myOrders = periodOrders.filter(o => o.repId === currentUserStats.repId);
         const mySoldCount = myOrders.length;
         const myConnects = myOrders.filter(o => o.jobStatus === "COMPLETED").length;
-        const myEarned = myOrders.filter(o => o.jobStatus === "COMPLETED")
+        const myEarned = myOrders.filter(o => o.paymentStatus === "PAID")
           .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
         
         const myRank = rankings.filter(r => r.soldCount > mySoldCount).length + 1;
@@ -1297,7 +1297,7 @@ export async function registerRoutes(
 
       const membersWithStats = teamMembers.map(member => {
         const memberOrders = orders.filter(o => o.repId === member.repId && new Date(o.createdAt) >= monthStart);
-        const earnedMTD = memberOrders.filter(o => o.jobStatus === "COMPLETED").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned), 0);
+        const earnedMTD = memberOrders.filter(o => o.paymentStatus === "PAID").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned), 0);
         return { ...member, passwordHash: undefined, earnedMTD, orderCount: memberOrders.length };
       });
 
