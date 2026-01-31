@@ -720,9 +720,6 @@ export default function Orders() {
   };
 
   // Submit original order then open mobile order form
-  // State to track if we're adding mobile to a pending order
-  const [pendingOrderWithMobile, setPendingOrderWithMobile] = useState<typeof newOrderForm | null>(null);
-  
   const submitOrderThenOpenMobile = async () => {
     if (!newOrderForm.customerName || !newOrderForm.dateSold) {
       toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
@@ -733,22 +730,29 @@ export default function Orders() {
       return;
     }
     
-    // Save the order data and open mobile dialog - don't create yet
-    setPendingOrderWithMobile(newOrderForm);
-    setMobileOrderForm({
-      providerId: newOrderForm.providerId,
-      clientId: newOrderForm.clientId,
-      serviceId: newOrderForm.serviceId,
-      customerName: newOrderForm.customerName,
-      dateSold: newOrderForm.dateSold,
-      customerPhone: newOrderForm.customerPhone,
-      customerAddress: newOrderForm.customerAddress,
-      accountNumber: newOrderForm.accountNumber,
-      repId: newOrderForm.repId,
-      mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
-    });
-    setShowNewOrderDialog(false);
-    setShowMobileOrderDialog(true);
+    try {
+      // Submit the original order first
+      await createOrderMutation.mutateAsync(newOrderForm);
+      
+      // Then prefill and open mobile form for the SEPARATE mobile order
+      setMobileOrderForm({
+        providerId: newOrderForm.providerId,
+        clientId: newOrderForm.clientId,
+        serviceId: newOrderForm.serviceId,
+        customerName: newOrderForm.customerName,
+        dateSold: newOrderForm.dateSold,
+        customerPhone: newOrderForm.customerPhone,
+        customerAddress: newOrderForm.customerAddress,
+        accountNumber: newOrderForm.accountNumber,
+        repId: newOrderForm.repId,
+        mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
+      });
+      setShowNewOrderDialog(false);
+      setShowMobileOrderDialog(true);
+      toast({ title: "Order created", description: "Now add mobile order details" });
+    } catch (error: any) {
+      // Error already handled by mutation's onError
+    }
   };
 
   const handleDeleteOrder = async (orderId: string) => {
