@@ -1810,8 +1810,12 @@ export const arExpectations = pgTable("ar_expectations", {
   orderId: varchar("order_id").references(() => salesOrders.id),
   financeImportRowId: varchar("finance_import_row_id").unique().references(() => financeImportRows.id),
   expectedAmountCents: integer("expected_amount_cents").notNull(),
+  actualAmountCents: integer("actual_amount_cents").notNull().default(0),
+  varianceAmountCents: integer("variance_amount_cents").notNull().default(0),
+  varianceReason: text("variance_reason"),
   expectedFromDate: date("expected_from_date").notNull(),
   status: arExpectationStatusEnum("status").notNull().default("OPEN"),
+  hasVariance: boolean("has_variance").notNull().default(false),
   satisfiedAt: timestamp("satisfied_at"),
   writtenOffAt: timestamp("written_off_at"),
   writtenOffByUserId: varchar("written_off_by_user_id").references(() => users.id),
@@ -1820,11 +1824,30 @@ export const arExpectations = pgTable("ar_expectations", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const arExpectationsRelations = relations(arExpectations, ({ one }) => ({
+export const arExpectationsRelations = relations(arExpectations, ({ one, many }) => ({
   client: one(clients, { fields: [arExpectations.clientId], references: [clients.id] }),
   order: one(salesOrders, { fields: [arExpectations.orderId], references: [salesOrders.id] }),
   financeImportRow: one(financeImportRows, { fields: [arExpectations.financeImportRowId], references: [financeImportRows.id] }),
   writtenOffBy: one(users, { fields: [arExpectations.writtenOffByUserId], references: [users.id] }),
+  payments: many(arPayments),
+}));
+
+// AR Payments - track partial payments against AR expectations
+export const arPayments = pgTable("ar_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  arExpectationId: varchar("ar_expectation_id").notNull().references(() => arExpectations.id),
+  amountCents: integer("amount_cents").notNull(),
+  paymentDate: date("payment_date").notNull(),
+  paymentReference: text("payment_reference"),
+  paymentMethod: text("payment_method"),
+  notes: text("notes"),
+  recordedByUserId: varchar("recorded_by_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const arPaymentsRelations = relations(arPayments, ({ one }) => ({
+  arExpectation: one(arExpectations, { fields: [arPayments.arExpectationId], references: [arExpectations.id] }),
+  recordedBy: one(users, { fields: [arPayments.recordedByUserId], references: [users.id] }),
 }));
 
 // Finance Periods - optional period tracking
@@ -1891,6 +1914,13 @@ export const insertArExpectationSchema = createInsertSchema(arExpectations).omit
 });
 export type ArExpectation = typeof arExpectations.$inferSelect;
 export type InsertArExpectation = z.infer<typeof insertArExpectationSchema>;
+
+export const insertArPaymentSchema = createInsertSchema(arPayments).omit({ 
+  id: true, 
+  createdAt: true 
+});
+export type ArPayment = typeof arPayments.$inferSelect;
+export type InsertArPayment = z.infer<typeof insertArPaymentSchema>;
 
 export const insertFinancePeriodSchema = createInsertSchema(financePeriods).omit({ 
   id: true, 
