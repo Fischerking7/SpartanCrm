@@ -15,7 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag, Smartphone, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag, Smartphone, ThumbsUp, ThumbsDown, DollarSign } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { SalesOrder, Client, Provider, Service, User, CommissionLineItem, RateCard } from "@shared/schema";
 
@@ -56,7 +56,7 @@ export default function Orders() {
   const [fromLeadId, setFromLeadId] = useState<string | null>(null);
   const [flaggingOrder, setFlaggingOrder] = useState<SalesOrder | null>(null);
   const [flagReason, setFlagReason] = useState("");
-  const [activeTab, setActiveTab] = useState<"orders" | "mobile">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "mobile" | "approved" | "paid">("orders");
   const [showMobileOrderDialog, setShowMobileOrderDialog] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("global");
@@ -901,9 +901,27 @@ export default function Orders() {
 
   const filteredOrders = orders?.filter((order) => {
     const isMobile = (order as any).isMobileOrder === true;
-    const matchesTab = activeTab === "mobile" 
-      ? isMobile
-      : !isMobile;
+    const isApproved = order.approvalStatus === "APPROVED";
+    const isPaid = order.paymentStatus === "PAID";
+    const isAdminOps = user?.role === "ADMIN" || user?.role === "OPERATIONS";
+    
+    let matchesTab = false;
+    if (activeTab === "mobile") {
+      // For ADMIN/OPS: mobile orders that aren't in approved/paid pools
+      // For others: all mobile orders
+      matchesTab = isMobile && (isAdminOps ? !isApproved && !isPaid : true);
+    } else if (activeTab === "approved") {
+      // Only ADMIN/OPS can access this tab - approved but not paid
+      matchesTab = isApproved && !isPaid;
+    } else if (activeTab === "paid") {
+      // Only ADMIN/OPS can access this tab - paid orders
+      matchesTab = isPaid;
+    } else {
+      // Main orders tab: non-mobile
+      // For ADMIN/OPS: exclude approved and paid (they're in other pools)
+      // For others: show all non-mobile orders
+      matchesTab = !isMobile && (isAdminOps ? !isApproved && !isPaid : true);
+    }
     const matchesSearch =
       order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1297,13 +1315,17 @@ export default function Orders() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile")}>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile" | "approved" | "paid")}>
         <TabsList>
           <TabsTrigger value="orders" data-testid="tab-my-orders">
             {user?.role === "REP" ? "My Orders" : user?.role === "MANAGER" ? "Team Orders" : "All Orders"}
             {orders && (
               <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
-                {orders.filter(o => !(o as any).isMobileOrder).length}
+                {orders.filter(o => {
+                  const notMobile = !(o as any).isMobileOrder;
+                  const isAdminOps = user?.role === "ADMIN" || user?.role === "OPERATIONS";
+                  return notMobile && (isAdminOps ? o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" : true);
+                }).length}
               </span>
             )}
           </TabsTrigger>
@@ -1312,10 +1334,36 @@ export default function Orders() {
             Mobile Orders
             {orders && (
               <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
-                {orders.filter(o => (o as any).isMobileOrder === true).length}
+                {orders.filter(o => {
+                  const isMobile = (o as any).isMobileOrder === true;
+                  const isAdminOps = user?.role === "ADMIN" || user?.role === "OPERATIONS";
+                  return isMobile && (isAdminOps ? o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" : true);
+                }).length}
               </span>
             )}
           </TabsTrigger>
+          {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && (
+            <>
+              <TabsTrigger value="approved" data-testid="tab-approved-pool">
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Approved Pool
+                {orders && (
+                  <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
+                    {orders.filter(o => o.approvalStatus === "APPROVED" && o.paymentStatus !== "PAID").length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="paid" data-testid="tab-paid-pool">
+                <DollarSign className="h-4 w-4 mr-1" />
+                Paid Pool
+                {orders && (
+                  <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
+                    {orders.filter(o => o.paymentStatus === "PAID").length}
+                  </span>
+                )}
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
       </Tabs>
 
