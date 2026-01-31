@@ -3,12 +3,13 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Download, Upload, FileSpreadsheet, DollarSign, Layers } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, DollarSign, Layers, Receipt } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -18,6 +19,7 @@ export default function Accounting() {
   const { toast } = useToast();
   const [selectedPayRunId, setSelectedPayRunId] = useState<string>("");
   const [reexportAll, setReexportAll] = useState(false);
+  const [weekEndingDate, setWeekEndingDate] = useState<string>("");
   const paymentFileRef = useRef<HTMLInputElement>(null);
   const chargebackFileRef = useRef<HTMLInputElement>(null);
 
@@ -171,6 +173,30 @@ export default function Accounting() {
     }
   };
 
+  const generatePayStubsMutation = useMutation({
+    mutationFn: async (weekEndingDate: string) => {
+      const res = await fetch("/api/admin/payroll/generate-weekly-stubs", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ weekEndingDate }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to generate pay stubs");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payroll/statements"] });
+      setWeekEndingDate("");
+      toast({ title: `Generated ${data.generated} pay stubs successfully` });
+    },
+    onError: (error: Error) => {
+      toast({ title: error.message, variant: "destructive" });
+    },
+  });
+
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -217,6 +243,10 @@ export default function Accounting() {
             {poolEntries && poolEntries.length > 0 && (
               <Badge variant="secondary" className="ml-2">{poolEntries.length}</Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="payroll" data-testid="tab-payroll">
+            <Receipt className="h-4 w-4 mr-2" />
+            Payroll
           </TabsTrigger>
         </TabsList>
 
@@ -378,6 +408,41 @@ export default function Accounting() {
                   No pending override deductions in pool.
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="payroll">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Generate Pay Stubs</CardTitle>
+              <CardDescription>
+                Generate pay statements for all reps with paid orders in the selected week.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="weekEndingDate">Week Ending Date</Label>
+                <Input
+                  id="weekEndingDate"
+                  type="date"
+                  value={weekEndingDate}
+                  onChange={(e) => setWeekEndingDate(e.target.value)}
+                  className="w-[200px]"
+                  data-testid="input-week-ending-date"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Pay stubs will include all orders paid within 7 days before this date.
+                </p>
+              </div>
+              <Button 
+                onClick={() => generatePayStubsMutation.mutate(weekEndingDate)}
+                disabled={generatePayStubsMutation.isPending || !weekEndingDate}
+                data-testid="button-generate-pay-stubs"
+              >
+                <Receipt className="h-4 w-4 mr-2" />
+                {generatePayStubsMutation.isPending ? "Generating..." : "Generate Pay Stubs"}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
