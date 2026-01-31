@@ -44,6 +44,7 @@ export default function Orders() {
   const [clientFilter, setClientFilter] = useState<string>("all");
   const [dateFromFilter, setDateFromFilter] = useState<string>("");
   const [dateToFilter, setDateToFilter] = useState<string>("");
+  const [dateFilterType, setDateFilterType] = useState<string>("installDate");
   const [exportFilter, setExportFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("createdAt_desc");
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
@@ -925,7 +926,8 @@ export default function Orders() {
     const matchesStatus = statusFilter === "all" || order.jobStatus === statusFilter;
     const matchesProvider = providerFilter === "all" || order.providerId === providerFilter;
     const matchesClient = clientFilter === "all" || order.clientId === clientFilter;
-    const orderDate = order.dateSold?.split('T')[0] || order.dateSold;
+    const dateField = dateFilterType === "installDate" ? order.installDate : order.dateSold;
+    const orderDate = dateField?.split('T')[0] || dateField || "";
     const matchesDateFrom = !dateFromFilter || orderDate >= dateFromFilter;
     const matchesDateTo = !dateToFilter || orderDate <= dateToFilter;
     const matchesExport = exportFilter === "all" || 
@@ -1418,6 +1420,15 @@ export default function Orders() {
               </SelectContent>
             </Select>
                         <div className="flex items-center gap-2">
+              <Select value={dateFilterType} onValueChange={setDateFilterType}>
+                <SelectTrigger className="w-[130px]" data-testid="select-date-filter-type">
+                  <SelectValue placeholder="Date Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="installDate">Install Date</SelectItem>
+                  <SelectItem value="dateSold">Date Sold</SelectItem>
+                </SelectContent>
+              </Select>
               <Input
                 type="date"
                 value={dateFromFilter}
