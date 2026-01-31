@@ -10550,14 +10550,12 @@ export async function registerRoutes(
   }
 
   // Helper function to compute file hash
-  async function computeFileHash(buffer: Buffer): Promise<string> {
-    const crypto = await import('crypto');
+  function computeFileHash(buffer: Buffer): string {
     return crypto.createHash('sha256').update(buffer).digest('hex');
   }
 
   // Helper to compute row fingerprint
   function computeRowFingerprint(clientId: string, customerNameNorm: string, saleDate: string, expectedAmountCents: number, serviceType: string): string {
-    const crypto = require('crypto');
     const data = `${clientId}|${customerNameNorm}|${saleDate}|${expectedAmountCents}|${serviceType}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }
@@ -10641,7 +10639,7 @@ export async function registerRoutes(
       const sourceType = isXlsx ? 'XLSX' : 'CSV';
 
       // Compute file hash
-      const fileHash = await computeFileHash(req.file.buffer);
+      const fileHash = computeFileHash(req.file.buffer);
 
       // Check for duplicate import
       const existingImport = await storage.getFinanceImportByClientAndHash(clientId, fileHash);
