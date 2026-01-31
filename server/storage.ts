@@ -65,6 +65,7 @@ import {
   type FinanceImportRowRaw, type InsertFinanceImportRowRaw,
   type FinanceImportRow, type InsertFinanceImportRow,
   type ArExpectation, type InsertArExpectation,
+  type ArPayment, type InsertArPayment, arPayments,
   type ClientColumnMapping, type InsertClientColumnMapping,
 } from "@shared/schema";
 
@@ -3794,15 +3795,23 @@ export const storage = {
     return result;
   },
 
-  async getArExpectations(clientId?: string, status?: string) {
+  async getArExpectations(clientId?: string, status?: string, hasVariance?: boolean) {
     const conditions = [];
     if (clientId) conditions.push(eq(arExpectations.clientId, clientId));
     if (status) conditions.push(eq(arExpectations.status, status as any));
+    if (hasVariance !== undefined) conditions.push(eq(arExpectations.hasVariance, hasVariance));
     
     return db.query.arExpectations.findMany({
       where: conditions.length > 0 ? and(...conditions) : undefined,
       orderBy: [desc(arExpectations.createdAt)],
-      with: { client: true, order: true }
+      with: { client: true, order: true, payments: true }
+    });
+  },
+
+  async getArExpectationById(id: string) {
+    return db.query.arExpectations.findFirst({
+      where: eq(arExpectations.id, id),
+      with: { client: true, order: true, payments: { with: { recordedBy: true } } }
     });
   },
 
@@ -3825,10 +3834,32 @@ export const storage = {
       clientId: arExpectations.clientId,
       status: arExpectations.status,
       totalCents: sql<number>`SUM(expected_amount_cents)::int`,
+      totalActualCents: sql<number>`SUM(actual_amount_cents)::int`,
+      totalVarianceCents: sql<number>`SUM(variance_amount_cents)::int`,
+      varianceCount: sql<number>`COUNT(*) FILTER (WHERE has_variance = true)::int`,
       count: sql<number>`COUNT(*)::int`
     })
       .from(arExpectations)
       .groupBy(arExpectations.clientId, arExpectations.status);
+  },
+
+  // AR Payments
+  async createArPayment(data: InsertArPayment) {
+    const [result] = await db.insert(arPayments).values(data).returning();
+    return result;
+  },
+
+  async getArPaymentsByExpectationId(arExpectationId: string) {
+    return db.query.arPayments.findMany({
+      where: eq(arPayments.arExpectationId, arExpectationId),
+      orderBy: [desc(arPayments.paymentDate)],
+      with: { recordedBy: true }
+    });
+  },
+
+  async deleteArPayment(id: string) {
+    const [result] = await db.delete(arPayments).where(eq(arPayments.id, id)).returning();
+    return result;
   },
 
   // Client Column Mappings

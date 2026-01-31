@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -11403,7 +11403,8 @@ export async function registerRoutes(
     try {
       const clientId = req.query.clientId as string | undefined;
       const status = req.query.status as string | undefined;
-      const expectations = await storage.getArExpectations(clientId, status);
+      const hasVariance = req.query.hasVariance === 'true' ? true : req.query.hasVariance === 'false' ? false : undefined;
+      const expectations = await storage.getArExpectations(clientId, status, hasVariance);
       res.json(expectations);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to get AR expectations" });
@@ -11416,6 +11417,188 @@ export async function registerRoutes(
       res.json(summary);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to get AR summary" });
+    }
+  });
+
+  // Get single AR expectation with payments
+  app.get("/api/finance/ar/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const ar = await storage.getArExpectationById(req.params.id);
+      if (!ar) return res.status(404).json({ message: "AR expectation not found" });
+      res.json(ar);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get AR expectation" });
+    }
+  });
+
+  // Record a payment against an AR expectation
+  app.post("/api/finance/ar/:id/payments", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { amountCents, paymentDate, paymentReference, paymentMethod, notes } = req.body;
+      
+      if (!amountCents || amountCents <= 0) {
+        return res.status(400).json({ message: "Valid payment amount is required" });
+      }
+      
+      const ar = await storage.getArExpectationById(req.params.id);
+      if (!ar) return res.status(404).json({ message: "AR expectation not found" });
+      
+      // Create the payment
+      const payment = await storage.createArPayment({
+        arExpectationId: req.params.id,
+        amountCents,
+        paymentDate: paymentDate || new Date().toISOString().split('T')[0],
+        paymentReference,
+        paymentMethod,
+        notes,
+        recordedByUserId: req.user!.id,
+      });
+      
+      // Calculate new totals
+      const allPayments = await storage.getArPaymentsByExpectationId(req.params.id);
+      const totalPaidCents = allPayments.reduce((sum, p) => sum + p.amountCents, 0);
+      const varianceCents = ar.expectedAmountCents - totalPaidCents;
+      const hasVariance = varianceCents !== 0;
+      
+      // Determine new status
+      let newStatus = ar.status;
+      if (totalPaidCents === 0) {
+        newStatus = 'OPEN';
+      } else if (totalPaidCents >= ar.expectedAmountCents) {
+        newStatus = 'SATISFIED';
+      } else if (totalPaidCents > 0) {
+        newStatus = 'PARTIAL';
+      }
+      
+      // Update the AR expectation
+      await storage.updateArExpectation(req.params.id, {
+        actualAmountCents: totalPaidCents,
+        varianceAmountCents: varianceCents,
+        hasVariance,
+        status: newStatus,
+        satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
+      });
+      
+      await storage.createAuditLog({
+        action: "ar_payment_recorded",
+        tableName: "ar_payments",
+        recordId: payment.id,
+        afterJson: JSON.stringify({ payment, totalPaidCents, varianceCents, newStatus }),
+        userId: req.user!.id,
+      });
+      
+      res.json({ payment, totalPaidCents, varianceCents, newStatus });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to record payment" });
+    }
+  });
+
+  // Delete an AR payment
+  app.delete("/api/finance/ar/payments/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payments = await storage.getArPaymentsByExpectationId(req.params.id);
+      // Find the payment to get its AR expectation ID
+      const result = await db.query.arPayments.findFirst({
+        where: eq(arPayments.id, req.params.id)
+      });
+      
+      if (!result) return res.status(404).json({ message: "Payment not found" });
+      
+      const arId = result.arExpectationId;
+      await storage.deleteArPayment(req.params.id);
+      
+      // Recalculate totals for the AR expectation
+      const ar = await storage.getArExpectationById(arId);
+      if (ar) {
+        const allPayments = await storage.getArPaymentsByExpectationId(arId);
+        const totalPaidCents = allPayments.reduce((sum, p) => sum + p.amountCents, 0);
+        const varianceCents = ar.expectedAmountCents - totalPaidCents;
+        const hasVariance = varianceCents !== 0;
+        
+        let newStatus = 'OPEN';
+        if (totalPaidCents >= ar.expectedAmountCents) {
+          newStatus = 'SATISFIED';
+        } else if (totalPaidCents > 0) {
+          newStatus = 'PARTIAL';
+        }
+        
+        await storage.updateArExpectation(arId, {
+          actualAmountCents: totalPaidCents,
+          varianceAmountCents: varianceCents,
+          hasVariance,
+          status: newStatus,
+          satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
+        });
+      }
+      
+      await storage.createAuditLog({
+        action: "ar_payment_deleted",
+        tableName: "ar_payments",
+        recordId: req.params.id,
+        beforeJson: JSON.stringify(result),
+        userId: req.user!.id,
+      });
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete payment" });
+    }
+  });
+
+  // Update variance reason for an AR expectation
+  app.patch("/api/finance/ar/:id/variance", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { varianceReason } = req.body;
+      
+      const ar = await storage.getArExpectationById(req.params.id);
+      if (!ar) return res.status(404).json({ message: "AR expectation not found" });
+      
+      const updated = await storage.updateArExpectation(req.params.id, {
+        varianceReason,
+      });
+      
+      await storage.createAuditLog({
+        action: "ar_variance_reason_updated",
+        tableName: "ar_expectations",
+        recordId: req.params.id,
+        beforeJson: JSON.stringify({ varianceReason: ar.varianceReason }),
+        afterJson: JSON.stringify({ varianceReason }),
+        userId: req.user!.id,
+      });
+      
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update variance reason" });
+    }
+  });
+
+  // Write off an AR expectation
+  app.post("/api/finance/ar/:id/write-off", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { reason } = req.body;
+      if (!reason) return res.status(400).json({ message: "Write-off reason is required" });
+      
+      const ar = await storage.getArExpectationById(req.params.id);
+      if (!ar) return res.status(404).json({ message: "AR expectation not found" });
+      
+      const updated = await storage.updateArExpectation(req.params.id, {
+        status: 'WRITTEN_OFF',
+        writtenOffAt: new Date(),
+        writtenOffByUserId: req.user!.id,
+        writtenOffReason: reason,
+      });
+      
+      await storage.createAuditLog({
+        action: "ar_written_off",
+        tableName: "ar_expectations",
+        recordId: req.params.id,
+        afterJson: JSON.stringify({ reason }),
+        userId: req.user!.id,
+      });
+      
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to write off AR" });
     }
   });
 
