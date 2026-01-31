@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
-import { JobStatusBadge, PaymentStatusBadge } from "@/components/status-badge";
+import { JobStatusBadge, PaymentStatusBadge, ApprovalStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag, Smartphone } from "lucide-react";
+import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag, Smartphone, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { SalesOrder, Client, Provider, Service, User, CommissionLineItem, RateCard } from "@shared/schema";
 
@@ -60,6 +60,10 @@ export default function Orders() {
   const [showMobileOrderDialog, setShowMobileOrderDialog] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("global");
+  const [approvalFilter, setApprovalFilter] = useState<string>("all");
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectingOrder, setRejectingOrder] = useState<SalesOrder | null>(null);
+  const [rejectionNote, setRejectionNote] = useState("");
 
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
@@ -570,6 +574,89 @@ export default function Orders() {
     },
   });
 
+  const approveOrderMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await fetch(`/api/orders/${orderId}/approve`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to approve order");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setSelectedOrder(data);
+      toast({ title: "Order approved successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to approve order", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const rejectOrderMutation = useMutation({
+    mutationFn: async ({ orderId, rejectionNote }: { orderId: string; rejectionNote: string }) => {
+      const res = await fetch(`/api/orders/${orderId}/reject`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ rejectionNote }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to reject order");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setSelectedOrder(data);
+      setShowRejectDialog(false);
+      setRejectingOrder(null);
+      setRejectionNote("");
+      toast({ title: "Order rejected" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to reject order", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const bulkApproveOrdersMutation = useMutation({
+    mutationFn: async (orderIds: string[]) => {
+      const res = await fetch("/api/orders/bulk-approve", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to bulk approve orders");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setSelectedOrderIds(new Set());
+      toast({ title: `Approved ${data.approved} orders${data.skipped > 0 ? `, ${data.skipped} skipped` : ""}` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to bulk approve orders", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleRejectOrder = (order: SalesOrder) => {
+    setRejectingOrder(order);
+    setRejectionNote("");
+    setShowRejectDialog(true);
+  };
+
+  const handleConfirmReject = () => {
+    if (rejectingOrder && rejectionNote.trim()) {
+      rejectOrderMutation.mutate({ orderId: rejectingOrder.id, rejectionNote: rejectionNote.trim() });
+    }
+  };
+
   const handleExportToExcel = () => {
     if (!filteredOrders?.length) {
       toast({ title: "No orders to export", variant: "destructive" });
@@ -832,7 +919,8 @@ export default function Orders() {
       (exportFilter === "exported" && order.exportedToAccounting) ||
       (exportFilter === "unexported" && !order.exportedToAccounting) ||
       (exportFilter === "ready" && order.jobStatus === "COMPLETED" && !order.exportedToAccounting);
-    return matchesTab && matchesSearch && matchesStatus && matchesProvider && matchesClient && matchesDateFrom && matchesDateTo && matchesExport;
+    const matchesApproval = approvalFilter === "all" || order.approvalStatus === approvalFilter;
+    return matchesTab && matchesSearch && matchesStatus && matchesProvider && matchesClient && matchesDateFrom && matchesDateTo && matchesExport && matchesApproval;
   }).sort((a, b) => {
     const [field, direction] = sortBy.split("_");
     const multiplier = direction === "asc" ? 1 : -1;
@@ -1079,6 +1167,12 @@ export default function Orders() {
       header: "Payment",
       cell: (row: SalesOrder) => <PaymentStatusBadge status={row.paymentStatus} />,
     }] : []),
+    // Approval status column
+    {
+      key: "approvalStatus",
+      header: "Approval",
+      cell: (row: SalesOrder) => <ApprovalStatusBadge status={row.approvalStatus} />,
+    },
     {
       key: "flag",
       header: "",
@@ -1155,15 +1249,26 @@ export default function Orders() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && selectedOrderIds.size > 0 && (
-            <Button 
-              variant="default"
-              onClick={handleBulkMarkPaid}
-              disabled={bulkMarkPaidMutation.isPending}
-              data-testid="button-bulk-mark-paid"
-            >
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Mark {selectedOrderIds.size} as Paid
-            </Button>
+            <>
+              <Button 
+                variant="default"
+                onClick={handleBulkMarkPaid}
+                disabled={bulkMarkPaidMutation.isPending}
+                data-testid="button-bulk-mark-paid"
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Mark {selectedOrderIds.size} as Paid
+              </Button>
+              <Button 
+                variant="default"
+                onClick={() => bulkApproveOrdersMutation.mutate(Array.from(selectedOrderIds))}
+                disabled={bulkApproveOrdersMutation.isPending}
+                data-testid="button-bulk-approve"
+              >
+                <ThumbsUp className="h-4 w-4 mr-2" />
+                Approve {selectedOrderIds.size}
+              </Button>
+            </>
           )}
           {isAdmin && (
             <>
@@ -1292,6 +1397,17 @@ export default function Orders() {
                 </SelectContent>
               </Select>
             )}
+            <Select value={approvalFilter} onValueChange={setApprovalFilter}>
+              <SelectTrigger className="w-[160px]" data-testid="select-approval-filter">
+                <SelectValue placeholder="Approval" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Approval</SelectItem>
+                <SelectItem value="UNAPPROVED">Pending Approval</SelectItem>
+                <SelectItem value="APPROVED">Approved</SelectItem>
+                <SelectItem value="REJECTED">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger className="w-[180px]" data-testid="select-sort-orders">
                 <SelectValue placeholder="Sort by" />
@@ -1790,8 +1906,42 @@ export default function Orders() {
               </div>
             </div>
           )}
-          <DialogFooter className="gap-2">
-                        {/* Mark as Paid only visible to ADMIN and OPERATIONS */}
+          <DialogFooter className="gap-2 flex-wrap">
+            {/* Approve/Reject buttons for ADMIN, OPERATIONS, EXECUTIVE */}
+            {isAdmin && selectedOrder && selectedOrder.approvalStatus === "UNAPPROVED" && (
+              <>
+                <Button 
+                  variant="default"
+                  onClick={() => approveOrderMutation.mutate(selectedOrder.id)}
+                  disabled={approveOrderMutation.isPending}
+                  data-testid="button-approve-order"
+                >
+                  <ThumbsUp className="h-4 w-4 mr-2" />
+                  {approveOrderMutation.isPending ? "Approving..." : "Approve"}
+                </Button>
+                <Button 
+                  variant="destructive"
+                  onClick={() => handleRejectOrder(selectedOrder)}
+                  disabled={rejectOrderMutation.isPending}
+                  data-testid="button-reject-order"
+                >
+                  <ThumbsDown className="h-4 w-4 mr-2" />
+                  Reject
+                </Button>
+              </>
+            )}
+            {/* Show approval status if already approved/rejected */}
+            {selectedOrder && selectedOrder.approvalStatus !== "UNAPPROVED" && (
+              <div className="flex items-center gap-2 mr-auto">
+                <ApprovalStatusBadge status={selectedOrder.approvalStatus} />
+                {selectedOrder.rejectionNote && (
+                  <span className="text-sm text-muted-foreground">
+                    Reason: {selectedOrder.rejectionNote}
+                  </span>
+                )}
+              </div>
+            )}
+            {/* Mark as Paid only visible to ADMIN and OPERATIONS */}
             {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && selectedOrder && selectedOrder.paymentStatus !== "PAID" && (
               <Button 
                 onClick={() => markPaidMutation.mutate(selectedOrder.id)}
@@ -2389,6 +2539,49 @@ export default function Orders() {
               data-testid="button-submit-mobile-order"
             >
               {createMobileOrderMutation.isPending ? "Creating..." : "Create Mobile Order"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Order Dialog */}
+      <Dialog open={showRejectDialog} onOpenChange={(open) => { 
+        if (!open) { 
+          setShowRejectDialog(false); 
+          setRejectingOrder(null); 
+          setRejectionNote(""); 
+        } 
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Order</DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejecting order {rejectingOrder?.invoiceNumber || rejectingOrder?.id?.slice(0, 8)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Rejection Reason *</Label>
+              <Textarea
+                value={rejectionNote}
+                onChange={(e) => setRejectionNote(e.target.value)}
+                placeholder="Enter the reason for rejection..."
+                rows={3}
+                data-testid="input-rejection-note"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowRejectDialog(false); setRejectingOrder(null); setRejectionNote(""); }}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={handleConfirmReject}
+              disabled={rejectOrderMutation.isPending || !rejectionNote.trim()}
+              data-testid="button-confirm-reject"
+            >
+              {rejectOrderMutation.isPending ? "Rejecting..." : "Confirm Reject"}
             </Button>
           </DialogFooter>
         </DialogContent>

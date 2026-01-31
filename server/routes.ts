@@ -1885,6 +1885,170 @@ export async function registerRoutes(
     }
   });
 
+  // Approve order - ADMIN, OPERATIONS, EXECUTIVE only
+  app.post("/api/orders/:id/approve", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user!;
+      
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Only ADMIN, OPERATIONS, or EXECUTIVE can approve orders" });
+      }
+      
+      const order = await storage.getOrderById(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      
+      if (order.approvalStatus === "APPROVED") {
+        return res.status(400).json({ message: "Order is already approved" });
+      }
+      
+      const beforeJson = JSON.stringify(order);
+      const now = new Date();
+      
+      // When approving, also set jobStatus to COMPLETED if not already
+      const updates: Record<string, any> = {
+        approvalStatus: "APPROVED",
+        approvedByUserId: user.id,
+        approvedAt: now,
+      };
+      
+      // Set job status to COMPLETED upon approval if still pending
+      if (order.jobStatus === "PENDING") {
+        updates.jobStatus = "COMPLETED";
+      }
+      
+      const updatedOrder = await storage.updateOrder(id, updates);
+      
+      // Generate override earnings upon approval
+      if (updatedOrder) {
+        const overrideEarnings = await generateOverrideEarnings(order, updatedOrder);
+        for (const earning of overrideEarnings) {
+          await storage.createOverrideEarning(earning);
+        }
+      }
+      
+      await storage.createAuditLog({
+        action: "approve_order",
+        tableName: "sales_orders",
+        recordId: id,
+        beforeJson,
+        afterJson: JSON.stringify(updatedOrder),
+        userId: user.id,
+      });
+      
+      res.json(updatedOrder);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to approve order" });
+    }
+  });
+
+  // Reject order - ADMIN, OPERATIONS, EXECUTIVE only
+  app.post("/api/orders/:id/reject", auth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { rejectionNote } = req.body;
+      const user = req.user!;
+      
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Only ADMIN, OPERATIONS, or EXECUTIVE can reject orders" });
+      }
+      
+      if (!rejectionNote || rejectionNote.trim() === "") {
+        return res.status(400).json({ message: "Rejection note is required" });
+      }
+      
+      const order = await storage.getOrderById(id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      
+      if (order.approvalStatus === "REJECTED") {
+        return res.status(400).json({ message: "Order is already rejected" });
+      }
+      
+      const beforeJson = JSON.stringify(order);
+      
+      const updatedOrder = await storage.updateOrder(id, {
+        approvalStatus: "REJECTED",
+        rejectionNote: rejectionNote.trim(),
+        approvedByUserId: user.id,
+        approvedAt: new Date(),
+      });
+      
+      await storage.createAuditLog({
+        action: "reject_order",
+        tableName: "sales_orders",
+        recordId: id,
+        beforeJson,
+        afterJson: JSON.stringify(updatedOrder),
+        userId: user.id,
+      });
+      
+      res.json(updatedOrder);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to reject order" });
+    }
+  });
+
+  // Bulk approve orders - ADMIN, OPERATIONS, EXECUTIVE only
+  app.post("/api/orders/bulk-approve", auth, async (req: AuthRequest, res) => {
+    try {
+      const { orderIds } = req.body;
+      const user = req.user!;
+      
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
+        return res.status(403).json({ message: "Only ADMIN, OPERATIONS, or EXECUTIVE can approve orders" });
+      }
+      
+      if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json({ message: "Order IDs array is required" });
+      }
+      
+      let approved = 0;
+      let skipped = 0;
+      const now = new Date();
+      
+      for (const id of orderIds) {
+        const order = await storage.getOrderById(id);
+        if (!order || order.approvalStatus === "APPROVED") {
+          skipped++;
+          continue;
+        }
+        
+        const updates: Record<string, any> = {
+          approvalStatus: "APPROVED",
+          approvedByUserId: user.id,
+          approvedAt: now,
+        };
+        
+        if (order.jobStatus === "PENDING") {
+          updates.jobStatus = "COMPLETED";
+        }
+        
+        const updatedOrder = await storage.updateOrder(id, updates);
+        
+        if (updatedOrder) {
+          const overrideEarnings = await generateOverrideEarnings(order, updatedOrder);
+          for (const earning of overrideEarnings) {
+            await storage.createOverrideEarning(earning);
+          }
+        }
+        
+        await storage.createAuditLog({
+          action: "bulk_approve_order",
+          tableName: "sales_orders",
+          recordId: id,
+          beforeJson: JSON.stringify(order),
+          afterJson: JSON.stringify(updatedOrder),
+          userId: user.id,
+        });
+        
+        approved++;
+      }
+      
+      res.json({ approved, skipped });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to bulk approve orders" });
+    }
+  });
   
   // Excel Import for Orders - with file validation
   const upload = multer({ 
