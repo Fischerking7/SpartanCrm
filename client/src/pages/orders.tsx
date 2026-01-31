@@ -56,7 +56,7 @@ export default function Orders() {
   const [fromLeadId, setFromLeadId] = useState<string | null>(null);
   const [flaggingOrder, setFlaggingOrder] = useState<SalesOrder | null>(null);
   const [flagReason, setFlagReason] = useState("");
-  const [activeTab, setActiveTab] = useState<"orders" | "mobile" | "approved" | "paid">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "mobile" | "approval-queue" | "approved" | "paid">("orders");
   const [showMobileOrderDialog, setShowMobileOrderDialog] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("global");
@@ -903,13 +903,19 @@ export default function Orders() {
     const isMobile = (order as any).isMobileOrder === true;
     const isApproved = order.approvalStatus === "APPROVED";
     const isPaid = order.paymentStatus === "PAID";
+    const isCompleted = order.jobStatus === "COMPLETED";
+    const isUnapproved = order.approvalStatus === "UNAPPROVED";
+    const isInApprovalQueue = isCompleted && isUnapproved;
     const isAdminOps = user?.role === "ADMIN" || user?.role === "OPERATIONS";
     
     let matchesTab = false;
     if (activeTab === "mobile") {
-      // For ADMIN/OPS: mobile orders that aren't in approved/paid pools
+      // For ADMIN/OPS: mobile orders that aren't in approval queue/approved/paid pools
       // For others: all mobile orders
-      matchesTab = isMobile && (isAdminOps ? !isApproved && !isPaid : true);
+      matchesTab = isMobile && (isAdminOps ? !isApproved && !isPaid && !isInApprovalQueue : true);
+    } else if (activeTab === "approval-queue") {
+      // Only ADMIN/OPS can access this tab - completed but not yet approved
+      matchesTab = isInApprovalQueue;
     } else if (activeTab === "approved") {
       // Only ADMIN/OPS can access this tab - approved but not paid
       matchesTab = isApproved && !isPaid;
@@ -918,9 +924,9 @@ export default function Orders() {
       matchesTab = isPaid;
     } else {
       // Main orders tab: non-mobile
-      // For ADMIN/OPS: exclude approved and paid (they're in other pools)
+      // For ADMIN/OPS: exclude approval queue, approved and paid (they're in other pools)
       // For others: show all non-mobile orders
-      matchesTab = !isMobile && (isAdminOps ? !isApproved && !isPaid : true);
+      matchesTab = !isMobile && (isAdminOps ? !isApproved && !isPaid && !isInApprovalQueue : true);
     }
     const matchesSearch =
       order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1315,7 +1321,7 @@ export default function Orders() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile" | "approved" | "paid")}>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile" | "approval-queue" | "approved" | "paid")}>
         <TabsList>
           <TabsTrigger value="orders" data-testid="tab-my-orders">
             {user?.role === "REP" ? "My Orders" : user?.role === "MANAGER" ? "Team Orders" : "All Orders"}
@@ -1324,7 +1330,7 @@ export default function Orders() {
                 {orders.filter(o => {
                   const notMobile = !(o as any).isMobileOrder;
                   const isAdminOps = user?.role === "ADMIN" || user?.role === "OPERATIONS";
-                  return notMobile && (isAdminOps ? o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" : true);
+                  return notMobile && (isAdminOps ? o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" && !(o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED") : true);
                 }).length}
               </span>
             )}
@@ -1337,13 +1343,22 @@ export default function Orders() {
                 {orders.filter(o => {
                   const isMobile = (o as any).isMobileOrder === true;
                   const isAdminOps = user?.role === "ADMIN" || user?.role === "OPERATIONS";
-                  return isMobile && (isAdminOps ? o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" : true);
+                  return isMobile && (isAdminOps ? o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" && !(o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED") : true);
                 }).length}
               </span>
             )}
           </TabsTrigger>
           {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && (
             <>
+              <TabsTrigger value="approval-queue" data-testid="tab-approval-queue">
+                <ThumbsUp className="h-4 w-4 mr-1" />
+                Approval Queue
+                {orders && (
+                  <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">
+                    {orders.filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED").length}
+                  </span>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="approved" data-testid="tab-approved-pool">
                 <CheckCircle className="h-4 w-4 mr-1" />
                 Approved Pool
