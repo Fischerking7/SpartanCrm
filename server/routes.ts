@@ -1799,8 +1799,14 @@ export async function registerRoutes(
     }
   });
 
-  // Hard delete order (permanently removes order and all related data) - Executive/Admin only
-  app.delete("/api/admin/orders/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  // Hard delete order (permanently removes order and all related data) - Executive/Admin/Operations only
+  app.delete("/api/admin/orders/:id", auth, async (req: AuthRequest, res, next) => {
+    const allowedRoles = ["ADMIN", "EXECUTIVE", "OPERATIONS"];
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+    next();
+  }, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const order = await storage.getOrderById(id);
