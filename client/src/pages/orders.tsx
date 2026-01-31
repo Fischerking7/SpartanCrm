@@ -64,6 +64,8 @@ export default function Orders() {
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectingOrder, setRejectingOrder] = useState<SalesOrder | null>(null);
   const [rejectionNote, setRejectionNote] = useState("");
+  const [showPayStubDialog, setShowPayStubDialog] = useState(false);
+  const [weekEndingDate, setWeekEndingDate] = useState<string>("");
 
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
@@ -818,6 +820,31 @@ export default function Orders() {
     },
   });
 
+  const generatePayStubsMutation = useMutation({
+    mutationFn: async (weekEndingDate: string) => {
+      const res = await fetch("/api/admin/payroll/generate-weekly-stubs", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ weekEndingDate }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to generate pay stubs");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payroll/statements"] });
+      setShowPayStubDialog(false);
+      setWeekEndingDate("");
+      toast({ title: `Generated ${data.generated} pay stubs successfully` });
+    },
+    onError: (error: Error) => {
+      toast({ title: error.message, variant: "destructive" });
+    },
+  });
+
   const handleBulkMarkPaid = () => {
     if (selectedOrderIds.size === 0) {
       toast({ title: "No orders selected", variant: "destructive" });
@@ -1369,6 +1396,18 @@ export default function Orders() {
             </>
           )}
         </TabsList>
+        {activeTab === "paid" && isAdmin && (
+          <div className="ml-auto">
+            <Button 
+              variant="default" 
+              onClick={() => setShowPayStubDialog(true)}
+              data-testid="button-generate-pay-stubs"
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              Generate Pay Stubs
+            </Button>
+          </div>
+        )}
       </Tabs>
 
       <Card>
@@ -2634,6 +2673,44 @@ export default function Orders() {
               data-testid="button-confirm-reject"
             >
               {rejectOrderMutation.isPending ? "Rejecting..." : "Confirm Reject"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPayStubDialog} onOpenChange={setShowPayStubDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Generate Pay Stubs</DialogTitle>
+            <DialogDescription>
+              Generate pay statements for all reps with paid orders in the selected week.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="weekEndingDate">Week Ending Date</Label>
+              <Input
+                id="weekEndingDate"
+                type="date"
+                value={weekEndingDate}
+                onChange={(e) => setWeekEndingDate(e.target.value)}
+                data-testid="input-week-ending-date"
+              />
+              <p className="text-sm text-muted-foreground">
+                Pay stubs will include all orders paid within 7 days before this date.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPayStubDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => generatePayStubsMutation.mutate(weekEndingDate)}
+              disabled={generatePayStubsMutation.isPending || !weekEndingDate}
+              data-testid="button-confirm-generate-stubs"
+            >
+              {generatePayStubsMutation.isPending ? "Generating..." : "Generate Pay Stubs"}
             </Button>
           </DialogFooter>
         </DialogContent>
