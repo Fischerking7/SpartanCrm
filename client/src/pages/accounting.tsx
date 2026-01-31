@@ -9,17 +9,40 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Download, Upload, FileSpreadsheet, DollarSign, Layers, Receipt } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, DollarSign, Layers, Receipt, ArrowDownCircle } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import type { PayRun } from "@shared/schema";
+
+interface GeneratedPayStubResult {
+  generated: number;
+  periodStart: string;
+  periodEnd: string;
+  statements: Array<{
+    id: string;
+    userId: string;
+    grossCommission: string;
+    incentivesTotal: string;
+    chargebacksTotal: string;
+    deductionsTotal: string;
+    netPay: string;
+    status: string;
+    user?: { name: string; repId: string };
+  }>;
+}
+
+function formatCurrency(amount: string | number) {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num);
+}
 
 export default function Accounting() {
   const { toast } = useToast();
   const [selectedPayRunId, setSelectedPayRunId] = useState<string>("");
   const [reexportAll, setReexportAll] = useState(false);
   const [weekEndingDate, setWeekEndingDate] = useState<string>("");
+  const [lastResult, setLastResult] = useState<GeneratedPayStubResult | null>(null);
   const paymentFileRef = useRef<HTMLInputElement>(null);
   const chargebackFileRef = useRef<HTMLInputElement>(null);
 
@@ -186,16 +209,50 @@ export default function Accounting() {
       }
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data: GeneratedPayStubResult) => {
+      setLastResult(data);
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payroll/statements"] });
-      setWeekEndingDate("");
-      toast({ title: `Generated ${data.generated} pay stubs successfully` });
+      if (data.generated > 0) {
+        toast({ title: `Generated ${data.generated} pay stubs`, description: `Period: ${data.periodStart} to ${data.periodEnd}` });
+      } else {
+        toast({ title: "No pay stubs generated", description: "No paid orders found in this period", variant: "destructive" });
+      }
     },
     onError: (error: Error) => {
       toast({ title: error.message, variant: "destructive" });
     },
   });
+
+  const exportPayStubsToCSV = () => {
+    if (!lastResult || lastResult.statements.length === 0) return;
+    
+    const headers = ["Rep Name", "Rep ID", "Period Start", "Period End", "Gross Commission", "Incentives", "Chargebacks", "Deductions", "Net Pay", "Status"];
+    const rows = lastResult.statements.map((stmt) => [
+      stmt.user?.name || "Unknown",
+      stmt.user?.repId || stmt.userId,
+      lastResult.periodStart,
+      lastResult.periodEnd,
+      stmt.grossCommission,
+      stmt.incentivesTotal,
+      stmt.chargebacksTotal,
+      stmt.deductionsTotal,
+      stmt.netPay,
+      stmt.status
+    ]);
+    
+    const csvContent = [headers, ...rows].map(row => row.map((cell) => `"${cell}"`).join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `pay-stubs-${lastResult.periodEnd}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast({ title: "Export complete", description: "Pay stubs exported to CSV" });
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -413,38 +470,90 @@ export default function Accounting() {
         </TabsContent>
 
         <TabsContent value="payroll">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Generate Pay Stubs</CardTitle>
-              <CardDescription>
-                Generate pay statements for all reps with paid orders in the selected week.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="weekEndingDate">Week Ending Date</Label>
-                <Input
-                  id="weekEndingDate"
-                  type="date"
-                  value={weekEndingDate}
-                  onChange={(e) => setWeekEndingDate(e.target.value)}
-                  className="w-[200px]"
-                  data-testid="input-week-ending-date"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Pay stubs will include all orders paid within 7 days before this date.
-                </p>
-              </div>
-              <Button 
-                onClick={() => generatePayStubsMutation.mutate(weekEndingDate)}
-                disabled={generatePayStubsMutation.isPending || !weekEndingDate}
-                data-testid="button-generate-pay-stubs"
-              >
-                <Receipt className="h-4 w-4 mr-2" />
-                {generatePayStubsMutation.isPending ? "Generating..." : "Generate Pay Stubs"}
-              </Button>
-            </CardContent>
-          </Card>
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Receipt className="h-5 w-5" />
+                  Generate Pay Stubs
+                </CardTitle>
+                <CardDescription>
+                  Generate pay statements for all reps with paid orders in the selected week.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-end gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="weekEndingDate">Week Ending Date</Label>
+                    <Input
+                      id="weekEndingDate"
+                      type="date"
+                      value={weekEndingDate}
+                      onChange={(e) => setWeekEndingDate(e.target.value)}
+                      className="w-48"
+                      data-testid="input-week-ending-date"
+                    />
+                  </div>
+                  <Button 
+                    onClick={() => generatePayStubsMutation.mutate(weekEndingDate)}
+                    disabled={generatePayStubsMutation.isPending || !weekEndingDate}
+                    data-testid="button-generate-pay-stubs"
+                  >
+                    <Receipt className="h-4 w-4 mr-2" />
+                    {generatePayStubsMutation.isPending ? "Generating..." : "Generate Pay Stubs"}
+                  </Button>
+                </div>
+
+                {lastResult && lastResult.generated > 0 && (
+                  <div className="mt-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="font-medium">Generated Pay Stubs ({lastResult.generated})</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Period: {lastResult.periodStart} to {lastResult.periodEnd}
+                        </p>
+                      </div>
+                      <Button variant="outline" onClick={exportPayStubsToCSV} data-testid="button-export-paystubs-csv">
+                        <ArrowDownCircle className="h-4 w-4 mr-2" />
+                        Export CSV
+                      </Button>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Rep</TableHead>
+                          <TableHead>Gross Commission</TableHead>
+                          <TableHead>Incentives</TableHead>
+                          <TableHead>Deductions</TableHead>
+                          <TableHead>Net Pay</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {lastResult.statements.map((stmt) => (
+                          <TableRow key={stmt.id} data-testid={`row-statement-${stmt.id}`}>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{stmt.user?.name || "Unknown"}</div>
+                                <div className="text-xs text-muted-foreground">{stmt.user?.repId || stmt.userId}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{formatCurrency(stmt.grossCommission)}</TableCell>
+                            <TableCell>{formatCurrency(stmt.incentivesTotal)}</TableCell>
+                            <TableCell>{formatCurrency(stmt.deductionsTotal)}</TableCell>
+                            <TableCell className="font-medium">{formatCurrency(stmt.netPay)}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{stmt.status}</Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

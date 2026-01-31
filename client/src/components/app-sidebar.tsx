@@ -165,8 +165,6 @@ const adminSettingsItems: MenuItem[] = [
   MENU.overrides,
   MENU.empCredentials,
   MENU.adminDisputes,
-  MENU.payroll,
-  MENU.advPayroll,
   MENU.quickbooks,
 ];
 
