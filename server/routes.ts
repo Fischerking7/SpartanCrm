@@ -1506,6 +1506,18 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Missing required fields: clientId, providerId, serviceId, dateSold, customerName" });
       }
       
+      // Validate mobile lines have valid product types
+      const validMobileProductTypes = ["UNLIMITED", "3_GIG", "1_GIG", "BYOD", "OTHER"];
+      if (Array.isArray(mobileLines) && mobileLines.length > 0) {
+        for (const line of mobileLines) {
+          if (!line.mobileProductType || !validMobileProductTypes.includes(line.mobileProductType)) {
+            return res.status(400).json({ message: `Invalid mobile product type. Must be one of: ${validMobileProductTypes.join(", ")}` });
+          }
+        }
+      } else {
+        return res.status(400).json({ message: "At least one mobile line with a valid product type is required" });
+      }
+      
       // Determine repId - admins can assign to any rep, others use their own
       let assignedRepId = user.repId;
       if (["ADMIN", "OPERATIONS"].includes(user.role) && submittedRepId) {
