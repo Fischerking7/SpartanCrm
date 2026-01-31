@@ -139,13 +139,147 @@ export default function Finance() {
     enabled: !!selectedImportId,
   });
 
-  const { data: arSummary } = useQuery<Array<{ clientId: string; status: string; totalCents: number; count: number }>>({
+  const { data: arSummary } = useQuery<Array<{ 
+    clientId: string; 
+    status: string; 
+    totalCents: number; 
+    totalActualCents: number;
+    totalVarianceCents: number;
+    varianceCount: number;
+    count: number 
+  }>>({
     queryKey: ["/api/finance/ar/summary"],
     queryFn: async () => {
       const res = await fetch("/api/finance/ar/summary", { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch AR summary");
       return res.json();
     },
+  });
+
+  const [arFilter, setArFilter] = useState<string>("ALL");
+  const [selectedAr, setSelectedAr] = useState<ArExpectation | null>(null);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentReference, setPaymentReference] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
+  const [varianceReason, setVarianceReason] = useState("");
+
+  interface ArExpectation {
+    id: string;
+    clientId: string;
+    orderId: string | null;
+    expectedAmountCents: number;
+    actualAmountCents: number;
+    varianceAmountCents: number;
+    varianceReason: string | null;
+    expectedFromDate: string;
+    status: string;
+    hasVariance: boolean;
+    client?: { name: string };
+    order?: { invoiceNumber: string; customerName: string };
+    payments?: Array<{
+      id: string;
+      amountCents: number;
+      paymentDate: string;
+      paymentReference: string | null;
+      paymentMethod: string | null;
+      notes: string | null;
+      recordedBy?: { name: string };
+    }>;
+  }
+
+  const { data: arExpectations, refetch: refetchAr } = useQuery<ArExpectation[]>({
+    queryKey: ["/api/finance/ar", arFilter],
+    queryFn: async () => {
+      let url = "/api/finance/ar";
+      if (arFilter === "VARIANCE") url += "?hasVariance=true";
+      else if (arFilter !== "ALL") url += `?status=${arFilter}`;
+      const res = await fetch(url, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch AR");
+      return res.json();
+    },
+  });
+
+  // Helper to fetch and refresh a single AR
+  const fetchSingleAr = async (id: string): Promise<ArExpectation | null> => {
+    const res = await fetch(`/api/finance/ar/${id}`, { headers: getAuthHeaders() });
+    if (!res.ok) return null;
+    return res.json();
+  };
+
+  // Open AR detail dialog with fresh data
+  const openArDetail = async (ar: ArExpectation) => {
+    const fresh = await fetchSingleAr(ar.id);
+    setSelectedAr(fresh || ar);
+    setVarianceReason(fresh?.varianceReason || ar.varianceReason || "");
+  };
+
+  const recordPaymentMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedAr) throw new Error("No AR selected");
+      const amountCents = Math.round(parseFloat(paymentAmount) * 100);
+      const res = await fetch(`/api/finance/ar/${selectedAr.id}/payments`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ amountCents, paymentDate, paymentReference, paymentMethod, notes: paymentNotes }),
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      return res.json();
+    },
+    onSuccess: async () => {
+      toast({ title: "Payment Recorded", description: "Payment has been recorded against this AR" });
+      setShowPaymentDialog(false);
+      setPaymentAmount("");
+      setPaymentReference("");
+      setPaymentMethod("");
+      setPaymentNotes("");
+      // Refresh the selected AR
+      if (selectedAr) {
+        const fresh = await fetchSingleAr(selectedAr.id);
+        setSelectedAr(fresh);
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar/summary"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateVarianceReasonMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const res = await fetch(`/api/finance/ar/${id}/variance`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ varianceReason: reason }),
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Reason Saved" });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const writeOffMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const res = await fetch(`/api/finance/ar/${id}/write-off`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "AR Written Off" });
+      setSelectedAr(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar/summary"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const { data: enrolledReport } = useQuery<any>({
@@ -810,34 +944,152 @@ export default function Finance() {
         </TabsContent>
 
         <TabsContent value="ar" className="space-y-4">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold">{arExpectations?.length || 0}</div>
+                <div className="text-sm text-muted-foreground">Total AR Items</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold text-green-600">
+                  {formatCurrency(arExpectations?.reduce((s, a) => s + a.expectedAmountCents, 0) || 0)}
+                </div>
+                <div className="text-sm text-muted-foreground">Total Expected</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold text-blue-600">
+                  {formatCurrency(arExpectations?.reduce((s, a) => s + a.actualAmountCents, 0) || 0)}
+                </div>
+                <div className="text-sm text-muted-foreground">Total Received</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold text-orange-600">
+                  {formatCurrency(Math.abs(arExpectations?.reduce((s, a) => s + a.varianceAmountCents, 0) || 0))}
+                </div>
+                <div className="text-sm text-muted-foreground">Total Variance</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold text-red-600">
+                  {arExpectations?.filter(a => a.hasVariance).length || 0}
+                </div>
+                <div className="text-sm text-muted-foreground">Discrepancies</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* AR List */}
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                Accounts Receivable Summary
-              </CardTitle>
-              <CardDescription>
-                Track expected payments from clients based on enrolled orders
-              </CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  Accounts Receivable
+                </CardTitle>
+                <CardDescription>
+                  Track expected payments from clients and record actual receipts
+                </CardDescription>
+              </div>
+              <Select value={arFilter} onValueChange={setArFilter}>
+                <SelectTrigger className="w-[150px]" data-testid="select-ar-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All</SelectItem>
+                  <SelectItem value="OPEN">Open</SelectItem>
+                  <SelectItem value="PARTIAL">Partial</SelectItem>
+                  <SelectItem value="SATISFIED">Satisfied</SelectItem>
+                  <SelectItem value="WRITTEN_OFF">Written Off</SelectItem>
+                  <SelectItem value="VARIANCE">With Variance</SelectItem>
+                </SelectContent>
+              </Select>
             </CardHeader>
             <CardContent>
-              {arSummary && arSummary.length > 0 ? (
+              {arExpectations && arExpectations.length > 0 ? (
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Client</TableHead>
+                      <TableHead>Order</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Count</TableHead>
-                      <TableHead className="text-right">Total Expected</TableHead>
+                      <TableHead className="text-right">Expected</TableHead>
+                      <TableHead className="text-right">Received</TableHead>
+                      <TableHead className="text-right">Variance</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {arSummary.map((item, i) => (
-                      <TableRow key={i}>
-                        <TableCell>{clients?.find(c => c.id === item.clientId)?.name || item.clientId}</TableCell>
-                        <TableCell><Badge variant={item.status === "OPEN" ? "default" : "secondary"}>{item.status}</Badge></TableCell>
-                        <TableCell>{item.count}</TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(item.totalCents)}</TableCell>
+                    {arExpectations.map((ar) => (
+                      <TableRow 
+                        key={ar.id} 
+                        className={ar.hasVariance ? "bg-orange-50 dark:bg-orange-900/20" : ""}
+                      >
+                        <TableCell>{ar.client?.name || ar.clientId}</TableCell>
+                        <TableCell>
+                          {ar.order?.invoiceNumber || "-"}
+                          {ar.order?.customerName && (
+                            <div className="text-xs text-muted-foreground">{ar.order.customerName}</div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant={
+                              ar.status === "SATISFIED" ? "default" :
+                              ar.status === "PARTIAL" ? "secondary" :
+                              ar.status === "WRITTEN_OFF" ? "destructive" : "outline"
+                            }
+                          >
+                            {ar.status}
+                          </Badge>
+                          {ar.hasVariance && (
+                            <Badge variant="destructive" className="ml-1">
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              Variance
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(ar.expectedAmountCents)}
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-blue-600">
+                          {formatCurrency(ar.actualAmountCents)}
+                        </TableCell>
+                        <TableCell className={`text-right font-medium ${ar.varianceAmountCents > 0 ? "text-green-600" : ar.varianceAmountCents < 0 ? "text-red-600" : ""}`}>
+                          {ar.varianceAmountCents > 0 && "+"}
+                          {formatCurrency(ar.varianceAmountCents)}
+                          {ar.varianceReason && (
+                            <div className="text-xs text-muted-foreground">{ar.varianceReason}</div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={async () => { await openArDetail(ar); setShowPaymentDialog(true); }}
+                              disabled={ar.status === "WRITTEN_OFF"}
+                              data-testid={`button-record-payment-${ar.id}`}
+                            >
+                              <DollarSign className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="ghost"
+                              onClick={() => openArDetail(ar)}
+                              data-testid={`button-view-ar-${ar.id}`}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -849,6 +1101,185 @@ export default function Finance() {
               )}
             </CardContent>
           </Card>
+
+          {/* AR Detail Dialog */}
+          <Dialog open={!!selectedAr && !showPaymentDialog} onOpenChange={(open) => !open && setSelectedAr(null)}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>AR Details</DialogTitle>
+                <DialogDescription>
+                  {selectedAr?.order?.invoiceNumber} - {selectedAr?.client?.name}
+                </DialogDescription>
+              </DialogHeader>
+              {selectedAr && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="p-3 border rounded-lg text-center">
+                      <div className="text-lg font-bold">{formatCurrency(selectedAr.expectedAmountCents)}</div>
+                      <div className="text-sm text-muted-foreground">Expected</div>
+                    </div>
+                    <div className="p-3 border rounded-lg text-center">
+                      <div className="text-lg font-bold text-blue-600">{formatCurrency(selectedAr.actualAmountCents)}</div>
+                      <div className="text-sm text-muted-foreground">Received</div>
+                    </div>
+                    <div className={`p-3 border rounded-lg text-center ${selectedAr.hasVariance ? "border-orange-400 bg-orange-50 dark:bg-orange-900/20" : ""}`}>
+                      <div className={`text-lg font-bold ${selectedAr.varianceAmountCents > 0 ? "text-green-600" : selectedAr.varianceAmountCents < 0 ? "text-red-600" : ""}`}>
+                        {selectedAr.varianceAmountCents > 0 && "+"}{formatCurrency(selectedAr.varianceAmountCents)}
+                      </div>
+                      <div className="text-sm text-muted-foreground">Variance</div>
+                    </div>
+                  </div>
+
+                  {selectedAr.hasVariance && (
+                    <div className="space-y-2">
+                      <Label>Variance Reason</Label>
+                      <div className="flex gap-2">
+                        <Input 
+                          value={varianceReason || selectedAr.varianceReason || ""} 
+                          onChange={(e) => setVarianceReason(e.target.value)}
+                          placeholder="Explain the variance..."
+                          data-testid="input-variance-reason"
+                        />
+                        <Button 
+                          onClick={() => updateVarianceReasonMutation.mutate({ id: selectedAr.id, reason: varianceReason })}
+                          disabled={updateVarianceReasonMutation.isPending}
+                          data-testid="button-save-variance-reason"
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedAr.payments && selectedAr.payments.length > 0 && (
+                    <div className="space-y-2">
+                      <Label>Payment History</Label>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Reference</TableHead>
+                            <TableHead>Recorded By</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedAr.payments.map((p) => (
+                            <TableRow key={p.id}>
+                              <TableCell>{new Date(p.paymentDate).toLocaleDateString()}</TableCell>
+                              <TableCell>{formatCurrency(p.amountCents)}</TableCell>
+                              <TableCell>{p.paymentReference || "-"}</TableCell>
+                              <TableCell>{p.recordedBy?.name || "-"}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              )}
+              <DialogFooter className="flex-wrap gap-2">
+                {selectedAr?.status !== "WRITTEN_OFF" && selectedAr?.status !== "SATISFIED" && (
+                  <Button 
+                    variant="destructive"
+                    onClick={() => {
+                      const reason = prompt("Enter write-off reason:");
+                      if (reason) writeOffMutation.mutate({ id: selectedAr!.id, reason });
+                    }}
+                    disabled={writeOffMutation.isPending}
+                    data-testid="button-write-off"
+                  >
+                    Write Off
+                  </Button>
+                )}
+                <Button 
+                  onClick={() => { setShowPaymentDialog(true); }}
+                  disabled={selectedAr?.status === "WRITTEN_OFF"}
+                  data-testid="button-add-payment"
+                >
+                  <DollarSign className="h-4 w-4 mr-2" />
+                  Record Payment
+                </Button>
+                <Button variant="outline" onClick={() => setSelectedAr(null)}>Close</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Payment Dialog */}
+          <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Record Payment</DialogTitle>
+                <DialogDescription>
+                  Recording payment for {selectedAr?.order?.invoiceNumber || "AR"} - Balance: {formatCurrency((selectedAr?.expectedAmountCents || 0) - (selectedAr?.actualAmountCents || 0))}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Payment Amount ($)</Label>
+                  <Input 
+                    type="number" 
+                    step="0.01"
+                    value={paymentAmount} 
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    placeholder="0.00"
+                    data-testid="input-payment-amount"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Payment Date</Label>
+                  <Input 
+                    type="date" 
+                    value={paymentDate} 
+                    onChange={(e) => setPaymentDate(e.target.value)}
+                    data-testid="input-payment-date"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Reference Number (optional)</Label>
+                  <Input 
+                    value={paymentReference} 
+                    onChange={(e) => setPaymentReference(e.target.value)}
+                    placeholder="Check #, Wire ID, etc."
+                    data-testid="input-payment-reference"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Payment Method (optional)</Label>
+                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                    <SelectTrigger data-testid="select-payment-method">
+                      <SelectValue placeholder="Select method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ACH">ACH</SelectItem>
+                      <SelectItem value="WIRE">Wire</SelectItem>
+                      <SelectItem value="CHECK">Check</SelectItem>
+                      <SelectItem value="OTHER">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Notes (optional)</Label>
+                  <Input 
+                    value={paymentNotes} 
+                    onChange={(e) => setPaymentNotes(e.target.value)}
+                    placeholder="Any additional notes..."
+                    data-testid="input-payment-notes"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowPaymentDialog(false)}>Cancel</Button>
+                <Button 
+                  onClick={() => recordPaymentMutation.mutate()}
+                  disabled={!paymentAmount || recordPaymentMutation.isPending}
+                  data-testid="button-confirm-payment"
+                >
+                  {recordPaymentMutation.isPending ? "Recording..." : "Record Payment"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="reports" className="space-y-4">

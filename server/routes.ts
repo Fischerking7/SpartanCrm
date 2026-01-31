@@ -11434,10 +11434,12 @@ export async function registerRoutes(
   // Record a payment against an AR expectation
   app.post("/api/finance/ar/:id/payments", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const { amountCents, paymentDate, paymentReference, paymentMethod, notes } = req.body;
+      const { amountCents: rawAmountCents, paymentDate, paymentReference, paymentMethod, notes } = req.body;
       
-      if (!amountCents || amountCents <= 0) {
-        return res.status(400).json({ message: "Valid payment amount is required" });
+      // Strict numeric validation
+      const amountCents = typeof rawAmountCents === 'number' ? rawAmountCents : parseInt(rawAmountCents, 10);
+      if (isNaN(amountCents) || amountCents <= 0) {
+        return res.status(400).json({ message: "Valid positive payment amount is required" });
       }
       
       const ar = await storage.getArExpectationById(req.params.id);
@@ -11496,15 +11498,14 @@ export async function registerRoutes(
   // Delete an AR payment
   app.delete("/api/finance/ar/payments/:id", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const payments = await storage.getArPaymentsByExpectationId(req.params.id);
       // Find the payment to get its AR expectation ID
-      const result = await db.query.arPayments.findFirst({
+      const payment = await db.query.arPayments.findFirst({
         where: eq(arPayments.id, req.params.id)
       });
       
-      if (!result) return res.status(404).json({ message: "Payment not found" });
+      if (!payment) return res.status(404).json({ message: "Payment not found" });
       
-      const arId = result.arExpectationId;
+      const arId = payment.arExpectationId;
       await storage.deleteArPayment(req.params.id);
       
       // Recalculate totals for the AR expectation
