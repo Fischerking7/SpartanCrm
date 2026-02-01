@@ -660,6 +660,20 @@ export const storage = {
     }
     return map;
   },
+  async getGrossCommissionTotalsByOrderIds(orderIds: string[]): Promise<Map<string, string>> {
+    if (orderIds.length === 0) return new Map();
+    const results = await db.select({
+      orderId: commissionLineItems.salesOrderId,
+      total: sql<string>`COALESCE(SUM(${commissionLineItems.totalAmount}), 0)::text`
+    }).from(commissionLineItems)
+      .where(inArray(commissionLineItems.salesOrderId, orderIds))
+      .groupBy(commissionLineItems.salesOrderId);
+    const map = new Map<string, string>();
+    for (const row of results) {
+      map.set(row.orderId, row.total);
+    }
+    return map;
+  },
   async createCommissionLineItems(orderId: string, items: Omit<InsertCommissionLineItem, "salesOrderId">[]) {
     if (items.length === 0) return [];
     const itemsWithOrderId = items.map(item => ({ ...item, salesOrderId: orderId }));

@@ -664,8 +664,8 @@ export default function Orders() {
     }
     
     // Admin/Exec see full breakdown: Gross, Override, Net; REPs see only net commission
-    // Note: baseCommissionEarned is stored as NET (after override already deducted)
-    // So Gross = Net + Override, and Net = baseCommissionEarned + incentive
+    // grossCommissionTotal comes from sum of commission line items (original rate card amounts)
+    // baseCommissionEarned is the NET (after override deducted)
     const headers = isAdminOrExec 
       ? ["Rep Name", "SLSID", "Account Number", "Customer Name", "Date Sold", "Date Install", "Service", "Gross Commission", "Override", "Net Commission", "Provider"]
       : ["Rep Name", "SLSID", "Account Number", "Customer Name", "Date Sold", "Date Install", "Service", "Commission", "Provider"];
@@ -674,12 +674,10 @@ export default function Orders() {
       const provider = providers?.find(p => p.id === order.providerId);
       const repUser = reps?.find(r => r.repId === order.repId);
       const overrideAmount = getOverrideAmount(order);
-      const baseCommission = parseFloat(order.baseCommissionEarned);
-      const incentive = parseFloat(order.incentiveEarned || "0");
-      // Net is what's stored (already has override deducted)
-      const netCommission = baseCommission + incentive;
-      // Gross = Net + Override (add back the deduction to get original amount)
-      const grossCommission = netCommission + overrideAmount;
+      // Gross commission from rate card (stored in grossCommissionTotal from line items)
+      const grossCommission = parseFloat((order as any).grossCommissionTotal || "0");
+      // Net is baseCommissionEarned (already has override deducted) + incentive
+      const netCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
       
       if (isAdminOrExec) {
         return [
@@ -1129,11 +1127,10 @@ export default function Orders() {
       key: "baseCommissionEarned",
       header: "Commission",
       cell: (row: SalesOrder) => {
-        // baseCommissionEarned is stored as NET (after override already deducted)
+        // grossCommissionTotal from line items = original rate card amounts
+        const grossCommission = parseFloat((row as any).grossCommissionTotal || "0");
+        // Net is baseCommissionEarned (already has override deducted) + incentive
         const netCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
-        const overrideAmount = getOverrideAmount(row);
-        // Gross = Net + Override (add back the deduction)
-        const grossCommission = netCommission + overrideAmount;
         
         if (isAdminOrExec) {
           // Admin/Exec see Gross (before override)
@@ -2029,10 +2026,10 @@ export default function Orders() {
                           <span>Total Earned</span>
                           <span className="font-mono">
                             {(() => {
-                              // baseCommissionEarned is stored as NET (after override already deducted)
+                              // grossCommissionTotal from line items = original rate card amounts
+                              const gross = parseFloat((selectedOrder as any).grossCommissionTotal || "0");
+                              // Net is baseCommissionEarned (already has override deducted) + incentive
                               const net = parseFloat(selectedOrder.baseCommissionEarned) + parseFloat(selectedOrder.incentiveEarned);
-                              const overrideAmt = getOverrideAmount(selectedOrder);
-                              const gross = net + overrideAmt;
                               // Admin/Exec see gross, REPs see net
                               if (isAdminOrExec) {
                                 return `$${gross.toFixed(2)}`;
