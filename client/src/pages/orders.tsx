@@ -663,9 +663,9 @@ export default function Orders() {
       return;
     }
     
-    // Admin/Exec see full breakdown with override; REPs see only commission (net)
+    // Admin/Exec see full breakdown: Gross, Override, Net; REPs see only net commission
     const headers = isAdminOrExec 
-      ? ["Rep Name", "SLSID", "Account Number", "Customer Name", "Date Sold", "Date Install", "Service", "Gross Commission", "Override", "Provider"]
+      ? ["Rep Name", "SLSID", "Account Number", "Customer Name", "Date Sold", "Date Install", "Service", "Gross Commission", "Override", "Net Commission", "Provider"]
       : ["Rep Name", "SLSID", "Account Number", "Customer Name", "Date Sold", "Date Install", "Service", "Commission", "Provider"];
     const rows = filteredOrders.map(order => {
       const service = services?.find(s => s.id === order.serviceId);
@@ -688,6 +688,7 @@ export default function Orders() {
           service?.name || "",
           grossCommission.toFixed(2),
           overrideAmount.toFixed(2),
+          netCommission.toFixed(2),
           provider?.name || "",
         ];
       }
