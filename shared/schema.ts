@@ -109,6 +109,7 @@ export const rateCards = pgTable("rate_cards", {
   providerId: varchar("provider_id").notNull().references(() => providers.id),
   clientId: varchar("client_id").references(() => clients.id),
   serviceId: varchar("service_id").references(() => services.id),
+  leadId: varchar("lead_id").references(() => users.id), // Optional: Lead-specific rate card
   mobileProductType: mobileProductTypeEnum("mobile_product_type"),
   mobilePortedStatus: mobilePortedStatusEnum("mobile_ported_status"),
   baseAmount: decimal("base_amount", { precision: 10, scale: 2 }).notNull().default("0"),
@@ -130,6 +131,7 @@ export const rateCardsRelations = relations(rateCards, ({ one }) => ({
   provider: one(providers, { fields: [rateCards.providerId], references: [providers.id] }),
   client: one(clients, { fields: [rateCards.clientId], references: [clients.id] }),
   service: one(services, { fields: [rateCards.serviceId], references: [services.id] }),
+  lead: one(users, { fields: [rateCards.leadId], references: [users.id] }),
 }));
 
 // Export Batches table
