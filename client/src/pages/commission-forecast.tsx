@@ -40,7 +40,7 @@ export default function CommissionForecast() {
   
   // Filter to only show commission-earning roles (exclude ADMIN and OPERATIONS)
   const commissionEarningUsers = users.filter((u: UserType) => 
-    ["REP", "MDU", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && u.status === "ACTIVE"
+    ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE"].includes(u.role) && u.status === "ACTIVE"
   );
   
   const { data: forecast, isLoading } = useQuery<ForecastData>({

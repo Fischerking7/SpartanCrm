@@ -485,7 +485,7 @@ function UserRow({ user, users, onEdit, onResetPassword, onDeactivate, onDelete 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
       case "ADMIN": case "OPERATIONS": case "EXECUTIVE": return "default";
-      case "MANAGER": case "SUPERVISOR": return "secondary";
+      case "MANAGER": case "LEAD": return "secondary";
       default: return "outline";
     }
   };
@@ -722,7 +722,7 @@ export default function AdminUsers() {
     setSkipValidation(false);
   };
 
-  const supervisors = users?.filter((u) => u.role === "SUPERVISOR" && u.status === "ACTIVE") || [];
+  const supervisors = users?.filter((u) => u.role === "LEAD" && u.status === "ACTIVE") || [];
   const managers = users?.filter((u) => u.role === "MANAGER" && u.status === "ACTIVE") || [];
   const executives = users?.filter((u) => u.role === "EXECUTIVE" && u.status === "ACTIVE") || [];
   
@@ -745,7 +745,7 @@ export default function AdminUsers() {
       }
     }
     
-    if (role === "SUPERVISOR" && !hasManager) {
+    if (role === "LEAD" && !hasManager) {
       warnings.push("Supervisor must be assigned to a Manager");
     }
     
@@ -774,8 +774,8 @@ export default function AdminUsers() {
   );
 
   const showSupervisorField = formData.role === "REP" || formData.role === "MDU";
-  const showManagerField = formData.role === "REP" || formData.role === "MDU" || formData.role === "SUPERVISOR";
-  const showExecutiveField = formData.role === "REP" || formData.role === "MDU" || formData.role === "SUPERVISOR" || formData.role === "MANAGER";
+  const showManagerField = formData.role === "REP" || formData.role === "MDU" || formData.role === "LEAD";
+  const showExecutiveField = formData.role === "REP" || formData.role === "MDU" || formData.role === "LEAD" || formData.role === "MANAGER";
 
   return (
     <div className="p-6 space-y-6">
@@ -888,7 +888,7 @@ export default function AdminUsers() {
                 <SelectContent>
                   <SelectItem value="REP">Rep</SelectItem>
                   <SelectItem value="MDU">MDU</SelectItem>
-                  <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
+                  <SelectItem value="LEAD">Supervisor</SelectItem>
                   <SelectItem value="MANAGER">Manager</SelectItem>
                   <SelectItem value="EXECUTIVE">Executive</SelectItem>
                   <SelectItem value="ADMIN">Admin</SelectItem>

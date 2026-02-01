@@ -25,7 +25,7 @@ The application uses a monorepo structure:
 - `migrations/` for database migration files
 
 ### Role-Based Access Control
-The system implements seven distinct user roles (REP, MDU, SUPERVISOR, MANAGER, EXECUTIVE, ADMIN, OPERATIONS) with strict data isolation and permissions tailored to sales operations.
+The system implements seven distinct user roles (REP, MDU, LEAD, MANAGER, EXECUTIVE, ADMIN, OPERATIONS) with strict data isolation and permissions tailored to sales operations. LEAD role (formerly Supervisor) manages reps directly and has distinct payout and override structures.
 
 ### Executive View Mode Toggle
 EXECUTIVE users have a special toggle on Orders, Commissions, and Reports pages that allows switching between:

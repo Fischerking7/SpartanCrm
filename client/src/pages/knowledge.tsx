@@ -57,7 +57,7 @@ const CATEGORIES = [
 
 const ROLES = [
   { value: "REP", label: "Everyone (Rep+)" },
-  { value: "SUPERVISOR", label: "Supervisor+" },
+  { value: "LEAD", label: "Lead+" },
   { value: "MANAGER", label: "Manager+" },
   { value: "EXECUTIVE", label: "Executive+" },
   { value: "ADMIN", label: "Admin+" },
@@ -112,7 +112,7 @@ export default function KnowledgeDatabase() {
 
   const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS";
   const canDelete = isAdmin || user?.role === "MANAGER" || user?.role === "EXECUTIVE";
-  const canUpload = user?.role !== "REP" && user?.role !== "SUPERVISOR";
+  const canUpload = user?.role !== "REP" && user?.role !== "LEAD";
 
   const { data: documents = [], isLoading } = useQuery<KnowledgeDocument[]>({
     queryKey: ["/api/knowledge-documents"],

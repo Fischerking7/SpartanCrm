@@ -187,7 +187,7 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
         sales: [MENU.mduOrders, MENU.dashboard],
         ...base,
       };
-    case "SUPERVISOR":
+    case "LEAD":
     case "MANAGER":
       return {
         sales: [MENU.orders, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.adjustments],

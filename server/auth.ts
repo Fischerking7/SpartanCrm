@@ -86,10 +86,10 @@ export function managerOrAdmin(req: AuthRequest, res: Response, next: NextFuncti
   next();
 }
 
-export function supervisorOrAbove(req: AuthRequest, res: Response, next: NextFunction) {
-  const allowedRoles = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "SUPERVISOR"];
+export function leadOrAbove(req: AuthRequest, res: Response, next: NextFunction) {
+  const allowedRoles = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "LEAD"];
   if (!req.user?.role || !allowedRoles.includes(req.user.role)) {
-    return res.status(403).json({ message: "Supervisor or above access required" });
+    return res.status(403).json({ message: "Lead or above access required" });
   }
   next();
 }

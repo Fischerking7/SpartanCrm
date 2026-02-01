@@ -423,7 +423,7 @@ export const scheduler = {
       
       // Notify managers about their team members' low performance
       const managers = allUsers.filter(u => 
-        ["SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && 
+        ["LEAD", "MANAGER", "EXECUTIVE"].includes(u.role) && 
         u.status === "ACTIVE" && 
         !u.deletedAt
       );

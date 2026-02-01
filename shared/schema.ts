@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums
-export const userRoleEnum = pgEnum("user_role", ["REP", "MDU", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"]);
+export const userRoleEnum = pgEnum("user_role", ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"]);
 export const userStatusEnum = pgEnum("user_status", ["ACTIVE", "DEACTIVATED"]);
 export const jobStatusEnum = pgEnum("job_status", ["PENDING", "COMPLETED", "CANCELED"]);
 export const approvalStatusEnum = pgEnum("approval_status", ["UNAPPROVED", "APPROVED", "REJECTED"]);
@@ -17,10 +17,10 @@ export const incentiveTypeEnum = pgEnum("incentive_type", ["FLAT", "PERCENT", "P
 export const overrideTypeEnum = pgEnum("override_type", ["PERCENT", "FLAT_PER_JOB", "PER_LINE", "TIERED"]);
 export const chargebackReasonEnum = pgEnum("chargeback_reason", ["CANCELLATION", "NON_PAYMENT", "SERVICE_ISSUE", "DUPLICATE", "OTHER"]);
 export const adjustmentTypeEnum = pgEnum("adjustment_type", ["BONUS", "CORRECTION", "PENALTY", "ADVANCE", "CLAWBACK", "OTHER"]);
-export const payeeTypeEnum = pgEnum("payee_type", ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"]);
+export const payeeTypeEnum = pgEnum("payee_type", ["REP", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN"]);
 export const payRunStatusEnum = pgEnum("payrun_status", ["DRAFT", "PENDING_REVIEW", "PENDING_APPROVAL", "APPROVED", "FINALIZED"]);
 export const rateIssueTypeEnum = pgEnum("rate_issue_type", ["MISSING_RATE", "CONFLICT_RATE"]);
-export const sourceLevelEnum = pgEnum("source_level", ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"]);
+export const sourceLevelEnum = pgEnum("source_level", ["REP", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN"]);
 export const mobileProductTypeEnum = pgEnum("mobile_product_type", ["UNLIMITED", "3_GIG", "1_GIG", "BYOD", "OTHER"]);
 export const mobilePortedStatusEnum = pgEnum("mobile_ported_status", ["PORTED", "NON_PORTED"]);
 export const serviceCategoryEnum = pgEnum("service_category", ["INTERNET", "MOBILE", "VIDEO"]);

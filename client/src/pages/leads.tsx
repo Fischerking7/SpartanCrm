@@ -71,9 +71,9 @@ export default function Leads() {
   // Tab state for Sales Pipeline
   const [activeTab, setActiveTab] = useState<string>("leads");
 
-  const canImport = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
-  const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
-  const canBulkManage = canAssignToOthers; // SUPERVISOR+ can multi-select and bulk manage
+  const canImport = ["REP", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
+  const canAssignToOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
+  const canBulkManage = canAssignToOthers; // LEAD+ can multi-select and bulk manage
   const isAdmin = ["ADMIN", "OPERATIONS"].includes(user?.role || "");
   const canCreateLead = ["EXECUTIVE", "OPERATIONS", "ADMIN"].includes(user?.role || "");
   const canViewPipeline = ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
@@ -149,13 +149,13 @@ export default function Leads() {
     return { line1, line2 };
   };
 
-  // Fetch assignable users for SUPERVISOR+ to assign leads
+  // Fetch assignable users for LEAD+ to assign leads
   const { data: assignableUsersList } = useQuery<{ id: string; name: string; repId: string; role: string; status: string }[]>({
     queryKey: ["/api/users/assignable"],
     enabled: canAssignToOthers,
   });
   
-  // Fetch lead counts per rep for SUPERVISOR+ roles
+  // Fetch lead counts per rep for LEAD+ roles
   const { data: leadCounts } = useQuery<{ repId: string; name: string; role: string; count: number }[]>({
     queryKey: ["/api/leads/counts"],
     enabled: canAssignToOthers,
@@ -243,7 +243,7 @@ export default function Leads() {
     },
   });
 
-  // Reverse disposition mutation for SUPERVISOR+ when viewing other reps
+  // Reverse disposition mutation for LEAD+ when viewing other reps
   const reverseDispositionMutation = useMutation({
     mutationFn: async ({ id }: { id: string }) => {
       const res = await fetch(`/api/leads/${id}/reverse-disposition`, {
@@ -517,7 +517,7 @@ export default function Leads() {
       formData.append("file", importFile);
       
       const authHeaders = getAuthHeaders() as { Authorization: string };
-      // Include targetRepId in URL for SUPERVISOR+ roles if selected (not "__self__")
+      // Include targetRepId in URL for LEAD+ roles if selected (not "__self__")
       let importUrl = "/api/leads/import";
       if (canAssignToOthers && targetRepId && targetRepId !== "__self__") {
         importUrl += `?targetRepId=${encodeURIComponent(targetRepId)}`;
@@ -836,7 +836,7 @@ export default function Leads() {
         </CardContent>
       </Card>
 
-      {/* Bulk Actions Toolbar - SUPERVISOR+ only */}
+      {/* Bulk Actions Toolbar - LEAD+ only */}
       {canBulkManage && leads && leads.length > 0 && (
         <Card className="bg-muted/50">
           <CardContent className="py-3">

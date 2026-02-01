@@ -77,7 +77,7 @@ export default function AdminIncentives() {
     },
   });
 
-  const reps = users?.filter((u) => ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role)) || [];
+  const reps = users?.filter((u) => ["REP", "LEAD", "MANAGER", "EXECUTIVE"].includes(u.role)) || [];
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {

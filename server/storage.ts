@@ -1266,7 +1266,7 @@ export const storage = {
   async getManagerScope(managerId: string): Promise<{ directRepIds: string[]; indirectRepIds: string[]; supervisorIds: string[]; allRepIds: string[]; allRepRepIds: string[] }> {
     // Get supervisors assigned to this manager
     const supervisors = await db.query.users.findMany({
-      where: and(eq(users.assignedManagerId, managerId), eq(users.role, "SUPERVISOR"), eq(users.status, "ACTIVE"))
+      where: and(eq(users.assignedManagerId, managerId), eq(users.role, "LEAD"), eq(users.status, "ACTIVE"))
     });
     const supervisorIds = supervisors.map(s => s.id);
     
@@ -1308,7 +1308,7 @@ export const storage = {
   // Get supervisors assigned to a manager
   async getSupervisorsByManager(managerId: string) {
     return db.query.users.findMany({
-      where: and(eq(users.assignedManagerId, managerId), eq(users.role, "SUPERVISOR"), eq(users.status, "ACTIVE"))
+      where: and(eq(users.assignedManagerId, managerId), eq(users.role, "LEAD"), eq(users.status, "ACTIVE"))
     });
   },
   
@@ -1335,7 +1335,7 @@ export const storage = {
     
     // Get supervisors directly assigned to this executive (if any)
     const supervisors = await db.query.users.findMany({
-      where: and(eq(users.assignedExecutiveId, executiveId), eq(users.role, "SUPERVISOR"), eq(users.status, "ACTIVE"))
+      where: and(eq(users.assignedExecutiveId, executiveId), eq(users.role, "LEAD"), eq(users.status, "ACTIVE"))
     });
     for (const supervisor of supervisors) {
       supervisorIds.push(supervisor.id);
@@ -1380,8 +1380,8 @@ export const storage = {
       }
     }
     
-    // SUPERVISOR rules
-    if (role === "SUPERVISOR") {
+    // LEAD rules
+    if (role === "LEAD") {
       if (!assignedManagerId) {
         return { valid: false, error: "Supervisor must be assigned to a Manager" };
       }
@@ -1428,7 +1428,7 @@ export const storage = {
   // Get production aggregation for any role
   async getProductionAggregation(
     userId: string,
-    role: "SUPERVISOR" | "MANAGER" | "EXECUTIVE",
+    role: "LEAD" | "MANAGER" | "EXECUTIVE",
     cadence: "DAY" | "WEEK" | "MONTH"
   ): Promise<{
     summary: { sold: number; connected: number; approved: number; conversionPercent: number };
@@ -1447,7 +1447,7 @@ export const storage = {
     let groupByField: "rep" | "manager" = "rep";
     
     switch (role) {
-      case "SUPERVISOR": {
+      case "LEAD": {
         const supervisedReps = await this.getSupervisedReps(userId);
         repRepIds = [user.repId, ...supervisedReps.map(r => r.repId)];
         groupByField = "rep";
@@ -1500,7 +1500,7 @@ export const storage = {
     let breakdown: Array<{ id: string; name: string; repId?: string; sold: number; connected: number; approved: number; conversionPercent: number }> = [];
     
     if (groupByField === "rep") {
-      // Group by rep for SUPERVISOR and MANAGER
+      // Group by rep for LEAD and MANAGER
       const allUsers = await db.query.users.findMany({
         where: sql`${users.repId} IN (${sql.raw(repRepIds.map(r => `'${r}'`).join(','))})`
       });
@@ -1793,7 +1793,7 @@ export const storage = {
       case "REP":
         return []; // REPs have no team scope
 
-      case "SUPERVISOR": {
+      case "LEAD": {
         const reps = await db.query.users.findMany({
           where: and(
             eq(users.assignedSupervisorId, userId),
@@ -1817,7 +1817,7 @@ export const storage = {
         const supervisors = await db.query.users.findMany({
           where: and(
             eq(users.assignedManagerId, userId),
-            eq(users.role, "SUPERVISOR"),
+            eq(users.role, "LEAD"),
             eq(users.status, "ACTIVE")
           )
         });

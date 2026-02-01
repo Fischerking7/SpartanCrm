@@ -115,7 +115,7 @@ export default function AdminOverrides() {
   });
 
   const eligibleRecipients = users?.filter((u) =>
-    ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt
+    ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt
   ) || [];
 
   const getUserName = (userId: string) => users?.find((u) => u.id === userId)?.name || userId;
@@ -256,7 +256,7 @@ export default function AdminOverrides() {
       case "ADMIN": return "default";
       case "EXECUTIVE": return "secondary";
       case "MANAGER": return "secondary";
-      case "SUPERVISOR": return "outline";
+      case "LEAD": return "outline";
       default: return "outline";
     }
   };
@@ -360,8 +360,8 @@ export default function AdminOverrides() {
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <p className="text-sm text-muted-foreground">
-                {selectedRecipient?.role === "SUPERVISOR" && "Gets overrides on sales from assigned reps"}
-                {selectedRecipient?.role === "MANAGER" && "Gets overrides on sales from assigned supervisors and their reps"}
+                {selectedRecipient?.role === "LEAD" && "Gets overrides on sales from assigned reps"}
+                {selectedRecipient?.role === "MANAGER" && "Gets overrides on sales from assigned leads and their reps"}
                 {selectedRecipient?.role === "EXECUTIVE" && "Gets overrides on sales from all team members in division"}
                 {selectedRecipient?.role === "ADMIN" && "Gets overrides on all sales company-wide"}
               </p>

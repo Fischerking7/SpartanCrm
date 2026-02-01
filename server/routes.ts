@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or } from "drizzle-orm";
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments } from "@shared/schema";
-import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, supervisorOrAbove, type AuthRequest } from "./auth";
+import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
@@ -175,7 +175,7 @@ function pickAllowedFields<T extends Record<string, any>>(obj: T, allowlist: rea
 // Role hierarchy for authority comparisons (higher number = more authority)
 const ROLE_HIERARCHY: Record<string, number> = {
   REP: 1,
-  SUPERVISOR: 2,
+  LEAD: 2,
   MANAGER: 3,
   EXECUTIVE: 4,
   ADMIN: 5,
@@ -207,7 +207,7 @@ async function checkPasswordAuthority(actor: User, target: User): Promise<boolea
     }
     // Check if target is in manager's org tree
     const scope = await storage.getManagerScope(actor.id);
-    if (target.role === "SUPERVISOR") {
+    if (target.role === "LEAD") {
       // Check if supervisor is assigned to this manager
       return target.assignedManagerId === actor.id;
     }
@@ -218,8 +218,8 @@ async function checkPasswordAuthority(actor: User, target: User): Promise<boolea
     return false;
   }
   
-  // Rule 4: SUPERVISOR can reset passwords only for their assigned reps
-  if (actor.role === "SUPERVISOR") {
+  // Rule 4: LEAD can reset passwords only for their assigned reps
+  if (actor.role === "LEAD") {
     if (target.role !== "REP") {
       return false;
     }
@@ -382,7 +382,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
   
   // Supervisor gets override on their assigned reps' sales
   if (hierarchy.supervisor) {
-    await processAgreements(hierarchy.supervisor.id, "SUPERVISOR");
+    await processAgreements(hierarchy.supervisor.id, "LEAD");
   }
   
   // Manager gets override on their supervised reps and supervisors' sales
@@ -781,13 +781,13 @@ export async function registerRoutes(
     try {
       const user = req.user!;
       const cadence = (req.query.cadence as "DAY" | "WEEK" | "MONTH") || "WEEK";
-      // Only SUPERVISOR, MANAGER, EXECUTIVE, ADMIN can use this endpoint
-      if (!["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"].includes(user.role)) {
+      // Only LEAD, MANAGER, EXECUTIVE, ADMIN can use this endpoint
+      if (!["LEAD", "MANAGER", "EXECUTIVE", "ADMIN"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied" });
       }
       
       // ADMIN gets EXECUTIVE-level access to the production dashboard
-      const effectiveRole = user.role === "ADMIN" ? "EXECUTIVE" : user.role as "SUPERVISOR" | "MANAGER" | "EXECUTIVE";
+      const effectiveRole = user.role === "ADMIN" ? "EXECUTIVE" : user.role as "LEAD" | "MANAGER" | "EXECUTIVE";
       
       const result = await storage.getProductionAggregation(user.id, effectiveRole, cadence);
       res.json(result);
@@ -935,7 +935,7 @@ export async function registerRoutes(
       let teamByRep = null;
       let teamByManager = null;
       
-      if (["SUPERVISOR", "MANAGER"].includes(role)) {
+      if (["LEAD", "MANAGER"].includes(role)) {
         teamByRep = await storage.getTeamBreakdownByRep(user.id, role, formatDate(mtdStart), formatDate(mtdEnd));
       }
       
@@ -982,7 +982,7 @@ export async function registerRoutes(
       
       if (role === "REP") {
         repIds = [user.repId];
-      } else if (role === "SUPERVISOR") {
+      } else if (role === "LEAD") {
         const supervisedReps = await storage.getSupervisedReps(user.id);
         repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
       } else if (role === "MANAGER") {
@@ -1054,7 +1054,7 @@ export async function registerRoutes(
       const activeUsers = allUsers.filter(u => 
         u.status === "ACTIVE" && 
         !u.deletedAt && 
-        ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role)
+        ["REP", "LEAD", "MANAGER", "EXECUTIVE"].includes(u.role)
       );
       
       // Determine which reps to show based on role scope
@@ -1062,7 +1062,7 @@ export async function registerRoutes(
       
       if (role === "REP") {
         visibleRepIds = activeUsers.map(u => u.repId);
-      } else if (role === "SUPERVISOR") {
+      } else if (role === "LEAD") {
         const supervisedReps = await storage.getSupervisedReps(user.id);
         visibleRepIds = [user.repId, ...supervisedReps.map(r => r.repId)];
       } else if (role === "MANAGER") {
@@ -1318,7 +1318,7 @@ export async function registerRoutes(
       if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         // Admin sees all
         const allUsers = await storage.getUsers();
-        supervisors = allUsers.filter(u => u.role === "SUPERVISOR" && u.status === "ACTIVE" && !u.deletedAt).map(u => ({ id: u.id, name: u.name }));
+        supervisors = allUsers.filter(u => u.role === "LEAD" && u.status === "ACTIVE" && !u.deletedAt).map(u => ({ id: u.id, name: u.name }));
         reps = allUsers.filter(u => u.role === "REP" && u.status === "ACTIVE" && !u.deletedAt).map(u => ({ id: u.id, name: u.name, repId: u.repId }));
       } else if (user.role === "EXECUTIVE") {
         const scope = await storage.getExecutiveScope(user.id);
@@ -1373,7 +1373,7 @@ export async function registerRoutes(
         const scope = await storage.getManagerScope(user.id);
         const teamRepIds = [...scope.allRepRepIds, user.repId]; // Include manager's own orders
         orders = await storage.getOrders({ teamRepIds, limit });
-      } else if (user.role === "SUPERVISOR") {
+      } else if (user.role === "LEAD") {
         // Supervisor sees their assigned reps + own orders
         const supervisedReps = await storage.getSupervisedReps(user.id);
         const teamRepIds = [...supervisedReps.map(r => r.repId), user.repId];
@@ -1582,8 +1582,8 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Access denied" });
       }
       
-      // SUPERVISOR can view their own + their team's orders
-      if (user.role === "SUPERVISOR") {
+      // LEAD can view their own + their team's orders
+      if (user.role === "LEAD") {
         const supervisedReps = await storage.getSupervisedReps(user.id);
         const allowedRepIds = [user.repId, ...supervisedReps.map(r => r.repId)];
         if (!allowedRepIds.includes(order.repId)) {
@@ -1693,8 +1693,8 @@ export async function registerRoutes(
       
       // Order locking: non-admin roles can only edit their own orders
       if (!isAdminLevel) {
-        // REPs, MDU, SUPERVISOR can only modify their own orders
-        if (["REP", "MDU", "SUPERVISOR"].includes(user.role) && order.repId !== user.repId) {
+        // REPs, MDU, LEAD can only modify their own orders
+        if (["REP", "MDU", "LEAD"].includes(user.role) && order.repId !== user.repId) {
           return res.status(403).json({ message: "Orders are locked to their creator. Contact admin to make changes." });
         }
         
@@ -2336,11 +2336,11 @@ export async function registerRoutes(
     }
   });
 
-  // Get assignable users for leads - SUPERVISOR+ can access this for lead assignment
+  // Get assignable users for leads - LEAD+ can access this for lead assignment
   app.get("/api/users/assignable", auth, async (req: AuthRequest, res) => {
     try {
       const currentUser = req.user!;
-      const canAssign = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(currentUser.role);
+      const canAssign = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(currentUser.role);
       if (!canAssign) {
         return res.status(403).json({ message: "Only supervisors and above can access assignable users" });
       }
@@ -3048,7 +3048,7 @@ export async function registerRoutes(
           salesOrderId: order.id,
           recipientUserId: dist.recipientUserId,
           sourceRepId: order.repId,
-          sourceLevelUsed: recipient?.role as any || "SUPERVISOR",
+          sourceLevelUsed: recipient?.role as any || "LEAD",
           amount: dist.calculatedAmount,
           payRunId: req.params.id,
         });
@@ -3821,7 +3821,7 @@ export async function registerRoutes(
         .reduce((sum: number, o: SalesOrder) => sum + parseFloat(o.commissionPaid), 0);
 
       const repPerformance = users
-        .filter((u: User) => ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role))
+        .filter((u: User) => ["REP", "LEAD", "MANAGER", "EXECUTIVE"].includes(u.role))
         .map((rep: User) => {
           const repOrders = orders.filter((o: SalesOrder) => o.repId === rep.repId);
           const repEarned = repOrders
@@ -4010,7 +4010,7 @@ export async function registerRoutes(
       
       // Determine which rep's leads to fetch
       let targetRepId = req.user!.repId;
-      const canViewOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
+      const canViewOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
       
       if (viewRepId && canViewOthers) {
         // Verify caller can view this rep's leads (target must be at or below caller's level)
@@ -4027,7 +4027,7 @@ export async function registerRoutes(
       
       let leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
       
-      // When SUPERVISOR+ is viewing another rep's leads, include SOLD/REJECTED leads
+      // When LEAD+ is viewing another rep's leads, include SOLD/REJECTED leads
       // Otherwise filter them out (for own leads view)
       if (!viewRepId || !canViewOthers) {
         leads = leads.filter(l => !["SOLD", "REJECT"].includes(l.disposition || ""));
@@ -4039,10 +4039,10 @@ export async function registerRoutes(
     }
   });
   
-  // Get lead counts per rep for SUPERVISOR+ roles
+  // Get lead counts per rep for LEAD+ roles
   app.get("/api/leads/counts", auth, async (req: AuthRequest, res) => {
     try {
-      const canViewOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
+      const canViewOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
       if (!canViewOthers) {
         return res.status(403).json({ message: "Only supervisors and above can view lead counts" });
       }
@@ -4241,7 +4241,7 @@ export async function registerRoutes(
       if (!lead) {
         return res.status(404).json({ message: "Lead not found" });
       }
-      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(req.user!.role);
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "LEAD"].includes(req.user!.role);
       if (!isAdmin && lead.repId !== req.user!.repId) {
         return res.status(403).json({ message: "Not authorized to update this lead" });
       }
@@ -4278,13 +4278,13 @@ export async function registerRoutes(
     }
   });
 
-  // Reverse disposition (SUPERVISOR+ only) - clears SOLD/REJECT status
+  // Reverse disposition (LEAD+ only) - clears SOLD/REJECT status
   app.patch("/api/leads/:id/reverse-disposition", auth, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       
-      // Only SUPERVISOR+ can reverse dispositions
-      const canReverse = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
+      // Only LEAD+ can reverse dispositions
+      const canReverse = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
       if (!canReverse) {
         return res.status(403).json({ message: "Only supervisors and above can reverse dispositions" });
       }
@@ -4329,7 +4329,7 @@ export async function registerRoutes(
     }
   });
 
-  // Assign/reassign a lead to another user (SUPERVISOR+ only)
+  // Assign/reassign a lead to another user (LEAD+ only)
   app.patch("/api/leads/:id/assign", auth, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
@@ -4339,8 +4339,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "targetRepId is required" });
       }
       
-      // Only SUPERVISOR+ can assign leads to others
-      const canAssign = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
+      // Only LEAD+ can assign leads to others
+      const canAssign = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
       if (!canAssign) {
         return res.status(403).json({ message: "Only supervisors and above can assign leads to other users" });
       }
@@ -4386,11 +4386,11 @@ export async function registerRoutes(
     }
   });
 
-  // Get lead pool - all leads with filtering and pagination (SUPERVISOR+ for all, REP for own)
+  // Get lead pool - all leads with filtering and pagination (LEAD+ for all, REP for own)
   app.get("/api/leads/pool", auth, async (req: AuthRequest, res) => {
     try {
       const { repId, disposition, search, page, limit } = req.query;
-      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(req.user!.role);
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "LEAD"].includes(req.user!.role);
       
       const filters: { repId?: string; disposition?: string; search?: string; page?: number; limit?: number } = {
         disposition: typeof disposition === "string" ? disposition : undefined,
@@ -4399,7 +4399,7 @@ export async function registerRoutes(
         limit: typeof limit === "string" ? Math.min(parseInt(limit, 10), 100) : 50, // Max 100 per page
       };
       
-      // REPs can only see their own leads, SUPERVISOR+ can see all or filter by rep
+      // REPs can only see their own leads, LEAD+ can see all or filter by rep
       if (!isAdmin) {
         filters.repId = req.user!.repId;
       } else if (typeof repId === "string" && repId !== "ALL") {
@@ -4527,8 +4527,8 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Lead not found" });
       }
       
-      // REP can only see history for own leads, SUPERVISOR+ can see all
-      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(req.user!.role);
+      // REP can only see history for own leads, LEAD+ can see all
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "LEAD"].includes(req.user!.role);
       if (!isAdmin && lead.repId !== req.user!.repId) {
         return res.status(403).json({ message: "Not authorized to view this lead's history" });
       }
@@ -4550,7 +4550,7 @@ export async function registerRoutes(
   });
 
   // Import leads from Excel (REP and above can import) - with file validation
-  // SUPERVISOR+ can use ?targetRepId=X to import leads for another user
+  // LEAD+ can use ?targetRepId=X to import leads for another user
   app.post("/api/leads/import", auth, upload.single("file"), async (req: AuthRequest, res) => {
     try {
       // Validate file upload
@@ -4577,9 +4577,9 @@ export async function registerRoutes(
       const users = await storage.getUsers();
       const currentUser = req.user!;
       const isRep = currentUser.role === "REP";
-      const canAssignToOthers = ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(currentUser.role);
+      const canAssignToOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(currentUser.role);
       
-      // Check for targetRepId query parameter (SUPERVISOR+ only)
+      // Check for targetRepId query parameter (LEAD+ only)
       const targetRepId = req.query.targetRepId as string | undefined;
       if (targetRepId && !canAssignToOthers) {
         return res.status(403).json({ message: "Only supervisors and above can import leads for other users" });
@@ -4640,13 +4640,13 @@ export async function registerRoutes(
 
         try {
           // Determine repId for this lead:
-          // 1. If targetRepId is provided (SUPERVISOR+ importing for specific user), use it
+          // 1. If targetRepId is provided (LEAD+ importing for specific user), use it
           // 2. If REP, always use their own repId
           // 3. Otherwise, use from file or default to current user's repId
           let repId: string;
           
           if (targetRepId) {
-            // SUPERVISOR+ importing for a specific user - all leads go to that user
+            // LEAD+ importing for a specific user - all leads go to that user
             repId = targetRepId;
           } else if (isRep) {
             // REPs can only import leads for themselves
@@ -4869,9 +4869,9 @@ export async function registerRoutes(
     }
   });
 
-  // Bulk soft delete leads (SUPERVISOR+)
+  // Bulk soft delete leads (LEAD+)
   // Enforces hierarchy: caller can only delete leads owned by users at or below their role level
-  app.post("/api/leads/bulk-delete", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
+  app.post("/api/leads/bulk-delete", auth, leadOrAbove, async (req: AuthRequest, res) => {
     try {
       const { ids } = req.body;
       if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -4959,10 +4959,10 @@ export async function registerRoutes(
     }
   });
 
-  // Bulk assign leads to a different rep (SUPERVISOR+)
+  // Bulk assign leads to a different rep (LEAD+)
   // Enforces hierarchy: caller can only assign leads owned by users at or below their role level
   // and can only assign to users at or below their role level
-  app.post("/api/leads/bulk-assign", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
+  app.post("/api/leads/bulk-assign", auth, leadOrAbove, async (req: AuthRequest, res) => {
     try {
       const { ids, newRepId } = req.body;
       if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -5168,7 +5168,7 @@ export async function registerRoutes(
   });
 
   // Pipeline analytics - funnel data
-  app.get("/api/pipeline/funnel", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
+  app.get("/api/pipeline/funnel", auth, leadOrAbove, async (req: AuthRequest, res) => {
     try {
       const { startDate, endDate, repId, providerId } = req.query;
       
@@ -5216,7 +5216,7 @@ export async function registerRoutes(
   });
 
   // Lead aging report
-  app.get("/api/pipeline/aging", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
+  app.get("/api/pipeline/aging", auth, leadOrAbove, async (req: AuthRequest, res) => {
     try {
       const { repId } = req.query;
       const repFilter = typeof repId === "string" && repId !== "all" ? repId : undefined;
@@ -5278,7 +5278,7 @@ export async function registerRoutes(
   });
 
   // Win/Loss analysis
-  app.get("/api/pipeline/win-loss", auth, supervisorOrAbove, async (req: AuthRequest, res) => {
+  app.get("/api/pipeline/win-loss", auth, leadOrAbove, async (req: AuthRequest, res) => {
     try {
       const { startDate, endDate, groupBy } = req.query;
       const groupByField = (typeof groupBy === "string" ? groupBy : "rep");
@@ -5577,7 +5577,7 @@ export async function registerRoutes(
       filteredOrders = orders.filter(o => o.repId === user.repId);
       scopeDescription = "Your personal data";
       repCount = 1;
-    } else if (user.role === "SUPERVISOR") {
+    } else if (user.role === "LEAD") {
       const supervisedReps = await storage.getSupervisedReps(user.id);
       const repIds = [user.repId, ...supervisedReps.map(r => r.repId)];
       filteredOrders = orders.filter(o => repIds.includes(o.repId));
@@ -5596,7 +5596,7 @@ export async function registerRoutes(
         repCount = 1;
       } else if (viewMode === "global") {
         const allUsers = await storage.getUsers();
-        const salesReps = allUsers.filter(u => ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && !u.deletedAt);
+        const salesReps = allUsers.filter(u => ["REP", "LEAD", "MANAGER", "EXECUTIVE"].includes(u.role) && !u.deletedAt);
         scopeDescription = `Company-wide (${salesReps.length} total sales reps)`;
         repCount = salesReps.length;
         // No filtering - show all orders
@@ -5609,7 +5609,7 @@ export async function registerRoutes(
       }
     } else if (user.role === "ADMIN" || user.role === "OPERATIONS") {
       const allUsers = await storage.getUsers();
-      const salesReps = allUsers.filter(u => ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role) && !u.deletedAt);
+      const salesReps = allUsers.filter(u => ["REP", "LEAD", "MANAGER", "EXECUTIVE"].includes(u.role) && !u.deletedAt);
       scopeDescription = `Company-wide (${salesReps.length} total sales reps)`;
       repCount = salesReps.length;
     }
@@ -6096,14 +6096,14 @@ export async function registerRoutes(
     }
   });
 
-  // Team Production Report - For SUPERVISOR+ to view team leader production (within their scope)
+  // Team Production Report - For LEAD+ to view team leader production (within their scope)
   app.get("/api/reports/team-production", auth, async (req: AuthRequest, res) => {
     try {
       const { period = "this_month", startDate, endDate } = req.query;
       const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
       const user = req.user!;
       
-      // REPs cannot access this report - need SUPERVISOR or higher
+      // REPs cannot access this report - need LEAD or higher
       if (user.role === "REP") {
         return res.status(403).json({ message: "Access denied" });
       }
@@ -6124,13 +6124,13 @@ export async function registerRoutes(
       if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         // Full access - show all team leaders
         teamLeaders = allUsers.filter(u => 
-          ["EXECUTIVE", "MANAGER", "SUPERVISOR"].includes(u.role) && !u.deletedAt
+          ["EXECUTIVE", "MANAGER", "LEAD"].includes(u.role) && !u.deletedAt
         );
       } else if (user.role === "EXECUTIVE") {
         // Show managers and supervisors under this executive
         userScope = await storage.getExecutiveScope(user.id);
         teamLeaders = allUsers.filter(u => 
-          (["MANAGER", "SUPERVISOR"].includes(u.role) && !u.deletedAt) &&
+          (["MANAGER", "LEAD"].includes(u.role) && !u.deletedAt) &&
           (userScope.managerIds?.includes(u.id) || userScope.supervisorIds?.includes(u.id))
         );
         // Also include self
@@ -6139,11 +6139,11 @@ export async function registerRoutes(
         // Show supervisors under this manager
         userScope = await storage.getManagerScope(user.id);
         teamLeaders = allUsers.filter(u => 
-          u.role === "SUPERVISOR" && !u.deletedAt && userScope.supervisorIds?.includes(u.id)
+          u.role === "LEAD" && !u.deletedAt && userScope.supervisorIds?.includes(u.id)
         );
         // Also include self
         teamLeaders.unshift(user);
-      } else if (user.role === "SUPERVISOR") {
+      } else if (user.role === "LEAD") {
         // Supervisor only sees their own team production
         teamLeaders = [user];
         const supervisedReps = await storage.getSupervisedReps(user.id);
@@ -6172,7 +6172,7 @@ export async function registerRoutes(
         } else if (leader.role === "MANAGER") {
           const scope = await storage.getManagerScope(leader.id);
           teamRepIds = scope.allRepRepIds;
-        } else if (leader.role === "SUPERVISOR") {
+        } else if (leader.role === "LEAD") {
           const supervisedReps = await storage.getSupervisedReps(leader.id);
           teamRepIds = [leader.repId, ...supervisedReps.map(r => r.repId)];
         }
@@ -6206,7 +6206,7 @@ export async function registerRoutes(
       }
       
       // Sort by role hierarchy then by sold
-      const roleOrder = { EXECUTIVE: 0, MANAGER: 1, SUPERVISOR: 2 };
+      const roleOrder = { EXECUTIVE: 0, MANAGER: 1, LEAD: 2 };
       teamData.sort((a, b) => {
         const roleCompare = (roleOrder[a.role as keyof typeof roleOrder] || 3) - (roleOrder[b.role as keyof typeof roleOrder] || 3);
         if (roleCompare !== 0) return roleCompare;
@@ -6240,7 +6240,7 @@ export async function registerRoutes(
       
       // Show all reps to all authenticated users
       const scopedRepIds = allUsers
-        .filter(u => !u.deletedAt && ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"].includes(u.role))
+        .filter(u => !u.deletedAt && ["REP", "LEAD", "MANAGER", "EXECUTIVE"].includes(u.role))
         .map(u => u.repId);
       const scopeDescription = "All Reps";
       
@@ -6455,7 +6455,7 @@ export async function registerRoutes(
       
       // Get eligible recipients for filter dropdown
       const recipients = users
-        .filter(u => ["SUPERVISOR", "MANAGER", "EXECUTIVE", "ADMIN"].includes(u.role) && !u.deletedAt)
+        .filter(u => ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN"].includes(u.role) && !u.deletedAt)
         .map(u => ({ id: u.id, name: u.name, role: u.role }));
       
       res.json({ 
@@ -6697,7 +6697,7 @@ export async function registerRoutes(
   // Role hierarchy for access control
   const ROLE_HIERARCHY: Record<string, number> = {
     "REP": 1,
-    "SUPERVISOR": 2,
+    "LEAD": 2,
     "MANAGER": 3,
     "EXECUTIVE": 4,
     "ADMIN": 5,
@@ -6811,8 +6811,8 @@ export async function registerRoutes(
       if (referenceData.users) {
         for (const u of referenceData.users) {
           try {
-            // Only sync REP, SUPERVISOR, MANAGER, EXECUTIVE roles
-            const salesRoles = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"];
+            // Only sync REP, LEAD, MANAGER, EXECUTIVE roles
+            const salesRoles = ["REP", "LEAD", "MANAGER", "EXECUTIVE"];
             if (!salesRoles.includes(u.role)) continue;
             
             // Check if user exists by repId
@@ -9413,7 +9413,7 @@ export async function registerRoutes(
       
       if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         allOrders = await storage.getOrders({});
-        scopedRepIds = allUsers.filter(u => ["REP", "SUPERVISOR"].includes(u.role) && u.status === "ACTIVE").map(u => u.repId);
+        scopedRepIds = allUsers.filter(u => ["REP", "LEAD"].includes(u.role) && u.status === "ACTIVE").map(u => u.repId);
       } else if (user.role === "EXECUTIVE") {
         const scope = await storage.getExecutiveScope(user.id);
         const teamRepIds = [...scope.allRepRepIds, user.repId];
@@ -9427,7 +9427,7 @@ export async function registerRoutes(
       }
       
       const monthOrders = allOrders.filter(o => new Date(o.dateSold) >= monthStart);
-      const reps = allUsers.filter(u => ["REP", "SUPERVISOR"].includes(u.role) && u.status === "ACTIVE" && scopedRepIds.includes(u.repId));
+      const reps = allUsers.filter(u => ["REP", "LEAD"].includes(u.role) && u.status === "ACTIVE" && scopedRepIds.includes(u.repId));
 
       const repListing = await Promise.all(reps.map(async (rep) => {
         const repOrders = monthOrders.filter(o => o.repId === rep.repId);
@@ -9607,7 +9607,7 @@ export async function registerRoutes(
       const allUsers = await storage.getActiveUsers();
       
       if (user.role === "ADMIN" || user.role === "OPERATIONS") {
-        scopedUsers = allUsers.filter(u => ["REP", "SUPERVISOR"].includes(u.role));
+        scopedUsers = allUsers.filter(u => ["REP", "LEAD"].includes(u.role));
       } else if (user.role === "EXECUTIVE") {
         const scope = await storage.getExecutiveScope(user.id);
         scopedUsers = allUsers.filter(u => scope.allRepRepIds.includes(u.repId));

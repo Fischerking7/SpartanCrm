@@ -347,7 +347,7 @@ export default function Orders() {
       if (!res.ok) return [];
       const users = await res.json();
       // Allow admins to create orders for any sales role
-      const salesRoles = ["REP", "SUPERVISOR", "MANAGER", "EXECUTIVE"];
+      const salesRoles = ["REP", "LEAD", "MANAGER", "EXECUTIVE"];
       return users.filter((u: User) => salesRoles.includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
     },
     enabled: isAdmin,
