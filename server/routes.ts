@@ -2692,13 +2692,9 @@ export async function registerRoutes(
     try { res.json(await storage.getRateCards()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
   
-  // Rate cards for override display (admins and executives)
+  // Rate cards for override display - all authenticated users can access for commission display
   app.get("/api/rate-cards/for-overrides", auth, async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
-      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
-        return res.status(403).json({ message: "Access denied" });
-      }
       res.json(await storage.getRateCards());
     } catch (error) {
       res.status(500).json({ message: "Failed to get rate cards" });

@@ -380,7 +380,7 @@ export default function Orders() {
     enabled: !!selectedOrder?.id,
   });
 
-  // Fetch rate cards for override calculation (admin/executive only)
+  // Fetch rate cards for commission calculation (all users need this for accurate net display)
   const isAdminOrExec = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE";
   const { data: rateCards } = useQuery<RateCard[]>({
     queryKey: ["/api/rate-cards/for-overrides"],
@@ -389,7 +389,6 @@ export default function Orders() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: isAdminOrExec,
   });
 
   // Helper to calculate override amount for an order
