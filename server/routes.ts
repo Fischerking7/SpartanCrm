@@ -11493,6 +11493,33 @@ export async function registerRoutes(
         satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
       });
       
+      // When AR is satisfied, update the linked order's paymentStatus to PAID
+      if (newStatus === 'SATISFIED' && ar.orderId) {
+        const order = await storage.getOrder(ar.orderId);
+        if (order) {
+          await storage.updateOrder(ar.orderId, {
+            paymentStatus: 'PAID',
+            paidDate: new Date().toISOString().split('T')[0],
+          });
+          
+          await storage.createAuditLog({
+            action: "order_payment_status_updated",
+            tableName: "sales_orders",
+            recordId: ar.orderId,
+            afterJson: JSON.stringify({ paymentStatus: 'PAID', reason: 'AR satisfied', arId: req.params.id }),
+            userId: req.user!.id,
+          });
+        }
+      } else if (newStatus === 'PARTIAL' && ar.orderId) {
+        // Update to partially paid when partial payment received
+        const order = await storage.getOrder(ar.orderId);
+        if (order && order.paymentStatus !== 'PAID') {
+          await storage.updateOrder(ar.orderId, {
+            paymentStatus: 'PARTIALLY_PAID',
+          });
+        }
+      }
+      
       await storage.createAuditLog({
         action: "ar_payment_recorded",
         tableName: "ar_payments",
@@ -11542,13 +11569,43 @@ export async function registerRoutes(
           status: newStatus,
           satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
         });
+        
+        // Update linked order's payment status based on new AR status
+        if (ar.orderId) {
+          const order = await storage.getOrder(ar.orderId);
+          if (order) {
+            let orderPaymentStatus = order.paymentStatus;
+            if (newStatus === 'SATISFIED') {
+              orderPaymentStatus = 'PAID';
+            } else if (newStatus === 'PARTIAL') {
+              orderPaymentStatus = 'PARTIALLY_PAID';
+            } else if (newStatus === 'OPEN') {
+              orderPaymentStatus = 'UNPAID';
+            }
+            
+            if (orderPaymentStatus !== order.paymentStatus) {
+              await storage.updateOrder(ar.orderId, {
+                paymentStatus: orderPaymentStatus,
+                paidDate: orderPaymentStatus === 'PAID' ? new Date().toISOString().split('T')[0] : null,
+              });
+              
+              await storage.createAuditLog({
+                action: "order_payment_status_updated",
+                tableName: "sales_orders",
+                recordId: ar.orderId,
+                afterJson: JSON.stringify({ paymentStatus: orderPaymentStatus, reason: 'AR payment deleted', arId }),
+                userId: req.user!.id,
+              });
+            }
+          }
+        }
       }
       
       await storage.createAuditLog({
         action: "ar_payment_deleted",
         tableName: "ar_payments",
         recordId: req.params.id,
-        beforeJson: JSON.stringify(result),
+        beforeJson: JSON.stringify(payment),
         userId: req.user!.id,
       });
       
