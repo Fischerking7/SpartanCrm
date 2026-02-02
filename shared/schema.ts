@@ -127,11 +127,29 @@ export const rateCards = pgTable("rate_cards", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const rateCardsRelations = relations(rateCards, ({ one }) => ({
+export const rateCardsRelations = relations(rateCards, ({ one, many }) => ({
   provider: one(providers, { fields: [rateCards.providerId], references: [providers.id] }),
   client: one(clients, { fields: [rateCards.clientId], references: [clients.id] }),
   service: one(services, { fields: [rateCards.serviceId], references: [services.id] }),
   lead: one(users, { fields: [rateCards.leadId], references: [users.id] }),
+  leadOverrides: many(rateCardLeadOverrides),
+}));
+
+// Lead-specific override amounts for rate cards
+export const rateCardLeadOverrides = pgTable("rate_card_lead_overrides", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  rateCardId: varchar("rate_card_id").notNull().references(() => rateCards.id, { onDelete: "cascade" }),
+  leadId: varchar("lead_id").notNull().references(() => users.id),
+  overrideDeduction: decimal("override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
+  tvOverrideDeduction: decimal("tv_override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
+  mobileOverrideDeduction: decimal("mobile_override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const rateCardLeadOverridesRelations = relations(rateCardLeadOverrides, ({ one }) => ({
+  rateCard: one(rateCards, { fields: [rateCardLeadOverrides.rateCardId], references: [rateCards.id] }),
+  lead: one(users, { fields: [rateCardLeadOverrides.leadId], references: [users.id] }),
 }));
 
 // Export Batches table
@@ -627,6 +645,7 @@ export type Service = typeof services.$inferSelect;
 export type InsertService = z.infer<typeof insertServiceSchema>;
 export type RateCard = typeof rateCards.$inferSelect;
 export type InsertRateCard = z.infer<typeof insertRateCardSchema>;
+export type RateCardLeadOverride = typeof rateCardLeadOverrides.$inferSelect;
 export type SalesOrder = typeof salesOrders.$inferSelect;
 export type InsertSalesOrder = z.infer<typeof insertSalesOrderSchema>;
 export type Incentive = typeof incentives.$inferSelect;
