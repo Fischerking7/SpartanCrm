@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, decimal, timestamp, date, pgEnum, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, decimal, timestamp, date, pgEnum, uniqueIndex, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -145,7 +145,9 @@ export const rateCardLeadOverrides = pgTable("rate_card_lead_overrides", {
   mobileOverrideDeduction: decimal("mobile_override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  uniqueRateCardLead: unique().on(table.rateCardId, table.leadId),
+}));
 
 export const rateCardLeadOverridesRelations = relations(rateCardLeadOverrides, ({ one }) => ({
   rateCard: one(rateCards, { fields: [rateCardLeadOverrides.rateCardId], references: [rateCards.id] }),
@@ -230,6 +232,8 @@ export const salesOrders = pgTable("sales_orders", {
   clientAcceptanceStatus: clientAcceptanceStatusEnum("client_acceptance_status"),
   clientAcceptedAt: timestamp("client_accepted_at"),
   expectedAmountCents: integer("expected_amount_cents"),
+  // Applied override deduction amount (from rate card or Lead-specific override)
+  overrideDeduction: decimal("override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

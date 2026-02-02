@@ -136,12 +136,31 @@ async function createOrderWithCommission(params: CreateOrderParams) {
     
     let totalDeductions = 0;
     if (!isExecutiveSale) {
-      totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+      // Check for Lead-specific override amounts
+      let overrideAmounts = {
+        base: parseFloat(rateCard.overrideDeduction || "0"),
+        tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
+        mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
+      };
+      
+      // If rep has an assigned Lead, check for Lead-specific overrides
+      if (salesRepUser?.assignedSupervisorId) {
+        const leadOverride = await storage.getLeadOverrideForRateCard(rateCard.id, salesRepUser.assignedSupervisorId);
+        if (leadOverride) {
+          overrideAmounts = {
+            base: parseFloat(leadOverride.overrideDeduction || "0"),
+            tv: parseFloat(leadOverride.tvOverrideDeduction || "0"),
+            mobile: parseFloat(leadOverride.mobileOverrideDeduction || "0"),
+          };
+        }
+      }
+      
+      totalDeductions += overrideAmounts.base;
       if (order.tvSold) {
-        totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
+        totalDeductions += overrideAmounts.tv;
       }
       if (order.mobileSold) {
-        totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+        totalDeductions += overrideAmounts.mobile;
       }
     }
     baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
@@ -151,6 +170,7 @@ async function createOrderWithCommission(params: CreateOrderParams) {
     baseCommissionEarned: baseCommission,
     appliedRateCardId,
     calcAt: rateCard ? new Date() : null,
+    overrideDeduction: totalDeductions.toFixed(2),
   });
   
   await storage.createAuditLog({ action: auditAction, tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(updatedOrder), userId });
@@ -1653,12 +1673,31 @@ export async function registerRoutes(
         // Calculate override deductions to subtract from rep's commission (NOT for executives)
         let totalDeductions = 0;
         if (!isExecutiveSale) {
-          totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+          // Check for Lead-specific override amounts
+          let overrideAmounts = {
+            base: parseFloat(rateCard.overrideDeduction || "0"),
+            tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
+            mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
+          };
+          
+          // If rep has an assigned Lead, check for Lead-specific overrides
+          if (salesRep?.assignedSupervisorId) {
+            const leadOverride = await storage.getLeadOverrideForRateCard(rateCard.id, salesRep.assignedSupervisorId);
+            if (leadOverride) {
+              overrideAmounts = {
+                base: parseFloat(leadOverride.overrideDeduction || "0"),
+                tv: parseFloat(leadOverride.tvOverrideDeduction || "0"),
+                mobile: parseFloat(leadOverride.mobileOverrideDeduction || "0"),
+              };
+            }
+          }
+          
+          totalDeductions += overrideAmounts.base;
           if (order.tvSold) {
-            totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
+            totalDeductions += overrideAmounts.tv;
           }
           if (order.mobileSold) {
-            totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+            totalDeductions += overrideAmounts.mobile;
           }
         }
         baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
@@ -1669,6 +1708,7 @@ export async function registerRoutes(
         baseCommissionEarned: baseCommission,
         appliedRateCardId,
         calcAt: new Date(),
+        overrideDeduction: totalDeductions.toFixed(2),
       });
       
       await storage.createAuditLog({ action: "recalculate_commission", tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(updatedOrder), userId: user.id });
@@ -3778,12 +3818,31 @@ export async function registerRoutes(
             // Calculate override deductions to subtract from rep's commission (NOT for executives)
             let totalDeductions = 0;
             if (!isExecutiveSale) {
-              totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+              // Check for Lead-specific override amounts
+              let overrideAmounts = {
+                base: parseFloat(rateCard.overrideDeduction || "0"),
+                tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
+                mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
+              };
+              
+              // If rep has an assigned Lead, check for Lead-specific overrides
+              if (salesRep?.assignedSupervisorId) {
+                const leadOverride = await storage.getLeadOverrideForRateCard(rateCard.id, salesRep.assignedSupervisorId);
+                if (leadOverride) {
+                  overrideAmounts = {
+                    base: parseFloat(leadOverride.overrideDeduction || "0"),
+                    tv: parseFloat(leadOverride.tvOverrideDeduction || "0"),
+                    mobile: parseFloat(leadOverride.mobileOverrideDeduction || "0"),
+                  };
+                }
+              }
+              
+              totalDeductions += overrideAmounts.base;
               if (order.tvSold) {
-                totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
+                totalDeductions += overrideAmounts.tv;
               }
               if (order.mobileSold) {
-                totalDeductions += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+                totalDeductions += overrideAmounts.mobile;
               }
             }
             baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
@@ -3793,6 +3852,7 @@ export async function registerRoutes(
             baseCommissionEarned: baseCommission,
             appliedRateCardId,
             calcAt: new Date(),
+            overrideDeduction: totalDeductions.toFixed(2),
           });
           
           recalculated++;

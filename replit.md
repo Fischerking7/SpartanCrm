@@ -46,6 +46,13 @@ EXECUTIVE users have a special toggle on Orders, Commissions, and Reports pages 
 - **Override**: Override deduction amount taken from the commission pool.
 - **Net Commission**: Gross Commission - Override (what the rep actually receives).
 
+### Lead-Specific Override Amounts
+Rate cards support Lead-specific override deductions via the `rate_card_lead_overrides` table. When a rep's commission is calculated:
+1. The system checks if the rep's assigned Lead has a custom override entry for that rate card
+2. If found, the Lead-specific override amounts (base, TV, mobile) are used instead of the default rate card overrides
+3. This allows different net commission amounts for reps based on their Lead's negotiated override structure
+4. Managed via the Users icon button on admin rate cards page
+
 ### Database Schema Highlights
 Key entities include Users, Clients, SalesOrders, Incentives, Chargebacks, PayRuns, and an extensive payroll system covering Pay Statements, Deductions, Advances, and Tax Profiles. Specific tables exist for MobileLineItems and CommissionLineItems to support granular tracking.
 
