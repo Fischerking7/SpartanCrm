@@ -17,6 +17,7 @@ import { Plus, Search, DollarSign, Edit, Trash2, ChevronDown, Check } from "luci
 import type { RateCard, Provider, Client, Service } from "@shared/schema";
 
 const __ANY_CLIENT__ = "__ANY_CLIENT__";
+const __ANY_LEAD__ = "__ANY_LEAD__";
 const __NO_MOBILE__ = "__NO_MOBILE__";
 const __NO_PORTED__ = "__NO_PORTED__";
 
@@ -43,6 +44,7 @@ export default function AdminRateCards() {
     clientId: __ANY_CLIENT__,
     serviceId: "",
     serviceName: "",
+    leadId: __ANY_LEAD__,
     mobileProductType: __NO_MOBILE__,
     mobilePortedStatus: __NO_PORTED__,
     baseAmount: "",
@@ -83,6 +85,14 @@ export default function AdminRateCards() {
     queryFn: async () => {
       const res = await fetch("/api/admin/services", { headers: getAuthHeaders() });
       return res.json();
+    },
+  });
+  const { data: leadUsers } = useQuery<{ id: string; name: string; repId: string; role: string }[]>({
+    queryKey: ["/api/admin/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
+      const all = await res.json();
+      return all.filter((u: any) => u.role === "LEAD" && u.status === "ACTIVE");
     },
   });
 
@@ -152,6 +162,7 @@ export default function AdminRateCards() {
       clientId: __ANY_CLIENT__,
       serviceId: "",
       serviceName: "",
+      leadId: __ANY_LEAD__,
       mobileProductType: __NO_MOBILE__,
       mobilePortedStatus: __NO_PORTED__,
       baseAmount: "",
@@ -175,6 +186,7 @@ export default function AdminRateCards() {
       clientId: r.clientId || __ANY_CLIENT__,
       serviceId: r.serviceId || "",
       serviceName: existingService?.name || "",
+      leadId: (r as any).leadId || __ANY_LEAD__,
       mobileProductType: r.mobileProductType || __NO_MOBILE__,
       mobilePortedStatus: r.mobilePortedStatus || __NO_PORTED__,
       baseAmount: r.baseAmount || "0",
@@ -206,6 +218,7 @@ export default function AdminRateCards() {
   const getProviderName = (id: string) => providers?.find((p) => p.id === id)?.name || id;
   const getClientName = (id: string | null) => (id ? clients?.find((c) => c.id === id)?.name || id : "Any");
   const getServiceName = (id: string | null) => (id ? services?.find((s) => s.id === id)?.name || id : "-");
+  const getLeadName = (id: string | null) => (id ? leadUsers?.find((l) => l.id === id)?.name || id : "All Leads");
 
   const filtered = items?.filter(
     (i) =>
@@ -229,6 +242,15 @@ export default function AdminRateCards() {
       key: "service",
       header: "Service",
       cell: (r: RateCard) => <span className="text-sm">{getServiceName(r.serviceId)}</span>,
+    },
+    {
+      key: "lead",
+      header: "Lead",
+      cell: (r: RateCard) => (r as any).leadId ? (
+        <Badge variant="secondary">{getLeadName((r as any).leadId)}</Badge>
+      ) : (
+        <span className="text-muted-foreground text-sm">All</span>
+      ),
     },
     {
       key: "mobileProductType",
@@ -309,6 +331,7 @@ export default function AdminRateCards() {
     const data: any = {
       providerId: formData.providerId,
       clientId: formData.clientId === __ANY_CLIENT__ ? null : formData.clientId,
+      leadId: formData.leadId === __ANY_LEAD__ ? null : formData.leadId,
       mobileProductType: formData.mobileProductType === __NO_MOBILE__ ? null : formData.mobileProductType,
       mobilePortedStatus: formData.mobilePortedStatus === __NO_PORTED__ ? null : formData.mobilePortedStatus,
       baseAmount: formData.baseAmount || "0",
@@ -452,6 +475,22 @@ export default function AdminRateCards() {
                 </Popover>
                 <p className="text-xs text-muted-foreground">Select existing or type custom</p>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Lead (Optional)</Label>
+              <Select value={formData.leadId} onValueChange={(v) => setFormData({ ...formData, leadId: v })}>
+                <SelectTrigger data-testid="select-lead">
+                  <SelectValue placeholder="All Leads" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={__ANY_LEAD__}>All Leads (Default)</SelectItem>
+                  {leadUsers?.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>{l.name} ({l.repId})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">If set, this rate card applies only to reps under this Lead</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
