@@ -328,18 +328,19 @@ export default function AdminRateCards() {
   ];
 
   const submitData = () => {
+    const isLeadSpecific = formData.leadId !== __ANY_LEAD__;
     const data: any = {
       providerId: formData.providerId,
       clientId: formData.clientId === __ANY_CLIENT__ ? null : formData.clientId,
-      leadId: formData.leadId === __ANY_LEAD__ ? null : formData.leadId,
+      leadId: isLeadSpecific ? formData.leadId : null,
       mobileProductType: formData.mobileProductType === __NO_MOBILE__ ? null : formData.mobileProductType,
       mobilePortedStatus: formData.mobilePortedStatus === __NO_PORTED__ ? null : formData.mobilePortedStatus,
       baseAmount: formData.baseAmount || "0",
       tvAddonAmount: formData.tvAddonAmount || "0",
       mobilePerLineAmount: formData.mobilePerLineAmount || "0",
-      overrideDeduction: formData.overrideDeduction || "0",
-      tvOverrideDeduction: formData.tvOverrideDeduction || "0",
-      mobileOverrideDeduction: formData.mobileOverrideDeduction || "0",
+      overrideDeduction: isLeadSpecific ? (formData.overrideDeduction || "0") : "0",
+      tvOverrideDeduction: isLeadSpecific ? (formData.tvOverrideDeduction || "0") : "0",
+      mobileOverrideDeduction: isLeadSpecific ? (formData.mobileOverrideDeduction || "0") : "0",
       effectiveStart: formData.effectiveStart,
       effectiveEnd: formData.effectiveEnd || null,
       active: formData.active,
@@ -570,62 +571,57 @@ export default function AdminRateCards() {
               </div>
             </div>
 
-            <div className={`space-y-3 p-4 rounded-lg border ${formData.leadId !== __ANY_LEAD__ ? 'border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800' : 'border-border bg-muted/30'}`}>
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium">
-                  {formData.leadId !== __ANY_LEAD__ 
-                    ? `Override Deductions for ${leadUsers?.find(l => l.id === formData.leadId)?.name || 'Selected Lead'}`
-                    : 'Override Deductions (Default)'
-                  }
-                </h4>
-                {formData.leadId !== __ANY_LEAD__ && (
+            {formData.leadId !== __ANY_LEAD__ && (
+              <div className="space-y-3 p-4 rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-medium">
+                    Override Deductions for {leadUsers?.find(l => l.id === formData.leadId)?.name || 'Selected Lead'}
+                  </h4>
                   <Badge variant="secondary" className="text-xs">Lead-Specific</Badge>
-                )}
-              </div>
-              {formData.leadId !== __ANY_LEAD__ && (
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  These override amounts will apply only to reps assigned to this Lead.
+                  These amounts will be deducted from the gross commission for reps under this Lead.
                 </p>
-              )}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Base Override ($)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={formData.overrideDeduction}
-                    onChange={(e) => setFormData({ ...formData, overrideDeduction: e.target.value })}
-                    data-testid="input-override-deduction"
-                  />
-                  <p className="text-xs text-muted-foreground">Pooled for internet sales</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>TV Override ($)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={formData.tvOverrideDeduction}
-                    onChange={(e) => setFormData({ ...formData, tvOverrideDeduction: e.target.value })}
-                    data-testid="input-tv-override-deduction"
-                  />
-                  <p className="text-xs text-muted-foreground">Pooled when TV sold</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Mobile Override ($)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={formData.mobileOverrideDeduction}
-                    onChange={(e) => setFormData({ ...formData, mobileOverrideDeduction: e.target.value })}
-                    data-testid="input-mobile-override-deduction"
-                  />
-                  <p className="text-xs text-muted-foreground">Pooled when mobile sold</p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Base Override ($)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={formData.overrideDeduction}
+                      onChange={(e) => setFormData({ ...formData, overrideDeduction: e.target.value })}
+                      data-testid="input-override-deduction"
+                    />
+                    <p className="text-xs text-muted-foreground">Deducted from base commission</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>TV Override ($)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={formData.tvOverrideDeduction}
+                      onChange={(e) => setFormData({ ...formData, tvOverrideDeduction: e.target.value })}
+                      data-testid="input-tv-override-deduction"
+                    />
+                    <p className="text-xs text-muted-foreground">Deducted when TV sold</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Mobile Override ($)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={formData.mobileOverrideDeduction}
+                      onChange={(e) => setFormData({ ...formData, mobileOverrideDeduction: e.target.value })}
+                      data-testid="input-mobile-override-deduction"
+                    />
+                    <p className="text-xs text-muted-foreground">Deducted when mobile sold</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
