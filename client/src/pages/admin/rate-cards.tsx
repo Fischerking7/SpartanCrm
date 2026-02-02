@@ -58,6 +58,14 @@ export default function AdminRateCards() {
     active: true,
   });
   const [servicePopoverOpen, setServicePopoverOpen] = useState(false);
+  
+  const USER_ROLES = ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE"] as const;
+  const emptyRoleOverrides = () => USER_ROLES.reduce((acc, role) => {
+    acc[role] = { overrideDeduction: "", tvOverrideDeduction: "", mobileOverrideDeduction: "" };
+    return acc;
+  }, {} as Record<string, { overrideDeduction: string; tvOverrideDeduction: string; mobileOverrideDeduction: string }>);
+  
+  const [roleOverrides, setRoleOverrides] = useState(emptyRoleOverrides());
 
   const { data: items, isLoading } = useQuery<RateCard[]>({
     queryKey: ["/api/admin/rate-cards"],
@@ -175,10 +183,11 @@ export default function AdminRateCards() {
       effectiveEnd: "",
       active: true,
     });
+    setRoleOverrides(emptyRoleOverrides());
     setServicePopoverOpen(false);
   };
 
-  const openEdit = (r: RateCard) => {
+  const openEdit = async (r: RateCard) => {
     setEditingItem(r);
     const existingService = r.serviceId ? services?.find(s => s.id === r.serviceId) : null;
     setFormData({
@@ -199,6 +208,28 @@ export default function AdminRateCards() {
       effectiveEnd: r.effectiveEnd || "",
       active: r.active,
     });
+    
+    // Fetch role overrides for this rate card
+    try {
+      const res = await fetch(`/api/admin/rate-cards/${r.id}/role-overrides`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const existingRoleOverrides = await res.json();
+        const newRoleOverrides = emptyRoleOverrides();
+        existingRoleOverrides.forEach((ro: any) => {
+          if (newRoleOverrides[ro.role]) {
+            newRoleOverrides[ro.role] = {
+              overrideDeduction: ro.overrideDeduction || "",
+              tvOverrideDeduction: ro.tvOverrideDeduction || "",
+              mobileOverrideDeduction: ro.mobileOverrideDeduction || "",
+            };
+          }
+        });
+        setRoleOverrides(newRoleOverrides);
+      }
+    } catch (e) {
+      setRoleOverrides(emptyRoleOverrides());
+    }
+    
     setShowDialog(true);
   };
 
@@ -327,7 +358,21 @@ export default function AdminRateCards() {
     },
   ];
 
-  const submitData = () => {
+  const saveRoleOverrides = async (rateCardId: string) => {
+    const overridesArray = USER_ROLES.map(role => ({
+      role,
+      overrideDeduction: roleOverrides[role].overrideDeduction || "0",
+      tvOverrideDeduction: roleOverrides[role].tvOverrideDeduction || "0",
+      mobileOverrideDeduction: roleOverrides[role].mobileOverrideDeduction || "0",
+    }));
+    await fetch(`/api/admin/rate-cards/${rateCardId}/role-overrides`, {
+      method: "POST",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ roleOverrides: overridesArray }),
+    });
+  };
+
+  const submitData = async () => {
     const isLeadSpecific = formData.leadId !== __ANY_LEAD__;
     const data: any = {
       providerId: formData.providerId,
@@ -354,9 +399,19 @@ export default function AdminRateCards() {
       data.serviceId = null;
     }
     if (editingItem) {
-      updateMutation.mutate({ id: editingItem.id, data });
+      updateMutation.mutate({ id: editingItem.id, data }, {
+        onSuccess: async (result: any) => {
+          await saveRoleOverrides(editingItem.id);
+        }
+      });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(data, {
+        onSuccess: async (result: any) => {
+          if (result.id) {
+            await saveRoleOverrides(result.id);
+          }
+        }
+      });
     }
   };
 
@@ -583,66 +638,63 @@ export default function AdminRateCards() {
               </div>
             </div>
 
-            {formData.leadId !== __ANY_LEAD__ && (
-              <div className="p-4 rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-blue-700 dark:text-blue-400">
-                    Override Deductions for {leadUsers?.find(l => l.id === formData.leadId)?.name || 'Selected Lead'}
-                  </h3>
-                  <Badge variant="secondary" className="text-xs">Lead-Specific</Badge>
-                </div>
-                <p className="text-xs text-muted-foreground mb-4">
-                  These amounts will be deducted from the gross commission for reps under this Lead.
-                </p>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label className="font-medium">Base Override</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
-                        className="pl-7"
-                        value={formData.overrideDeduction}
-                        onChange={(e) => setFormData({ ...formData, overrideDeduction: e.target.value })}
-                        data-testid="input-override-deduction"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="font-medium">TV Override</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
-                        className="pl-7"
-                        value={formData.tvOverrideDeduction}
-                        onChange={(e) => setFormData({ ...formData, tvOverrideDeduction: e.target.value })}
-                        data-testid="input-tv-override-deduction"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="font-medium">Mobile Override</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
-                        className="pl-7"
-                        value={formData.mobileOverrideDeduction}
-                        onChange={(e) => setFormData({ ...formData, mobileOverrideDeduction: e.target.value })}
-                        data-testid="input-mobile-override-deduction"
-                      />
-                    </div>
-                  </div>
-                </div>
+            <div className="p-4 rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-800">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-orange-700 dark:text-orange-400">
+                  Override Deductions by Role
+                </h3>
+                <Badge variant="secondary" className="text-xs">Role-Based</Badge>
               </div>
-            )}
+              <p className="text-xs text-muted-foreground mb-4">
+                Set different override amounts for each user role. These are deducted from the gross commission.
+              </p>
+              <div className="space-y-3">
+                <div className="grid grid-cols-4 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
+                  <div>Role</div>
+                  <div>Base Override ($)</div>
+                  <div>TV Override ($)</div>
+                  <div>Mobile Override ($)</div>
+                </div>
+                {USER_ROLES.map(role => (
+                  <div key={role} className="grid grid-cols-4 gap-2 items-center">
+                    <div className="text-sm font-medium">{role}</div>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={roleOverrides[role].overrideDeduction}
+                      onChange={(e) => setRoleOverrides({
+                        ...roleOverrides,
+                        [role]: { ...roleOverrides[role], overrideDeduction: e.target.value }
+                      })}
+                      data-testid={`input-role-override-base-${role}`}
+                    />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={roleOverrides[role].tvOverrideDeduction}
+                      onChange={(e) => setRoleOverrides({
+                        ...roleOverrides,
+                        [role]: { ...roleOverrides[role], tvOverrideDeduction: e.target.value }
+                      })}
+                      data-testid={`input-role-override-tv-${role}`}
+                    />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={roleOverrides[role].mobileOverrideDeduction}
+                      onChange={(e) => setRoleOverrides({
+                        ...roleOverrides,
+                        [role]: { ...roleOverrides[role], mobileOverrideDeduction: e.target.value }
+                      })}
+                      data-testid={`input-role-override-mobile-${role}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
 
             <div className="p-4 rounded-lg border bg-muted/30">
               <h3 className="text-sm font-semibold mb-4 text-primary">Validity Period</h3>

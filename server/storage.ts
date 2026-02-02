@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { eq, and, desc, sql, lte, gte, or, isNull, ilike, inArray, notInArray, ne, asc } from "drizzle-orm";
 import {
-  users, providers, clients, services, rateCards, rateCardLeadOverrides, salesOrders,
+  users, providers, clients, services, rateCards, rateCardLeadOverrides, rateCardRoleOverrides, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues, orderExceptions,
   auditLogs, exportBatches, counters, overrideEarnings, leads, leadDispositionHistory, commissionLineItems, mobileLineItems,
@@ -296,6 +296,61 @@ export const storage = {
   async deleteRateCardLeadOverride(id: string) {
     await db.delete(rateCardLeadOverrides).where(eq(rateCardLeadOverrides.id, id));
   },
+  
+  // Role-based override methods
+  async getRateCardRoleOverrides(rateCardId: string) {
+    return db.query.rateCardRoleOverrides.findMany({
+      where: eq(rateCardRoleOverrides.rateCardId, rateCardId),
+    });
+  },
+  async getRoleOverrideForRateCard(rateCardId: string, role: string) {
+    return db.query.rateCardRoleOverrides.findFirst({
+      where: and(
+        eq(rateCardRoleOverrides.rateCardId, rateCardId),
+        eq(rateCardRoleOverrides.role, role as any)
+      ),
+    });
+  },
+  async upsertRateCardRoleOverride(data: { rateCardId: string; role: string; overrideDeduction: string; tvOverrideDeduction: string; mobileOverrideDeduction: string }) {
+    const existing = await this.getRoleOverrideForRateCard(data.rateCardId, data.role);
+    if (existing) {
+      const [updated] = await db.update(rateCardRoleOverrides).set({
+        overrideDeduction: data.overrideDeduction,
+        tvOverrideDeduction: data.tvOverrideDeduction,
+        mobileOverrideDeduction: data.mobileOverrideDeduction,
+        updatedAt: new Date(),
+      }).where(eq(rateCardRoleOverrides.id, existing.id)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(rateCardRoleOverrides).values(data as any).returning();
+    return created;
+  },
+  async deleteRateCardRoleOverride(id: string) {
+    await db.delete(rateCardRoleOverrides).where(eq(rateCardRoleOverrides.id, id));
+  },
+  async deleteAllRoleOverridesForRateCard(rateCardId: string) {
+    await db.delete(rateCardRoleOverrides).where(eq(rateCardRoleOverrides.rateCardId, rateCardId));
+  },
+  async saveRateCardRoleOverrides(rateCardId: string, roleOverrides: Array<{ role: string; overrideDeduction: string; tvOverrideDeduction: string; mobileOverrideDeduction: string }>) {
+    // Delete all existing overrides for this rate card
+    await this.deleteAllRoleOverridesForRateCard(rateCardId);
+    // Insert new overrides (only those with non-zero values)
+    const toInsert = roleOverrides.filter(ro => 
+      parseFloat(ro.overrideDeduction) > 0 || 
+      parseFloat(ro.tvOverrideDeduction) > 0 || 
+      parseFloat(ro.mobileOverrideDeduction) > 0
+    );
+    for (const ro of toInsert) {
+      await db.insert(rateCardRoleOverrides).values({
+        rateCardId,
+        role: ro.role as any,
+        overrideDeduction: ro.overrideDeduction,
+        tvOverrideDeduction: ro.tvOverrideDeduction,
+        mobileOverrideDeduction: ro.mobileOverrideDeduction,
+      });
+    }
+  },
+  
   async getRateCardDependencyCount(id: string): Promise<number> {
     const orders = await db.select({ count: sql<number>`count(*)` }).from(salesOrders).where(eq(salesOrders.appliedRateCardId, id));
     return Number(orders[0]?.count || 0);

@@ -132,28 +132,33 @@ async function createOrderWithCommission(params: CreateOrderParams) {
     appliedRateCardId = rateCard.id;
     
     const salesRepUser = await storage.getUserByRepId(assignedRepId);
-    const isExecutiveSale = salesRepUser?.role === "EXECUTIVE";
     
     let totalDeductions = 0;
-    if (!isExecutiveSale) {
-      // Check for Lead-specific override amounts
-      let overrideAmounts = {
+    // Look up role-based override for this user's role
+    const userRole = salesRepUser?.role || "REP";
+    const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
+    
+    if (roleOverride) {
+      const overrideAmounts = {
+        base: parseFloat(roleOverride.overrideDeduction || "0"),
+        tv: parseFloat(roleOverride.tvOverrideDeduction || "0"),
+        mobile: parseFloat(roleOverride.mobileOverrideDeduction || "0"),
+      };
+      
+      totalDeductions += overrideAmounts.base;
+      if (order.tvSold) {
+        totalDeductions += overrideAmounts.tv;
+      }
+      if (order.mobileSold) {
+        totalDeductions += overrideAmounts.mobile;
+      }
+    } else {
+      // Fall back to rate card default overrides if no role-specific override exists
+      const overrideAmounts = {
         base: parseFloat(rateCard.overrideDeduction || "0"),
         tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
         mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
       };
-      
-      // If rep has an assigned Lead, check for Lead-specific overrides
-      if (salesRepUser?.assignedSupervisorId) {
-        const leadOverride = await storage.getLeadOverrideForRateCard(rateCard.id, salesRepUser.assignedSupervisorId);
-        if (leadOverride) {
-          overrideAmounts = {
-            base: parseFloat(leadOverride.overrideDeduction || "0"),
-            tv: parseFloat(leadOverride.tvOverrideDeduction || "0"),
-            mobile: parseFloat(leadOverride.mobileOverrideDeduction || "0"),
-          };
-        }
-      }
       
       totalDeductions += overrideAmounts.base;
       if (order.tvSold) {
@@ -1666,31 +1671,35 @@ export async function registerRoutes(
         const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
         appliedRateCardId = rateCard.id;
         
-        // Check if sales rep is an EXECUTIVE (exempt from override deductions)
+        // Calculate override deductions based on user's role
         const salesRep = await storage.getUserByRepId(order.repId);
-        const isExecutiveSale = salesRep?.role === "EXECUTIVE";
-        
-        // Calculate override deductions to subtract from rep's commission (NOT for executives)
         let totalDeductions = 0;
-        if (!isExecutiveSale) {
-          // Check for Lead-specific override amounts
-          let overrideAmounts = {
+        
+        // Look up role-based override for this user's role
+        const userRole = salesRep?.role || "REP";
+        const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
+        
+        if (roleOverride) {
+          const overrideAmounts = {
+            base: parseFloat(roleOverride.overrideDeduction || "0"),
+            tv: parseFloat(roleOverride.tvOverrideDeduction || "0"),
+            mobile: parseFloat(roleOverride.mobileOverrideDeduction || "0"),
+          };
+          
+          totalDeductions += overrideAmounts.base;
+          if (order.tvSold) {
+            totalDeductions += overrideAmounts.tv;
+          }
+          if (order.mobileSold) {
+            totalDeductions += overrideAmounts.mobile;
+          }
+        } else {
+          // Fall back to rate card default overrides if no role-specific override exists
+          const overrideAmounts = {
             base: parseFloat(rateCard.overrideDeduction || "0"),
             tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
             mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
           };
-          
-          // If rep has an assigned Lead, check for Lead-specific overrides
-          if (salesRep?.assignedSupervisorId) {
-            const leadOverride = await storage.getLeadOverrideForRateCard(rateCard.id, salesRep.assignedSupervisorId);
-            if (leadOverride) {
-              overrideAmounts = {
-                base: parseFloat(leadOverride.overrideDeduction || "0"),
-                tv: parseFloat(leadOverride.tvOverrideDeduction || "0"),
-                mobile: parseFloat(leadOverride.mobileOverrideDeduction || "0"),
-              };
-            }
-          }
           
           totalDeductions += overrideAmounts.base;
           if (order.tvSold) {
@@ -2857,6 +2866,34 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed to delete lead override" }); }
   });
 
+  // Rate Card Role Overrides
+  app.get("/api/admin/rate-cards/:id/role-overrides", auth, adminOnly, async (req, res) => {
+    try {
+      res.json(await storage.getRateCardRoleOverrides(req.params.id));
+    } catch (error) { res.status(500).json({ message: "Failed to get role overrides" }); }
+  });
+  
+  app.post("/api/admin/rate-cards/:id/role-overrides", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const validRoles = ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE"];
+      const { roleOverrides } = req.body;
+      if (!Array.isArray(roleOverrides)) {
+        return res.status(400).json({ message: "roleOverrides must be an array" });
+      }
+      const validatedOverrides = roleOverrides.filter((ro: any) => 
+        ro && typeof ro === "object" && validRoles.includes(ro.role)
+      ).map((ro: any) => ({
+        role: ro.role,
+        overrideDeduction: String(ro.overrideDeduction || "0"),
+        tvOverrideDeduction: String(ro.tvOverrideDeduction || "0"),
+        mobileOverrideDeduction: String(ro.mobileOverrideDeduction || "0"),
+      }));
+      await storage.saveRateCardRoleOverrides(req.params.id, validatedOverrides);
+      await storage.createAuditLog({ action: "update_role_overrides", tableName: "rate_card_role_overrides", recordId: req.params.id, userId: req.user!.id, afterJson: JSON.stringify(validatedOverrides) });
+      res.json({ success: true });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to save role overrides" }); }
+  });
+
   // Incentives
   app.get("/api/admin/incentives", auth, adminOnly, async (req, res) => {
     try { res.json(await storage.getIncentives()); } catch (error) { res.status(500).json({ message: "Failed" }); }
@@ -3811,31 +3848,35 @@ export async function registerRoutes(
             const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
             appliedRateCardId = rateCard.id;
             
-            // Check if sales rep is an EXECUTIVE (exempt from override deductions)
+            // Calculate override deductions based on user's role
             const salesRep = await storage.getUserByRepId(order.repId);
-            const isExecutiveSale = salesRep?.role === "EXECUTIVE";
-            
-            // Calculate override deductions to subtract from rep's commission (NOT for executives)
             let totalDeductions = 0;
-            if (!isExecutiveSale) {
-              // Check for Lead-specific override amounts
-              let overrideAmounts = {
+            
+            // Look up role-based override for this user's role
+            const userRole = salesRep?.role || "REP";
+            const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
+            
+            if (roleOverride) {
+              const overrideAmounts = {
+                base: parseFloat(roleOverride.overrideDeduction || "0"),
+                tv: parseFloat(roleOverride.tvOverrideDeduction || "0"),
+                mobile: parseFloat(roleOverride.mobileOverrideDeduction || "0"),
+              };
+              
+              totalDeductions += overrideAmounts.base;
+              if (order.tvSold) {
+                totalDeductions += overrideAmounts.tv;
+              }
+              if (order.mobileSold) {
+                totalDeductions += overrideAmounts.mobile;
+              }
+            } else {
+              // Fall back to rate card default overrides if no role-specific override exists
+              const overrideAmounts = {
                 base: parseFloat(rateCard.overrideDeduction || "0"),
                 tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
                 mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
               };
-              
-              // If rep has an assigned Lead, check for Lead-specific overrides
-              if (salesRep?.assignedSupervisorId) {
-                const leadOverride = await storage.getLeadOverrideForRateCard(rateCard.id, salesRep.assignedSupervisorId);
-                if (leadOverride) {
-                  overrideAmounts = {
-                    base: parseFloat(leadOverride.overrideDeduction || "0"),
-                    tv: parseFloat(leadOverride.tvOverrideDeduction || "0"),
-                    mobile: parseFloat(leadOverride.mobileOverrideDeduction || "0"),
-                  };
-                }
-              }
               
               totalDeductions += overrideAmounts.base;
               if (order.tvSold) {
