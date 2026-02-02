@@ -2787,6 +2787,36 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed to remove rate card" }); }
   });
 
+  // Rate Card Lead Overrides
+  app.get("/api/admin/rate-cards/:id/lead-overrides", auth, adminOnly, async (req, res) => {
+    try {
+      res.json(await storage.getRateCardLeadOverrides(req.params.id));
+    } catch (error) { res.status(500).json({ message: "Failed to get lead overrides" }); }
+  });
+  
+  app.post("/api/admin/rate-cards/:id/lead-overrides", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { leadId, overrideDeduction, tvOverrideDeduction, mobileOverrideDeduction } = req.body;
+      const override = await storage.upsertRateCardLeadOverride({
+        rateCardId: req.params.id,
+        leadId,
+        overrideDeduction: overrideDeduction || "0",
+        tvOverrideDeduction: tvOverrideDeduction || "0",
+        mobileOverrideDeduction: mobileOverrideDeduction || "0",
+      });
+      await storage.createAuditLog({ action: "upsert_lead_override", tableName: "rate_card_lead_overrides", recordId: override.id, afterJson: JSON.stringify(override), userId: req.user!.id });
+      res.json(override);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to save lead override" }); }
+  });
+  
+  app.delete("/api/admin/rate-cards/:rateCardId/lead-overrides/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteRateCardLeadOverride(req.params.id);
+      await storage.createAuditLog({ action: "delete_lead_override", tableName: "rate_card_lead_overrides", recordId: req.params.id, userId: req.user!.id });
+      res.json({ success: true });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to delete lead override" }); }
+  });
+
   // Incentives
   app.get("/api/admin/incentives", auth, adminOnly, async (req, res) => {
     try { res.json(await storage.getIncentives()); } catch (error) { res.status(500).json({ message: "Failed" }); }

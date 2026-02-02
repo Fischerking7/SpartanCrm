@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { eq, and, desc, sql, lte, gte, or, isNull, ilike, inArray, notInArray, ne, asc } from "drizzle-orm";
 import {
-  users, providers, clients, services, rateCards, salesOrders,
+  users, providers, clients, services, rateCards, rateCardLeadOverrides, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
   payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues, orderExceptions,
   auditLogs, exportBatches, counters, overrideEarnings, leads, leadDispositionHistory, commissionLineItems, mobileLineItems,
@@ -264,6 +264,37 @@ export const storage = {
       where: and(eq(rateCards.active, true), isNull(rateCards.deletedAt)),
       orderBy: [desc(rateCards.createdAt)] 
     });
+  },
+  async getRateCardLeadOverrides(rateCardId: string) {
+    return db.query.rateCardLeadOverrides.findMany({
+      where: eq(rateCardLeadOverrides.rateCardId, rateCardId),
+      with: { lead: true },
+    });
+  },
+  async getLeadOverrideForRateCard(rateCardId: string, leadId: string) {
+    return db.query.rateCardLeadOverrides.findFirst({
+      where: and(
+        eq(rateCardLeadOverrides.rateCardId, rateCardId),
+        eq(rateCardLeadOverrides.leadId, leadId)
+      ),
+    });
+  },
+  async upsertRateCardLeadOverride(data: { rateCardId: string; leadId: string; overrideDeduction: string; tvOverrideDeduction: string; mobileOverrideDeduction: string }) {
+    const existing = await this.getLeadOverrideForRateCard(data.rateCardId, data.leadId);
+    if (existing) {
+      const [updated] = await db.update(rateCardLeadOverrides).set({
+        overrideDeduction: data.overrideDeduction,
+        tvOverrideDeduction: data.tvOverrideDeduction,
+        mobileOverrideDeduction: data.mobileOverrideDeduction,
+        updatedAt: new Date(),
+      }).where(eq(rateCardLeadOverrides.id, existing.id)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(rateCardLeadOverrides).values(data).returning();
+    return created;
+  },
+  async deleteRateCardLeadOverride(id: string) {
+    await db.delete(rateCardLeadOverrides).where(eq(rateCardLeadOverrides.id, id));
   },
   async getRateCardDependencyCount(id: string): Promise<number> {
     const orders = await db.select({ count: sql<number>`count(*)` }).from(salesOrders).where(eq(salesOrders.appliedRateCardId, id));

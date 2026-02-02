@@ -13,8 +13,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, DollarSign, Edit, Trash2, ChevronDown, Check } from "lucide-react";
-import type { RateCard, Provider, Client, Service } from "@shared/schema";
+import { Plus, Search, DollarSign, Edit, Trash2, ChevronDown, Check, Users } from "lucide-react";
+import type { RateCard, Provider, Client, Service, RateCardLeadOverride } from "@shared/schema";
 
 const __ANY_CLIENT__ = "__ANY_CLIENT__";
 const __ANY_LEAD__ = "__ANY_LEAD__";
@@ -39,6 +39,8 @@ export default function AdminRateCards() {
   const [showDialog, setShowDialog] = useState(false);
   const [editingItem, setEditingItem] = useState<RateCard | null>(null);
   const [deleteItem, setDeleteItem] = useState<RateCard | null>(null);
+  const [leadOverridesItem, setLeadOverridesItem] = useState<RateCard | null>(null);
+  const [leadOverrideForm, setLeadOverrideForm] = useState({ leadId: "", overrideDeduction: "", tvOverrideDeduction: "", mobileOverrideDeduction: "" });
   const [formData, setFormData] = useState({
     providerId: "",
     clientId: __ANY_CLIENT__,
@@ -150,6 +152,50 @@ export default function AdminRateCards() {
           ? `Archived with ${data.dependencyCount} historical orders referencing it.`
           : "Rate card has been removed.",
       });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const { data: leadOverrides, refetch: refetchLeadOverrides } = useQuery<(RateCardLeadOverride & { lead: { id: string; name: string } })[]>({
+    queryKey: ["/api/admin/rate-cards", leadOverridesItem?.id, "lead-overrides"],
+    queryFn: async () => {
+      if (!leadOverridesItem?.id) return [];
+      const res = await fetch(`/api/admin/rate-cards/${leadOverridesItem.id}/lead-overrides`, { headers: getAuthHeaders() });
+      return res.json();
+    },
+    enabled: !!leadOverridesItem?.id,
+  });
+
+  const upsertLeadOverrideMutation = useMutation({
+    mutationFn: async (data: { leadId: string; overrideDeduction: string; tvOverrideDeduction: string; mobileOverrideDeduction: string }) => {
+      const res = await fetch(`/api/admin/rate-cards/${leadOverridesItem?.id}/lead-overrides`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchLeadOverrides();
+      setLeadOverrideForm({ leadId: "", overrideDeduction: "", tvOverrideDeduction: "", mobileOverrideDeduction: "" });
+      toast({ title: "Lead override saved" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteLeadOverrideMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/admin/rate-cards/${leadOverridesItem?.id}/lead-overrides/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchLeadOverrides();
+      toast({ title: "Lead override removed" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -316,6 +362,9 @@ export default function AdminRateCards() {
       header: "",
       cell: (r: RateCard) => (
         <div className="flex items-center gap-1">
+          <Button size="sm" variant="ghost" onClick={() => setLeadOverridesItem(r)} title="Lead Overrides" data-testid={`button-lead-overrides-${r.id}`}>
+            <Users className="h-4 w-4 text-blue-600" />
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => openEdit(r)} data-testid={`button-edit-rate-card-${r.id}`}>
             <Edit className="h-4 w-4" />
           </Button>
@@ -658,6 +707,115 @@ export default function AdminRateCards() {
               data-testid="button-confirm-delete-rate-card"
             >
               {deleteMutation.isPending ? "Archiving..." : "Archive Rate Card"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!leadOverridesItem} onOpenChange={() => { setLeadOverridesItem(null); setLeadOverrideForm({ leadId: "", overrideDeduction: "", tvOverrideDeduction: "", mobileOverrideDeduction: "" }); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Lead-Specific Override Amounts</DialogTitle>
+            <DialogDescription>
+              Configure different override deduction amounts for each Lead on this rate card. Reps under a Lead with custom overrides will have those amounts deducted instead of the default.
+              <br /><span className="font-medium">Rate Card:</span> {leadOverridesItem && getProviderName(leadOverridesItem.providerId)} - {leadOverridesItem && getServiceName(leadOverridesItem.serviceId)}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="bg-muted/50 p-4 rounded-lg">
+              <h4 className="text-sm font-medium mb-2">Default Override Amounts (used when no Lead-specific override)</h4>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div><span className="text-muted-foreground">Base:</span> <span className="font-mono">${parseFloat(leadOverridesItem?.overrideDeduction || "0").toFixed(2)}</span></div>
+                <div><span className="text-muted-foreground">TV:</span> <span className="font-mono">${parseFloat((leadOverridesItem as any)?.tvOverrideDeduction || "0").toFixed(2)}</span></div>
+                <div><span className="text-muted-foreground">Mobile:</span> <span className="font-mono">${parseFloat((leadOverridesItem as any)?.mobileOverrideDeduction || "0").toFixed(2)}</span></div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Add/Edit Lead Override</h4>
+              <div className="grid grid-cols-5 gap-2">
+                <div className="col-span-2">
+                  <Select value={leadOverrideForm.leadId} onValueChange={(v) => setLeadOverrideForm({ ...leadOverrideForm, leadId: v })}>
+                    <SelectTrigger data-testid="select-lead-override-lead">
+                      <SelectValue placeholder="Select Lead" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {leadUsers?.filter(l => !leadOverrides?.some(o => o.leadId === l.id)).map((l) => (
+                        <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="Base $"
+                  value={leadOverrideForm.overrideDeduction}
+                  onChange={(e) => setLeadOverrideForm({ ...leadOverrideForm, overrideDeduction: e.target.value })}
+                  data-testid="input-lead-override-base"
+                />
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="TV $"
+                  value={leadOverrideForm.tvOverrideDeduction}
+                  onChange={(e) => setLeadOverrideForm({ ...leadOverrideForm, tvOverrideDeduction: e.target.value })}
+                  data-testid="input-lead-override-tv"
+                />
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="Mobile $"
+                  value={leadOverrideForm.mobileOverrideDeduction}
+                  onChange={(e) => setLeadOverrideForm({ ...leadOverrideForm, mobileOverrideDeduction: e.target.value })}
+                  data-testid="input-lead-override-mobile"
+                />
+              </div>
+              <Button
+                size="sm"
+                onClick={() => leadOverrideForm.leadId && upsertLeadOverrideMutation.mutate(leadOverrideForm)}
+                disabled={!leadOverrideForm.leadId || upsertLeadOverrideMutation.isPending}
+                data-testid="button-add-lead-override"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                {upsertLeadOverrideMutation.isPending ? "Saving..." : "Add Lead Override"}
+              </Button>
+            </div>
+
+            {leadOverrides && leadOverrides.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Current Lead Overrides</h4>
+                <div className="border rounded-lg divide-y">
+                  {leadOverrides.map((o) => (
+                    <div key={o.id} className="flex items-center justify-between p-3">
+                      <div className="flex items-center gap-4">
+                        <Badge variant="secondary">{o.lead?.name || "Unknown Lead"}</Badge>
+                        <div className="text-sm space-x-4">
+                          <span><span className="text-muted-foreground">Base:</span> <span className="font-mono">${parseFloat(o.overrideDeduction || "0").toFixed(2)}</span></span>
+                          <span><span className="text-muted-foreground">TV:</span> <span className="font-mono">${parseFloat(o.tvOverrideDeduction || "0").toFixed(2)}</span></span>
+                          <span><span className="text-muted-foreground">Mobile:</span> <span className="font-mono">${parseFloat(o.mobileOverrideDeduction || "0").toFixed(2)}</span></span>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => deleteLeadOverrideMutation.mutate(o.id)}
+                        disabled={deleteLeadOverrideMutation.isPending}
+                        data-testid={`button-delete-lead-override-${o.id}`}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setLeadOverridesItem(null); setLeadOverrideForm({ leadId: "", overrideDeduction: "", tvOverrideDeduction: "", mobileOverrideDeduction: "" }); }}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
