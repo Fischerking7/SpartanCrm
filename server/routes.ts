@@ -2250,15 +2250,10 @@ export async function registerRoutes(
 
         try {
           // Required fields
-          const repId = row.repId?.toString().trim();
+          const repId = row.repId?.toString().trim() || undefined;
           const customerName = row.customerName?.toString().trim();
           const dateSoldRaw = row.dateSold;
 
-          if (!repId) {
-            errors.push(`Row ${rowNum}: Missing repId`);
-            failed++;
-            continue;
-          }
           if (!customerName) {
             errors.push(`Row ${rowNum}: Missing customerName`);
             failed++;
@@ -2270,12 +2265,15 @@ export async function registerRoutes(
             continue;
           }
 
-          // Validate rep exists
-          const user = users.find(u => u.repId === repId);
-          if (!user) {
-            errors.push(`Row ${rowNum}: Rep ID "${repId}" not found`);
-            failed++;
-            continue;
+          // Validate rep exists if provided
+          let user = null;
+          if (repId) {
+            user = users.find(u => u.repId === repId);
+            if (!user) {
+              errors.push(`Row ${rowNum}: Rep ID "${repId}" not found`);
+              failed++;
+              continue;
+            }
           }
 
           // Parse dates (Excel serial or string)

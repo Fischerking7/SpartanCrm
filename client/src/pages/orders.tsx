@@ -2376,7 +2376,7 @@ export default function Orders() {
               Import Orders from Excel
             </DialogTitle>
             <DialogDescription>
-              Upload an Excel file (.xlsx, .xls) with order data. Required columns: repId, customerName, dateSold.
+              Upload an Excel file (.xlsx, .xls) with order data. Required columns: customerName, dateSold.
             </DialogDescription>
           </DialogHeader>
           
@@ -2433,7 +2433,7 @@ export default function Orders() {
             
             <div className="text-xs text-muted-foreground space-y-1">
               <p className="font-medium">Expected columns:</p>
-              <p>repId, customerName, customerAddress, accountNumber, dateSold, installDate, providerId, clientId, serviceId, invoiceNumber, tvSold, mobileSold, mobileLinesQty</p>
+              <p>customerName, dateSold (required), repId (optional), customerAddress, accountNumber, installDate, providerId, clientId, serviceId, invoiceNumber, tvSold, mobileSold, mobileLinesQty</p>
             </div>
           </div>
           
