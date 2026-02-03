@@ -203,7 +203,7 @@ export const payRuns = pgTable("pay_runs", {
 // Sales Orders table
 export const salesOrders = pgTable("sales_orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  repId: text("rep_id").notNull(),
+  repId: text("rep_id"),
   clientId: varchar("client_id").notNull().references(() => clients.id),
   providerId: varchar("provider_id").notNull().references(() => providers.id),
   serviceId: varchar("service_id").notNull().references(() => services.id),
