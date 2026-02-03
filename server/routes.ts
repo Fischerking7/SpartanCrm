@@ -2244,15 +2244,31 @@ export async function registerRoutes(
       const clients = await storage.getClients();
       const services = await storage.getServices();
 
+      // Helper to find column value with flexible naming
+      const getColumnValue = (row: Record<string, any>, ...possibleNames: string[]): any => {
+        for (const name of possibleNames) {
+          // Try exact match first
+          if (row[name] !== undefined) return row[name];
+          // Try case-insensitive match
+          const lowerName = name.toLowerCase();
+          for (const key of Object.keys(row)) {
+            if (key.toLowerCase() === lowerName) return row[key];
+            // Try without spaces/underscores
+            if (key.toLowerCase().replace(/[\s_-]/g, '') === lowerName.replace(/[\s_-]/g, '')) return row[key];
+          }
+        }
+        return undefined;
+      };
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const rowNum = i + 2; // Excel row number (1-indexed + header row)
 
         try {
-          // Required fields
-          const repId = row.repId?.toString().trim() || undefined;
-          const customerName = row.customerName?.toString().trim();
-          const dateSoldRaw = row.dateSold;
+          // Required fields with flexible column name matching
+          const repId = getColumnValue(row, 'repId', 'rep_id', 'Rep ID', 'RepID', 'rep')?.toString().trim() || undefined;
+          const customerName = getColumnValue(row, 'customerName', 'customer_name', 'Customer Name', 'CustomerName', 'name', 'Name', 'customer')?.toString().trim();
+          const dateSoldRaw = getColumnValue(row, 'dateSold', 'date_sold', 'Date Sold', 'DateSold', 'saleDate', 'Sale Date', 'date');
 
           if (!customerName) {
             errors.push(`Row ${rowNum}: Missing customerName`);
@@ -2290,51 +2306,66 @@ export async function registerRoutes(
           }
 
           let installDate: Date | undefined;
-          if (row.installDate) {
-            if (typeof row.installDate === "number") {
-              installDate = new Date((row.installDate - 25569) * 86400 * 1000);
+          const installDateRaw = getColumnValue(row, 'installDate', 'install_date', 'Install Date', 'InstallDate', 'installation_date');
+          if (installDateRaw) {
+            if (typeof installDateRaw === "number") {
+              installDate = new Date((installDateRaw - 25569) * 86400 * 1000);
             } else {
-              installDate = new Date(row.installDate);
+              installDate = new Date(installDateRaw);
             }
             if (isNaN(installDate.getTime())) {
               installDate = undefined;
             }
           }
 
-          // Lookup IDs by name or use provided IDs
-          let providerId = row.providerId?.toString().trim();
-          if (!providerId && row.provider) {
-            const provider = providers.find(p => p.name.toLowerCase() === row.provider.toString().toLowerCase().trim());
+          // Lookup IDs by name or use provided IDs with flexible column names
+          const providerIdRaw = getColumnValue(row, 'providerId', 'provider_id', 'Provider ID', 'ProviderId');
+          const providerNameRaw = getColumnValue(row, 'provider', 'Provider', 'provider_name', 'Provider Name');
+          let providerId = providerIdRaw?.toString().trim();
+          if (!providerId && providerNameRaw) {
+            const provider = providers.find(p => p.name.toLowerCase() === providerNameRaw.toString().toLowerCase().trim());
             providerId = provider?.id;
           }
 
-          let clientId = row.clientId?.toString().trim();
-          if (!clientId && row.client) {
-            const client = clients.find(c => c.name.toLowerCase() === row.client.toString().toLowerCase().trim());
+          const clientIdRaw = getColumnValue(row, 'clientId', 'client_id', 'Client ID', 'ClientId');
+          const clientNameRaw = getColumnValue(row, 'client', 'Client', 'client_name', 'Client Name');
+          let clientId = clientIdRaw?.toString().trim();
+          if (!clientId && clientNameRaw) {
+            const client = clients.find(c => c.name.toLowerCase() === clientNameRaw.toString().toLowerCase().trim());
             clientId = client?.id;
           }
 
-          let serviceId = row.serviceId?.toString().trim();
-          if (!serviceId && row.service) {
-            const service = services.find(s => s.name.toLowerCase() === row.service.toString().toLowerCase().trim());
+          const serviceIdRaw = getColumnValue(row, 'serviceId', 'service_id', 'Service ID', 'ServiceId');
+          const serviceNameRaw = getColumnValue(row, 'service', 'Service', 'service_name', 'Service Name', 'serviceType', 'Service Type');
+          let serviceId = serviceIdRaw?.toString().trim();
+          if (!serviceId && serviceNameRaw) {
+            const service = services.find(s => s.name.toLowerCase() === serviceNameRaw.toString().toLowerCase().trim());
             serviceId = service?.id;
           }
+
+          // Get other optional fields with flexible naming
+          const customerAddress = getColumnValue(row, 'customerAddress', 'customer_address', 'Customer Address', 'address', 'Address')?.toString().trim() || "";
+          const accountNumber = getColumnValue(row, 'accountNumber', 'account_number', 'Account Number', 'account', 'Account')?.toString().trim() || null;
+          const invoiceNumber = getColumnValue(row, 'invoiceNumber', 'invoice_number', 'Invoice Number', 'invoice', 'Invoice')?.toString().trim() || null;
+          const tvSoldVal = getColumnValue(row, 'tvSold', 'tv_sold', 'TV Sold', 'TV', 'tv');
+          const mobileSoldVal = getColumnValue(row, 'mobileSold', 'mobile_sold', 'Mobile Sold', 'Mobile', 'mobile');
+          const mobileLinesVal = getColumnValue(row, 'mobileLinesQty', 'mobile_lines_qty', 'Mobile Lines', 'mobileLines', 'mobile_lines');
 
           // Build order data (dates as ISO strings)
           const orderData = {
             repId,
             customerName,
-            customerAddress: row.customerAddress?.toString().trim() || "",
-            accountNumber: row.accountNumber?.toString().trim() || null,
+            customerAddress,
+            accountNumber,
             dateSold: dateSold.toISOString(),
             installDate: installDate ? installDate.toISOString() : null,
             providerId: providerId || "default-provider",
             clientId: clientId || "default-client",
             serviceId: serviceId || "default-service",
-            invoiceNumber: row.invoiceNumber?.toString().trim() || null,
-            tvSold: row.tvSold === true || row.tvSold === "true" || row.tvSold === 1 || row.tvSold === "1" || row.tvSold?.toString().toLowerCase() === "yes",
-            mobileSold: row.mobileSold === true || row.mobileSold === "true" || row.mobileSold === 1 || row.mobileSold === "1" || row.mobileSold?.toString().toLowerCase() === "yes",
-            mobileLinesQty: parseInt(row.mobileLinesQty) || 0,
+            invoiceNumber,
+            tvSold: tvSoldVal === true || tvSoldVal === "true" || tvSoldVal === 1 || tvSoldVal === "1" || tvSoldVal?.toString().toLowerCase() === "yes",
+            mobileSold: mobileSoldVal === true || mobileSoldVal === "true" || mobileSoldVal === 1 || mobileSoldVal === "1" || mobileSoldVal?.toString().toLowerCase() === "yes",
+            mobileLinesQty: parseInt(mobileLinesVal) || 0,
             jobStatus: "PENDING" as const,
             paymentStatus: "UNPAID" as const,
             baseCommissionEarned: "0",
