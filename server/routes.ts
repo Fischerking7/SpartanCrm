@@ -122,6 +122,7 @@ async function createOrderWithCommission(params: CreateOrderParams) {
   // Calculate commission
   let baseCommission = "0";
   let appliedRateCardId: string | null = null;
+  let totalDeductions = 0;
   
   const rateCard = await storage.findMatchingRateCard(order, dateSold);
   if (rateCard) {
@@ -132,8 +133,6 @@ async function createOrderWithCommission(params: CreateOrderParams) {
     appliedRateCardId = rateCard.id;
     
     const salesRepUser = await storage.getUserByRepId(assignedRepId);
-    
-    let totalDeductions = 0;
     // Look up role-based override for this user's role
     const userRole = salesRepUser?.role || "REP";
     const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
@@ -1664,6 +1663,7 @@ export async function registerRoutes(
       const rateCard = await storage.findMatchingRateCard(order, order.dateSold);
       let baseCommission = "0";
       let appliedRateCardId: string | null = null;
+      let totalDeductions = 0;
       
       if (rateCard) {
         const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
@@ -1673,7 +1673,6 @@ export async function registerRoutes(
         
         // Calculate override deductions based on user's role
         const salesRep = await storage.getUserByRepId(order.repId);
-        let totalDeductions = 0;
         
         // Look up role-based override for this user's role
         const userRole = salesRep?.role || "REP";
@@ -3841,6 +3840,7 @@ export async function registerRoutes(
           const rateCard = await storage.findMatchingRateCard(order, order.dateSold);
           let baseCommission = "0";
           let appliedRateCardId: string | null = null;
+          let totalDeductions = 0;
           
           if (rateCard) {
             const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
@@ -3850,7 +3850,6 @@ export async function registerRoutes(
             
             // Calculate override deductions based on user's role
             const salesRep = await storage.getUserByRepId(order.repId);
-            let totalDeductions = 0;
             
             // Look up role-based override for this user's role
             const userRole = salesRep?.role || "REP";
