@@ -2243,6 +2243,17 @@ export async function registerRoutes(
       const providers = await storage.getProviders();
       const clients = await storage.getClients();
       const services = await storage.getServices();
+      
+      // Get default IDs (first available of each type)
+      const defaultProviderId = providers[0]?.id;
+      const defaultClientId = clients[0]?.id;
+      const defaultServiceId = services[0]?.id;
+      
+      if (!defaultProviderId || !defaultClientId || !defaultServiceId) {
+        return res.status(400).json({ 
+          message: "Cannot import: Please create at least one Provider, Client, and Service first" 
+        });
+      }
 
       // Helper to find column value with flexible naming
       const getColumnValue = (row: Record<string, any>, ...possibleNames: string[]): any => {
@@ -2359,9 +2370,9 @@ export async function registerRoutes(
             accountNumber,
             dateSold: dateSold.toISOString(),
             installDate: installDate ? installDate.toISOString() : null,
-            providerId: providerId || "default-provider",
-            clientId: clientId || "default-client",
-            serviceId: serviceId || "default-service",
+            providerId: providerId || defaultProviderId,
+            clientId: clientId || defaultClientId,
+            serviceId: serviceId || defaultServiceId,
             invoiceNumber,
             tvSold: tvSoldVal === true || tvSoldVal === "true" || tvSoldVal === 1 || tvSoldVal === "1" || tvSoldVal?.toString().toLowerCase() === "yes",
             mobileSold: mobileSoldVal === true || mobileSoldVal === "true" || mobileSoldVal === 1 || mobileSoldVal === "1" || mobileSoldVal?.toString().toLowerCase() === "yes",
