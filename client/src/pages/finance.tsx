@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, FileText, DollarSign, BarChart3, ArrowRight, Link2, Loader2, RefreshCw, Eye, Check, X } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, FileText, DollarSign, BarChart3, ArrowRight, Link2, Loader2, RefreshCw, Eye, Check, X, Pencil } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -165,6 +165,9 @@ export default function Finance() {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [paymentNotes, setPaymentNotes] = useState("");
   const [varianceReason, setVarianceReason] = useState("");
+  const [editingExpected, setEditingExpected] = useState(false);
+  const [newExpectedAmount, setNewExpectedAmount] = useState("");
+  const [expectedChangeReason, setExpectedChangeReason] = useState("");
 
   interface ArExpectation {
     id: string;
@@ -259,6 +262,31 @@ export default function Finance() {
     onSuccess: () => {
       toast({ title: "Reason Saved" });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateExpectedAmountMutation = useMutation({
+    mutationFn: async ({ id, amountCents, reason }: { id: string; amountCents: number; reason: string }) => {
+      const res = await fetch(`/api/finance/ar/${id}/expected-amount`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedAmountCents: amountCents, reason }),
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      return res.json();
+    },
+    onSuccess: async () => {
+      toast({ title: "Expected Amount Updated" });
+      setEditingExpected(false);
+      setNewExpectedAmount("");
+      setExpectedChangeReason("");
+      if (selectedAr) {
+        const fresh = await fetchSingleAr(selectedAr.id);
+        setSelectedAr(fresh);
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar/summary"] });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -1114,9 +1142,23 @@ export default function Finance() {
               {selectedAr && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-3 gap-4">
-                    <div className="p-3 border rounded-lg text-center">
+                    <div className="p-3 border rounded-lg text-center relative">
                       <div className="text-lg font-bold">{formatCurrency(selectedAr.expectedAmountCents)}</div>
                       <div className="text-sm text-muted-foreground">Expected</div>
+                      {selectedAr.status !== "WRITTEN_OFF" && (
+                        <Button 
+                          size="icon" 
+                          variant="ghost" 
+                          className="absolute top-1 right-1 h-6 w-6"
+                          onClick={() => {
+                            setEditingExpected(true);
+                            setNewExpectedAmount((selectedAr.expectedAmountCents / 100).toFixed(2));
+                          }}
+                          data-testid="button-edit-expected"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      )}
                     </div>
                     <div className="p-3 border rounded-lg text-center">
                       <div className="text-lg font-bold text-blue-600">{formatCurrency(selectedAr.actualAmountCents)}</div>
@@ -1129,6 +1171,67 @@ export default function Finance() {
                       <div className="text-sm text-muted-foreground">Variance</div>
                     </div>
                   </div>
+
+                  {editingExpected && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                      <div className="font-medium">Edit Expected Amount</div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label>New Amount ($)</Label>
+                          <Input 
+                            type="number" 
+                            step="0.01"
+                            value={newExpectedAmount}
+                            onChange={(e) => setNewExpectedAmount(e.target.value)}
+                            placeholder="0.00"
+                            data-testid="input-new-expected-amount"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Reason for Change</Label>
+                          <Input 
+                            value={expectedChangeReason}
+                            onChange={(e) => setExpectedChangeReason(e.target.value)}
+                            placeholder="e.g., Client correction, rate adjustment"
+                            data-testid="input-expected-change-reason"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            setEditingExpected(false);
+                            setNewExpectedAmount("");
+                            setExpectedChangeReason("");
+                          }}
+                          data-testid="button-cancel-edit-expected"
+                        >
+                          Cancel
+                        </Button>
+                        <Button 
+                          size="sm"
+                          onClick={() => {
+                            const amountCents = Math.round(parseFloat(newExpectedAmount) * 100);
+                            if (isNaN(amountCents) || amountCents < 0) {
+                              toast({ title: "Invalid Amount", description: "Please enter a valid amount", variant: "destructive" });
+                              return;
+                            }
+                            updateExpectedAmountMutation.mutate({ 
+                              id: selectedAr.id, 
+                              amountCents, 
+                              reason: expectedChangeReason 
+                            });
+                          }}
+                          disabled={updateExpectedAmountMutation.isPending || !newExpectedAmount}
+                          data-testid="button-save-expected"
+                        >
+                          {updateExpectedAmountMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
 
                   {selectedAr.hasVariance && (
                     <div className="space-y-2">

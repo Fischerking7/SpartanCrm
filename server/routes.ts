@@ -11772,6 +11772,70 @@ export async function registerRoutes(
     }
   });
 
+  // Update expected amount for an AR expectation
+  app.patch("/api/finance/ar/:id/expected-amount", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { expectedAmountCents, reason } = req.body;
+      
+      if (typeof expectedAmountCents !== 'number' || expectedAmountCents < 0) {
+        return res.status(400).json({ message: "Valid expected amount is required" });
+      }
+      
+      const ar = await storage.getArExpectationById(req.params.id);
+      if (!ar) return res.status(404).json({ message: "AR expectation not found" });
+      
+      if (ar.status === 'WRITTEN_OFF') {
+        return res.status(400).json({ message: "Cannot edit written off AR expectations" });
+      }
+      
+      const oldExpected = ar.expectedAmountCents;
+      const varianceCents = expectedAmountCents - ar.actualAmountCents;
+      const hasVariance = varianceCents !== 0;
+      
+      // Determine new status based on updated expected
+      let newStatus = ar.status;
+      if (ar.actualAmountCents === 0) {
+        newStatus = 'OPEN';
+      } else if (ar.actualAmountCents >= expectedAmountCents) {
+        newStatus = 'SATISFIED';
+      } else if (ar.actualAmountCents > 0) {
+        newStatus = 'PARTIAL';
+      }
+      
+      const updated = await storage.updateArExpectation(req.params.id, {
+        expectedAmountCents,
+        varianceAmountCents: varianceCents,
+        hasVariance,
+        status: newStatus,
+        satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
+      });
+      
+      // If now satisfied, update order payment status
+      if (newStatus === 'SATISFIED' && ar.orderId) {
+        const order = await storage.getOrder(ar.orderId);
+        if (order && order.paymentStatus !== 'PAID') {
+          await storage.updateOrder(ar.orderId, {
+            paymentStatus: 'PAID',
+            paidDate: new Date().toISOString().split('T')[0],
+          });
+        }
+      }
+      
+      await storage.createAuditLog({
+        action: "ar_expected_amount_updated",
+        tableName: "ar_expectations",
+        recordId: req.params.id,
+        beforeJson: JSON.stringify({ expectedAmountCents: oldExpected }),
+        afterJson: JSON.stringify({ expectedAmountCents, reason, newStatus }),
+        userId: req.user!.id,
+      });
+      
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update expected amount" });
+    }
+  });
+
   // Write off an AR expectation
   app.post("/api/finance/ar/:id/write-off", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
