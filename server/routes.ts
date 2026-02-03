@@ -1672,7 +1672,7 @@ export async function registerRoutes(
         appliedRateCardId = rateCard.id;
         
         // Calculate override deductions based on user's role
-        const salesRep = await storage.getUserByRepId(order.repId);
+        const salesRep = order.repId ? await storage.getUserByRepId(order.repId) : null;
         
         // Look up role-based override for this user's role
         const userRole = salesRep?.role || "REP";
@@ -3889,7 +3889,7 @@ export async function registerRoutes(
             appliedRateCardId = rateCard.id;
             
             // Calculate override deductions based on user's role
-            const salesRep = await storage.getUserByRepId(order.repId);
+            const salesRep = order.repId ? await storage.getUserByRepId(order.repId) : null;
             
             // Look up role-based override for this user's role
             const userRole = salesRep?.role || "REP";

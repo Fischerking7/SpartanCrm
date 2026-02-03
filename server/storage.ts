@@ -357,7 +357,7 @@ export const storage = {
   },
   async findMatchingRateCard(order: SalesOrder, date: string) {
     // Get the rep's Lead (assignedSupervisorId) for Lead-specific rate card matching
-    const rep = await this.getUserByRepId(order.repId);
+    const rep = order.repId ? await this.getUserByRepId(order.repId) : null;
     const repLeadId = rep?.assignedSupervisorId || null;
     
     // Helper to fetch rate cards with optional leadId filter
