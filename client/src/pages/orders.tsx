@@ -391,26 +391,10 @@ export default function Orders() {
     },
   });
 
-  // Helper to calculate override amount for an order
+  // Helper to get override amount for an order (uses stored value from commission calculation)
   const getOverrideAmount = (order: SalesOrder): number => {
-    if (!rateCards || !order.appliedRateCardId) return 0;
-    
-    // Executives are exempt from override deductions
-    const orderRep = reps?.find(r => r.repId === order.repId);
-    if (orderRep?.role === "EXECUTIVE") return 0;
-    
-    const rateCard = rateCards.find(rc => rc.id === order.appliedRateCardId);
-    if (!rateCard) return 0;
-    
-    let total = 0;
-    total += parseFloat(rateCard.overrideDeduction || "0");
-    if (order.tvSold) {
-      total += parseFloat(rateCard.tvOverrideDeduction || "0");
-    }
-    if (order.mobileSold) {
-      total += parseFloat((rateCard as any).mobileOverrideDeduction || "0");
-    }
-    return total;
+    // Use the stored override deduction that was calculated with role-based overrides
+    return parseFloat((order as any).overrideDeduction || "0");
   };
 
   const createOrderMutation = useMutation({
