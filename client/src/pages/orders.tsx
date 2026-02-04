@@ -989,7 +989,7 @@ export default function Orders() {
       case "customerName":
         return multiplier * a.customerName.localeCompare(b.customerName);
       case "repId":
-        return multiplier * a.repId.localeCompare(b.repId);
+        return multiplier * (a.repId || "").localeCompare(b.repId || "");
       case "commission":
         return multiplier * (parseFloat(a.baseCommissionEarned) - parseFloat(b.baseCommissionEarned));
       case "createdAt":
@@ -1627,7 +1627,7 @@ export default function Orders() {
                   <Label className="text-muted-foreground">Rep ID (Sales ID)</Label>
                   {isAdminOrExec ? (
                     <Select
-                      value={selectedOrder.repId}
+                      value={selectedOrder.repId || undefined}
                       onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, repId: value })}
                       disabled={updateJobStatusMutation.isPending}
                     >
