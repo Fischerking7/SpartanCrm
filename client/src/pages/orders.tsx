@@ -724,7 +724,7 @@ export default function Orders() {
       setMobileOrderForm({
         providerId: newOrderForm.providerId,
         clientId: newOrderForm.clientId,
-        serviceId: "",   // Mobile uses mobileProductType, not serviceId
+        serviceId: newOrderForm.serviceId,
         customerName: newOrderForm.customerName,
         dateSold: newOrderForm.dateSold,
         customerPhone: newOrderForm.customerPhone,
