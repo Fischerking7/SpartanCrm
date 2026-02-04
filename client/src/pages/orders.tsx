@@ -964,7 +964,7 @@ export default function Orders() {
     const matchesSearch =
       order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.repId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.repId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.accountNumber?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || order.jobStatus === statusFilter;
     const matchesProvider = providerFilter === "all" || order.providerId === providerFilter;
