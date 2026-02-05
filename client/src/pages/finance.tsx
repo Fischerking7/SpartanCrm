@@ -1128,20 +1128,18 @@ export default function Finance() {
                 <div className="text-sm text-muted-foreground">Total AR Items</div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="border-2 border-primary/20">
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold text-green-600">
-                  {formatCurrency(arExpectations?.reduce((s, a) => s + a.expectedAmountCents, 0) || 0)}
-                </div>
-                <div className="text-sm text-muted-foreground">Total Expected</div>
+                <div className="text-2xl font-bold">{formatCurrency(arExpectations?.reduce((s, a) => s + a.expectedAmountCents, 0) || 0)}</div>
+                <div className="text-sm font-medium text-primary">Total Expected</div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="border-2 border-green-500/30 bg-green-50/50 dark:bg-green-950/20">
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold text-blue-600">
+                <div className="text-2xl font-bold text-green-600 dark:text-green-400">
                   {formatCurrency(arExpectations?.reduce((s, a) => s + a.actualAmountCents, 0) || 0)}
                 </div>
-                <div className="text-sm text-muted-foreground">Total Received</div>
+                <div className="text-sm font-medium text-green-700 dark:text-green-300">Total Paid</div>
               </CardContent>
             </Card>
             <Card>
@@ -1196,8 +1194,8 @@ export default function Finance() {
                       <TableHead>Client</TableHead>
                       <TableHead>Order</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Expected</TableHead>
-                      <TableHead className="text-right">Received</TableHead>
+                      <TableHead className="text-right">Expected Amount</TableHead>
+                      <TableHead className="text-right">Amount Paid</TableHead>
                       <TableHead className="text-right">Variance</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -1232,11 +1230,20 @@ export default function Finance() {
                             </Badge>
                           )}
                         </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {formatCurrency(ar.expectedAmountCents)}
+                        <TableCell className="text-right">
+                          <div className="font-semibold text-base">{formatCurrency(ar.expectedAmountCents)}</div>
+                          <div className="text-xs text-muted-foreground">Expected</div>
                         </TableCell>
-                        <TableCell className="text-right font-medium text-blue-600">
-                          {formatCurrency(ar.actualAmountCents)}
+                        <TableCell className="text-right">
+                          <div className="font-semibold text-base text-green-600 dark:text-green-400">
+                            {formatCurrency(ar.actualAmountCents)}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {ar.expectedAmountCents > 0 
+                              ? `${Math.round((ar.actualAmountCents / ar.expectedAmountCents) * 100)}% paid`
+                              : "Paid"
+                            }
+                          </div>
                         </TableCell>
                         <TableCell className={`text-right font-medium ${ar.varianceAmountCents > 0 ? "text-green-600" : ar.varianceAmountCents < 0 ? "text-red-600" : ""}`}>
                           {ar.varianceAmountCents > 0 && "+"}
