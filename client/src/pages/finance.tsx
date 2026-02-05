@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, FileText, DollarSign, BarChart3, ArrowRight, Link2, Loader2, RefreshCw, Eye, Check, X, Pencil } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, FileText, DollarSign, BarChart3, ArrowRight, Link2, Loader2, RefreshCw, Eye, Check, X, Pencil, Search } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -159,6 +159,9 @@ export default function Finance() {
   const [arFilter, setArFilter] = useState<string>("ALL");
   const [selectedAr, setSelectedAr] = useState<ArExpectation | null>(null);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [manualMatchRow, setManualMatchRow] = useState<FinanceImportRow | null>(null);
+  const [orderSearchTerm, setOrderSearchTerm] = useState("");
+  const [selectedOrderId, setSelectedOrderId] = useState<string>("");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [paymentReference, setPaymentReference] = useState("");
@@ -424,6 +427,45 @@ export default function Finance() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to ignore row", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const { data: searchOrders } = useQuery<Array<{ id: string; customerName: string; invoiceNumber: string; dateSold: string; accountNumber: string | null }>>({
+    queryKey: ["/api/orders/search", orderSearchTerm, selectedImport?.clientId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (orderSearchTerm) params.set("search", orderSearchTerm);
+      if (selectedImport?.clientId) params.set("clientId", selectedImport.clientId);
+      params.set("limit", "20");
+      const res = await fetch(`/api/orders?${params.toString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to search orders");
+      return res.json();
+    },
+    enabled: !!manualMatchRow && orderSearchTerm.length >= 2,
+  });
+
+  const manualMatchMutation = useMutation({
+    mutationFn: async ({ rowId, orderId }: { rowId: string; orderId: string }) => {
+      const res = await fetch(`/api/finance/imports/${selectedImportId}/manual-match`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ rowId, orderId }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to match");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/imports", selectedImportId] });
+      toast({ title: "Row matched successfully" });
+      setManualMatchRow(null);
+      setOrderSearchTerm("");
+      setSelectedOrderId("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Match failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -876,14 +918,30 @@ export default function Finance() {
                               <TableCell>{row.matchConfidence ? `${row.matchConfidence}%` : "—"}</TableCell>
                               <TableCell>
                                 {row.matchStatus !== "MATCHED" && row.matchStatus !== "IGNORED" && !row.isDuplicate && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => ignoreRowMutation.mutate({ rowId: row.id, reason: "Manually ignored" })}
-                                    data-testid={`button-ignore-row-${row.id}`}
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </Button>
+                                  <div className="flex gap-1">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setManualMatchRow(row);
+                                        setOrderSearchTerm(row.customerName || "");
+                                      }}
+                                      disabled={selectedImport?.status === "POSTED"}
+                                      data-testid={`button-manual-match-${row.id}`}
+                                    >
+                                      <Link2 className="h-4 w-4 mr-1" />
+                                      Match
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => ignoreRowMutation.mutate({ rowId: row.id, reason: "Manually ignored" })}
+                                      disabled={selectedImport?.status === "POSTED"}
+                                      data-testid={`button-ignore-row-${row.id}`}
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 )}
                               </TableCell>
                             </TableRow>
@@ -894,6 +952,96 @@ export default function Finance() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* Manual Match Dialog */}
+              <Dialog open={!!manualMatchRow} onOpenChange={(open) => !open && setManualMatchRow(null)}>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Manual Match</DialogTitle>
+                    <DialogDescription>
+                      Match "{manualMatchRow?.customerName}" to an existing order
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="p-3 bg-muted rounded-lg">
+                      <div className="text-sm text-muted-foreground">Import Row Details</div>
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        <div><strong>Customer:</strong> {manualMatchRow?.customerName}</div>
+                        <div><strong>Service:</strong> {manualMatchRow?.serviceType || "—"}</div>
+                        <div><strong>Sale Date:</strong> {manualMatchRow?.saleDate ? new Date(manualMatchRow.saleDate).toLocaleDateString() : "—"}</div>
+                        <div><strong>Status:</strong> {manualMatchRow?.clientStatus || "—"}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Search Orders</Label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          value={orderSearchTerm}
+                          onChange={(e) => setOrderSearchTerm(e.target.value)}
+                          placeholder="Search by customer name, invoice #, or account #..."
+                          className="pl-10"
+                          data-testid="input-order-search"
+                        />
+                      </div>
+                    </div>
+
+                    {orderSearchTerm.length >= 2 && (
+                      <div className="border rounded-lg max-h-[300px] overflow-auto">
+                        {searchOrders && searchOrders.length > 0 ? (
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-8"></TableHead>
+                                <TableHead>Customer</TableHead>
+                                <TableHead>Invoice #</TableHead>
+                                <TableHead>Account #</TableHead>
+                                <TableHead>Date</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {searchOrders.map((order) => (
+                                <TableRow 
+                                  key={order.id} 
+                                  className={`cursor-pointer hover-elevate ${selectedOrderId === order.id ? "bg-primary/10" : ""}`}
+                                  onClick={() => setSelectedOrderId(order.id)}
+                                >
+                                  <TableCell>
+                                    <Checkbox 
+                                      checked={selectedOrderId === order.id}
+                                      onCheckedChange={() => setSelectedOrderId(order.id)}
+                                    />
+                                  </TableCell>
+                                  <TableCell className="font-medium">{order.customerName}</TableCell>
+                                  <TableCell>{order.invoiceNumber}</TableCell>
+                                  <TableCell>{order.accountNumber || "—"}</TableCell>
+                                  <TableCell>{new Date(order.dateSold).toLocaleDateString()}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        ) : (
+                          <div className="p-4 text-center text-muted-foreground">
+                            No orders found. Try a different search term.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setManualMatchRow(null)}>Cancel</Button>
+                    <Button
+                      onClick={() => manualMatchRow && manualMatchMutation.mutate({ rowId: manualMatchRow.id, orderId: selectedOrderId })}
+                      disabled={!selectedOrderId || manualMatchMutation.isPending}
+                      data-testid="button-confirm-match"
+                    >
+                      {manualMatchMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+                      Confirm Match
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </>
           )}
         </TabsContent>
