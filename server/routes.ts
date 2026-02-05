@@ -4183,13 +4183,22 @@ export async function registerRoutes(
       const canViewOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
       
       if (viewRepId && canViewOthers) {
-        // Verify caller can view this rep's leads (target must be at or below caller's level)
+        // Verify caller can view this rep's leads
         const users = await storage.getUsers();
         const targetUser = users.find(u => u.repId === viewRepId && !u.deletedAt);
         if (targetUser) {
           const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
           const targetLevel = ROLE_HIERARCHY[targetUser.role] || 0;
-          if (targetLevel <= callerLevel) {
+          
+          // For LEAD role: can only view direct reports or self
+          if (req.user!.role === "LEAD") {
+            const isDirectReport = targetUser.managerId === req.user!.id;
+            const isSelf = targetUser.id === req.user!.id;
+            if (isSelf || isDirectReport) {
+              targetRepId = viewRepId;
+            }
+          } else if (targetLevel <= callerLevel) {
+            // For MANAGER+: use role hierarchy
             targetRepId = viewRepId;
           }
         }
@@ -4219,17 +4228,38 @@ export async function registerRoutes(
       
       const users = await storage.getUsers();
       const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+      const callerId = req.user!.id;
       
       // Get all leads
       const allLeads = await storage.getAllLeadsForReporting({});
       
-      // Count leads per rep for users at or below caller's level
+      // Helper to check if a user is in the caller's org tree
+      const isInOrgTree = (userId: string, visited = new Set<string>()): boolean => {
+        if (visited.has(userId)) return false;
+        visited.add(userId);
+        const u = users.find(x => x.id === userId);
+        if (!u) return false;
+        if (u.id === callerId) return true;
+        if (u.managerId) return isInOrgTree(u.managerId, visited);
+        return false;
+      };
+      
+      // Count leads per rep for users visible to caller
       const counts: { repId: string; name: string; role: string; count: number }[] = [];
       
       for (const user of users) {
         if (user.deletedAt || user.status !== "ACTIVE" || !user.repId) continue;
-        const userLevel = ROLE_HIERARCHY[user.role] || 0;
-        if (userLevel > callerLevel) continue;
+        
+        // For LEAD role: show self and direct reports only
+        if (req.user!.role === "LEAD") {
+          const isDirectReport = user.managerId === callerId;
+          const isSelf = user.id === callerId;
+          if (!isSelf && !isDirectReport) continue;
+        } else {
+          // For MANAGER+: use role hierarchy and org tree
+          const userLevel = ROLE_HIERARCHY[user.role] || 0;
+          if (userLevel > callerLevel) continue;
+        }
         
         const userLeads = allLeads.filter(l => l.repId === user.repId && !["SOLD", "REJECT"].includes(l.disposition || ""));
         counts.push({
