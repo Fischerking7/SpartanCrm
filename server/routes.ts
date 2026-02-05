@@ -4182,7 +4182,38 @@ export async function registerRoutes(
       let targetRepId = req.user!.repId;
       const canViewOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
       
-      if (viewRepId && canViewOthers) {
+      // Handle "All Team" option - fetch leads from all visible reps
+      let leads: Awaited<ReturnType<typeof storage.getLeadsByRepId>> = [];
+      
+      if (viewRepId === "__all_team__" && canViewOthers) {
+        // Fetch leads from all team members
+        const users = await storage.getUsers();
+        const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+        const callerId = req.user!.id;
+        
+        // Collect repIds that this user can view
+        const visibleRepIds: string[] = [];
+        for (const u of users) {
+          if (u.deletedAt || u.status !== "ACTIVE" || !u.repId) continue;
+          
+          if (req.user!.role === "LEAD") {
+            // LEAD sees self and direct reports
+            if (u.id === callerId || u.managerId === callerId) {
+              visibleRepIds.push(u.repId);
+            }
+          } else {
+            // MANAGER+ sees users at or below their level
+            const userLevel = ROLE_HIERARCHY[u.role] || 0;
+            if (userLevel <= callerLevel) {
+              visibleRepIds.push(u.repId);
+            }
+          }
+        }
+        
+        // Fetch leads for all visible reps
+        const allLeads = await storage.getAllLeadsForReporting({ zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
+        leads = allLeads.filter(l => visibleRepIds.includes(l.repId));
+      } else if (viewRepId && canViewOthers) {
         // Verify caller can view this rep's leads
         const users = await storage.getUsers();
         const targetUser = users.find(u => u.repId === viewRepId && !u.deletedAt);
@@ -4202,9 +4233,10 @@ export async function registerRoutes(
             targetRepId = viewRepId;
           }
         }
+        leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
+      } else {
+        leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
       }
-      
-      let leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
       
       // When LEAD+ is viewing another rep's leads, include SOLD/REJECTED leads
       // Otherwise filter them out (for own leads view)

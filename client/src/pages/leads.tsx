@@ -568,9 +568,11 @@ export default function Leads() {
   const assignableUsers = assignableUsersList || [];
 
   // Get viewing rep name for display
-  const viewingRepName = viewingRepId 
-    ? assignableUsers.find(u => u.repId === viewingRepId)?.name || viewingRepId
-    : null;
+  const viewingRepName = viewingRepId === "__all_team__"
+    ? "All My Team"
+    : viewingRepId 
+      ? assignableUsers.find(u => u.repId === viewingRepId)?.name || viewingRepId
+      : null;
 
   return (
     <div className="p-6 space-y-6">
@@ -593,6 +595,9 @@ export default function Leads() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__my__">My Leads ({leadCounts?.find(c => c.repId === user?.repId)?.count || 0})</SelectItem>
+                  <SelectItem value="__all_team__">
+                    All My Team ({leadCounts?.reduce((sum, c) => sum + c.count, 0) || 0})
+                  </SelectItem>
                   {leadCounts?.filter(c => c.repId !== user?.repId).map(c => (
                     <SelectItem key={c.repId} value={c.repId}>
                       {c.name} ({c.count})
