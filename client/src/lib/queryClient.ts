@@ -8,6 +8,17 @@ function getAuthHeaders(): HeadersInit {
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
+    if (res.status === 401) {
+      try {
+        const data = JSON.parse(text);
+        if (data.forceLogout) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("mustChangePassword");
+          localStorage.setItem("sessionExpiredMessage", "Your session has expired at midnight. Please log in again.");
+          window.location.href = "/";
+        }
+      } catch {}
+    }
     throw new Error(`${res.status}: ${text}`);
   }
 }

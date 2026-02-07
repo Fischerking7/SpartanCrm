@@ -5007,13 +5007,176 @@ export async function registerRoutes(
     }
   });
 
-  // Admin delete leads by date range
+  async function saveLeadExportToStorage(buffer: Buffer, filename: string): Promise<string | null> {
+    try {
+      const privateDir = process.env.PRIVATE_OBJECT_DIR;
+      if (!privateDir) return null;
+      const parts = privateDir.replace(/^\//, "").split("/");
+      const bucketName = parts[0];
+      const prefix = parts.slice(1).join("/");
+      const objectName = `${prefix}/lead-exports/${filename}`;
+      const { objectStorageClient } = await import("./replit_integrations/object_storage");
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectName);
+      await file.save(buffer, { contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      console.log(`[Leads] Export saved to object storage: ${objectName}`);
+      return objectName;
+    } catch (err) {
+      console.error("[Leads] Failed to save export to object storage:", err);
+      return null;
+    }
+  }
+
+  async function generateLeadExportBuffer(leadsToExport: any[]): Promise<Buffer> {
+    const users = await storage.getUsers();
+    const getUserName = (userId: string) => users.find(u => u.id === userId)?.name || userId;
+    const getRepName = (rid: string | null) => {
+      if (!rid) return "";
+      const user = users.find(u => u.repId === rid);
+      return user ? `${user.name} (${rid})` : rid;
+    };
+    const buildAddress = (lead: any) => {
+      if (lead.customerAddress) return lead.customerAddress;
+      const parts = [lead.houseNumber, lead.street, lead.streetName, lead.aptUnit, lead.city, lead.state].filter(Boolean);
+      return parts.join(" ");
+    };
+
+    const leadsData = leadsToExport.map(lead => ({
+      "Lead ID": lead.id,
+      "Customer Name": lead.customerName || "",
+      "Phone": lead.customerPhone || "",
+      "Email": lead.customerEmail || "",
+      "Address": buildAddress(lead),
+      "Zip Code": lead.zipCode || "",
+      "Last Disposition": lead.disposition || "NONE",
+      "Disposition Date": lead.dispositionAt ? new Date(lead.dispositionAt).toISOString() : "",
+      "Rep ID": lead.repId || "",
+      "Rep Name": getRepName(lead.repId),
+      "Notes": lead.notes || "",
+      "Pipeline Stage": lead.pipelineStage || "",
+      "Lost Reason": lead.lostReason || "",
+      "Lost Notes": lead.lostNotes || "",
+      "Follow-Up Notes": lead.followUpNotes || "",
+      "Contact Attempts": lead.contactAttempts || 0,
+      "Imported At": lead.importedAt ? new Date(lead.importedAt).toISOString() : "",
+      "Created At": lead.createdAt ? new Date(lead.createdAt).toISOString() : "",
+    }));
+
+    const leadIds = leadsToExport.map(l => l.id);
+    const allHistory = await storage.getLeadDispositionHistoryBulk(leadIds);
+
+    const historyData = allHistory.map(h => {
+      const lead = leadsToExport.find(l => l.id === h.leadId);
+      return {
+        "Lead ID": h.leadId,
+        "Customer Name": lead?.customerName || "",
+        "Previous Disposition": h.previousDisposition || "NONE",
+        "New Disposition": h.disposition,
+        "Changed By": getUserName(h.changedByUserId || ""),
+        "Notes": h.notes || "",
+        "Changed At": h.createdAt ? new Date(h.createdAt).toISOString() : "",
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const leadsWs = XLSX.utils.json_to_sheet(leadsData);
+    XLSX.utils.book_append_sheet(wb, leadsWs, "Deleted Leads");
+
+    if (historyData.length > 0) {
+      const historyWs = XLSX.utils.json_to_sheet(historyData);
+      XLSX.utils.book_append_sheet(wb, historyWs, "Disposition History");
+    }
+
+    return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  }
+
+  // Export leads before deletion - generates XLSX with lead data, disposition history, and notes
+  app.post("/api/leads/export-for-delete", auth, leadOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const { ids, mode, importDate, importedBy, repId, dateFrom, dateTo } = req.body;
+      let leadsToExport: any[] = [];
+
+      if (mode === "ids" && ids && Array.isArray(ids) && ids.length > 0) {
+        leadsToExport = await storage.getLeadsByIds(ids);
+      } else if (mode === "sort" && importDate && repId) {
+        const allLeads = await storage.getAllLeadsForAdmin();
+        const importTime = new Date(importDate).getTime();
+        leadsToExport = allLeads.filter(l => {
+          if (l.repId !== repId) return false;
+          const leadImportTime = new Date(l.importedAt).getTime();
+          return Math.abs(leadImportTime - importTime) < 60000;
+        });
+      } else if (mode === "by-user" && repId) {
+        const allLeads = await storage.getAllLeadsForAdmin();
+        leadsToExport = allLeads.filter(l => l.repId === repId);
+      } else if (mode === "by-date" && dateFrom && dateTo) {
+        const allLeads = await storage.getAllLeadsForAdmin();
+        const from = new Date(dateFrom).getTime();
+        const to = new Date(dateTo + "T23:59:59").getTime();
+        leadsToExport = allLeads.filter(l => {
+          const t = new Date(l.importedAt).getTime();
+          return t >= from && t <= to;
+        });
+      } else if (mode === "all") {
+        leadsToExport = await storage.getAllLeadsForAdmin();
+      } else {
+        return res.status(400).json({ message: "Invalid export mode or missing parameters" });
+      }
+
+      if (leadsToExport.length === 0) {
+        return res.status(404).json({ message: "No leads found to export" });
+      }
+
+      const buffer = await generateLeadExportBuffer(leadsToExport);
+
+      await storage.createAuditLog({
+        action: "lead_export_before_delete",
+        tableName: "leads",
+        recordId: "bulk",
+        userId: req.user!.id,
+        afterJson: JSON.stringify({
+          mode,
+          leadsExported: leadsToExport.length,
+        }),
+      });
+
+      res.setHeader("Content-Disposition", `attachment; filename="deleted-leads-export-${new Date().toISOString().split("T")[0]}.xlsx"`);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.send(buffer);
+    } catch (error: any) {
+      console.error("Lead export-for-delete error:", error);
+      res.status(500).json({ message: error.message || "Failed to export leads" });
+    }
+  });
+
+  // Admin delete leads by date range (auto-exports before deletion)
   app.delete("/api/admin/leads/by-date", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const { dateFrom, dateTo } = req.query;
       if (!dateFrom || !dateTo) {
         return res.status(400).json({ message: "dateFrom and dateTo required" });
       }
+      const allLeads = await storage.getAllLeadsForAdmin();
+      const from = new Date(dateFrom as string).getTime();
+      const to = new Date(dateTo + "T23:59:59").getTime();
+      const leadsToDelete = allLeads.filter(l => {
+        const t = new Date(l.importedAt).getTime();
+        return t >= from && t <= to;
+      });
+
+      if (leadsToDelete.length > 0) {
+        const exportBuffer = await generateLeadExportBuffer(leadsToDelete);
+        const filename = `deleted-leads-by-date-${dateFrom}-to-${dateTo}-${Date.now()}.xlsx`;
+        const storagePath = await saveLeadExportToStorage(exportBuffer, filename);
+        await storage.createAuditLog({
+          action: "lead_export_before_delete",
+          tableName: "leads",
+          recordId: "bulk",
+          userId: req.user!.id,
+          afterJson: JSON.stringify({ mode: "by-date", dateFrom, dateTo, leadsExported: leadsToDelete.length, storagePath: storagePath || "local-only" }),
+        });
+      }
+
       const count = await storage.deleteLeadsByDateRange(dateFrom as string, dateTo as string);
       await storage.createAuditLog({ 
         action: "bulk_delete_leads", 
@@ -5027,9 +5190,24 @@ export async function registerRoutes(
     }
   });
 
-  // Admin delete all leads
+  // Admin delete all leads (auto-exports before deletion)
   app.delete("/api/admin/leads/all", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
+      const allLeads = await storage.getAllLeadsForAdmin();
+
+      if (allLeads.length > 0) {
+        const exportBuffer = await generateLeadExportBuffer(allLeads);
+        const filename = `deleted-leads-all-${Date.now()}.xlsx`;
+        const storagePath = await saveLeadExportToStorage(exportBuffer, filename);
+        await storage.createAuditLog({
+          action: "lead_export_before_delete",
+          tableName: "leads",
+          recordId: "bulk",
+          userId: req.user!.id,
+          afterJson: JSON.stringify({ mode: "all", leadsExported: allLeads.length, storagePath: storagePath || "local-only" }),
+        });
+      }
+
       const count = await storage.deleteAllLeads();
       await storage.createAuditLog({ 
         action: "delete_all_leads", 

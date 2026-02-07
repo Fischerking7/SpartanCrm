@@ -1,8 +1,10 @@
 import { storage } from "./storage";
 import { emailService } from "./email";
+import { setForceLogoutTimestamp } from "./auth";
 
 export const scheduler = {
   intervalIds: [] as NodeJS.Timeout[],
+  midnightTimeout: null as NodeJS.Timeout | null,
   isRunning: false,
 
   start() {
@@ -27,6 +29,8 @@ export const scheduler = {
     const performanceInterval = setInterval(() => this.checkLowPerformance(), 24 * 60 * 60 * 1000);
     this.intervalIds.push(performanceInterval);
 
+    this.scheduleMidnightLogout();
+
     setTimeout(() => {
       this.checkScheduledPayRuns();
       this.processChargebacks();
@@ -39,8 +43,44 @@ export const scheduler = {
   stop() {
     this.intervalIds.forEach(id => clearInterval(id));
     this.intervalIds = [];
+    if (this.midnightTimeout) {
+      clearTimeout(this.midnightTimeout);
+      this.midnightTimeout = null;
+    }
     this.isRunning = false;
     console.log("[Scheduler] Stopped all background jobs");
+  },
+
+  scheduleMidnightLogout() {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    const msUntilMidnight = midnight.getTime() - now.getTime();
+
+    console.log(`[Scheduler] Midnight sign-out scheduled in ${Math.round(msUntilMidnight / 60000)} minutes`);
+
+    this.midnightTimeout = setTimeout(() => {
+      this.forceLogoutAll();
+      this.scheduleMidnightLogout();
+    }, msUntilMidnight);
+  },
+
+  async forceLogoutAll() {
+    try {
+      const timestamp = Math.floor(Date.now() / 1000);
+      setForceLogoutTimestamp(timestamp);
+      console.log(`[Scheduler] Midnight sign-out triggered - all sessions before ${new Date().toISOString()} invalidated`);
+
+      await storage.createAuditLog({
+        action: "midnight_force_logout",
+        tableName: "users",
+        recordId: "system",
+        userId: "SYSTEM",
+        afterJson: JSON.stringify({ timestamp, triggeredAt: new Date().toISOString() }),
+      });
+    } catch (error) {
+      console.error("[Scheduler] Midnight force logout error:", error);
+    }
   },
 
   async checkScheduledPayRuns() {

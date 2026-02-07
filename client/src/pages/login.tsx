@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useLocation } from "wouter";
@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Lock, User } from "lucide-react";
+import { Lock, User, AlertTriangle } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 
 export default function Login() {
@@ -18,6 +18,15 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionExpiredMsg, setSessionExpiredMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const msg = localStorage.getItem("sessionExpiredMessage");
+    if (msg) {
+      setSessionExpiredMsg(msg);
+      localStorage.removeItem("sessionExpiredMessage");
+    }
+  }, []);
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -63,6 +72,12 @@ export default function Login() {
             </div>
           </CardHeader>
           <CardContent>
+            {sessionExpiredMsg && (
+              <div className="mb-4 p-3 rounded-md bg-destructive/10 border border-destructive/20 flex items-center gap-2" data-testid="text-session-expired">
+                <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+                <p className="text-sm text-destructive">{sessionExpiredMsg}</p>
+              </div>
+            )}
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FormField

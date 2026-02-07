@@ -144,12 +144,30 @@ export default function SalesPipeline() {
 
   const bulkDeleteMutation = useMutation({
     mutationFn: async (repId: string) => {
+      try {
+        const exportRes = await fetch("/api/leads/export-for-delete", {
+          method: "POST",
+          headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "by-user", repId }),
+        });
+        if (exportRes.ok) {
+          const blob = await exportRes.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `deleted-leads-${repId}-${new Date().toISOString().split("T")[0]}.xlsx`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        }
+      } catch {}
       const res = await apiRequest("DELETE", `/api/leads/by-user/${repId}`);
       return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads/pool"] });
-      toast({ title: "Leads deleted", description: data.message });
+      toast({ title: "Leads deleted", description: `${data.message}. Export downloaded.` });
       setDeleteConfirmDialog(false);
     },
     onError: (error: any) => {

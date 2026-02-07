@@ -414,9 +414,32 @@ export default function Leads() {
     }
   };
 
-  // Bulk delete mutation
+  const exportLeadsBeforeDelete = async (params: any) => {
+    try {
+      const res = await fetch("/api/leads/export-for-delete", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `deleted-leads-export-${new Date().toISOString().split("T")[0]}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      console.error("Export before delete failed:", err);
+    }
+  };
+
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
+      await exportLeadsBeforeDelete({ mode: "ids", ids });
       const res = await fetch("/api/leads/bulk-delete", {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
@@ -433,7 +456,7 @@ export default function Leads() {
       queryClient.invalidateQueries({ queryKey: ["/api/leads/counts"] });
       setSelectedLeadIds(new Set());
       setShowBulkDeleteDialog(false);
-      toast({ title: `Deleted ${data.count} leads` });
+      toast({ title: `Deleted ${data.count} leads. Export downloaded.` });
     },
     onError: (error: any) => {
       toast({ title: "Failed to delete leads", description: error.message, variant: "destructive" });
@@ -512,6 +535,7 @@ export default function Leads() {
 
   const deleteSortMutation = useMutation({
     mutationFn: async (sort: ImportSort) => {
+      await exportLeadsBeforeDelete({ mode: "sort", importDate: sort.importDate, importedBy: sort.importedBy, repId: sort.repId });
       const res = await fetch("/api/leads/sort-delete", {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
@@ -528,7 +552,7 @@ export default function Leads() {
       queryClient.invalidateQueries({ queryKey: ["/api/leads/counts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads/sorts"] });
       setDeletingSortKey(null);
-      toast({ title: `Deleted ${data.deleted} leads from sort` });
+      toast({ title: `Deleted ${data.deleted} leads from sort. Export downloaded.` });
     },
     onError: (error: any) => {
       toast({ title: "Failed to delete sort", description: error.message, variant: "destructive" });

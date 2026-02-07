@@ -13,17 +13,43 @@ function getJwtSecret(): string {
 
 const JWT_SECRET = getJwtSecret();
 
+let forceLogoutTimestamp: number = 0;
+
+export function setForceLogoutTimestamp(timestamp: number) {
+  forceLogoutTimestamp = timestamp;
+}
+
+export function getForceLogoutTimestamp(): number {
+  return forceLogoutTimestamp;
+}
+
+export async function initForceLogoutFromDb(storage: any) {
+  try {
+    const logs = await storage.getAuditLogsByAction("midnight_force_logout");
+    if (logs && logs.length > 0) {
+      const latest = logs[0];
+      const data = JSON.parse(latest.afterJson || "{}");
+      if (data.timestamp) {
+        forceLogoutTimestamp = data.timestamp;
+        console.log(`[Auth] Recovered force logout timestamp from DB: ${new Date(forceLogoutTimestamp * 1000).toISOString()}`);
+      }
+    }
+  } catch (err) {
+    console.error("[Auth] Failed to recover force logout timestamp:", err);
+  }
+}
+
 export interface AuthRequest extends Request {
   user?: User;
 }
 
 export function generateToken(user: User): string {
-  return jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign({ userId: user.id, role: user.role, iat: Math.floor(Date.now() / 1000) }, JWT_SECRET, { expiresIn: "7d" });
 }
 
-export function verifyToken(token: string): { userId: string; role: string } | null {
+export function verifyToken(token: string): { userId: string; role: string; iat?: number } | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as { userId: string; role: string };
+    return jwt.verify(token, JWT_SECRET) as { userId: string; role: string; iat?: number };
   } catch {
     return null;
   }
@@ -48,6 +74,10 @@ export function authMiddleware(db: any) {
     const payload = verifyToken(token);
     if (!payload) {
       return res.status(401).json({ message: "Invalid token" });
+    }
+
+    if (forceLogoutTimestamp > 0 && payload.iat && payload.iat < forceLogoutTimestamp) {
+      return res.status(401).json({ message: "Session expired. Please log in again.", forceLogout: true });
     }
     
     const user = await db.query.users.findFirst({

@@ -39,12 +39,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
-        // Update mustChangePassword from server
         if (data.user?.mustChangePassword) {
           setMustChangePassword(true);
           localStorage.setItem("mustChangePassword", "true");
         }
       } else {
+        const data = await res.json().catch(() => ({}));
+        if (data.forceLogout) {
+          localStorage.setItem("sessionExpiredMessage", "Your session has expired at midnight. Please log in again.");
+        }
         localStorage.removeItem("token");
         localStorage.removeItem("mustChangePassword");
         setToken(null);

@@ -1105,6 +1105,13 @@ export const storage = {
     const [log] = await db.insert(auditLogs).values(data).returning();
     return log;
   },
+  async getAuditLogsByAction(action: string) {
+    return db.query.auditLogs.findMany({
+      where: eq(auditLogs.action, action),
+      orderBy: [desc(auditLogs.createdAt)],
+      limit: 1,
+    });
+  },
 
   // Export Batches
   async getExportBatches() {
@@ -2111,6 +2118,21 @@ export const storage = {
     return db.query.leads.findMany({
       where: isNull(leads.deletedAt),
       orderBy: [desc(leads.importedAt)]
+    });
+  },
+
+  async getLeadsByIds(ids: string[]) {
+    if (ids.length === 0) return [];
+    return db.query.leads.findMany({
+      where: inArray(leads.id, ids),
+    });
+  },
+
+  async getLeadDispositionHistoryBulk(leadIds: string[]) {
+    if (leadIds.length === 0) return [];
+    return db.query.leadDispositionHistory.findMany({
+      where: inArray(leadDispositionHistory.leadId, leadIds),
+      orderBy: [desc(leadDispositionHistory.createdAt)],
     });
   },
   
