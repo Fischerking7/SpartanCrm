@@ -734,6 +734,7 @@ function OrderDetailPanel({
 
   const [isEditing, setIsEditing] = useState(false);
   const [notesValue, setNotesValue] = useState(order.notes || "");
+  const [displayNotes, setDisplayNotes] = useState(order.notes || "");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [formData, setFormData] = useState({
     customerName: order.customerName || "",
@@ -773,6 +774,7 @@ function OrderDetailPanel({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       toast({ title: "Notes saved" });
+      setDisplayNotes(notesValue);
       setIsEditingNotes(false);
     },
     onError: (err: any) => {
@@ -798,7 +800,7 @@ function OrderDetailPanel({
   };
 
   const handleSaveNotes = () => {
-    if (notesValue === (order.notes || "")) {
+    if (notesValue === displayNotes) {
       setIsEditingNotes(false);
       return;
     }
@@ -970,11 +972,11 @@ function OrderDetailPanel({
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => { setNotesValue(order.notes || ""); setIsEditingNotes(true); }}
+              onClick={() => { setNotesValue(displayNotes); setIsEditingNotes(true); }}
               data-testid="button-edit-notes"
             >
               <Pencil className="h-3.5 w-3.5 mr-1" />
-              {order.notes ? "Edit" : "Add"}
+              {displayNotes ? "Edit" : "Add"}
             </Button>
           )}
         </div>
@@ -1001,7 +1003,7 @@ function OrderDetailPanel({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => { setNotesValue(order.notes || ""); setIsEditingNotes(false); }}
+                onClick={() => { setNotesValue(displayNotes); setIsEditingNotes(false); }}
                 data-testid="button-cancel-notes"
               >
                 Cancel
@@ -1010,7 +1012,7 @@ function OrderDetailPanel({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground whitespace-pre-wrap" data-testid="text-order-notes">
-            {order.notes || "No notes yet"}
+            {displayNotes || "No notes yet"}
           </p>
         )}
       </div>
