@@ -1,10 +1,12 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -20,9 +22,15 @@ import {
   XCircle,
   ChevronRight,
   Filter,
-  Eye,
+  Pencil,
+  Save,
+  MapPin,
+  Phone,
+  User,
+  Loader2,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
 import type { SalesOrder, Client, Provider, Service } from "@shared/schema";
 import { Link } from "wouter";
 
@@ -411,8 +419,9 @@ export default function OrderTracker() {
               >
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4 flex-wrap">
-                    <div className="flex-1 min-w-[180px]">
+                    <div className="flex-1 min-w-[200px]">
                       <div className="flex items-center gap-2 flex-wrap">
+                        <User className="h-3.5 w-3.5 text-muted-foreground" />
                         <span className="font-medium" data-testid={`text-customer-${order.id}`}>
                           {order.customerName}
                         </span>
@@ -422,15 +431,29 @@ export default function OrderTracker() {
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground flex-wrap">
-                        <span>{providerName}</span>
-                        <span>-</span>
-                        <span>{clientName}</span>
-                        {serviceName && (
-                          <>
-                            <span>-</span>
-                            <span>{serviceName}</span>
-                          </>
+                      <div className="flex items-center gap-x-3 gap-y-0.5 mt-1.5 text-sm text-muted-foreground flex-wrap">
+                        <span className="font-medium text-foreground/80">{serviceName || "No service"}</span>
+                        <span className="text-xs">|</span>
+                        <span>{providerName} - {clientName}</span>
+                      </div>
+                      <div className="flex items-center gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground flex-wrap">
+                        {order.installDate && (
+                          <span className="flex items-center gap-1">
+                            <CalendarDays className="h-3 w-3" />
+                            Install: {new Date(order.installDate).toLocaleDateString()}
+                          </span>
+                        )}
+                        {order.customerPhone && (
+                          <span className="flex items-center gap-1">
+                            <Phone className="h-3 w-3" />
+                            {order.customerPhone}
+                          </span>
+                        )}
+                        {order.customerAddress && (
+                          <span className="flex items-center gap-1">
+                            <MapPin className="h-3 w-3" />
+                            {order.customerAddress.length > 30 ? order.customerAddress.slice(0, 30) + "..." : order.customerAddress}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -464,7 +487,7 @@ export default function OrderTracker() {
       )}
 
       <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle data-testid="text-order-detail-title">Order Details</DialogTitle>
           </DialogHeader>
@@ -474,6 +497,8 @@ export default function OrderTracker() {
               clientMap={clientMap}
               providerMap={providerMap}
               serviceMap={serviceMap}
+              services={services || []}
+              onClose={() => setSelectedOrder(null)}
             />
           )}
         </DialogContent>
@@ -487,30 +512,76 @@ function OrderDetailPanel({
   clientMap,
   providerMap,
   serviceMap,
+  services,
+  onClose,
 }: {
   order: SalesOrder;
   clientMap: Map<string, string>;
   providerMap: Map<string, string>;
   serviceMap: Map<string, string>;
+  services: Service[];
+  onClose: () => void;
 }) {
+  const { toast } = useToast();
   const status = getOrderStatus(order);
   const config = getStatusConfig(status);
   const netCommission = parseFloat(order.baseCommissionEarned) - parseFloat((order as any).overrideDeduction || "0") + parseFloat(order.incentiveEarned || "0");
 
-  const rows: { label: string; value: string | null }[] = [
-    { label: "Customer", value: order.customerName },
-    { label: "Account #", value: order.accountNumber || null },
+  const [isEditing, setIsEditing] = useState(false);
+  const [formData, setFormData] = useState({
+    customerName: order.customerName || "",
+    customerAddress: order.customerAddress || "",
+    customerPhone: order.customerPhone || "",
+    customerEmail: order.customerEmail || "",
+    installDate: order.installDate ? order.installDate.split("T")[0] : "",
+    serviceId: order.serviceId || "",
+    accountNumber: order.accountNumber || "",
+  });
+
+  const updateField = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: Record<string, any>) => {
+      const res = await apiRequest("PATCH", `/api/orders/${order.id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({ title: "Order updated", description: "Your changes have been saved." });
+      setIsEditing(false);
+      onClose();
+    },
+    onError: (err: any) => {
+      toast({ title: "Update failed", description: err.message || "Could not save changes.", variant: "destructive" });
+    },
+  });
+
+  const handleSave = () => {
+    const payload: Record<string, any> = {};
+    if (formData.customerName !== (order.customerName || "")) payload.customerName = formData.customerName;
+    if (formData.customerAddress !== (order.customerAddress || "")) payload.customerAddress = formData.customerAddress;
+    if (formData.customerPhone !== (order.customerPhone || "")) payload.customerPhone = formData.customerPhone;
+    if (formData.customerEmail !== (order.customerEmail || "")) payload.customerEmail = formData.customerEmail;
+    if (formData.installDate !== (order.installDate ? order.installDate.split("T")[0] : "")) payload.installDate = formData.installDate;
+    if (formData.serviceId !== (order.serviceId || "")) payload.serviceId = formData.serviceId;
+    if (formData.accountNumber !== (order.accountNumber || "")) payload.accountNumber = formData.accountNumber;
+
+    if (Object.keys(payload).length === 0) {
+      setIsEditing(false);
+      return;
+    }
+    updateMutation.mutate(payload);
+  };
+
+  const readOnlyRows: { label: string; value: string | null }[] = [
     { label: "Invoice #", value: order.invoiceNumber || null },
     { label: "Provider", value: providerMap.get(order.providerId) || null },
     { label: "Client", value: clientMap.get(order.clientId) || null },
-    { label: "Service", value: serviceMap.get(order.serviceId) || null },
     { label: "Date Sold", value: order.dateSold ? new Date(order.dateSold).toLocaleDateString() : null },
-    { label: "Install Date", value: order.installDate ? new Date(order.installDate).toLocaleDateString() : null },
     { label: "Install Type", value: order.installType || null },
     { label: "TV", value: order.tvSold ? "Yes" : "No" },
-    { label: "Address", value: order.customerAddress || null },
-    { label: "Phone", value: order.customerPhone || null },
-    { label: "Email", value: order.customerEmail || null },
   ];
 
   return (
@@ -520,7 +591,20 @@ function OrderDetailPanel({
           <config.icon className="h-3 w-3 mr-1" />
           {config.label}
         </Badge>
-        <StatusPipeline status={status} />
+        <div className="flex items-center gap-2">
+          <StatusPipeline status={status} />
+          {!isEditing ? (
+            <Button size="sm" variant="outline" onClick={() => setIsEditing(true)} data-testid="button-edit-order">
+              <Pencil className="h-3.5 w-3.5 mr-1.5" />
+              Edit
+            </Button>
+          ) : (
+            <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-order">
+              {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+              Save
+            </Button>
+          )}
+        </div>
       </div>
 
       {status === "rejected" && order.rejectionNote && (
@@ -530,14 +614,121 @@ function OrderDetailPanel({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-        {rows.filter(r => r.value !== null).map(r => (
-          <div key={r.label}>
-            <p className="text-xs text-muted-foreground">{r.label}</p>
-            <p className="text-sm font-medium">{r.value}</p>
+      {isEditing ? (
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">Customer Name</Label>
+            <Input
+              value={formData.customerName}
+              onChange={(e) => updateField("customerName", e.target.value)}
+              data-testid="input-edit-customer-name"
+            />
           </div>
-        ))}
-      </div>
+          <div>
+            <Label className="text-xs">Install Date</Label>
+            <Input
+              type="date"
+              value={formData.installDate}
+              onChange={(e) => updateField("installDate", e.target.value)}
+              data-testid="input-edit-install-date"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Address</Label>
+            <Input
+              value={formData.customerAddress}
+              onChange={(e) => updateField("customerAddress", e.target.value)}
+              data-testid="input-edit-address"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Phone</Label>
+            <Input
+              value={formData.customerPhone}
+              onChange={(e) => updateField("customerPhone", e.target.value)}
+              data-testid="input-edit-phone"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Email</Label>
+            <Input
+              value={formData.customerEmail}
+              onChange={(e) => updateField("customerEmail", e.target.value)}
+              data-testid="input-edit-email"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Account #</Label>
+            <Input
+              value={formData.accountNumber}
+              onChange={(e) => updateField("accountNumber", e.target.value)}
+              data-testid="input-edit-account"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Service</Label>
+            <Select value={formData.serviceId} onValueChange={(v) => updateField("serviceId", v)}>
+              <SelectTrigger data-testid="select-edit-service">
+                <SelectValue placeholder="Select service" />
+              </SelectTrigger>
+              <SelectContent>
+                {services.map(s => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setIsEditing(false)} data-testid="button-cancel-edit">
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs text-muted-foreground">Customer Name</p>
+              <p className="text-sm font-medium">{order.customerName}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Service</p>
+                <p className="text-sm font-medium">{serviceMap.get(order.serviceId) || "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Install Date</p>
+                <p className="text-sm font-medium">{order.installDate ? new Date(order.installDate).toLocaleDateString() : "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Address</p>
+                <p className="text-sm font-medium">{order.customerAddress || "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Phone</p>
+                <p className="text-sm font-medium">{order.customerPhone || "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Email</p>
+                <p className="text-sm font-medium">{order.customerEmail || "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Account #</p>
+                <p className="text-sm font-medium">{order.accountNumber || "—"}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 border-t pt-4">
+            {readOnlyRows.filter(r => r.value !== null).map(r => (
+              <div key={r.label}>
+                <p className="text-xs text-muted-foreground">{r.label}</p>
+                <p className="text-sm font-medium">{r.value}</p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="border-t pt-4">
         <div className="flex items-center justify-between gap-3">
