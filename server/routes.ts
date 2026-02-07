@@ -1765,7 +1765,7 @@ export async function registerRoutes(
       
       if (order.jobStatus === "COMPLETED") {
         // Completed orders: limit editable fields for compliance
-        allowedFields = [...statusFields, "customerPhone", "customerEmail", "customerAddress", "accountNumber"];
+        allowedFields = [...statusFields, "customerPhone", "customerEmail", "customerAddress", "accountNumber", "notes"];
         // ADMIN/EXECUTIVE/OPERATIONS can also change repId, provider, client, service, and customerName on completed orders
         if (isAdminLevel) {
           allowedFields.push("repId", "providerId", "clientId", "serviceId", "customerName");
