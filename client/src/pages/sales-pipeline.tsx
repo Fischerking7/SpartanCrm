@@ -24,7 +24,9 @@ import {
   Filter,
   Trash2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  MessageSquare,
+  StickyNote
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { dispositionMetadata, type Lead, type LeadDisposition } from "@shared/schema";
@@ -69,6 +71,7 @@ export default function SalesPipeline() {
     leadId: null,
     leadName: ""
   });
+  const [hasNotesFilter, setHasNotesFilter] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(false);
 
@@ -82,12 +85,13 @@ export default function SalesPipeline() {
   };
 
   const { data: leadPoolResponse, isLoading } = useQuery<LeadPoolResponse>({
-    queryKey: ["/api/leads/pool", selectedRepId, selectedDisposition, searchTerm, currentPage],
+    queryKey: ["/api/leads/pool", selectedRepId, selectedDisposition, searchTerm, hasNotesFilter, currentPage],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (selectedRepId && selectedRepId !== "ALL") params.set("repId", selectedRepId);
       if (selectedDisposition && selectedDisposition !== "ALL") params.set("disposition", selectedDisposition);
       if (searchTerm) params.set("search", searchTerm);
+      if (hasNotesFilter) params.set("hasNotes", "true");
       params.set("page", currentPage.toString());
       params.set("limit", "50");
       const res = await fetch(`/api/leads/pool?${params}`, { headers: getAuthHeaders() });
@@ -293,6 +297,15 @@ export default function SalesPipeline() {
                 ))}
               </SelectContent>
             </Select>
+            <Button
+              variant={hasNotesFilter ? "default" : "outline"}
+              className="toggle-elevate"
+              onClick={() => { setHasNotesFilter(!hasNotesFilter); setCurrentPage(1); }}
+              data-testid="button-filter-has-notes"
+            >
+              <StickyNote className="h-4 w-4 mr-2" />
+              Has Notes
+            </Button>
             {canBulkDelete && selectedRepId && selectedRepId !== "ALL" && (
               <Button 
                 variant="destructive" 
@@ -373,6 +386,12 @@ export default function SalesPipeline() {
                             Imported {formatDistanceToNow(new Date(lead.importedAt), { addSuffix: true })}
                           </span>
                         </div>
+                        {lead.notes && (
+                          <div className="flex items-start gap-1.5 mt-2 text-sm" data-testid={`text-lead-notes-${lead.id}`}>
+                            <MessageSquare className="h-3.5 w-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                            <span className="text-muted-foreground italic">{lead.notes}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <Button 

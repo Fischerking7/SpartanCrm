@@ -2163,7 +2163,7 @@ export const storage = {
     });
   },
   
-  async getLeadPool(filters?: { repId?: string; disposition?: string; search?: string; page?: number; limit?: number }) {
+  async getLeadPool(filters?: { repId?: string; disposition?: string; search?: string; hasNotes?: boolean; page?: number; limit?: number }) {
     const conditions = [isNull(leads.deletedAt)];
     
     if (filters?.repId) {
@@ -2171,6 +2171,9 @@ export const storage = {
     }
     if (filters?.disposition && filters.disposition !== "ALL") {
       conditions.push(eq(leads.disposition, filters.disposition));
+    }
+    if (filters?.hasNotes) {
+      conditions.push(sql`${leads.notes} IS NOT NULL AND ${leads.notes} != ''`);
     }
     if (filters?.search) {
       const searchTerm = `%${filters.search}%`;

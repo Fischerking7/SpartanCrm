@@ -4632,12 +4632,13 @@ export async function registerRoutes(
   // Get lead pool - all leads with filtering and pagination (LEAD+ for all, REP for own)
   app.get("/api/leads/pool", auth, async (req: AuthRequest, res) => {
     try {
-      const { repId, disposition, search, page, limit } = req.query;
+      const { repId, disposition, search, hasNotes, page, limit } = req.query;
       const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "LEAD"].includes(req.user!.role);
       
-      const filters: { repId?: string; disposition?: string; search?: string; page?: number; limit?: number } = {
+      const filters: { repId?: string; disposition?: string; search?: string; hasNotes?: boolean; page?: number; limit?: number } = {
         disposition: typeof disposition === "string" ? disposition : undefined,
         search: typeof search === "string" ? search : undefined,
+        hasNotes: hasNotes === "true",
         page: typeof page === "string" ? parseInt(page, 10) : 1,
         limit: typeof limit === "string" ? Math.min(parseInt(limit, 10), 100) : 50, // Max 100 per page
       };
