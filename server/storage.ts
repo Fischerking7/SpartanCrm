@@ -2079,9 +2079,12 @@ export const storage = {
       conditions.push(ilike(leads.houseNumber, `%${filters.houseNumber}%`));
     }
     if (filters?.streetName) {
-      conditions.push(ilike(leads.streetName, `%${filters.streetName}%`));
-    }
-    if (filters?.street) {
+      conditions.push(or(
+        ilike(leads.streetName, `%${filters.streetName}%`),
+        ilike(leads.street, `%${filters.streetName}%`),
+        ilike(leads.customerAddress, `%${filters.streetName}%`)
+      )!);
+    } else if (filters?.street) {
       conditions.push(ilike(leads.street, `%${filters.street}%`));
     }
     if (filters?.city) {
@@ -2230,7 +2233,11 @@ export const storage = {
       conditions.push(ilike(leads.houseNumber, `%${filters.houseNumber}%`));
     }
     if (filters?.streetName) {
-      conditions.push(ilike(leads.streetName, `%${filters.streetName}%`));
+      conditions.push(or(
+        ilike(leads.streetName, `%${filters.streetName}%`),
+        ilike(leads.street, `%${filters.streetName}%`),
+        ilike(leads.customerAddress, `%${filters.streetName}%`)
+      )!);
     }
     if (filters?.city) {
       conditions.push(ilike(leads.city, `%${filters.city}%`));
