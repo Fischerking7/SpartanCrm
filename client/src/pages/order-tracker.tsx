@@ -122,6 +122,7 @@ function StatusPipeline({ status }: { status: OrderStatus }) {
 
 export default function OrderTracker() {
   const { user } = useAuth();
+  const canSeeCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [dateRange, setDateRange] = useState("all");
@@ -350,18 +351,20 @@ export default function OrderTracker() {
             <p className="text-xs text-muted-foreground mt-0.5">All orders</p>
           </CardContent>
         </Card>
-        <Card data-testid="card-stat-earned">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-sm text-muted-foreground">Net Earned</span>
-              <DollarSign className="h-4 w-4 text-primary" />
-            </div>
-            <p className="text-2xl font-bold font-mono">
-              ${stats.totalEarned.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">Approved + paid</p>
-          </CardContent>
-        </Card>
+        {canSeeCommissions && (
+          <Card data-testid="card-stat-earned">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-sm text-muted-foreground">Net Earned</span>
+                <DollarSign className="h-4 w-4 text-primary" />
+              </div>
+              <p className="text-2xl font-bold font-mono">
+                ${stats.totalEarned.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Approved + paid</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -469,9 +472,11 @@ export default function OrderTracker() {
                     </div>
 
                     <div className="text-right min-w-[100px]">
-                      <p className="font-mono font-medium" data-testid={`text-commission-${order.id}`}>
-                        ${netCommission.toFixed(2)}
-                      </p>
+                      {canSeeCommissions && (
+                        <p className="font-mono font-medium" data-testid={`text-commission-${order.id}`}>
+                          ${netCommission.toFixed(2)}
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         {new Date(order.dateSold).toLocaleDateString()}
                       </p>
@@ -499,6 +504,7 @@ export default function OrderTracker() {
               serviceMap={serviceMap}
               services={services || []}
               onClose={() => setSelectedOrder(null)}
+              canSeeCommissions={canSeeCommissions}
             />
           )}
         </DialogContent>
@@ -514,6 +520,7 @@ function OrderDetailPanel({
   serviceMap,
   services,
   onClose,
+  canSeeCommissions,
 }: {
   order: SalesOrder;
   clientMap: Map<string, string>;
@@ -521,6 +528,7 @@ function OrderDetailPanel({
   serviceMap: Map<string, string>;
   services: Service[];
   onClose: () => void;
+  canSeeCommissions: boolean;
 }) {
   const { toast } = useToast();
   const status = getOrderStatus(order);
@@ -730,29 +738,31 @@ function OrderDetailPanel({
         </>
       )}
 
-      <div className="border-t pt-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs text-muted-foreground">Net Commission</p>
-            <p className="text-xl font-bold font-mono" data-testid="text-detail-commission">
-              ${netCommission.toFixed(2)}
-            </p>
-          </div>
-          {parseFloat(order.incentiveEarned || "0") > 0 && (
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">Includes Incentive</p>
-              <p className="text-sm font-mono">
-                +${parseFloat(order.incentiveEarned || "0").toFixed(2)}
+      {canSeeCommissions && (
+        <div className="border-t pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs text-muted-foreground">Net Commission</p>
+              <p className="text-xl font-bold font-mono" data-testid="text-detail-commission">
+                ${netCommission.toFixed(2)}
               </p>
             </div>
+            {parseFloat(order.incentiveEarned || "0") > 0 && (
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Includes Incentive</p>
+                <p className="text-sm font-mono">
+                  +${parseFloat(order.incentiveEarned || "0").toFixed(2)}
+                </p>
+              </div>
+            )}
+          </div>
+          {order.paidDate && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Paid on {new Date(order.paidDate).toLocaleDateString()}
+            </p>
           )}
         </div>
-        {order.paidDate && (
-          <p className="text-xs text-muted-foreground mt-2">
-            Paid on {new Date(order.paidDate).toLocaleDateString()}
-          </p>
-        )}
-      </div>
+      )}
     </div>
   );
 }
