@@ -2058,7 +2058,7 @@ export const storage = {
   },
 
   // Leads
-  async getLeadsByRepId(repId: string, filters?: { zipCode?: string; street?: string; city?: string; dateFrom?: string; dateTo?: string; houseNumber?: string; streetName?: string; includeDisposed?: boolean }) {
+  async getLeadsByRepId(repId: string, filters?: { zipCode?: string; street?: string; city?: string; dateFrom?: string; dateTo?: string; houseNumber?: string; streetName?: string; includeDisposed?: boolean; customerName?: string; disposition?: string }) {
     const conditions = [eq(leads.repId, repId), isNull(leads.deletedAt)];
     
     // By default, exclude SOLD and REJECT dispositions (they're "removed" from rep's view)
@@ -2066,6 +2066,12 @@ export const storage = {
       conditions.push(notInArray(leads.disposition, ["SOLD", "REJECT"]));
     }
     
+    if (filters?.customerName) {
+      conditions.push(ilike(leads.customerName, `%${filters.customerName}%`));
+    }
+    if (filters?.disposition) {
+      conditions.push(eq(leads.disposition, filters.disposition));
+    }
     if (filters?.zipCode) {
       conditions.push(ilike(leads.zipCode, `%${filters.zipCode}%`));
     }
@@ -2208,25 +2214,40 @@ export const storage = {
     return lead;
   },
   
-  async getAllLeadsForReporting(filters?: { repId?: string; disposition?: string; dateFrom?: string; dateTo?: string }) {
+  async getAllLeadsForReporting(filters?: { repId?: string; disposition?: string; dateFrom?: string; dateTo?: string; customerName?: string; houseNumber?: string; streetName?: string; city?: string; zipCode?: string }) {
     const conditions = [isNull(leads.deletedAt)];
     
     if (filters?.repId) {
       conditions.push(eq(leads.repId, filters.repId));
     }
+    if (filters?.customerName) {
+      conditions.push(ilike(leads.customerName, `%${filters.customerName}%`));
+    }
     if (filters?.disposition) {
       conditions.push(eq(leads.disposition, filters.disposition));
     }
+    if (filters?.houseNumber) {
+      conditions.push(ilike(leads.houseNumber, `%${filters.houseNumber}%`));
+    }
+    if (filters?.streetName) {
+      conditions.push(ilike(leads.streetName, `%${filters.streetName}%`));
+    }
+    if (filters?.city) {
+      conditions.push(ilike(leads.city, `%${filters.city}%`));
+    }
+    if (filters?.zipCode) {
+      conditions.push(ilike(leads.zipCode, `%${filters.zipCode}%`));
+    }
     if (filters?.dateFrom) {
-      conditions.push(gte(leads.dispositionAt, new Date(filters.dateFrom)));
+      conditions.push(gte(leads.importedAt, new Date(filters.dateFrom)));
     }
     if (filters?.dateTo) {
-      conditions.push(lte(leads.dispositionAt, new Date(filters.dateTo + 'T23:59:59')));
+      conditions.push(lte(leads.importedAt, new Date(filters.dateTo + 'T23:59:59')));
     }
     
     return db.query.leads.findMany({
       where: and(...conditions),
-      orderBy: [desc(leads.updatedAt)]
+      orderBy: [desc(leads.importedAt)]
     });
   },
   

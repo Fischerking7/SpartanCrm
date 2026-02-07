@@ -4167,7 +4167,7 @@ export async function registerRoutes(
   // Leads - accessible by all authenticated users for their own leads
   app.get("/api/leads", auth, async (req: AuthRequest, res) => {
     try {
-      const { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, viewRepId } = req.query as {
+      const { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, viewRepId, customerName, disposition } = req.query as {
         zipCode?: string;
         street?: string;
         city?: string;
@@ -4176,6 +4176,8 @@ export async function registerRoutes(
         houseNumber?: string;
         streetName?: string;
         viewRepId?: string;
+        customerName?: string;
+        disposition?: string;
       };
       
       // Determine which rep's leads to fetch
@@ -4211,7 +4213,7 @@ export async function registerRoutes(
         }
         
         // Fetch leads for all visible reps
-        const allLeads = await storage.getAllLeadsForReporting({ zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
+        const allLeads = await storage.getAllLeadsForReporting({ zipCode, city, dateFrom, dateTo, houseNumber, streetName, customerName, disposition });
         leads = allLeads.filter(l => visibleRepIds.includes(l.repId));
       } else if (viewRepId && canViewOthers) {
         // Verify caller can view this rep's leads
@@ -4233,9 +4235,9 @@ export async function registerRoutes(
             targetRepId = viewRepId;
           }
         }
-        leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
+        leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, customerName, disposition });
       } else {
-        leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName });
+        leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, customerName, disposition });
       }
       
       // When LEAD+ is viewing another rep's leads, include SOLD/REJECTED leads

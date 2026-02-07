@@ -12,7 +12,7 @@ import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench, Plus, TrendingUp } from "lucide-react";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench, Plus, TrendingUp, ArrowUpDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
@@ -30,7 +30,10 @@ export default function Leads() {
     zipCode: "",
     dateFrom: "",
     dateTo: "",
+    customerName: "",
+    disposition: "" as string,
   });
+  const [sortBy, setSortBy] = useState<string>("date_desc");
   const [viewingRepId, setViewingRepId] = useState<string>("");
   
   const [editingNotes, setEditingNotes] = useState<string | null>(null);
@@ -181,12 +184,14 @@ export default function Leads() {
     if (filters.zipCode) params.append("zipCode", filters.zipCode);
     if (filters.dateFrom) params.append("dateFrom", filters.dateFrom);
     if (filters.dateTo) params.append("dateTo", filters.dateTo);
+    if (filters.customerName) params.append("customerName", filters.customerName);
+    if (filters.disposition) params.append("disposition", filters.disposition);
     if (viewingRepId && canAssignToOthers) params.append("viewRepId", viewingRepId);
     const qs = params.toString();
     return `/api/leads${qs ? `?${qs}` : ""}`;
   };
 
-  const { data: leads, isLoading } = useQuery<Lead[]>({
+  const { data: rawLeads, isLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads", filters, viewingRepId],
     queryFn: async () => {
       const res = await fetch(buildQueryUrl(), { headers: getAuthHeaders() });
@@ -194,6 +199,33 @@ export default function Leads() {
       return res.json();
     },
   });
+
+  const leads = rawLeads ? [...rawLeads].sort((a, b) => {
+    switch (sortBy) {
+      case "name_asc":
+        return (a.customerName || "").localeCompare(b.customerName || "");
+      case "name_desc":
+        return (b.customerName || "").localeCompare(a.customerName || "");
+      case "date_asc":
+        return new Date(a.importedAt).getTime() - new Date(b.importedAt).getTime();
+      case "date_desc":
+        return new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime();
+      case "disposition_asc":
+        return (a.disposition || "NONE").localeCompare(b.disposition || "NONE");
+      case "disposition_desc":
+        return (b.disposition || "NONE").localeCompare(a.disposition || "NONE");
+      case "zip_asc":
+        return (a.zipCode || "").localeCompare(b.zipCode || "");
+      case "zip_desc":
+        return (b.zipCode || "").localeCompare(a.zipCode || "");
+      case "city_asc":
+        return (a.city || "").localeCompare(b.city || "");
+      case "city_desc":
+        return (b.city || "").localeCompare(a.city || "");
+      default:
+        return 0;
+    }
+  }) : undefined;
 
   const updateNotesMutation = useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
@@ -278,6 +310,7 @@ export default function Leads() {
   };
 
   const clearFilters = () => {
+    setSortBy("date_desc");
     setFilters({
       houseNumber: "",
       streetName: "",
@@ -285,10 +318,12 @@ export default function Leads() {
       zipCode: "",
       dateFrom: "",
       dateTo: "",
+      customerName: "",
+      disposition: "",
     });
   };
 
-  const hasActiveFilters = filters.houseNumber || filters.streetName || filters.city || filters.zipCode || filters.dateFrom || filters.dateTo;
+  const hasActiveFilters = filters.houseNumber || filters.streetName || filters.city || filters.zipCode || filters.dateFrom || filters.dateTo || filters.customerName || filters.disposition || sortBy !== "date_desc";
 
   const createOrderFromLead = (lead: Lead) => {
     // Build full street address
@@ -766,11 +801,56 @@ export default function Leads() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Search className="h-4 w-4" />
-            Filters
+            Filters & Sort
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div className="space-y-1 md:col-span-2">
+              <Label className="text-xs">Customer Name</Label>
+              <Input
+                placeholder="Search by customer name"
+                value={filters.customerName}
+                onChange={(e) => setFilters(f => ({ ...f, customerName: e.target.value }))}
+                data-testid="input-filter-customer-name"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Disposition</Label>
+              <Select value={filters.disposition || "__all__"} onValueChange={(v) => setFilters(f => ({ ...f, disposition: v === "__all__" ? "" : v }))}>
+                <SelectTrigger data-testid="select-filter-disposition">
+                  <SelectValue placeholder="All Dispositions" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Dispositions</SelectItem>
+                  {dispositionMetadata.map(d => (
+                    <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Sort By</Label>
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger data-testid="select-sort-by">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="date_desc">Date (Newest)</SelectItem>
+                  <SelectItem value="date_asc">Date (Oldest)</SelectItem>
+                  <SelectItem value="name_asc">Name (A-Z)</SelectItem>
+                  <SelectItem value="name_desc">Name (Z-A)</SelectItem>
+                  <SelectItem value="disposition_asc">Disposition (A-Z)</SelectItem>
+                  <SelectItem value="disposition_desc">Disposition (Z-A)</SelectItem>
+                  <SelectItem value="zip_asc">Zip Code (A-Z)</SelectItem>
+                  <SelectItem value="zip_desc">Zip Code (Z-A)</SelectItem>
+                  <SelectItem value="city_asc">City (A-Z)</SelectItem>
+                  <SelectItem value="city_desc">City (Z-A)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
             <div className="space-y-1">
               <Label className="text-xs">House #</Label>
               <Input
