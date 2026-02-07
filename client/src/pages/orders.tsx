@@ -15,7 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag, Smartphone, ThumbsUp, ThumbsDown, DollarSign } from "lucide-react";
+import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag, Smartphone, ThumbsUp, ThumbsDown, DollarSign, Package } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { SalesOrder, Client, Provider, Service, User, CommissionLineItem, RateCard } from "@shared/schema";
 
@@ -940,7 +940,9 @@ export default function Orders() {
     const isInApprovalQueue = isCompleted && isUnapproved;
     
     let matchesTab = false;
-    if (activeTab === "mobile") {
+    if (!isAdminOrExec) {
+      matchesTab = true;
+    } else if (activeTab === "mobile") {
       matchesTab = isMobile && !isApproved && !isPaid && !isInApprovalQueue;
     } else if (activeTab === "approval-queue") {
       matchesTab = isInApprovalQueue;
@@ -1097,24 +1099,20 @@ export default function Orders() {
         );
       },
     },
-        ...(activeTab === "orders" ? [{
+        ...((activeTab === "orders" || !isAdminOrExec) ? [{
       key: "baseCommissionEarned",
       header: "Commission",
       cell: (row: SalesOrder) => {
-        // grossCommissionTotal from line items = original rate card amounts
         const grossCommission = parseFloat((row as any).grossCommissionTotal || "0");
-        // Net is baseCommissionEarned (already has override deducted) + incentive
         const netCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
         
         if (isAdminOrExec) {
-          // Admin/Exec see Gross (before override)
           return (
             <span className="font-mono text-right block">
               ${grossCommission.toFixed(2)}
             </span>
           );
         }
-        // Reps see Net (what they actually receive)
         return (
           <span className="font-mono text-right block">
             ${netCommission.toFixed(2)}
@@ -1360,60 +1358,141 @@ export default function Orders() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile" | "approval-queue" | "approved" | "paid")}>
-        <TabsList>
-          <TabsTrigger value="orders" data-testid="tab-my-orders">
-            {user?.role === "REP" ? "My Orders" : user?.role === "LEAD" ? "Team Orders" : user?.role === "MANAGER" ? "Team Orders" : "All Orders"}
-            {orders && (
-              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
-                {orders.filter(o => {
-                  const notMobile = !(o as any).isMobileOrder;
-                  return notMobile && o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" && !(o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED");
-                }).length}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="mobile" data-testid="tab-mobile-orders">
-            <Smartphone className="h-4 w-4 mr-1" />
-            Mobile Orders
-            {orders && (
-              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
-                {orders.filter(o => {
-                  const isMobile = (o as any).isMobileOrder === true;
-                  return isMobile && o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" && !(o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED");
-                }).length}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="approval-queue" data-testid="tab-approval-queue">
-            <ThumbsUp className="h-4 w-4 mr-1" />
-            Approval Queue
-            {orders && (
-              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">
-                {orders.filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED").length}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="approved" data-testid="tab-approved-pool">
-            <CheckCircle className="h-4 w-4 mr-1" />
-            Approved Pool
-            {orders && (
-              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
-                {orders.filter(o => o.approvalStatus === "APPROVED" && o.paymentStatus !== "PAID").length}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="paid" data-testid="tab-paid-pool">
-            <DollarSign className="h-4 w-4 mr-1" />
-            Paid Pool
-            {orders && (
-              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
-                {orders.filter(o => o.paymentStatus === "PAID").length}
-              </span>
-            )}
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {isAdminOrExec && (() => {
+        const activeCount = orders?.filter(o => {
+          const notMobile = !(o as any).isMobileOrder;
+          return notMobile && o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" && !(o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED");
+        }).length || 0;
+        const mobileCount = orders?.filter(o => {
+          const isMobile = (o as any).isMobileOrder === true;
+          return isMobile && o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" && !(o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED");
+        }).length || 0;
+        const approvalQueueCount = orders?.filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED").length || 0;
+        const approvedCount = orders?.filter(o => o.approvalStatus === "APPROVED" && o.paymentStatus !== "PAID").length || 0;
+        const paidCount = orders?.filter(o => o.paymentStatus === "PAID").length || 0;
+        const totalEarned = orders?.filter(o => o.approvalStatus === "APPROVED" || o.paymentStatus === "PAID")
+          .reduce((sum, o) => {
+            const base = parseFloat(o.baseCommissionEarned || "0") - parseFloat((o as any).overrideDeduction || "0");
+            const incentive = parseFloat(o.incentiveEarned || "0");
+            return sum + base + incentive;
+          }, 0) || 0;
+        const totalPaid = orders?.filter(o => o.paymentStatus === "PAID")
+          .reduce((sum, o) => sum + parseFloat(o.commissionPaid || "0"), 0) || 0;
+
+        return (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3" data-testid="orders-insights">
+              <Card
+                className={`cursor-pointer transition-colors ${activeTab === "orders" ? "ring-2 ring-primary" : ""}`}
+                onClick={() => setActiveTab("orders")}
+                data-testid="insight-active-orders"
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <span className="text-xs text-muted-foreground">Active</span>
+                    <Package className="h-3.5 w-3.5 text-yellow-500" />
+                  </div>
+                  <p className="text-xl font-bold">{activeCount}</p>
+                </CardContent>
+              </Card>
+              <Card
+                className={`cursor-pointer transition-colors ${activeTab === "mobile" ? "ring-2 ring-primary" : ""}`}
+                onClick={() => setActiveTab("mobile")}
+                data-testid="insight-mobile-orders"
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <span className="text-xs text-muted-foreground">Mobile</span>
+                    <Smartphone className="h-3.5 w-3.5 text-blue-500" />
+                  </div>
+                  <p className="text-xl font-bold">{mobileCount}</p>
+                </CardContent>
+              </Card>
+              <Card
+                className={`cursor-pointer transition-colors ${activeTab === "approval-queue" ? "ring-2 ring-primary" : ""}`}
+                onClick={() => setActiveTab("approval-queue")}
+                data-testid="insight-approval-queue"
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <span className="text-xs text-muted-foreground">Pending Approval</span>
+                    <ThumbsUp className="h-3.5 w-3.5 text-orange-500" />
+                  </div>
+                  <p className="text-xl font-bold">{approvalQueueCount}</p>
+                </CardContent>
+              </Card>
+              <Card
+                className={`cursor-pointer transition-colors ${activeTab === "approved" ? "ring-2 ring-primary" : ""}`}
+                onClick={() => setActiveTab("approved")}
+                data-testid="insight-approved"
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <span className="text-xs text-muted-foreground">Approved</span>
+                    <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                  </div>
+                  <p className="text-xl font-bold">{approvedCount}</p>
+                </CardContent>
+              </Card>
+              <Card
+                className={`cursor-pointer transition-colors ${activeTab === "paid" ? "ring-2 ring-primary" : ""}`}
+                onClick={() => setActiveTab("paid")}
+                data-testid="insight-paid"
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <span className="text-xs text-muted-foreground">Paid</span>
+                    <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
+                  </div>
+                  <p className="text-xl font-bold">{paidCount}</p>
+                </CardContent>
+              </Card>
+              <Card data-testid="insight-net-earned">
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <span className="text-xs text-muted-foreground">Net Earned</span>
+                    <DollarSign className="h-3.5 w-3.5 text-primary" />
+                  </div>
+                  <p className="text-xl font-bold font-mono">${totalEarned.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                </CardContent>
+              </Card>
+              <Card data-testid="insight-total-paid">
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <span className="text-xs text-muted-foreground">Total Paid</span>
+                    <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
+                  </div>
+                  <p className="text-xl font-bold font-mono">${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile" | "approval-queue" | "approved" | "paid")}>
+              <TabsList>
+                <TabsTrigger value="orders" data-testid="tab-my-orders">
+                  All Orders
+                </TabsTrigger>
+                <TabsTrigger value="mobile" data-testid="tab-mobile-orders">
+                  <Smartphone className="h-4 w-4 mr-1" />
+                  Mobile
+                </TabsTrigger>
+                <TabsTrigger value="approval-queue" data-testid="tab-approval-queue">
+                  <ThumbsUp className="h-4 w-4 mr-1" />
+                  Approval Queue
+                </TabsTrigger>
+                <TabsTrigger value="approved" data-testid="tab-approved-pool">
+                  <CheckCircle className="h-4 w-4 mr-1" />
+                  Approved
+                </TabsTrigger>
+                <TabsTrigger value="paid" data-testid="tab-paid-pool">
+                  <DollarSign className="h-4 w-4 mr-1" />
+                  Paid
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </>
+        );
+      })()}
 
       <Card>
         <CardHeader className="pb-4">
