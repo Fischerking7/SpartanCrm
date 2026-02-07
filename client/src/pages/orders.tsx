@@ -1030,18 +1030,45 @@ export default function Orders() {
       ),
     },
     {
-      key: "repId",
-      header: "Rep",
+      key: "invoiceNumber",
+      header: "Invoice #",
       cell: (row: SalesOrder) => (
-        <span className="font-mono text-sm">{row.repId}</span>
+        <span className="font-mono text-sm">{row.invoiceNumber || "-"}</span>
+      ),
+    },
+    ...(user?.role !== "REP"
+      ? [
+          {
+            key: "repId",
+            header: "Rep ID",
+            cell: (row: SalesOrder) => (
+              <span className="font-mono text-sm">{row.repId}</span>
+            ),
+          },
+        ]
+      : []),
+    {
+      key: "customerName",
+      header: "Customer Name",
+      cell: (row: SalesOrder) => (
+        <span className="font-medium truncate block max-w-[150px]">{row.customerName}</span>
       ),
     },
     {
       key: "accountNumber",
       header: "Account #",
       cell: (row: SalesOrder) => (
-        <span className="font-mono text-sm text-muted-foreground truncate block max-w-[120px]">
+        <span className="font-mono text-sm text-muted-foreground truncate block max-w-[100px]">
           {row.accountNumber || "-"}
+        </span>
+      ),
+    },
+    {
+      key: "dateSold",
+      header: "Date Sold",
+      cell: (row: SalesOrder) => (
+        <span className="text-sm text-muted-foreground">
+          {formatLocalDate(row.dateSold)}
         </span>
       ),
     },
@@ -1055,20 +1082,20 @@ export default function Orders() {
       ),
     },
     {
-      key: "customerName",
-      header: "Customer",
-      cell: (row: SalesOrder) => (
-        <span className="font-medium truncate block max-w-[150px]">{row.customerName}</span>
-      ),
-    },
-    {
-      key: "customerAddress",
-      header: "Address",
-      cell: (row: SalesOrder) => (
-        <span className="text-sm text-muted-foreground truncate block max-w-[180px]">
-          {row.customerAddress || "-"}
-        </span>
-      ),
+      key: "installType",
+      header: "Install Type",
+      cell: (row: SalesOrder) => {
+        const typeLabels: Record<string, string> = {
+          "AGENT_INSTALL": "Agent Install",
+          "DIRECT_SHIP": "Direct Ship",
+          "TECH_INSTALL": "Tech Install",
+        };
+        return (
+          <span className="text-sm text-muted-foreground">
+            {row.installType ? typeLabels[row.installType] || row.installType : "-"}
+          </span>
+        );
+      },
     },
         ...(activeTab === "orders" ? [{
       key: "baseCommissionEarned",
