@@ -591,7 +591,7 @@ export default function OrderTracker() {
   const filteredOrders = useMemo(() => {
     return dateFilteredOrders.filter(o => {
       const status = getOrderStatus(o);
-      if (activeTab === "active" && (status === "pending" || status === "completed")) return true;
+      if (activeTab === "pending" && (status === "pending" || status === "completed")) return true;
       if (activeTab === "approved" && status === "approved") return true;
       if (activeTab === "paid" && status === "paid") return true;
       if (activeTab === "all") return true;
@@ -673,13 +673,13 @@ export default function OrderTracker() {
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card
-          className={`cursor-pointer transition-colors ${activeTab === "active" ? "ring-2 ring-primary" : ""}`}
-          onClick={() => setActiveTab("active")}
-          data-testid="card-stat-active"
+          className={`cursor-pointer transition-colors ${activeTab === "pending" ? "ring-2 ring-primary" : ""}`}
+          onClick={() => setActiveTab("pending")}
+          data-testid="card-stat-pending"
         >
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-sm text-muted-foreground">Active</span>
+              <span className="text-sm text-muted-foreground">Pending</span>
               <Package className="h-4 w-4 text-yellow-500" />
             </div>
             <p className="text-2xl font-bold">{stats.pending + stats.completed}</p>
@@ -760,8 +760,8 @@ export default function OrderTracker() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
-            <TabsTrigger value="active" data-testid="tab-active">
-              Active
+            <TabsTrigger value="pending" data-testid="tab-pending">
+              Pending
               {(stats.pending + stats.completed) > 0 && (
                 <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted">{stats.pending + stats.completed}</span>
               )}
