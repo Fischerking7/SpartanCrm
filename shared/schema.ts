@@ -253,6 +253,7 @@ export const salesOrders = pgTable("sales_orders", {
   expectedAmountCents: integer("expected_amount_cents"),
   // Applied override deduction amount (from rate card or Lead-specific override)
   overrideDeduction: decimal("override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
