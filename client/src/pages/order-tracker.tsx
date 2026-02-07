@@ -178,6 +178,8 @@ export default function OrderTracker() {
     const now = new Date();
     return orders.filter(o => {
       if (dateRange === "all") return true;
+      const status = getOrderStatus(o);
+      if (status === "paid") return true;
       const sold = new Date(o.dateSold);
       if (dateRange === "7d") return now.getTime() - sold.getTime() <= 7 * 86400000;
       if (dateRange === "30d") return now.getTime() - sold.getTime() <= 30 * 86400000;
