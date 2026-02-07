@@ -120,6 +120,260 @@ function StatusPipeline({ status }: { status: OrderStatus }) {
   );
 }
 
+function OrderCard({
+  order,
+  clientMap,
+  providerMap,
+  serviceMap,
+  services,
+  canSeeCommissions,
+  isEditing,
+  onEdit,
+  onCancelEdit,
+  onSelect,
+}: {
+  order: SalesOrder;
+  clientMap: Map<string, string>;
+  providerMap: Map<string, string>;
+  serviceMap: Map<string, string>;
+  services: Service[];
+  canSeeCommissions: boolean;
+  isEditing: boolean;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSelect: () => void;
+}) {
+  const { toast } = useToast();
+  const status = getOrderStatus(order);
+  const config = getStatusConfig(status);
+  const netCommission = parseFloat(order.baseCommissionEarned) - parseFloat((order as any).overrideDeduction || "0") + parseFloat(order.incentiveEarned || "0");
+  const clientName = clientMap.get(order.clientId) || "Unknown";
+  const providerName = providerMap.get(order.providerId) || "Unknown";
+  const serviceName = serviceMap.get(order.serviceId) || "";
+
+  const [formData, setFormData] = useState({
+    customerName: order.customerName || "",
+    customerAddress: order.customerAddress || "",
+    customerPhone: order.customerPhone || "",
+    customerEmail: order.customerEmail || "",
+    installDate: order.installDate ? order.installDate.split("T")[0] : "",
+    serviceId: order.serviceId || "",
+    accountNumber: order.accountNumber || "",
+  });
+
+  const updateField = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: Record<string, any>) => {
+      const res = await apiRequest("PATCH", `/api/orders/${order.id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({ title: "Order updated", description: "Your changes have been saved." });
+      onCancelEdit();
+    },
+    onError: (err: any) => {
+      toast({ title: "Update failed", description: err.message || "Could not save changes.", variant: "destructive" });
+    },
+  });
+
+  const handleSave = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const payload: Record<string, any> = {};
+    if (formData.customerName !== (order.customerName || "")) payload.customerName = formData.customerName;
+    if (formData.customerAddress !== (order.customerAddress || "")) payload.customerAddress = formData.customerAddress;
+    if (formData.customerPhone !== (order.customerPhone || "")) payload.customerPhone = formData.customerPhone;
+    if (formData.customerEmail !== (order.customerEmail || "")) payload.customerEmail = formData.customerEmail;
+    if (formData.installDate !== (order.installDate ? order.installDate.split("T")[0] : "")) payload.installDate = formData.installDate;
+    if (formData.serviceId !== (order.serviceId || "")) payload.serviceId = formData.serviceId;
+    if (formData.accountNumber !== (order.accountNumber || "")) payload.accountNumber = formData.accountNumber;
+
+    if (Object.keys(payload).length === 0) {
+      onCancelEdit();
+      return;
+    }
+    updateMutation.mutate(payload);
+  };
+
+  if (isEditing) {
+    return (
+      <Card data-testid={`card-order-${order.id}`}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <Badge variant={config.variant}>
+              <config.icon className="h-3 w-3 mr-1" />
+              {config.label}
+            </Badge>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); onCancelEdit(); }} data-testid={`button-cancel-inline-${order.id}`}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid={`button-save-inline-${order.id}`}>
+                {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+                Save
+              </Button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Customer Name</Label>
+              <Input
+                value={formData.customerName}
+                onChange={(e) => updateField("customerName", e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`input-inline-customer-${order.id}`}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Account #</Label>
+              <Input
+                value={formData.accountNumber}
+                onChange={(e) => updateField("accountNumber", e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`input-inline-account-${order.id}`}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Phone</Label>
+              <Input
+                value={formData.customerPhone}
+                onChange={(e) => updateField("customerPhone", e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`input-inline-phone-${order.id}`}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Email</Label>
+              <Input
+                value={formData.customerEmail}
+                onChange={(e) => updateField("customerEmail", e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`input-inline-email-${order.id}`}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Install Date</Label>
+              <Input
+                type="date"
+                value={formData.installDate}
+                onChange={(e) => updateField("installDate", e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`input-inline-date-${order.id}`}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Service</Label>
+              <Select value={formData.serviceId} onValueChange={(v) => updateField("serviceId", v)}>
+                <SelectTrigger onClick={(e) => e.stopPropagation()} data-testid={`select-inline-service-${order.id}`}>
+                  <SelectValue placeholder="Select service" />
+                </SelectTrigger>
+                <SelectContent>
+                  {services.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="sm:col-span-2">
+              <Label className="text-xs">Address</Label>
+              <Input
+                value={formData.customerAddress}
+                onChange={(e) => updateField("customerAddress", e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`input-inline-address-${order.id}`}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card
+      className="hover-elevate cursor-pointer"
+      onClick={onSelect}
+      data-testid={`card-order-${order.id}`}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex-1 min-w-[200px]">
+            <div className="flex items-center gap-2 flex-wrap">
+              <User className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="font-medium" data-testid={`text-customer-${order.id}`}>
+                {order.customerName}
+              </span>
+              {order.accountNumber && (
+                <span className="text-xs text-muted-foreground font-mono">
+                  #{order.accountNumber}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-x-3 gap-y-0.5 mt-1.5 text-sm text-muted-foreground flex-wrap">
+              <span className="font-medium text-foreground/80">{serviceName || "No service"}</span>
+              <span className="text-xs">|</span>
+              <span>{providerName} - {clientName}</span>
+            </div>
+            <div className="flex items-center gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground flex-wrap">
+              {order.installDate && (
+                <span className="flex items-center gap-1">
+                  <CalendarDays className="h-3 w-3" />
+                  Install: {new Date(order.installDate).toLocaleDateString()}
+                </span>
+              )}
+              {order.customerPhone && (
+                <span className="flex items-center gap-1">
+                  <Phone className="h-3 w-3" />
+                  {order.customerPhone}
+                </span>
+              )}
+              {order.customerAddress && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  {order.customerAddress.length > 30 ? order.customerAddress.slice(0, 30) + "..." : order.customerAddress}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="hidden md:block">
+            <StatusPipeline status={status} />
+          </div>
+          <div className="md:hidden">
+            <Badge variant={config.variant} data-testid={`badge-status-${order.id}`}>
+              <config.icon className="h-3 w-3 mr-1" />
+              {config.label}
+            </Badge>
+          </div>
+
+          <div className="text-right min-w-[100px]">
+            {canSeeCommissions && (
+              <p className="font-mono font-medium" data-testid={`text-commission-${order.id}`}>
+                ${netCommission.toFixed(2)}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {new Date(order.dateSold).toLocaleDateString()}
+            </p>
+          </div>
+
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            data-testid={`button-edit-inline-${order.id}`}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function OrderTracker() {
   const { user } = useAuth();
   const canSeeCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
@@ -127,6 +381,7 @@ export default function OrderTracker() {
   const [activeTab, setActiveTab] = useState("all");
   const [dateRange, setDateRange] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
 
   const { data: orders, isLoading } = useQuery<SalesOrder[]>({
     queryKey: ["/api/orders"],
@@ -405,89 +660,21 @@ export default function OrderTracker() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {sortedOrders.map((order) => {
-            const status = getOrderStatus(order);
-            const config = getStatusConfig(status);
-            const netCommission = parseFloat(order.baseCommissionEarned) - parseFloat((order as any).overrideDeduction || "0") + parseFloat(order.incentiveEarned || "0");
-            const clientName = clientMap.get(order.clientId) || "Unknown";
-            const providerName = providerMap.get(order.providerId) || "Unknown";
-            const serviceName = serviceMap.get(order.serviceId) || "";
-
-            return (
-              <Card
-                key={order.id}
-                className="hover-elevate cursor-pointer"
-                onClick={() => setSelectedOrder(order)}
-                data-testid={`card-order-${order.id}`}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4 flex-wrap">
-                    <div className="flex-1 min-w-[200px]">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <User className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="font-medium" data-testid={`text-customer-${order.id}`}>
-                          {order.customerName}
-                        </span>
-                        {order.invoiceNumber && (
-                          <span className="text-xs text-muted-foreground font-mono">
-                            #{order.invoiceNumber}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-x-3 gap-y-0.5 mt-1.5 text-sm text-muted-foreground flex-wrap">
-                        <span className="font-medium text-foreground/80">{serviceName || "No service"}</span>
-                        <span className="text-xs">|</span>
-                        <span>{providerName} - {clientName}</span>
-                      </div>
-                      <div className="flex items-center gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground flex-wrap">
-                        {order.installDate && (
-                          <span className="flex items-center gap-1">
-                            <CalendarDays className="h-3 w-3" />
-                            Install: {new Date(order.installDate).toLocaleDateString()}
-                          </span>
-                        )}
-                        {order.customerPhone && (
-                          <span className="flex items-center gap-1">
-                            <Phone className="h-3 w-3" />
-                            {order.customerPhone}
-                          </span>
-                        )}
-                        {order.customerAddress && (
-                          <span className="flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {order.customerAddress.length > 30 ? order.customerAddress.slice(0, 30) + "..." : order.customerAddress}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="hidden md:block">
-                      <StatusPipeline status={status} />
-                    </div>
-                    <div className="md:hidden">
-                      <Badge variant={config.variant} data-testid={`badge-status-${order.id}`}>
-                        <config.icon className="h-3 w-3 mr-1" />
-                        {config.label}
-                      </Badge>
-                    </div>
-
-                    <div className="text-right min-w-[100px]">
-                      {canSeeCommissions && (
-                        <p className="font-mono font-medium" data-testid={`text-commission-${order.id}`}>
-                          ${netCommission.toFixed(2)}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(order.dateSold).toLocaleDateString()}
-                      </p>
-                    </div>
-
-                    <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+          {sortedOrders.map((order) => (
+            <OrderCard
+              key={order.id}
+              order={order}
+              clientMap={clientMap}
+              providerMap={providerMap}
+              serviceMap={serviceMap}
+              services={services || []}
+              canSeeCommissions={canSeeCommissions}
+              isEditing={editingOrderId === order.id}
+              onEdit={() => setEditingOrderId(order.id)}
+              onCancelEdit={() => setEditingOrderId(null)}
+              onSelect={() => setSelectedOrder(order)}
+            />
+          ))}
         </div>
       )}
 
