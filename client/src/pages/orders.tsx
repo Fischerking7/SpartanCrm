@@ -938,27 +938,18 @@ export default function Orders() {
     const isCompleted = order.jobStatus === "COMPLETED";
     const isUnapproved = order.approvalStatus === "UNAPPROVED";
     const isInApprovalQueue = isCompleted && isUnapproved;
-    const isAdminOps = user?.role === "ADMIN" || user?.role === "OPERATIONS";
     
     let matchesTab = false;
     if (activeTab === "mobile") {
-      // For ADMIN/OPS: mobile orders that aren't in approval queue/approved/paid pools
-      // For others: all mobile orders
-      matchesTab = isMobile && (isAdminOps ? !isApproved && !isPaid && !isInApprovalQueue : true);
+      matchesTab = isMobile && !isApproved && !isPaid && !isInApprovalQueue;
     } else if (activeTab === "approval-queue") {
-      // Only ADMIN/OPS can access this tab - completed but not yet approved
       matchesTab = isInApprovalQueue;
     } else if (activeTab === "approved") {
-      // Only ADMIN/OPS can access this tab - approved but not paid
       matchesTab = isApproved && !isPaid;
     } else if (activeTab === "paid") {
-      // Only ADMIN/OPS can access this tab - paid orders
       matchesTab = isPaid;
     } else {
-      // Main orders tab: non-mobile
-      // For ADMIN/OPS: exclude approval queue, approved and paid (they're in other pools)
-      // For others: show all non-mobile orders
-      matchesTab = !isMobile && (isAdminOps ? !isApproved && !isPaid && !isInApprovalQueue : true);
+      matchesTab = !isMobile && !isApproved && !isPaid && !isInApprovalQueue;
     }
     const matchesSearch =
       order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1372,13 +1363,12 @@ export default function Orders() {
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile" | "approval-queue" | "approved" | "paid")}>
         <TabsList>
           <TabsTrigger value="orders" data-testid="tab-my-orders">
-            {user?.role === "REP" ? "My Orders" : user?.role === "MANAGER" ? "Team Orders" : "All Orders"}
+            {user?.role === "REP" ? "My Orders" : user?.role === "LEAD" ? "Team Orders" : user?.role === "MANAGER" ? "Team Orders" : "All Orders"}
             {orders && (
               <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
                 {orders.filter(o => {
                   const notMobile = !(o as any).isMobileOrder;
-                  const isAdminOps = user?.role === "ADMIN" || user?.role === "OPERATIONS";
-                  return notMobile && (isAdminOps ? o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" && !(o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED") : true);
+                  return notMobile && o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" && !(o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED");
                 }).length}
               </span>
             )}
@@ -1390,43 +1380,38 @@ export default function Orders() {
               <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
                 {orders.filter(o => {
                   const isMobile = (o as any).isMobileOrder === true;
-                  const isAdminOps = user?.role === "ADMIN" || user?.role === "OPERATIONS";
-                  return isMobile && (isAdminOps ? o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" && !(o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED") : true);
+                  return isMobile && o.approvalStatus !== "APPROVED" && o.paymentStatus !== "PAID" && !(o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED");
                 }).length}
               </span>
             )}
           </TabsTrigger>
-          {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && (
-            <>
-              <TabsTrigger value="approval-queue" data-testid="tab-approval-queue">
-                <ThumbsUp className="h-4 w-4 mr-1" />
-                Approval Queue
-                {orders && (
-                  <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">
-                    {orders.filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED").length}
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="approved" data-testid="tab-approved-pool">
-                <CheckCircle className="h-4 w-4 mr-1" />
-                Approved Pool
-                {orders && (
-                  <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
-                    {orders.filter(o => o.approvalStatus === "APPROVED" && o.paymentStatus !== "PAID").length}
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="paid" data-testid="tab-paid-pool">
-                <DollarSign className="h-4 w-4 mr-1" />
-                Paid Pool
-                {orders && (
-                  <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
-                    {orders.filter(o => o.paymentStatus === "PAID").length}
-                  </span>
-                )}
-              </TabsTrigger>
-            </>
-          )}
+          <TabsTrigger value="approval-queue" data-testid="tab-approval-queue">
+            <ThumbsUp className="h-4 w-4 mr-1" />
+            Approval Queue
+            {orders && (
+              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">
+                {orders.filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED").length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="approved" data-testid="tab-approved-pool">
+            <CheckCircle className="h-4 w-4 mr-1" />
+            Approved Pool
+            {orders && (
+              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
+                {orders.filter(o => o.approvalStatus === "APPROVED" && o.paymentStatus !== "PAID").length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="paid" data-testid="tab-paid-pool">
+            <DollarSign className="h-4 w-4 mr-1" />
+            Paid Pool
+            {orders && (
+              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-muted">
+                {orders.filter(o => o.paymentStatus === "PAID").length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
