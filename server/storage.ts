@@ -2263,6 +2263,43 @@ export const storage = {
   },
   
   // Bulk soft delete leads
+  async getLeadImportSorts(repId?: string) {
+    const conditions = [isNull(leads.deletedAt)];
+    if (repId) {
+      conditions.push(eq(leads.repId, repId));
+    }
+    const result = await db.select({
+      importDate: sql<string>`date_trunc('minute', ${leads.importedAt})`.as('import_date'),
+      importedBy: leads.importedBy,
+      repId: leads.repId,
+      count: sql<number>`count(*)::int`.as('count'),
+      earliestId: sql<string>`min(${leads.id})`.as('earliest_id'),
+    })
+    .from(leads)
+    .where(and(...conditions))
+    .groupBy(sql`date_trunc('minute', ${leads.importedAt})`, leads.importedBy, leads.repId)
+    .orderBy(desc(sql`date_trunc('minute', ${leads.importedAt})`));
+    return result;
+  },
+
+  async softDeleteLeadsBySort(importDate: string, importedBy: string | null, repId: string, deletedByUserId: string) {
+    const conditions = [
+      isNull(leads.deletedAt),
+      eq(leads.repId, repId),
+      sql`date_trunc('minute', ${leads.importedAt}) = ${importDate}::timestamptz`,
+    ];
+    if (importedBy) {
+      conditions.push(eq(leads.importedBy, importedBy));
+    } else {
+      conditions.push(isNull(leads.importedBy));
+    }
+    const result = await db.update(leads)
+      .set({ deletedAt: new Date(), deletedByUserId, updatedAt: new Date() })
+      .where(and(...conditions))
+      .returning();
+    return result;
+  },
+
   async softDeleteLeads(ids: string[], deletedByUserId: string) {
     if (ids.length === 0) return [];
     const result = await db.update(leads)

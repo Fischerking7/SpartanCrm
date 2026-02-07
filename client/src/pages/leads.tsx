@@ -58,6 +58,8 @@ export default function Leads() {
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
   const [bulkAssignTargetRepId, setBulkAssignTargetRepId] = useState<string>("");
+  const [showManageSortsDialog, setShowManageSortsDialog] = useState(false);
+  const [deletingSortKey, setDeletingSortKey] = useState<string | null>(null);
   
   // Manual lead creation state
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -487,6 +489,52 @@ export default function Leads() {
     },
   });
 
+  // Import sorts query
+  interface ImportSort {
+    importDate: string;
+    importedBy: string | null;
+    repId: string;
+    count: number;
+    importerName: string;
+    repName: string;
+  }
+  const { data: importSorts, isLoading: sortsLoading } = useQuery<ImportSort[]>({
+    queryKey: ["/api/leads/sorts", viewingRepId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (viewingRepId && canAssignToOthers) params.append("viewRepId", viewingRepId);
+      const res = await fetch(`/api/leads/sorts?${params.toString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch sorts");
+      return res.json();
+    },
+    enabled: showManageSortsDialog,
+  });
+
+  const deleteSortMutation = useMutation({
+    mutationFn: async (sort: ImportSort) => {
+      const res = await fetch("/api/leads/sort-delete", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ importDate: sort.importDate, importedBy: sort.importedBy, repId: sort.repId }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to delete sort");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/counts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/sorts"] });
+      setDeletingSortKey(null);
+      toast({ title: `Deleted ${data.deleted} leads from sort` });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete sort", description: error.message, variant: "destructive" });
+    },
+  });
+
   // Create lead mutation
   const createLeadMutation = useMutation({
     mutationFn: async (data: typeof newLeadForm) => {
@@ -671,6 +719,12 @@ export default function Leads() {
             <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-leads">
               <Upload className="h-4 w-4 mr-2" />
               Import Leads
+            </Button>
+          )}
+          {canAssignToOthers && (
+            <Button variant="outline" onClick={() => setShowManageSortsDialog(true)} data-testid="button-manage-sorts">
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete Sort
             </Button>
           )}
           {isAdmin && (
@@ -1632,6 +1686,91 @@ export default function Leads() {
               data-testid="button-confirm-create-lead"
             >
               {createLeadMutation.isPending ? "Creating..." : "Create Lead"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage Sorts / Delete Sort Dialog */}
+      <Dialog open={showManageSortsDialog} onOpenChange={(open) => { setShowManageSortsDialog(open); if (!open) setDeletingSortKey(null); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5" />
+              Delete Import Sort
+            </DialogTitle>
+            <DialogDescription>
+              Select an entire import batch to delete all its leads at once.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-2">
+            {sortsLoading ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">Loading sorts...</p>
+            ) : !importSorts || importSorts.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No import sorts found.</p>
+            ) : (
+              importSorts.map((sort) => {
+                const sortKey = `${sort.importDate}_${sort.importedBy}_${sort.repId}`;
+                const isDeleting = deletingSortKey === sortKey;
+                return (
+                  <div key={sortKey} className="flex items-center justify-between gap-3 p-3 border rounded-md">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium" data-testid={`text-sort-date-${sortKey}`}>
+                          {new Date(sort.importDate).toLocaleDateString()} {new Date(sort.importDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <Badge variant="secondary" data-testid={`badge-sort-count-${sortKey}`}>
+                          {sort.count} leads
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Rep: {sort.repName} &middot; Imported by: {sort.importerName}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isDeleting ? (
+                        <>
+                          <span className="text-xs text-destructive font-medium">Delete all {sort.count} leads?</span>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => deleteSortMutation.mutate(sort)}
+                            disabled={deleteSortMutation.isPending}
+                            data-testid={`button-confirm-sort-delete-${sortKey}`}
+                          >
+                            {deleteSortMutation.isPending ? "Deleting..." : "Confirm"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setDeletingSortKey(null)}
+                            data-testid={`button-cancel-sort-delete-${sortKey}`}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setDeletingSortKey(sortKey)}
+                          data-testid={`button-delete-sort-${sortKey}`}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          Delete
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowManageSortsDialog(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

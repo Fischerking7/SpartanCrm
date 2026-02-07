@@ -5112,6 +5112,84 @@ export async function registerRoutes(
     }
   });
 
+  // Get import sorts/batches for leads management
+  app.get("/api/leads/sorts", auth, leadOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const { viewRepId } = req.query as { viewRepId?: string };
+      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+      const users = await storage.getUsers();
+      
+      let repIdFilter: string | undefined;
+      
+      if (viewRepId && viewRepId !== "__all_team__") {
+        repIdFilter = viewRepId;
+      } else if (!["ADMIN", "OPERATIONS"].includes(req.user!.role) && viewRepId !== "__all_team__") {
+        repIdFilter = req.user!.repId;
+      }
+      
+      const sorts = await storage.getLeadImportSorts(repIdFilter);
+      
+      // Filter by visibility based on role
+      const visibleSorts = sorts.filter(s => {
+        const owner = users.find(u => u.repId === s.repId);
+        if (!owner) return true;
+        if (req.user!.role === "LEAD") {
+          return owner.id === req.user!.id || owner.managerId === req.user!.id;
+        }
+        const ownerLevel = ROLE_HIERARCHY[owner.role] || 0;
+        return ownerLevel <= callerLevel;
+      });
+      
+      // Enrich with user names
+      const enriched = visibleSorts.map(s => {
+        const importer = users.find(u => u.id === s.importedBy);
+        const rep = users.find(u => u.repId === s.repId);
+        return {
+          ...s,
+          importerName: importer ? `${importer.firstName} ${importer.lastName}` : "Unknown",
+          repName: rep ? `${rep.firstName} ${rep.lastName}` : s.repId,
+        };
+      });
+      
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch import sorts" });
+    }
+  });
+
+  // Delete all leads in a specific import sort/batch
+  app.post("/api/leads/sort-delete", auth, leadOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const { importDate, importedBy, repId } = req.body;
+      if (!importDate || !repId) {
+        return res.status(400).json({ message: "importDate and repId are required" });
+      }
+      
+      // Verify caller has permission for this rep's leads
+      const users = await storage.getUsers();
+      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
+      const targetUser = users.find(u => u.repId === repId);
+      
+      if (targetUser) {
+        const targetLevel = ROLE_HIERARCHY[targetUser.role] || 0;
+        if (req.user!.role === "LEAD") {
+          const isDirectReport = targetUser.managerId === req.user!.id;
+          const isSelf = targetUser.id === req.user!.id;
+          if (!isSelf && !isDirectReport) {
+            return res.status(403).json({ message: "Not authorized to delete these leads" });
+          }
+        } else if (targetLevel > callerLevel) {
+          return res.status(403).json({ message: "Not authorized to delete these leads" });
+        }
+      }
+      
+      const deleted = await storage.softDeleteLeadsBySort(importDate, importedBy || null, repId, req.user!.id);
+      res.json({ deleted: deleted.length });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete sort" });
+    }
+  });
+
   // Bulk soft delete leads (LEAD+)
   // Enforces hierarchy: caller can only delete leads owned by users at or below their role level
   app.post("/api/leads/bulk-delete", auth, leadOrAbove, async (req: AuthRequest, res) => {
