@@ -50,6 +50,7 @@ import Notifications from "@/pages/notifications";
 import MobileOrderEntry from "@/pages/mobile-order-entry";
 import MyDisputes from "@/pages/my-disputes";
 import AdminDisputes from "@/pages/admin-disputes";
+import OrderTracker from "@/pages/order-tracker";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -163,6 +164,7 @@ function Router() {
       <Switch>
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/orders" component={Orders} />
+        <Route path="/order-tracker" component={OrderTracker} />
         <Route path="/leads" component={Leads} />
         <Route path="/commissions" component={Commissions} />
         <Route path="/adjustments" component={Adjustments} />

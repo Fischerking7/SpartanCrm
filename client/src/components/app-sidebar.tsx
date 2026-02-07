@@ -60,6 +60,7 @@ type MenuItem = { title: string; url: string; icon: React.ComponentType<{ classN
 const MENU = {
   // Core Sales Items
   orders: { title: "Orders", url: "/orders", icon: FileText },
+  orderTracker: { title: "Order Tracker", url: "/order-tracker", icon: ClipboardList },
   quickEntry: { title: "Quick Entry", url: "/mobile-entry", icon: Smartphone },
   leads: { title: "My Leads", url: "/leads", icon: UserPlus },
   mduOrders: { title: "My MDU Orders", url: "/mdu-orders", icon: Building2 },
@@ -129,6 +130,7 @@ const preferencesItems: MenuItem[] = [
 
 // Admin: Operations group
 const adminOpsItems: MenuItem[] = [
+  MENU.orderTracker,
   MENU.orders,
   MENU.leads,
   MENU.mduReview,
@@ -179,23 +181,23 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
   switch (role) {
     case "REP":
       return {
-        sales: [MENU.quickEntry, MENU.leads, MENU.orders, MENU.dashboard, MENU.adjustments],
+        sales: [MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.dashboard, MENU.adjustments],
         ...base,
       };
     case "MDU":
       return {
-        sales: [MENU.mduOrders, MENU.dashboard],
+        sales: [MENU.mduOrders, MENU.orderTracker, MENU.dashboard],
         ...base,
       };
     case "LEAD":
     case "MANAGER":
       return {
-        sales: [MENU.orders, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.adjustments],
+        sales: [MENU.orderTracker, MENU.orders, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.adjustments],
         ...base,
       };
     case "EXECUTIVE":
       return {
-        sales: [MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users],
+        sales: [MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users],
         ...base,
       };
     default:
