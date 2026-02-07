@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, NativeSelect, useIsTouchDevice } from "@/components/ui/select";
 import {
   Clock,
   CheckCircle2,
@@ -29,11 +29,13 @@ import {
   User,
   Loader2,
   StickyNote,
+  Plus,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import type { SalesOrder, Client, Provider, Service } from "@shared/schema";
+import type { SalesOrder, Client, Provider, Service, User as UserType } from "@shared/schema";
 import { Link } from "wouter";
 
 type OrderStatus = "pending" | "completed" | "approved" | "paid" | "rejected" | "canceled";
@@ -386,12 +388,42 @@ function OrderCard({
 
 export default function OrderTracker() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const canSeeCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [dateRange, setDateRange] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const [showNewOrderDialog, setShowNewOrderDialog] = useState(false);
+  const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
+  const isTouchDevice = useIsTouchDevice();
+
+  const [newOrderForm, setNewOrderForm] = useState({
+    repId: "",
+    clientId: "",
+    providerId: "",
+    serviceId: "",
+    dateSold: "",
+    installDate: "",
+    installTime: "",
+    installType: "",
+    accountNumber: "",
+    customerName: "",
+    customerAddress: "",
+    customerPhone: "",
+    customerEmail: "",
+    hasTv: false,
+  });
+
+  const resetNewOrderForm = () => {
+    setNewOrderForm({
+      repId: "", clientId: "", providerId: "", serviceId: "", dateSold: "",
+      installDate: "", installTime: "", installType: "", accountNumber: "",
+      customerName: "", customerAddress: "", customerPhone: "", customerEmail: "",
+      hasTv: false,
+    });
+  };
 
   const { data: orders, isLoading } = useQuery<SalesOrder[]>({
     queryKey: ["/api/orders"],
@@ -428,6 +460,84 @@ export default function OrderTracker() {
       return res.json();
     },
   });
+
+  const { data: reps } = useQuery<UserType[]>({
+    queryKey: ["/api/admin/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      const users = await res.json();
+      const salesRoles = ["REP", "LEAD", "MANAGER", "EXECUTIVE"];
+      return users.filter((u: UserType) => salesRoles.includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
+    },
+    enabled: isAdmin,
+  });
+
+  const { data: availableServices } = useQuery<Service[]>({
+    queryKey: ["/api/services/available", newOrderForm.clientId, newOrderForm.providerId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (newOrderForm.clientId) params.append("clientId", newOrderForm.clientId);
+      if (newOrderForm.providerId) params.append("providerId", newOrderForm.providerId);
+      const res = await fetch(`/api/services/available?${params}`, { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: showNewOrderDialog && !!newOrderForm.clientId && !!newOrderForm.providerId,
+  });
+
+  const createOrderMutation = useMutation({
+    mutationFn: async (orderData: typeof newOrderForm) => {
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repId: isAdmin ? orderData.repId : user?.repId,
+          clientId: orderData.clientId || null,
+          providerId: orderData.providerId || null,
+          serviceId: orderData.serviceId || null,
+          dateSold: orderData.dateSold,
+          installDate: orderData.installDate || null,
+          installTime: orderData.installTime || null,
+          installType: orderData.installType || null,
+          accountNumber: orderData.accountNumber || null,
+          customerName: orderData.customerName,
+          customerAddress: orderData.customerAddress || null,
+          customerPhone: orderData.customerPhone || null,
+          customerEmail: orderData.customerEmail || null,
+          hasTv: orderData.hasTv,
+          hasMobile: false,
+          mobileLines: [],
+        }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create order");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setShowNewOrderDialog(false);
+      resetNewOrderForm();
+      toast({ title: "Order created successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleCreateOrder = () => {
+    if (!newOrderForm.customerName || !newOrderForm.dateSold) {
+      toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
+      return;
+    }
+    if (isAdmin && !newOrderForm.repId) {
+      toast({ title: "Missing required fields", description: "Rep ID is required", variant: "destructive" });
+      return;
+    }
+    createOrderMutation.mutate(newOrderForm);
+  };
 
   const clientMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -548,6 +658,10 @@ export default function OrderTracker() {
               <SelectItem value="90d">Last 90 Days</SelectItem>
             </SelectContent>
           </Select>
+          <Button onClick={() => setShowNewOrderDialog(true)} data-testid="button-new-order-tracker">
+            <Plus className="h-4 w-4 mr-1.5" />
+            New Order
+          </Button>
           <Link href="/orders">
             <Button variant="outline" data-testid="link-full-orders">
               <ArrowUpRight className="h-4 w-4 mr-1.5" />
@@ -687,6 +801,267 @@ export default function OrderTracker() {
           ))}
         </div>
       )}
+
+      <Dialog open={showNewOrderDialog} onOpenChange={(open) => { setShowNewOrderDialog(open); if (!open) resetNewOrderForm(); }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-visible flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Create New Order</DialogTitle>
+            <DialogDescription>Enter the order details below</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 overflow-y-auto flex-1 pr-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {isAdmin && (
+                <div className="space-y-2">
+                  <Label>Assign To *</Label>
+                  {isTouchDevice ? (
+                    <NativeSelect
+                      value={newOrderForm.repId}
+                      onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}
+                      placeholder="Select user"
+                      options={reps?.map((rep) => ({
+                        value: rep.repId,
+                        label: `${rep.name} (${rep.repId}) - ${rep.role}`
+                      })) || []}
+                      data-testid="select-rep-tracker"
+                    />
+                  ) : (
+                    <Select value={newOrderForm.repId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}>
+                      <SelectTrigger data-testid="select-rep-tracker">
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reps?.map((rep) => (
+                          <SelectItem key={rep.id} value={rep.repId}>{rep.name} ({rep.repId}) - {rep.role}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label>Client</Label>
+                {isTouchDevice ? (
+                  <NativeSelect
+                    value={newOrderForm.clientId}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}
+                    placeholder="Select client"
+                    options={(clients || []).map((client) => ({
+                      value: client.id,
+                      label: client.name
+                    }))}
+                    data-testid="select-client-tracker"
+                  />
+                ) : (
+                  <Select value={newOrderForm.clientId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}>
+                    <SelectTrigger data-testid="select-client-tracker">
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(clients || []).map((client) => (
+                        <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Provider</Label>
+                {isTouchDevice ? (
+                  <NativeSelect
+                    value={newOrderForm.providerId}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}
+                    placeholder="Select provider"
+                    options={(providers || []).map((provider) => ({
+                      value: provider.id,
+                      label: provider.name
+                    }))}
+                    data-testid="select-provider-tracker"
+                  />
+                ) : (
+                  <Select value={newOrderForm.providerId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}>
+                    <SelectTrigger data-testid="select-provider-tracker">
+                      <SelectValue placeholder="Select provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(providers || []).map((provider) => (
+                        <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Date Sold *</Label>
+                <Input
+                  type="date"
+                  value={newOrderForm.dateSold}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, dateSold: e.target.value }))}
+                  data-testid="input-date-sold-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Install Date</Label>
+                <Input
+                  type="date"
+                  value={newOrderForm.installDate}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, installDate: e.target.value }))}
+                  data-testid="input-install-date-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Install Time</Label>
+                {isTouchDevice ? (
+                  <NativeSelect
+                    value={newOrderForm.installTime}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, installTime: v }))}
+                    placeholder="Select time window"
+                    options={[
+                      { value: "8-11am", label: "8-11am" },
+                      { value: "11-2pm", label: "11-2pm" },
+                      { value: "2-5pm", label: "2-5pm" },
+                    ]}
+                    data-testid="select-install-time-tracker"
+                  />
+                ) : (
+                  <Select value={newOrderForm.installTime} onValueChange={(v) => setNewOrderForm(f => ({ ...f, installTime: v }))}>
+                    <SelectTrigger data-testid="select-install-time-tracker">
+                      <SelectValue placeholder="Select time window" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="8-11am">8-11am</SelectItem>
+                      <SelectItem value="11-2pm">11-2pm</SelectItem>
+                      <SelectItem value="2-5pm">2-5pm</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Install Type</Label>
+                {isTouchDevice ? (
+                  <NativeSelect
+                    value={newOrderForm.installType}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, installType: v }))}
+                    placeholder="Select install type"
+                    options={[
+                      { value: "AGENT_INSTALL", label: "Agent Install" },
+                      { value: "DIRECT_SHIP", label: "Direct Ship" },
+                      { value: "TECH_INSTALL", label: "Tech Install" },
+                    ]}
+                    data-testid="select-install-type-tracker"
+                  />
+                ) : (
+                  <Select value={newOrderForm.installType} onValueChange={(v) => setNewOrderForm(f => ({ ...f, installType: v }))}>
+                    <SelectTrigger data-testid="select-install-type-tracker">
+                      <SelectValue placeholder="Select install type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="AGENT_INSTALL">Agent Install</SelectItem>
+                      <SelectItem value="DIRECT_SHIP">Direct Ship</SelectItem>
+                      <SelectItem value="TECH_INSTALL">Tech Install</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Account Number</Label>
+                <Input
+                  placeholder="Enter account number"
+                  value={newOrderForm.accountNumber}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, accountNumber: e.target.value }))}
+                  data-testid="input-account-number-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Service</Label>
+                {!newOrderForm.clientId || !newOrderForm.providerId ? (
+                  <p className="text-sm text-muted-foreground">Select client and provider first</p>
+                ) : isTouchDevice ? (
+                  <NativeSelect
+                    value={newOrderForm.serviceId}
+                    onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}
+                    placeholder="Select service"
+                    options={(availableServices || []).map((service) => ({
+                      value: service.id,
+                      label: service.name
+                    }))}
+                    data-testid="select-service-tracker"
+                  />
+                ) : (
+                  <Select value={newOrderForm.serviceId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}>
+                    <SelectTrigger data-testid="select-service-tracker">
+                      <SelectValue placeholder={availableServices?.length ? "Select service" : "No services available"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(availableServices || []).map((service) => (
+                        <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Customer Name *</Label>
+                <Input
+                  placeholder="Enter customer name"
+                  value={newOrderForm.customerName}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, customerName: e.target.value }))}
+                  data-testid="input-customer-name-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Customer Phone</Label>
+                <Input
+                  placeholder="Enter phone number"
+                  value={newOrderForm.customerPhone}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, customerPhone: e.target.value }))}
+                  data-testid="input-customer-phone-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Customer Email</Label>
+                <Input
+                  placeholder="Enter email address"
+                  value={newOrderForm.customerEmail}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, customerEmail: e.target.value }))}
+                  data-testid="input-customer-email-tracker"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Customer Address</Label>
+              <Textarea
+                placeholder="Enter customer address"
+                value={newOrderForm.customerAddress}
+                onChange={(e) => setNewOrderForm(f => ({ ...f, customerAddress: e.target.value }))}
+                data-testid="input-customer-address-tracker"
+              />
+            </div>
+            <div className="flex items-center gap-6 pt-2">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="hasTvTracker"
+                  checked={newOrderForm.hasTv}
+                  onCheckedChange={(checked) => setNewOrderForm(f => ({ ...f, hasTv: !!checked }))}
+                  data-testid="checkbox-has-tv-tracker"
+                />
+                <Label htmlFor="hasTvTracker" className="cursor-pointer">Video (TV)</Label>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => { setShowNewOrderDialog(false); resetNewOrderForm(); }} data-testid="button-cancel-new-order-tracker">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateOrder}
+              disabled={createOrderMutation.isPending}
+              data-testid="button-submit-order-tracker"
+            >
+              {createOrderMutation.isPending ? "Creating..." : "Create Order"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">

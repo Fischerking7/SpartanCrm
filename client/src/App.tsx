@@ -216,10 +216,10 @@ function Router() {
         )}
         
         <Route path="/">
-          <Redirect to="/orders" />
+          <Redirect to="/dashboard" />
         </Route>
         <Route>
-          <Redirect to="/orders" />
+          <Redirect to="/dashboard" />
         </Route>
       </Switch>
     </AuthenticatedLayout>

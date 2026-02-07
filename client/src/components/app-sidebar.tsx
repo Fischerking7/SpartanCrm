@@ -181,28 +181,28 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
   switch (role) {
     case "REP":
       return {
-        sales: [MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.dashboard, MENU.adjustments],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.adjustments],
         ...base,
       };
     case "MDU":
       return {
-        sales: [MENU.mduOrders, MENU.orderTracker, MENU.dashboard],
+        sales: [MENU.dashboard, MENU.mduOrders, MENU.orderTracker],
         ...base,
       };
     case "LEAD":
     case "MANAGER":
       return {
-        sales: [MENU.orderTracker, MENU.orders, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.adjustments],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments],
         ...base,
       };
     case "EXECUTIVE":
       return {
-        sales: [MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.dashboard, MENU.reports, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.reports, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users],
         ...base,
       };
     default:
       return {
-        sales: [MENU.orders, MENU.dashboard],
+        sales: [MENU.dashboard, MENU.orderTracker],
         ...base,
       };
   }
