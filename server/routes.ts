@@ -1438,9 +1438,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Missing required fields: clientId, providerId, serviceId, dateSold, customerName" });
       }
       
-      // Determine repId - admins can assign to any rep, others use their own
+      // Determine repId - admins/executives can assign to any rep, others use their own
       let assignedRepId = user.repId;
-      if (["ADMIN", "OPERATIONS"].includes(user.role) && submittedRepId) {
+      if (["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role) && submittedRepId) {
         // Verify the rep exists
         const rep = await storage.getUserByRepId(submittedRepId);
         if (rep) {
@@ -1546,9 +1546,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "At least one mobile line with a valid product type is required" });
       }
       
-      // Determine repId - admins can assign to any rep, others use their own
+      // Determine repId - admins/executives can assign to any rep, others use their own
       let assignedRepId = user.repId;
-      if (["ADMIN", "OPERATIONS"].includes(user.role) && submittedRepId) {
+      if (["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role) && submittedRepId) {
         const rep = await storage.getUserByRepId(submittedRepId);
         if (rep) {
           assignedRepId = submittedRepId;
