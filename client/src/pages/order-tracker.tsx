@@ -28,7 +28,9 @@ import {
   Phone,
   User,
   Loader2,
+  StickyNote,
 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import type { SalesOrder, Client, Provider, Service } from "@shared/schema";
@@ -337,6 +339,14 @@ function OrderCard({
                 </span>
               )}
             </div>
+            {order.notes && (
+              <div className="flex items-start gap-1 mt-1.5 text-xs text-muted-foreground">
+                <StickyNote className="h-3 w-3 mt-0.5 shrink-0" />
+                <span className="line-clamp-1" data-testid={`text-note-preview-${order.id}`}>
+                  {order.notes}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="hidden md:block">
@@ -723,6 +733,8 @@ function OrderDetailPanel({
   const netCommission = parseFloat(order.baseCommissionEarned) - parseFloat((order as any).overrideDeduction || "0") + parseFloat(order.incentiveEarned || "0");
 
   const [isEditing, setIsEditing] = useState(false);
+  const [notesValue, setNotesValue] = useState(order.notes || "");
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [formData, setFormData] = useState({
     customerName: order.customerName || "",
     customerAddress: order.customerAddress || "",
@@ -753,6 +765,21 @@ function OrderDetailPanel({
     },
   });
 
+  const notesMutation = useMutation({
+    mutationFn: async (notes: string) => {
+      const res = await apiRequest("PATCH", `/api/orders/${order.id}`, { notes });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({ title: "Notes saved" });
+      setIsEditingNotes(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to save notes", description: err.message || "Could not save notes.", variant: "destructive" });
+    },
+  });
+
   const handleSave = () => {
     const payload: Record<string, any> = {};
     if (formData.customerName !== (order.customerName || "")) payload.customerName = formData.customerName;
@@ -768,6 +795,14 @@ function OrderDetailPanel({
       return;
     }
     updateMutation.mutate(payload);
+  };
+
+  const handleSaveNotes = () => {
+    if (notesValue === (order.notes || "")) {
+      setIsEditingNotes(false);
+      return;
+    }
+    notesMutation.mutate(notesValue);
   };
 
   const readOnlyRows: { label: string; value: string | null }[] = [
@@ -924,6 +959,61 @@ function OrderDetailPanel({
           </div>
         </>
       )}
+
+      <div className="border-t pt-4">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-1.5">
+            <StickyNote className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-medium">Notes</p>
+          </div>
+          {!isEditingNotes && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => { setNotesValue(order.notes || ""); setIsEditingNotes(true); }}
+              data-testid="button-edit-notes"
+            >
+              <Pencil className="h-3.5 w-3.5 mr-1" />
+              {order.notes ? "Edit" : "Add"}
+            </Button>
+          )}
+        </div>
+        {isEditingNotes ? (
+          <div className="space-y-2">
+            <Textarea
+              value={notesValue}
+              onChange={(e) => setNotesValue(e.target.value)}
+              placeholder="Add notes about this order..."
+              className="resize-none text-sm"
+              rows={4}
+              data-testid="textarea-order-notes"
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={handleSaveNotes}
+                disabled={notesMutation.isPending}
+                data-testid="button-save-notes"
+              >
+                {notesMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+                Save Notes
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setNotesValue(order.notes || ""); setIsEditingNotes(false); }}
+                data-testid="button-cancel-notes"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap" data-testid="text-order-notes">
+            {order.notes || "No notes yet"}
+          </p>
+        )}
+      </div>
 
       {canSeeCommissions && (
         <div className="border-t pt-4">
