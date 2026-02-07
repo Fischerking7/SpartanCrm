@@ -12,7 +12,7 @@ import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench, Plus, TrendingUp, ArrowUpDown } from "lucide-react";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench, Plus, TrendingUp, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
@@ -23,7 +23,7 @@ export default function Leads() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   
-  const [filters, setFilters] = useState({
+  const [filters, setFiltersRaw] = useState({
     houseNumber: "",
     streetName: "",
     city: "",
@@ -33,7 +33,12 @@ export default function Leads() {
     customerName: "",
     disposition: "" as string,
   });
+  const setFilters: typeof setFiltersRaw = (val) => {
+    setCurrentPage(1);
+    setFiltersRaw(val);
+  };
   const [sortBy, setSortBy] = useState<string>("date_desc");
+  const [currentPage, setCurrentPage] = useState(1);
   const [viewingRepId, setViewingRepId] = useState<string>("");
   
   const [editingNotes, setEditingNotes] = useState<string | null>(null);
@@ -187,18 +192,31 @@ export default function Leads() {
     if (filters.customerName) params.append("customerName", filters.customerName);
     if (filters.disposition) params.append("disposition", filters.disposition);
     if (viewingRepId && canAssignToOthers) params.append("viewRepId", viewingRepId);
-    const qs = params.toString();
-    return `/api/leads${qs ? `?${qs}` : ""}`;
+    params.append("page", String(currentPage));
+    params.append("limit", "50");
+    return `/api/leads?${params.toString()}`;
   };
 
-  const { data: rawLeads, isLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/leads", filters, viewingRepId],
+  interface PaginatedLeadsResponse {
+    leads: Lead[];
+    total: number;
+    page: number;
+    totalPages: number;
+    limit: number;
+  }
+
+  const { data: leadsResponse, isLoading } = useQuery<PaginatedLeadsResponse>({
+    queryKey: ["/api/leads", filters, viewingRepId, currentPage],
     queryFn: async () => {
       const res = await fetch(buildQueryUrl(), { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch leads");
       return res.json();
     },
   });
+
+  const rawLeads = leadsResponse?.leads;
+  const totalLeads = leadsResponse?.total || 0;
+  const totalPages = leadsResponse?.totalPages || 1;
 
   const leads = rawLeads ? [...rawLeads].sort((a, b) => {
     switch (sortBy) {
@@ -311,6 +329,7 @@ export default function Leads() {
 
   const clearFilters = () => {
     setSortBy("date_desc");
+    setCurrentPage(1);
     setFilters({
       houseNumber: "",
       streetName: "",
@@ -323,7 +342,7 @@ export default function Leads() {
     });
   };
 
-  const hasActiveFilters = filters.houseNumber || filters.streetName || filters.city || filters.zipCode || filters.dateFrom || filters.dateTo || filters.customerName || filters.disposition || sortBy !== "date_desc";
+  const hasActiveFilters = filters.houseNumber || filters.streetName || filters.city || filters.zipCode || filters.dateFrom || filters.dateTo || filters.customerName || filters.disposition || sortBy !== "date_desc" || currentPage > 1;
 
   const createOrderFromLead = (lead: Lead) => {
     // Build full street address
@@ -624,7 +643,7 @@ export default function Leads() {
           {canAssignToOthers && (
             <div className="flex items-center gap-2">
               <Label className="text-sm whitespace-nowrap">View leads for:</Label>
-              <Select value={viewingRepId || "__my__"} onValueChange={(v) => setViewingRepId(v === "__my__" ? "" : v)}>
+              <Select value={viewingRepId || "__my__"} onValueChange={(v) => { setCurrentPage(1); setViewingRepId(v === "__my__" ? "" : v); }}>
                 <SelectTrigger className="w-[200px]" data-testid="select-view-rep">
                   <SelectValue placeholder="My Leads" />
                 </SelectTrigger>
@@ -1209,6 +1228,39 @@ export default function Leads() {
               </p>
             </CardContent>
           </Card>
+        )}
+
+        {totalLeads > 0 && (
+          <div className="flex items-center justify-between flex-wrap gap-2 mt-4">
+            <p className="text-sm text-muted-foreground" data-testid="text-leads-count">
+              Showing {Math.min((currentPage - 1) * 50 + 1, totalLeads)}–{Math.min(currentPage * 50, totalLeads)} of {totalLeads} leads
+            </p>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage(p => p - 1)}
+                data-testid="button-prev-page"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <span className="text-sm px-3" data-testid="text-page-info">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage(p => p + 1)}
+                data-testid="button-next-page"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         )}
       </div>
 

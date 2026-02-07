@@ -4167,7 +4167,7 @@ export async function registerRoutes(
   // Leads - accessible by all authenticated users for their own leads
   app.get("/api/leads", auth, async (req: AuthRequest, res) => {
     try {
-      const { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, viewRepId, customerName, disposition } = req.query as {
+      const { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, viewRepId, customerName, disposition, page: pageStr, limit: limitStr } = req.query as {
         zipCode?: string;
         street?: string;
         city?: string;
@@ -4178,7 +4178,11 @@ export async function registerRoutes(
         viewRepId?: string;
         customerName?: string;
         disposition?: string;
+        page?: string;
+        limit?: string;
       };
+      const page = Math.max(1, parseInt(pageStr || "1", 10) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(limitStr || "50", 10) || 50));
       
       // Determine which rep's leads to fetch
       let targetRepId = req.user!.repId;
@@ -4246,7 +4250,12 @@ export async function registerRoutes(
         leads = leads.filter(l => !["SOLD", "REJECT"].includes(l.disposition || ""));
       }
       
-      res.json(leads);
+      const total = leads.length;
+      const totalPages = Math.ceil(total / limit);
+      const offset = (page - 1) * limit;
+      const paginatedLeads = leads.slice(offset, offset + limit);
+      
+      res.json({ leads: paginatedLeads, total, page, totalPages, limit });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch leads" });
     }
