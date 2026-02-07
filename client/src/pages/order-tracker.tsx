@@ -184,6 +184,21 @@ function OrderCard({
     },
   });
 
+  const statusMutation = useMutation({
+    mutationFn: async (newStatus: string) => {
+      const res = await apiRequest("PATCH", `/api/orders/${order.id}`, { jobStatus: newStatus });
+      return res.json();
+    },
+    onSuccess: (_, newStatus) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      const label = newStatus === "COMPLETED" ? "completed" : newStatus === "PENDING" ? "pending" : "canceled";
+      toast({ title: `Order marked as ${label}` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Status update failed", description: err.message || "Could not update status.", variant: "destructive" });
+    },
+  });
+
   const handleSave = (e: React.MouseEvent) => {
     e.stopPropagation();
     const payload: Record<string, any> = {};
@@ -359,6 +374,45 @@ function OrderCard({
               <config.icon className="h-3 w-3 mr-1" />
               {config.label}
             </Badge>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {status === "pending" && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={(e) => { e.stopPropagation(); statusMutation.mutate("COMPLETED"); }}
+                  disabled={statusMutation.isPending}
+                  data-testid={`button-complete-${order.id}`}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                  Complete
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={(e) => { e.stopPropagation(); statusMutation.mutate("CANCELED"); }}
+                  disabled={statusMutation.isPending}
+                  data-testid={`button-cancel-order-${order.id}`}
+                >
+                  <XCircle className="h-3.5 w-3.5 mr-1" />
+                  Cancel
+                </Button>
+              </>
+            )}
+            {status === "completed" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={(e) => { e.stopPropagation(); statusMutation.mutate("PENDING"); }}
+                disabled={statusMutation.isPending}
+                data-testid={`button-revert-pending-${order.id}`}
+              >
+                <Clock className="h-3.5 w-3.5 mr-1" />
+                Revert
+              </Button>
+            )}
           </div>
 
           <div className="text-right min-w-[100px]">
@@ -591,7 +645,8 @@ export default function OrderTracker() {
   const filteredOrders = useMemo(() => {
     return dateFilteredOrders.filter(o => {
       const status = getOrderStatus(o);
-      if (activeTab === "pending" && (status === "pending" || status === "completed")) return true;
+      if (activeTab === "pending" && status === "pending") return true;
+      if (activeTab === "completed" && status === "completed") return true;
       if (activeTab === "approved" && status === "approved") return true;
       if (activeTab === "paid" && status === "paid") return true;
       if (activeTab === "all") return true;
@@ -671,7 +726,7 @@ export default function OrderTracker() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <Card
           className={`cursor-pointer transition-colors ${activeTab === "pending" ? "ring-2 ring-primary" : ""}`}
           onClick={() => setActiveTab("pending")}
@@ -680,12 +735,24 @@ export default function OrderTracker() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2 mb-1">
               <span className="text-sm text-muted-foreground">Pending</span>
-              <Package className="h-4 w-4 text-yellow-500" />
+              <Clock className="h-4 w-4 text-yellow-500" />
             </div>
-            <p className="text-2xl font-bold">{stats.pending + stats.completed}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {stats.pending} pending, {stats.completed} completed
-            </p>
+            <p className="text-2xl font-bold">{stats.pending}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Awaiting completion</p>
+          </CardContent>
+        </Card>
+        <Card
+          className={`cursor-pointer transition-colors ${activeTab === "completed" ? "ring-2 ring-primary" : ""}`}
+          onClick={() => setActiveTab("completed")}
+          data-testid="card-stat-completed"
+        >
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="text-sm text-muted-foreground">Completed</span>
+              <CheckCircle2 className="h-4 w-4 text-blue-500" />
+            </div>
+            <p className="text-2xl font-bold">{stats.completed}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Awaiting approval</p>
           </CardContent>
         </Card>
         <Card
@@ -762,8 +829,14 @@ export default function OrderTracker() {
             <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
             <TabsTrigger value="pending" data-testid="tab-pending">
               Pending
-              {(stats.pending + stats.completed) > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted">{stats.pending + stats.completed}</span>
+              {stats.pending > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted">{stats.pending}</span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="completed" data-testid="tab-completed">
+              Completed
+              {stats.completed > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted">{stats.completed}</span>
               )}
             </TabsTrigger>
             <TabsTrigger value="approved" data-testid="tab-approved">Approved</TabsTrigger>
@@ -1141,6 +1214,22 @@ function OrderDetailPanel({
     },
   });
 
+  const statusMutation = useMutation({
+    mutationFn: async (newStatus: string) => {
+      const res = await apiRequest("PATCH", `/api/orders/${order.id}`, { jobStatus: newStatus });
+      return res.json();
+    },
+    onSuccess: (_, newStatus) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      const label = newStatus === "COMPLETED" ? "completed" : newStatus === "PENDING" ? "pending" : "canceled";
+      toast({ title: `Order marked as ${label}` });
+      onClose();
+    },
+    onError: (err: any) => {
+      toast({ title: "Status update failed", description: err.message || "Could not update status.", variant: "destructive" });
+    },
+  });
+
   const notesMutation = useMutation({
     mutationFn: async (notes: string) => {
       const res = await apiRequest("PATCH", `/api/orders/${order.id}`, { notes });
@@ -1213,6 +1302,46 @@ function OrderDetailPanel({
           )}
         </div>
       </div>
+
+      {(status === "pending" || status === "completed") && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {status === "pending" && (
+            <>
+              <Button
+                size="sm"
+                onClick={() => statusMutation.mutate("COMPLETED")}
+                disabled={statusMutation.isPending}
+                data-testid="button-detail-complete"
+              >
+                {statusMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />}
+                Mark as Completed
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => statusMutation.mutate("CANCELED")}
+                disabled={statusMutation.isPending}
+                data-testid="button-detail-cancel-order"
+              >
+                <XCircle className="h-3.5 w-3.5 mr-1.5" />
+                Cancel Order
+              </Button>
+            </>
+          )}
+          {status === "completed" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => statusMutation.mutate("PENDING")}
+              disabled={statusMutation.isPending}
+              data-testid="button-detail-revert"
+            >
+              {statusMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Clock className="h-3.5 w-3.5 mr-1.5" />}
+              Revert to Pending
+            </Button>
+          )}
+        </div>
+      )}
 
       {status === "rejected" && order.rejectionNote && (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
