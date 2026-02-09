@@ -174,14 +174,14 @@ export default function RepDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-                  <CardTitle className="text-sm font-medium">YTD Gross Earnings</CardTitle>
+                  <CardTitle className="text-sm font-medium">YTD Net Earnings</CardTitle>
                   <TrendingUp className="h-4 w-4 text-green-500" />
                 </CardHeader>
                 <CardContent>
                   <p className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-dashboard-ytd-gross">
-                    {formatCurrency(ytdData.ytdGross || 0)}
+                    {formatCurrency(ytdData.ytdNet || 0)}
                   </p>
-                  <p className="text-xs text-muted-foreground">Before deductions</p>
+                  <p className="text-xs text-muted-foreground">After overrides</p>
                 </CardContent>
               </Card>
               <Card>
