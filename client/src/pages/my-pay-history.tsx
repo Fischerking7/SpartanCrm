@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getAuthHeaders } from "@/lib/auth";
+import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -120,7 +120,7 @@ function downloadExcel(statementId: string) {
     .catch((err) => console.error("Excel download error:", err));
 }
 
-function StatementDetailsDialog({ statementId }: { statementId: string }) {
+function StatementDetailsDialog({ statementId, isRep = false }: { statementId: string; isRep?: boolean }) {
   const [open, setOpen] = useState(false);
   
   const { data, isLoading } = useQuery<PayStatementDetails>({
@@ -187,24 +187,37 @@ function StatementDetailsDialog({ statementId }: { statementId: string }) {
 
             <div className="space-y-4">
               <h3 className="font-semibold">Earnings</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Base Commission</p>
-                  <p className="font-medium text-green-600 dark:text-green-400">{formatCurrency(data.grossCommission)}</p>
+              {isRep ? (
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Net Commission</p>
+                    <p className="font-medium text-green-600 dark:text-green-400">{formatCurrency(data.netPay)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Chargebacks</p>
+                    <p className="font-medium text-red-600 dark:text-red-400">-{formatCurrency(data.chargebacksTotal)}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-muted-foreground">Override Earnings</p>
-                  <p className="font-medium text-green-600 dark:text-green-400">{formatCurrency(data.overrideEarnings)}</p>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Base Commission</p>
+                    <p className="font-medium text-green-600 dark:text-green-400">{formatCurrency(data.grossCommission)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Override Earnings</p>
+                    <p className="font-medium text-green-600 dark:text-green-400">{formatCurrency(data.overrideEarnings)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Incentives</p>
+                    <p className="font-medium text-green-600 dark:text-green-400">{formatCurrency(data.incentivesTotal)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Chargebacks</p>
+                    <p className="font-medium text-red-600 dark:text-red-400">-{formatCurrency(data.chargebacksTotal)}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-muted-foreground">Incentives</p>
-                  <p className="font-medium text-green-600 dark:text-green-400">{formatCurrency(data.incentivesTotal)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Chargebacks</p>
-                  <p className="font-medium text-red-600 dark:text-red-400">-{formatCurrency(data.chargebacksTotal)}</p>
-                </div>
-              </div>
+              )}
             </div>
 
             {data.lineItems.length > 0 && (
@@ -285,10 +298,12 @@ function StatementDetailsDialog({ statementId }: { statementId: string }) {
               </div>
               <div className="space-y-2">
                 <h3 className="font-semibold">Year to Date</h3>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">YTD Gross</span>
-                  <span>{formatCurrency(data.ytdGross)}</span>
-                </div>
+                {!isRep && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">YTD Gross</span>
+                    <span>{formatCurrency(data.ytdGross)}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">YTD Deductions</span>
                   <span className="text-red-600 dark:text-red-400">-{formatCurrency(data.ytdDeductions)}</span>
@@ -309,6 +324,8 @@ function StatementDetailsDialog({ statementId }: { statementId: string }) {
 }
 
 export default function MyPayHistory() {
+  const { user } = useAuth();
+  const isRep = user?.role === "REP";
   const { data: statements, isLoading: statementsLoading } = useQuery<PayStatement[]>({
     queryKey: ["/api/payroll/my-statements"],
     queryFn: async () => {
@@ -362,14 +379,14 @@ export default function MyPayHistory() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-            <CardTitle className="text-sm font-medium">YTD Gross Earnings</CardTitle>
+            <CardTitle className="text-sm font-medium">{isRep ? "YTD Net Earnings" : "YTD Gross Earnings"}</CardTitle>
             <ArrowUpCircle className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-ytd-gross">
-              {formatCurrency(ytdData?.ytdGross || 0)}
+              {formatCurrency(isRep ? (ytdData?.ytdNet || 0) : (ytdData?.ytdGross || 0))}
             </p>
-            <p className="text-xs text-muted-foreground">Before deductions</p>
+            <p className="text-xs text-muted-foreground">{isRep ? "After overrides" : "Before deductions"}</p>
           </CardContent>
         </Card>
 
@@ -426,7 +443,7 @@ export default function MyPayHistory() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Pay Period</TableHead>
-                  <TableHead>Gross</TableHead>
+                  {!isRep && <TableHead>Gross</TableHead>}
                   <TableHead>Deductions</TableHead>
                   <TableHead>Net Pay</TableHead>
                   <TableHead>Status</TableHead>
@@ -439,9 +456,11 @@ export default function MyPayHistory() {
                     <TableCell className="font-medium">
                       {formatDate(statement.periodStart)} - {formatDate(statement.periodEnd)}
                     </TableCell>
-                    <TableCell className="text-green-600 dark:text-green-400">
-                      {formatCurrency(statement.grossCommission)}
-                    </TableCell>
+                    {!isRep && (
+                      <TableCell className="text-green-600 dark:text-green-400">
+                        {formatCurrency(statement.grossCommission)}
+                      </TableCell>
+                    )}
                     <TableCell className="text-red-600 dark:text-red-400">
                       -{formatCurrency(statement.deductionsTotal)}
                     </TableCell>
@@ -453,7 +472,7 @@ export default function MyPayHistory() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        <StatementDetailsDialog statementId={statement.id} />
+                        <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
                         <Button 
                           size="sm" 
                           variant="ghost" 
@@ -503,7 +522,7 @@ export default function MyPayHistory() {
                   <TableHead>Pay Period</TableHead>
                   <TableHead>Paid On</TableHead>
                   <TableHead>Check #</TableHead>
-                  <TableHead>Gross</TableHead>
+                  {!isRep && <TableHead>Gross</TableHead>}
                   <TableHead>Deductions</TableHead>
                   <TableHead>Net Pay</TableHead>
                   <TableHead></TableHead>
@@ -521,9 +540,11 @@ export default function MyPayHistory() {
                     <TableCell className="font-mono text-sm">
                       {statement.checkNumber || "-"}
                     </TableCell>
-                    <TableCell className="text-green-600 dark:text-green-400">
-                      {formatCurrency(statement.grossCommission)}
-                    </TableCell>
+                    {!isRep && (
+                      <TableCell className="text-green-600 dark:text-green-400">
+                        {formatCurrency(statement.grossCommission)}
+                      </TableCell>
+                    )}
                     <TableCell className="text-red-600 dark:text-red-400">
                       -{formatCurrency(statement.deductionsTotal)}
                     </TableCell>
@@ -532,7 +553,7 @@ export default function MyPayHistory() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        <StatementDetailsDialog statementId={statement.id} />
+                        <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
                         <Button 
                           size="sm" 
                           variant="ghost" 

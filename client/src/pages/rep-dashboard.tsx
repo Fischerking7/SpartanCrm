@@ -117,11 +117,14 @@ export default function RepDashboard() {
     {
       key: "baseCommissionEarned",
       header: "Commission",
-      cell: (row: SalesOrder) => (
-        <span className="font-mono text-right block">
-          ${parseFloat(row.baseCommissionEarned).toFixed(2)}
-        </span>
-      ),
+      cell: (row: SalesOrder) => {
+        const net = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
+        return (
+          <span className="font-mono text-right block">
+            ${net.toFixed(2)}
+          </span>
+        );
+      },
       className: "text-right",
     },
     {

@@ -393,9 +393,9 @@ export default function Commissions() {
                     <th className="text-left py-3 px-2 font-medium">Date</th>
                     <th className="text-left py-3 px-2 font-medium">Customer</th>
                     <th className="text-left py-3 px-2 font-medium">Account</th>
-                    <th className="text-right py-3 px-2 font-medium">Base</th>
-                    <th className="text-right py-3 px-2 font-medium">Incentive</th>
-                    <th className="text-right py-3 px-2 font-medium">Total</th>
+                    {!isRep && <th className="text-right py-3 px-2 font-medium">Base</th>}
+                    {!isRep && <th className="text-right py-3 px-2 font-medium">Incentive</th>}
+                    <th className="text-right py-3 px-2 font-medium">{isRep ? "Commission" : "Total"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -404,15 +404,15 @@ export default function Commissions() {
                       <td className="py-3 px-2">{comm.dateSold}</td>
                       <td className="py-3 px-2">{comm.customerName}</td>
                       <td className="py-3 px-2 font-mono text-xs">{comm.accountNumber}</td>
-                      <td className="py-3 px-2 text-right">{formatCurrency(comm.baseCommission)}</td>
-                      <td className="py-3 px-2 text-right">{formatCurrency(comm.incentive)}</td>
+                      {!isRep && <td className="py-3 px-2 text-right">{formatCurrency(comm.baseCommission)}</td>}
+                      {!isRep && <td className="py-3 px-2 text-right">{formatCurrency(comm.incentive)}</td>}
                       <td className="py-3 px-2 text-right font-medium">{formatCurrency(comm.total)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="bg-muted/50">
-                    <td colSpan={5} className="py-3 px-2 font-medium">Total</td>
+                    <td colSpan={isRep ? 3 : 5} className="py-3 px-2 font-medium">Total</td>
                     <td className="py-3 px-2 text-right font-bold">{formatCurrency(data.ownTotalEarned)}</td>
                   </tr>
                 </tfoot>
