@@ -150,7 +150,7 @@ function OrderCard({
   const { toast } = useToast();
   const status = getOrderStatus(order);
   const config = getStatusConfig(status);
-  const netCommission = parseFloat(order.baseCommissionEarned) - parseFloat((order as any).overrideDeduction || "0") + parseFloat(order.incentiveEarned || "0");
+  const netCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
   const clientName = clientMap.get(order.clientId) || "Unknown";
   const providerName = providerMap.get(order.providerId) || "Unknown";
   const serviceName = serviceMap.get(order.serviceId) || "";
@@ -635,9 +635,8 @@ export default function OrderTracker() {
     const totalEarned = all
       .filter(o => getOrderStatus(o) === "approved" || getOrderStatus(o) === "paid")
       .reduce((sum, o) => {
-        const base = parseFloat(o.baseCommissionEarned) - parseFloat((o as any).overrideDeduction || "0");
-        const incentive = parseFloat(o.incentiveEarned || "0");
-        return sum + base + incentive;
+        const net = parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned || "0");
+        return sum + net;
       }, 0);
     return { pending, completed, approved, paid, total: all.length, totalEarned };
   }, [dateFilteredOrders]);
@@ -1178,7 +1177,7 @@ function OrderDetailPanel({
   const { toast } = useToast();
   const status = getOrderStatus(order);
   const config = getStatusConfig(status);
-  const netCommission = parseFloat(order.baseCommissionEarned) - parseFloat((order as any).overrideDeduction || "0") + parseFloat(order.incentiveEarned || "0");
+  const netCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
 
   const [isEditing, setIsEditing] = useState(false);
   const [notesValue, setNotesValue] = useState(order.notes || "");
