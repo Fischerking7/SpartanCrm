@@ -4795,8 +4795,20 @@ export async function registerRoutes(
 
   // Import leads from Excel (REP and above can import) - with file validation
   // LEAD+ can use ?targetRepId=X to import leads for another user
-  app.post("/api/leads/import", auth, upload.single("file"), async (req: AuthRequest, res) => {
+  app.post("/api/leads/import", auth, (req: AuthRequest, res, next) => {
+    upload.single("file")(req, res, (err: any) => {
+      if (err) {
+        console.error("Multer upload error:", err);
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(413).json({ message: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` });
+        }
+        return res.status(400).json({ message: err.message || "File upload failed" });
+      }
+      next();
+    });
+  }, async (req: AuthRequest, res) => {
     try {
+      console.log(`[Leads Import] User ${req.user?.repId} uploading file: ${req.file?.originalname} (${req.file?.size} bytes)`);
       // Validate file upload
       const validation = validateFileUpload(req.file, res);
       if (!validation.valid) return;
