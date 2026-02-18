@@ -870,20 +870,24 @@ export const storage = {
     return order;
   },
   async hardDeleteOrder(id: string) {
-    // Get order first to get invoice number for adjustments
     const order = await db.query.salesOrders.findFirst({ where: eq(salesOrders.id, id) });
-    // Delete all related records first
     await db.delete(commissionLineItems).where(eq(commissionLineItems.salesOrderId, id));
     await db.delete(mobileLineItems).where(eq(mobileLineItems.salesOrderId, id));
     await db.delete(overrideEarnings).where(eq(overrideEarnings.salesOrderId, id));
     await db.delete(overrideDeductionPool).where(eq(overrideDeductionPool.salesOrderId, id));
     await db.delete(chargebacks).where(eq(chargebacks.salesOrderId, id));
     await db.delete(rateIssues).where(eq(rateIssues.salesOrderId, id));
-    // Delete adjustments by invoice number if order exists
+    await db.delete(orderExceptions).where(eq(orderExceptions.salesOrderId, id));
+    await db.delete(commissionDisputes).where(eq(commissionDisputes.salesOrderId, id));
+    await db.delete(splitCommissionLedger).where(eq(splitCommissionLedger.salesOrderId, id));
+    await db.delete(bonuses).where(eq(bonuses.salesOrderId, id));
+    await db.delete(arExpectations).where(eq(arExpectations.orderId, id));
+    await db.update(financeImportRows).set({ matchedOrderId: null }).where(eq(financeImportRows.matchedOrderId, id));
+    await db.update(leads).set({ convertedToOrderId: null }).where(eq(leads.convertedToOrderId, id));
+    await db.update(mduStagingOrders).set({ promotedToOrderId: null }).where(eq(mduStagingOrders.promotedToOrderId, id));
     if (order?.invoiceNumber) {
       await db.delete(adjustments).where(eq(adjustments.invoiceNumber, order.invoiceNumber));
     }
-    // Delete the order
     await db.delete(salesOrders).where(eq(salesOrders.id, id));
   },
   async getPendingApprovals() {
