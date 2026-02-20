@@ -775,7 +775,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/dashboard/admin-stats", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/dashboard/admin-stats", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const orders = await storage.getOrders({});
       const now = new Date();
@@ -3963,7 +3963,7 @@ export async function registerRoutes(
   });
 
   // Reports API
-  app.get("/api/admin/reports/summary", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/reports/summary", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { dateFrom, dateTo, providerId, clientId } = req.query as Record<string, string>;
       
@@ -8531,7 +8531,7 @@ export async function registerRoutes(
   });
 
   // Payroll Reports
-  app.get("/api/admin/payroll/reports/summary", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/reports/summary", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const statements = await storage.getPayStatements();
       const totalGross = statements.reduce((sum, s) => sum + parseFloat(s.grossCommission || "0"), 0);
@@ -8551,7 +8551,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to get summary" }); }
   });
 
-  app.get("/api/admin/payroll/reports/by-user", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/reports/by-user", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
       const users = await storage.getActiveUsers();
@@ -9667,7 +9667,7 @@ export async function registerRoutes(
   });
 
   // Commission Forecasts
-  app.get("/api/admin/commission-forecasts", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/commission-forecasts", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const filters: any = {};
       if (req.query.userId) filters.userId = req.query.userId;
@@ -9679,7 +9679,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/commission-forecasts/calculate/:userId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/commission-forecasts/calculate/:userId", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { periodType = "MONTH", periodStart, periodEnd } = req.query as any;
       const now = new Date();
@@ -9696,7 +9696,7 @@ export async function registerRoutes(
   });
 
   // Payroll Reports Dashboard
-  app.get("/api/admin/payroll-reports/summary", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll-reports/summary", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
       const startOfYear = `${year}-01-01`;
@@ -9759,7 +9759,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/payroll-reports/deductions", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll-reports/deductions", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
       const startOfYear = `${year}-01-01`;
