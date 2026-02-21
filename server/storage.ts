@@ -4116,7 +4116,16 @@ export const storage = {
   },
 
   // Orders matching for finance - find potential matches for a finance row
-  async findOrdersForMatching(clientId: string, saleDateStart: string, saleDateEnd: string, customerNameNorm?: string) {
+  async findOrdersForMatching(clientId: string | null, saleDateStart: string, saleDateEnd: string, customerNameNorm?: string) {
+    const conditions = [
+      eq(salesOrders.approvalStatus, 'APPROVED'),
+      gte(salesOrders.dateSold, saleDateStart),
+      lte(salesOrders.dateSold, saleDateEnd),
+      isNull(salesOrders.clientAcceptedAt)
+    ];
+    if (clientId) {
+      conditions.push(eq(salesOrders.clientId, clientId));
+    }
     return db.select({
       id: salesOrders.id,
       customerName: salesOrders.customerName,
@@ -4136,13 +4145,7 @@ export const storage = {
     })
       .from(salesOrders)
       .leftJoin(users, eq(salesOrders.repId, users.repId))
-      .where(and(
-        eq(salesOrders.clientId, clientId),
-        eq(salesOrders.approvalStatus, 'APPROVED'),
-        gte(salesOrders.dateSold, saleDateStart),
-        lte(salesOrders.dateSold, saleDateEnd),
-        isNull(salesOrders.clientAcceptedAt)
-      ));
+      .where(and(...conditions));
   },
 
   async setOrderClientAcceptance(orderId: string, status: "ACCEPTED" | "REJECTED" | "PENDING", expectedAmountCents?: number) {

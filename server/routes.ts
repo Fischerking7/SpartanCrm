@@ -11875,7 +11875,7 @@ export async function registerRoutes(
         endDate.setDate(endDate.getDate() + 7);
 
         const candidates = await storage.findOrdersForMatching(
-          financeImport.clientId,
+          null,
           startDate.toISOString().split('T')[0],
           endDate.toISOString().split('T')[0],
           row.customerNameNorm || undefined
