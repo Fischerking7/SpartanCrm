@@ -11598,7 +11598,7 @@ export async function registerRoutes(
 
       // Compute file hash (include sheet name for uniqueness)
       const hashInput = selectedSheet ? req.file.buffer.toString('base64') + '::' + selectedSheet : req.file.buffer.toString('base64');
-      const fileHash = require('crypto').createHash('sha256').update(hashInput).digest('hex');
+      const fileHash = crypto.createHash('sha256').update(hashInput).digest('hex');
 
       // Check for duplicate import
       const existingImport = await storage.getFinanceImportByClientAndHash(clientId, fileHash);
