@@ -4923,20 +4923,26 @@ export async function registerRoutes(
           }
 
           // Address fields - houseNumber, aptUnit, and streetName, or combined address/street
-          // Check for building/house number with many possible column name variations
-          // Includes "Bld No" (without 'g') variations that some systems use
           let houseNumber = getRowValue(row, 
-            "houseNumber", "house_number", "House Number", "HouseNumber", "House #", "House",
-            "Bld No.", "Bld No", "Bld No ", "BldNo", "Bld#", "Bld #", "Bld",
-            "Bldg No.", "Bldg No", "Bldg No ", "BldgNo", "Bldg#", "Bldg #", "Bldg",
-            "Building No.", "Building No", "Building Number", "Building #", "Building",
-            "Address No", "Address Number", "Street No", "Street Number", "No.", "No", "#"
+            "houseNumber", "house_number", "House Number", "HouseNumber", "House #",
+            "Bld No.", "Bld No", "BldNo", "Bld#", "Bld #",
+            "Bldg No.", "Bldg No", "BldgNo", "Bldg#", "Bldg #",
+            "Building No.", "Building No", "Building Number", "Building #",
+            "Address No", "Address Number", "Street No", "Street Number"
           );
           const aptUnit = getRowValue(row, "apt", "Apt", "Apt.", "Apt #", "Apartment", "Unit", "Unit #", "Suite", "Ste", "Basement", "Bsmt", "apt_unit", "aptUnit");
           
           let streetName = getRowValue(row, "streetName", "street_name", "Street Name", "StreetName");
           const customerAddress = getRowValue(row, "customerAddress", "customer_address", "Address", "Full Address");
           const street = getRowValue(row, "street", "Street");
+          const customerName = getRowValue(row, "customerName", "customer_name", "Customer Name", "Name", "Customer");
+          
+          // Skip rows that have no meaningful lead data (no address AND no customer name)
+          // This prevents importing rows that only have data in unrelated columns
+          if (!houseNumber && !streetName && !customerAddress && !street && !customerName) {
+            skipped++;
+            continue;
+          }
           
           // If no separate fields, try to parse from combined address
           if (!houseNumber && !streetName && (customerAddress || street)) {
@@ -4963,8 +4969,6 @@ export async function registerRoutes(
             failed++;
             continue;
           }
-
-          const customerName = getRowValue(row, "customerName", "customer_name", "Customer Name", "Name", "Customer");
           const customerPhone = getRowValue(row, "customerPhone", "customer_phone", "Phone", "Phone Number", "Telephone");
           const customerEmail = getRowValue(row, "customerEmail", "customer_email", "Email", "E-mail");
           const city = getRowValue(row, "city", "City");
