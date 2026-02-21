@@ -856,7 +856,9 @@ export const storage = {
     return db.query.salesOrders.findMany({ orderBy: [desc(salesOrders.createdAt)], limit: filter?.limit });
   },
   async searchOrders(searchTerm: string, limit: number = 20) {
-    const term = `%${searchTerm}%`;
+    const words = searchTerm.trim().split(/\s+/).filter(w => w.length > 0);
+    const fullTerm = `%${searchTerm}%`;
+    const wordConditions = words.map(w => ilike(salesOrders.customerName, `%${w}%`));
     return db.select({
       id: salesOrders.id,
       customerName: salesOrders.customerName,
@@ -874,9 +876,9 @@ export const storage = {
       .where(and(
         ne(salesOrders.approvalStatus, 'REJECTED'),
         or(
-          ilike(salesOrders.customerName, term),
-          ilike(salesOrders.invoiceNumber, term),
-          ilike(salesOrders.accountNumber, term)
+          and(...wordConditions),
+          ilike(salesOrders.invoiceNumber, fullTerm),
+          ilike(salesOrders.accountNumber, fullTerm)
         )
       ))
       .orderBy(desc(salesOrders.dateSold))
