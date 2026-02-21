@@ -4134,7 +4134,7 @@ export const storage = {
   // Orders matching for finance - find potential matches for a finance row
   async findOrdersForMatching(clientId: string | null, saleDateStart: string, saleDateEnd: string, customerNameNorm?: string) {
     const conditions = [
-      eq(salesOrders.approvalStatus, 'APPROVED'),
+      ne(salesOrders.approvalStatus, 'REJECTED'),
       gte(salesOrders.dateSold, saleDateStart),
       lte(salesOrders.dateSold, saleDateEnd),
     ];
