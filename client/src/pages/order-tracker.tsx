@@ -453,6 +453,7 @@ export default function OrderTracker() {
   const canSeeCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
+  const [orderType, setOrderType] = useState<"data" | "mobile">("data");
   const [dateRange, setDateRange] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -716,6 +717,10 @@ export default function OrderTracker() {
     if (!orders) return [];
     const now = new Date();
     return orders.filter(o => {
+      const isMobile = (o as any).isMobileOrder === true;
+      if (orderType === "data" && isMobile) return false;
+      if (orderType === "mobile" && !isMobile) return false;
+
       if (dateRange === "all") return true;
       const status = getOrderStatus(o);
       if (status === "paid") return true;
@@ -725,7 +730,7 @@ export default function OrderTracker() {
       if (dateRange === "90d") return now.getTime() - sold.getTime() <= 90 * 86400000;
       return true;
     });
-  }, [orders, dateRange]);
+  }, [orders, dateRange, orderType]);
 
   const stats = useMemo(() => {
     const all = dateFilteredOrders;
@@ -845,6 +850,19 @@ export default function OrderTracker() {
           </Link>
         </div>
       </div>
+
+      <Tabs value={orderType} onValueChange={(v) => { setOrderType(v as "data" | "mobile"); setActiveTab("all"); }}>
+        <TabsList data-testid="tabs-order-type">
+          <TabsTrigger value="data" data-testid="tab-data-orders">
+            <Package className="h-4 w-4 mr-1.5" />
+            Data
+          </TabsTrigger>
+          <TabsTrigger value="mobile" data-testid="tab-mobile-orders">
+            <Smartphone className="h-4 w-4 mr-1.5" />
+            Mobile
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <Card
