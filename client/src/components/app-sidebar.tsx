@@ -353,47 +353,59 @@ export function AppSidebar() {
     </>
   );
 
-  const renderExecutiveSidebar = () => (
-    <>
-      <CollapsibleSection 
-        title="Operations" 
-        icon={Briefcase} 
-        items={execOpsItems} 
-        location={location}
-        defaultOpen={true}
-      />
-      <CollapsibleSection 
-        title="Accounting" 
-        icon={Wallet} 
-        items={adminAccountingItems} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="Insights" 
-        icon={TrendingUp} 
-        items={adminInsightsItems} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="My Account" 
-        icon={User} 
-        items={[...personalItems, ...preferencesItems]} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="Resources" 
-        icon={BookOpen} 
-        items={[MENU.knowledge]} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="System Settings" 
-        icon={Cog} 
-        items={adminSettingsItems} 
-        location={location}
-      />
-    </>
-  );
+  const renderExecutiveSidebar = () => {
+    const isExec = user.role === "EXECUTIVE";
+    const opsItems = isExec
+      ? execOpsItems.filter(i => i !== MENU.payRuns)
+      : execOpsItems;
+    const settingsItems = isExec
+      ? [MENU.users]
+      : adminSettingsItems;
+
+    return (
+      <>
+        <CollapsibleSection 
+          title="Operations" 
+          icon={Briefcase} 
+          items={opsItems} 
+          location={location}
+          defaultOpen={true}
+        />
+        {!isExec && (
+          <CollapsibleSection 
+            title="Accounting" 
+            icon={Wallet} 
+            items={adminAccountingItems} 
+            location={location}
+          />
+        )}
+        <CollapsibleSection 
+          title="Insights" 
+          icon={TrendingUp} 
+          items={adminInsightsItems} 
+          location={location}
+        />
+        <CollapsibleSection 
+          title="My Account" 
+          icon={User} 
+          items={[...personalItems, ...preferencesItems]} 
+          location={location}
+        />
+        <CollapsibleSection 
+          title="Resources" 
+          icon={BookOpen} 
+          items={[MENU.knowledge]} 
+          location={location}
+        />
+        <CollapsibleSection 
+          title="System Settings" 
+          icon={Cog} 
+          items={settingsItems} 
+          location={location}
+        />
+      </>
+    );
+  };
 
   const renderSidebar = () => {
     if (user.role === "EXECUTIVE" || user.role === "OPERATIONS") return renderExecutiveSidebar();
