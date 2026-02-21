@@ -11416,6 +11416,37 @@ export async function registerRoutes(
     return crypto.createHash('sha256').update(data).digest('hex');
   }
 
+  function tryAutoDetectColumnMapping(columns: string[], _clientId: string, _storage: any): { customerName: string; repName: string; saleDate: string; serviceType: string; utility: string; status: string; usage: string; rate: string; rejectionReason: string } | null {
+    const colLower = columns.map(c => c.toLowerCase().trim());
+    const findCol = (patterns: string[]): string => {
+      for (const pattern of patterns) {
+        const idx = colLower.findIndex(c => c === pattern || c.includes(pattern));
+        if (idx >= 0) return columns[idx];
+      }
+      return '';
+    };
+
+    const customerName = findCol(['customer name', 'customer_name', 'customername']);
+    const saleDate = findCol(['date sold', 'date_sold', 'datesold', 'sale date', 'sale_date', 'saledate', 'install date']);
+    const status = findCol(['status', 'client status', 'client_status']);
+
+    if (!customerName || !saleDate || !status) {
+      return null;
+    }
+
+    return {
+      customerName,
+      repName: findCol(['rep name', 'rep_name', 'repname', 'sales rep', 'representative']),
+      saleDate,
+      serviceType: findCol(['service type', 'service_type', 'servicetype', 'service', 'product']),
+      utility: findCol(['utility', 'provider', 'vendor']),
+      status,
+      usage: findCol(['usage', 'usage units', 'usage_units', 'units']),
+      rate: findCol(['rate', 'amount', 'commission', 'price', 'payment']),
+      rejectionReason: findCol(['rejection reason', 'rejection_reason', 'reason', 'reject reason']),
+    };
+  }
+
   function extractRepNameFromSheet(rows: any[][]): string | null {
     for (let i = 0; i < Math.min(10, rows.length); i++) {
       const row = rows[i];
@@ -11708,24 +11739,100 @@ export async function registerRoutes(
 
       await storage.createFinanceImportRowsRaw(rawRows);
 
-      // Get column headers for mapping
       const columns = Object.keys(rows[0]);
       const preview = rows.slice(0, 20);
+
+      const autoMapping = tryAutoDetectColumnMapping(columns, clientId, storage);
+      let autoMapped = false;
+      let normalizedCount = 0;
+
+      if (autoMapping) {
+        const createdRawRows = await storage.getFinanceImportRowsRaw(financeImport.id);
+        const normalizedRows: any[] = [];
+        let totalAmountCents = 0;
+        const seenFingerprints = new Set<string>();
+
+        for (const rawRow of createdRawRows) {
+          const data = JSON.parse(rawRow.rawJson);
+          const customerName = data[autoMapping.customerName] || '';
+          const customerNameNorm = normalizeCustomerName(customerName);
+          const repName = autoMapping.repName ? (data[autoMapping.repName] || '') : '';
+          const repNameNorm = repName ? normalizeCustomerName(repName) : '';
+          const serviceType = data[autoMapping.serviceType] || '';
+          const utility = data[autoMapping.utility] || '';
+          const saleDate = data[autoMapping.saleDate] || '';
+          const clientStatus = data[autoMapping.status] || '';
+          const usageUnits = parseFloat(data[autoMapping.usage]) || null;
+          const rate = parseFloat(String(data[autoMapping.rate] || '0').replace(/[$,]/g, '')) || 0;
+          const paidAmountCents = Math.round(rate * 100);
+          const rejectionReason = data[autoMapping.rejectionReason] || null;
+
+          const fingerprint = computeRowFingerprint(
+            clientId,
+            customerNameNorm,
+            saleDate,
+            paidAmountCents,
+            serviceType
+          );
+
+          const isDuplicate = seenFingerprints.has(fingerprint);
+          seenFingerprints.add(fingerprint);
+
+          const statusUpper = clientStatus.toUpperCase();
+          if (!isDuplicate && (statusUpper === 'ENROLLED' || statusUpper === 'ACCEPTED' || statusUpper === 'COMPLETED' || statusUpper === 'ACTIVE')) {
+            totalAmountCents += paidAmountCents;
+          }
+
+          normalizedRows.push({
+            financeImportId: financeImport.id,
+            rawRowId: rawRow.id,
+            customerName,
+            customerNameNorm,
+            repName: repName || null,
+            repNameNorm: repNameNorm || null,
+            serviceType,
+            utility,
+            saleDate: saleDate || null,
+            clientStatus,
+            usageUnits: usageUnits?.toString() || null,
+            expectedAmountCents: 0,
+            paidAmountCents,
+            rejectionReason,
+            matchStatus: 'UNMATCHED',
+            matchConfidence: 0,
+            isDuplicate
+          });
+        }
+
+        await storage.createFinanceImportRows(normalizedRows);
+        await storage.updateFinanceImport(financeImport.id, {
+          status: 'MAPPED',
+          totalAmountCents,
+          columnMapping: JSON.stringify(autoMapping)
+        });
+
+        autoMapped = true;
+        normalizedCount = normalizedRows.length;
+      }
+
+      const updatedImport = autoMapped ? await storage.getFinanceImportById(financeImport.id) : financeImport;
 
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "finance_import_created",
         tableName: "finance_imports",
         recordId: financeImport.id,
-        afterJson: JSON.stringify({ fileName: importFileName, totalRows: rows.length, clientId, sheetName: selectedSheet || null, detectedRepName })
+        afterJson: JSON.stringify({ fileName: importFileName, totalRows: rows.length, clientId, sheetName: selectedSheet || null, detectedRepName, autoMapped })
       });
 
       res.json({
-        import: financeImport,
+        import: updatedImport || financeImport,
         columns,
         preview,
         totalRows: rows.length,
         detectedRepName,
+        autoMapped,
+        normalizedCount,
       });
     } catch (error: any) {
       console.error("Finance import error:", error);
@@ -11784,7 +11891,8 @@ export async function registerRoutes(
         const isDuplicate = seenFingerprints.has(fingerprint);
         seenFingerprints.add(fingerprint);
 
-        if (!isDuplicate && clientStatus.toUpperCase() === 'ENROLLED') {
+        const statusUpper = clientStatus.toUpperCase();
+        if (!isDuplicate && (statusUpper === 'ENROLLED' || statusUpper === 'ACCEPTED' || statusUpper === 'COMPLETED' || statusUpper === 'ACTIVE')) {
           totalAmountCents += paidAmountCents;
         }
 
@@ -11843,6 +11951,15 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/finance/imports/:id/raw-rows", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const rows = await storage.getFinanceImportRowsRaw(req.params.id);
+      res.json(rows);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get raw rows" });
+    }
+  });
+
   // Get normalized rows for an import
   app.get("/api/finance/imports/:id/rows", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
@@ -11866,7 +11983,16 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Cannot match a posted or locked import" });
       }
 
+      if (financeImport.status === 'IMPORTED') {
+        return res.status(400).json({ message: "Columns have not been mapped yet. Please map columns before running auto-match." });
+      }
+
       const rows = await storage.getFinanceImportRows(req.params.id);
+
+      if (rows.length === 0) {
+        return res.status(400).json({ message: "No processed rows found. Please map columns first." });
+      }
+
       let matchedCount = 0;
       let ambiguousCount = 0;
 

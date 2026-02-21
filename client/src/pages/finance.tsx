@@ -389,14 +389,22 @@ export default function Finance() {
       return res.json();
     },
     onSuccess: (data) => {
-      setUploadPreview({
-        columns: data.columns,
-        preview: data.preview,
-        totalRows: data.totalRows,
-        importId: data.import.id,
-      });
-      const repMsg = data.detectedRepName ? ` Rep: ${data.detectedRepName}.` : '';
-      toast({ title: "File uploaded", description: `${data.totalRows} rows found.${repMsg} Please map columns.` });
+      if (data.autoMapped) {
+        queryClient.invalidateQueries({ queryKey: ["/api/finance/imports"] });
+        setSelectedImportId(data.import.id);
+        setActiveTab("match");
+        const repMsg = data.detectedRepName ? ` Rep: ${data.detectedRepName}.` : '';
+        toast({ title: "File imported & columns auto-mapped", description: `${data.normalizedCount} rows processed.${repMsg} Ready for matching.` });
+      } else {
+        setUploadPreview({
+          columns: data.columns,
+          preview: data.preview,
+          totalRows: data.totalRows,
+          importId: data.import.id,
+        });
+        const repMsg = data.detectedRepName ? ` Rep: ${data.detectedRepName}.` : '';
+        toast({ title: "File uploaded", description: `${data.totalRows} rows found.${repMsg} Please map columns.` });
+      }
       setPendingFile(null);
       setShowSheetPicker(false);
     },
@@ -1004,6 +1012,30 @@ export default function Finance() {
                         </TableCell>
                         <TableCell>{new Date(imp.importedAt).toLocaleDateString()}</TableCell>
                         <TableCell className="flex gap-1">
+                          {imp.status === 'IMPORTED' && (
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={async () => {
+                                try {
+                                  const rawRes = await fetch(`/api/finance/imports/${imp.id}/raw-rows`, { headers: getAuthHeaders() });
+                                  if (!rawRes.ok) throw new Error("Failed to load raw data");
+                                  const rawRows = await rawRes.json();
+                                  if (rawRows.length > 0) {
+                                    const firstRow = JSON.parse(rawRows[0].rawJson);
+                                    const cols = Object.keys(firstRow);
+                                    setColumnMapping({ customerName: "", repName: "", saleDate: "", serviceType: "", utility: "", status: "", usage: "", rate: "", rejectionReason: "" });
+                                    setUploadPreview({ columns: cols, preview: rawRows.slice(0, 5).map((r: any) => JSON.parse(r.rawJson)), totalRows: rawRows.length, importId: imp.id });
+                                  }
+                                } catch (e: any) {
+                                  toast({ title: "Error", description: e.message, variant: "destructive" });
+                                }
+                              }}
+                              data-testid={`button-map-import-${imp.id}`}
+                            >
+                              <FileSpreadsheet className="h-4 w-4 mr-1" /> Map Columns
+                            </Button>
+                          )}
                           <Button 
                             variant="ghost" 
                             size="sm" 
