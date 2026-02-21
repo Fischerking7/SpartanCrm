@@ -12494,7 +12494,7 @@ export async function registerRoutes(
         });
 
         if (enrolledRows.length > 0) {
-          const expectedCents = enrolledRows[0].expectedAmountCents || 0;
+          const expectedCents = enrolledRows.reduce((sum, r) => sum + (r.expectedAmountCents || 0), 0);
           const totalPaidCents = enrolledRows.reduce((sum, r) => sum + (r.paidAmountCents || 0), 0);
 
           await storage.setOrderClientAcceptance(
