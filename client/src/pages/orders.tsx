@@ -1799,7 +1799,24 @@ export default function Orders() {
                         <Switch
                           id="detail-mobile-sold"
                           checked={selectedOrder.mobileSold || false}
-                          onCheckedChange={(checked) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, mobileSold: checked })}
+                          onCheckedChange={(checked) => {
+                            updateJobStatusMutation.mutate({ orderId: selectedOrder.id, mobileSold: checked });
+                            if (checked) {
+                              setMobileOrderForm({
+                                providerId: selectedOrder.providerId || "",
+                                clientId: selectedOrder.clientId || "",
+                                serviceId: "",
+                                customerName: selectedOrder.customerName || "",
+                                dateSold: selectedOrder.dateSold || "",
+                                customerPhone: selectedOrder.customerPhone || "",
+                                customerAddress: selectedOrder.customerAddress || "",
+                                accountNumber: selectedOrder.accountNumber || "",
+                                repId: selectedOrder.repId || "",
+                                mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
+                              });
+                              setShowMobileOrderDialog(true);
+                            }
+                          }}
                           disabled={updateJobStatusMutation.isPending}
                           data-testid="switch-mobile-sold"
                         />
