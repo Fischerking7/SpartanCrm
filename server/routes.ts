@@ -12494,8 +12494,13 @@ export async function registerRoutes(
         });
 
         if (enrolledRows.length > 0) {
-          const expectedCents = enrolledRows.reduce((sum, r) => sum + (r.expectedAmountCents || 0), 0);
           const totalPaidCents = enrolledRows.reduce((sum, r) => sum + (r.paidAmountCents || 0), 0);
+
+          const order = await storage.getOrderById(orderId);
+          const orderBase = Math.round(parseFloat(order?.baseCommissionEarned || "0") * 100);
+          const orderIncentive = Math.round(parseFloat(order?.incentiveEarned || "0") * 100);
+          const orderOverride = Math.round(parseFloat(order?.overrideDeduction || "0") * 100);
+          const expectedCents = orderBase + orderIncentive + orderOverride;
 
           await storage.setOrderClientAcceptance(
             orderId,
