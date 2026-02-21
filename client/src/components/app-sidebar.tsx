@@ -131,9 +131,6 @@ const preferencesItems: MenuItem[] = [
 // Admin: Operations group
 const adminOpsItems: MenuItem[] = [
   MENU.orders,
-  MENU.leads,
-  MENU.mduReview,
-  MENU.payRuns,
   MENU.adjustments,
 ];
 
