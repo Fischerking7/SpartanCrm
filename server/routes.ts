@@ -11609,6 +11609,8 @@ export async function registerRoutes(
         
         const customerName = data[mapping.customerName] || '';
         const customerNameNorm = normalizeCustomerName(customerName);
+        const repName = mapping.repName ? (data[mapping.repName] || '') : '';
+        const repNameNorm = repName ? normalizeCustomerName(repName) : '';
         const serviceType = data[mapping.serviceType] || '';
         const utility = data[mapping.utility] || '';
         const saleDate = data[mapping.saleDate] || '';
@@ -11639,6 +11641,8 @@ export async function registerRoutes(
           rawRowId: rawRow.id,
           customerName,
           customerNameNorm,
+          repName: repName || null,
+          repNameNorm: repNameNorm || null,
           serviceType,
           utility,
           saleDate: saleDate || null,
@@ -11741,38 +11745,59 @@ export async function registerRoutes(
           let score = 0;
           const reasons: string[] = [];
 
-          // Customer name matching
+          // Customer name matching (max 50 pts)
           const orderNameNorm = normalizeCustomerName(order.customerName);
           if (orderNameNorm === row.customerNameNorm) {
-            score += 60;
-            reasons.push('exact_name_match:+60');
+            score += 50;
+            reasons.push('exact_name_match:+50');
           } else if (orderNameNorm.includes(row.customerNameNorm || '') || (row.customerNameNorm || '').includes(orderNameNorm)) {
-            score += 40;
-            reasons.push('partial_name_match:+40');
+            score += 30;
+            reasons.push('partial_name_match:+30');
           }
 
-          // Service type matching
-          if (row.serviceType) {
-            const service = order.serviceId; // Would need to look up service name
-            if (row.serviceType.toLowerCase().includes('internet') || row.serviceType.toLowerCase().includes('fiber')) {
+          // Rep name matching (max 20 pts)
+          if (row.repNameNorm && order.repName) {
+            const orderRepNorm = normalizeCustomerName(order.repName);
+            if (orderRepNorm === row.repNameNorm) {
               score += 20;
-              reasons.push('service_match:+20');
+              reasons.push('exact_rep_match:+20');
+            } else if (orderRepNorm.includes(row.repNameNorm) || row.repNameNorm.includes(orderRepNorm)) {
+              score += 10;
+              reasons.push('partial_rep_match:+10');
             }
           }
 
-          // Date proximity
+          // Rate/amount matching (max 15 pts)
+          if (row.expectedAmountCents && row.expectedAmountCents > 0) {
+            const orderGrossCents = Math.round(
+              (parseFloat(order.baseCommissionEarned || '0') + parseFloat(order.incentiveEarned || '0')) * 100
+            );
+            if (order.expectedAmountCents && order.expectedAmountCents === row.expectedAmountCents) {
+              score += 15;
+              reasons.push('exact_amount_match:+15');
+            } else if (orderGrossCents > 0 && Math.abs(orderGrossCents - row.expectedAmountCents) <= 100) {
+              score += 10;
+              reasons.push('close_amount_match:+10');
+            }
+          }
+
+          // Date proximity (max 10 pts)
           const orderDate = new Date(order.dateSold);
           const diffDays = Math.abs(saleDate.getTime() - orderDate.getTime()) / (1000 * 60 * 60 * 24);
           if (diffDays <= 2) {
-            score += 20;
-            reasons.push('close_date:+20');
+            score += 10;
+            reasons.push('close_date:+10');
+          } else if (diffDays <= 5) {
+            score += 5;
+            reasons.push('near_date:+5');
           }
 
-          // Amount matching (if we have expected amount on order)
-          if (order.expectedAmountCents && row.expectedAmountCents) {
-            if (order.expectedAmountCents === row.expectedAmountCents) {
-              score += 10;
-              reasons.push('amount_match:+10');
+          // Service type matching (max 5 pts)
+          if (row.serviceType) {
+            const svcLower = row.serviceType.toLowerCase();
+            if (svcLower.includes('internet') || svcLower.includes('fiber') || svcLower.includes('data')) {
+              score += 5;
+              reasons.push('service_match:+5');
             }
           }
 
@@ -11782,7 +11807,7 @@ export async function registerRoutes(
         // Sort by score descending
         scored.sort((a, b) => b.score - a.score);
 
-        if (scored.length > 0 && scored[0].score >= 85) {
+        if (scored.length > 0 && scored[0].score >= 70) {
           // Check if there are multiple high-scoring candidates
           const topScore = scored[0].score;
           const closeMatches = scored.filter(s => topScore - s.score <= 10);
@@ -11856,6 +11881,142 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to manual match" });
+    }
+  });
+
+  // Get matched order details for reconciliation review
+  app.get("/api/finance/imports/:id/matched-order/:rowId", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const row = await storage.getFinanceImportRowById(req.params.rowId);
+      if (!row || row.financeImportId !== req.params.id) {
+        return res.status(404).json({ message: "Row not found" });
+      }
+      if (!row.matchedOrderId) {
+        return res.status(400).json({ message: "Row is not matched to an order" });
+      }
+
+      const order = await storage.getOrderById(row.matchedOrderId);
+      if (!order) {
+        return res.status(404).json({ message: "Matched order not found" });
+      }
+
+      const allProviders = await storage.getProviders();
+      const allServices = await storage.getServices();
+      const rep = order.repId ? await storage.getUserByRepId(order.repId) : null;
+
+      const baseComm = parseFloat(order.baseCommissionEarned as string || '0') || 0;
+      const incEarned = parseFloat(order.incentiveEarned as string || '0') || 0;
+      const overrideDed = parseFloat(order.overrideDeduction as string || '0') || 0;
+      const grossCommission = baseComm + incEarned;
+      const netCommission = grossCommission - overrideDed;
+
+      res.json({
+        order: {
+          id: order.id,
+          customerName: order.customerName,
+          invoiceNumber: order.invoiceNumber,
+          dateSold: order.dateSold,
+          serviceId: order.serviceId,
+          providerId: order.providerId,
+          repId: order.repId,
+          repName: rep?.name || null,
+          baseCommissionEarned: baseComm,
+          incentiveEarned: incEarned,
+          overrideDeduction: overrideDed,
+          grossCommission,
+          netCommission,
+        },
+        providers: allProviders,
+        services: allServices,
+        importRow: {
+          customerName: row.customerName,
+          repName: row.repName,
+          serviceType: row.serviceType,
+          expectedAmountCents: row.expectedAmountCents,
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get matched order details" });
+    }
+  });
+
+  // Reconciliation adjustment - adjust order fields during matching
+  app.patch("/api/finance/imports/:id/reconcile-order", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { rowId, orderId, adjustments } = req.body;
+      if (!rowId || !orderId) {
+        return res.status(400).json({ message: "Row ID and Order ID are required" });
+      }
+
+      const row = await storage.getFinanceImportRowById(rowId);
+      if (!row || row.financeImportId !== req.params.id) {
+        return res.status(404).json({ message: "Row not found in this import" });
+      }
+
+      const order = await storage.getOrderById(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      const updateData: any = { updatedAt: new Date() };
+      let commissionChanged = false;
+
+      if (adjustments.serviceId && adjustments.serviceId !== order.serviceId) {
+        updateData.serviceId = adjustments.serviceId;
+      }
+      if (adjustments.providerId && adjustments.providerId !== order.providerId) {
+        updateData.providerId = adjustments.providerId;
+      }
+      if (adjustments.baseCommissionEarned !== undefined) {
+        const val = parseFloat(adjustments.baseCommissionEarned);
+        if (isNaN(val) || val < 0) return res.status(400).json({ message: "Invalid base commission value" });
+        updateData.baseCommissionEarned = val.toString();
+        commissionChanged = true;
+      }
+      if (adjustments.incentiveEarned !== undefined) {
+        const val = parseFloat(adjustments.incentiveEarned);
+        if (isNaN(val) || val < 0) return res.status(400).json({ message: "Invalid incentive value" });
+        updateData.incentiveEarned = val.toString();
+        commissionChanged = true;
+      }
+      if (adjustments.overrideDeduction !== undefined) {
+        const val = parseFloat(adjustments.overrideDeduction);
+        if (isNaN(val) || val < 0) return res.status(400).json({ message: "Invalid override deduction value" });
+        updateData.overrideDeduction = val.toString();
+        commissionChanged = true;
+      }
+
+      if (commissionChanged) {
+        updateData.commissionSource = 'MANUAL';
+        updateData.calcAt = new Date();
+      }
+
+      if (Object.keys(updateData).length > 1) {
+        await storage.updateOrder(orderId, updateData);
+
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: 'RECONCILIATION_ADJUSTMENT',
+          entityType: 'ORDER',
+          entityId: orderId,
+          details: JSON.stringify({
+            financeImportId: req.params.id,
+            rowId,
+            adjustments,
+            previousValues: {
+              serviceId: order.serviceId,
+              providerId: order.providerId,
+              baseCommissionEarned: order.baseCommissionEarned,
+              incentiveEarned: order.incentiveEarned,
+              overrideDeduction: order.overrideDeduction,
+            }
+          })
+        });
+      }
+
+      res.json({ success: true, updatedOrder: await storage.getOrderById(orderId) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to apply reconciliation adjustment" });
     }
   });
 

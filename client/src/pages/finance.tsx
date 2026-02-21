@@ -37,6 +37,8 @@ interface FinanceImportRow {
   financeImportId: string;
   customerName: string;
   customerNameNorm: string;
+  repName: string | null;
+  repNameNorm: string | null;
   serviceType: string | null;
   utility: string | null;
   saleDate: string | null;
@@ -52,6 +54,7 @@ interface FinanceImportRow {
 
 interface ColumnMapping {
   customerName: string;
+  repName: string;
   saleDate: string;
   serviceType: string;
   utility: string;
@@ -70,6 +73,7 @@ export default function Finance() {
   const [uploadPreview, setUploadPreview] = useState<{ columns: string[]; preview: any[]; totalRows: number; importId: string } | null>(null);
   const [columnMapping, setColumnMapping] = useState<ColumnMapping>({
     customerName: "",
+    repName: "",
     saleDate: "",
     serviceType: "",
     utility: "",
@@ -171,6 +175,15 @@ export default function Finance() {
   const [editingExpected, setEditingExpected] = useState(false);
   const [newExpectedAmount, setNewExpectedAmount] = useState("");
   const [expectedChangeReason, setExpectedChangeReason] = useState("");
+  const [reconcileRow, setReconcileRow] = useState<FinanceImportRow | null>(null);
+  const [reconcileData, setReconcileData] = useState<any>(null);
+  const [reconcileAdjustments, setReconcileAdjustments] = useState({
+    serviceId: "",
+    providerId: "",
+    baseCommissionEarned: "",
+    incentiveEarned: "",
+    overrideDeduction: "",
+  });
 
   interface ArExpectation {
     id: string;
@@ -469,6 +482,74 @@ export default function Finance() {
     },
   });
 
+  const openReconcileDialog = async (row: FinanceImportRow) => {
+    if (!row.matchedOrderId) return;
+    try {
+      const res = await fetch(`/api/finance/imports/${selectedImportId}/matched-order/${row.id}`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to fetch order details");
+      const data = await res.json();
+      setReconcileData(data);
+      setReconcileRow(row);
+      setReconcileAdjustments({
+        serviceId: data.order.serviceId,
+        providerId: data.order.providerId,
+        baseCommissionEarned: data.order.baseCommissionEarned.toFixed(2),
+        incentiveEarned: data.order.incentiveEarned.toFixed(2),
+        overrideDeduction: data.order.overrideDeduction.toFixed(2),
+      });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const reconcileAdjustMutation = useMutation({
+    mutationFn: async () => {
+      if (!reconcileRow || !reconcileData) throw new Error("No row selected");
+      const adjustments: any = {};
+      if (reconcileAdjustments.serviceId !== reconcileData.order.serviceId) {
+        adjustments.serviceId = reconcileAdjustments.serviceId;
+      }
+      if (reconcileAdjustments.providerId !== reconcileData.order.providerId) {
+        adjustments.providerId = reconcileAdjustments.providerId;
+      }
+      const baseComm = parseFloat(reconcileAdjustments.baseCommissionEarned);
+      if (!isNaN(baseComm) && baseComm !== reconcileData.order.baseCommissionEarned) {
+        adjustments.baseCommissionEarned = baseComm;
+      }
+      const incEarned = parseFloat(reconcileAdjustments.incentiveEarned);
+      if (!isNaN(incEarned) && incEarned !== reconcileData.order.incentiveEarned) {
+        adjustments.incentiveEarned = incEarned;
+      }
+      const overrideDed = parseFloat(reconcileAdjustments.overrideDeduction);
+      if (!isNaN(overrideDed) && overrideDed !== reconcileData.order.overrideDeduction) {
+        adjustments.overrideDeduction = overrideDed;
+      }
+      if (Object.keys(adjustments).length === 0) {
+        throw new Error("No changes to apply");
+      }
+      const res = await fetch(`/api/finance/imports/${selectedImportId}/reconcile-order`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rowId: reconcileRow.id,
+          orderId: reconcileData.order.id,
+          adjustments,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed to apply");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Adjustments Applied", description: "Order updated with reconciliation adjustments" });
+      setReconcileRow(null);
+      setReconcileData(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/imports", selectedImportId] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const postImportMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/finance/imports/${selectedImportId}/post`, {
@@ -650,6 +731,19 @@ export default function Finance() {
                       <Label>Customer Name *</Label>
                       <Select value={columnMapping.customerName} onValueChange={(v) => setColumnMapping({ ...columnMapping, customerName: v })}>
                         <SelectTrigger data-testid="map-customer-name">
+                          <SelectValue placeholder="Select column" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {uploadPreview.columns.map((col) => (
+                            <SelectItem key={col} value={col}>{col}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Rep Name</Label>
+                      <Select value={columnMapping.repName} onValueChange={(v) => setColumnMapping({ ...columnMapping, repName: v })}>
+                        <SelectTrigger data-testid="map-rep-name">
                           <SelectValue placeholder="Select column" />
                         </SelectTrigger>
                         <SelectContent>
@@ -894,6 +988,7 @@ export default function Finance() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Customer</TableHead>
+                            <TableHead>Rep</TableHead>
                             <TableHead>Service</TableHead>
                             <TableHead>Sale Date</TableHead>
                             <TableHead>Client Status</TableHead>
@@ -910,6 +1005,7 @@ export default function Finance() {
                                 <div>{row.customerName}</div>
                                 {row.isDuplicate && <Badge variant="outline" className="text-xs">Duplicate</Badge>}
                               </TableCell>
+                              <TableCell>{row.repName || "—"}</TableCell>
                               <TableCell>{row.serviceType || "—"}</TableCell>
                               <TableCell>{row.saleDate ? new Date(row.saleDate).toLocaleDateString() : "—"}</TableCell>
                               <TableCell>{getClientStatusBadge(row.clientStatus || "")}</TableCell>
@@ -917,32 +1013,45 @@ export default function Finance() {
                               <TableCell>{getStatusBadge(row.matchStatus)}</TableCell>
                               <TableCell>{row.matchConfidence ? `${row.matchConfidence}%` : "—"}</TableCell>
                               <TableCell>
-                                {row.matchStatus !== "MATCHED" && row.matchStatus !== "IGNORED" && !row.isDuplicate && (
-                                  <div className="flex gap-1">
+                                <div className="flex gap-1">
+                                  {row.matchStatus === "MATCHED" && selectedImport?.status !== "POSTED" && (
                                     <Button
                                       variant="outline"
                                       size="sm"
-                                      onClick={() => {
-                                        setManualMatchRow(row);
-                                        setOrderSearchTerm(row.customerName || "");
-                                      }}
-                                      disabled={selectedImport?.status === "POSTED"}
-                                      data-testid={`button-manual-match-${row.id}`}
+                                      onClick={() => openReconcileDialog(row)}
+                                      data-testid={`button-reconcile-${row.id}`}
                                     >
-                                      <Link2 className="h-4 w-4 mr-1" />
-                                      Match
+                                      <Pencil className="h-4 w-4 mr-1" />
+                                      Reconcile
                                     </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => ignoreRowMutation.mutate({ rowId: row.id, reason: "Manually ignored" })}
-                                      disabled={selectedImport?.status === "POSTED"}
-                                      data-testid={`button-ignore-row-${row.id}`}
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                )}
+                                  )}
+                                  {row.matchStatus !== "MATCHED" && row.matchStatus !== "IGNORED" && !row.isDuplicate && (
+                                    <>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                          setManualMatchRow(row);
+                                          setOrderSearchTerm(row.customerName || "");
+                                        }}
+                                        disabled={selectedImport?.status === "POSTED"}
+                                        data-testid={`button-manual-match-${row.id}`}
+                                      >
+                                        <Link2 className="h-4 w-4 mr-1" />
+                                        Match
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => ignoreRowMutation.mutate({ rowId: row.id, reason: "Manually ignored" })}
+                                        disabled={selectedImport?.status === "POSTED"}
+                                        data-testid={`button-ignore-row-${row.id}`}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                    </>
+                                  )}
+                                </div>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -1038,6 +1147,138 @@ export default function Finance() {
                     >
                       {manualMatchMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
                       Confirm Match
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* Reconciliation Adjustment Dialog */}
+              <Dialog open={!!reconcileRow && !!reconcileData} onOpenChange={(open) => { if (!open) { setReconcileRow(null); setReconcileData(null); } }}>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Reconciliation Adjustment</DialogTitle>
+                    <DialogDescription>
+                      Adjust order details to match client finance data before posting
+                    </DialogDescription>
+                  </DialogHeader>
+                  {reconcileData && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4 p-3 bg-muted rounded-lg">
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-1">Import Row</div>
+                          <div><strong>Customer:</strong> {reconcileData.importRow.customerName}</div>
+                          <div><strong>Rep:</strong> {reconcileData.importRow.repName || "—"}</div>
+                          <div><strong>Service:</strong> {reconcileData.importRow.serviceType || "—"}</div>
+                          <div><strong>Rate:</strong> {reconcileData.importRow.expectedAmountCents ? formatCurrency(reconcileData.importRow.expectedAmountCents) : "—"}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-1">Matched Order</div>
+                          <div><strong>Customer:</strong> {reconcileData.order.customerName}</div>
+                          <div><strong>Rep:</strong> {reconcileData.order.repName || "—"}</div>
+                          <div><strong>Invoice:</strong> {reconcileData.order.invoiceNumber || "—"}</div>
+                          <div><strong>Date:</strong> {new Date(reconcileData.order.dateSold).toLocaleDateString()}</div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <Label>Provider</Label>
+                          <Select value={reconcileAdjustments.providerId} onValueChange={(v) => setReconcileAdjustments({ ...reconcileAdjustments, providerId: v })}>
+                            <SelectTrigger data-testid="reconcile-provider">
+                              <SelectValue placeholder="Select provider" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {reconcileData.providers?.map((p: any) => (
+                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Service</Label>
+                          <Select value={reconcileAdjustments.serviceId} onValueChange={(v) => setReconcileAdjustments({ ...reconcileAdjustments, serviceId: v })}>
+                            <SelectTrigger data-testid="reconcile-service">
+                              <SelectValue placeholder="Select service" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {reconcileData.services?.map((s: any) => (
+                                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-1">
+                          <Label>Base Commission ($)</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={reconcileAdjustments.baseCommissionEarned}
+                            onChange={(e) => setReconcileAdjustments({ ...reconcileAdjustments, baseCommissionEarned: e.target.value })}
+                            data-testid="reconcile-base-commission"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Incentive ($)</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={reconcileAdjustments.incentiveEarned}
+                            onChange={(e) => setReconcileAdjustments({ ...reconcileAdjustments, incentiveEarned: e.target.value })}
+                            data-testid="reconcile-incentive"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Override ($)</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={reconcileAdjustments.overrideDeduction}
+                            onChange={(e) => setReconcileAdjustments({ ...reconcileAdjustments, overrideDeduction: e.target.value })}
+                            data-testid="reconcile-override"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-muted/50 rounded-lg">
+                        <div className="grid grid-cols-3 gap-4 text-center">
+                          <div>
+                            <div className="text-xs text-muted-foreground">Gross Commission</div>
+                            <div className="font-bold text-lg">
+                              ${((parseFloat(reconcileAdjustments.baseCommissionEarned) || 0) + (parseFloat(reconcileAdjustments.incentiveEarned) || 0)).toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">Override</div>
+                            <div className="font-bold text-lg text-orange-600">
+                              -${(parseFloat(reconcileAdjustments.overrideDeduction) || 0).toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">Net Commission</div>
+                            <div className="font-bold text-lg text-green-600">
+                              ${(
+                                (parseFloat(reconcileAdjustments.baseCommissionEarned) || 0) +
+                                (parseFloat(reconcileAdjustments.incentiveEarned) || 0) -
+                                (parseFloat(reconcileAdjustments.overrideDeduction) || 0)
+                              ).toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => { setReconcileRow(null); setReconcileData(null); }}>Cancel</Button>
+                    <Button
+                      onClick={() => reconcileAdjustMutation.mutate()}
+                      disabled={reconcileAdjustMutation.isPending}
+                      data-testid="button-apply-reconcile"
+                    >
+                      {reconcileAdjustMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+                      Apply Adjustments
                     </Button>
                   </DialogFooter>
                 </DialogContent>

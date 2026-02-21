@@ -1826,6 +1826,8 @@ export const financeImportRows = pgTable("finance_import_rows", {
   rawRowId: varchar("raw_row_id").references(() => financeImportRowsRaw.id),
   customerName: text("customer_name"),
   customerNameNorm: text("customer_name_norm"), // lowercased, trimmed, punctuation removed
+  repName: text("rep_name"),
+  repNameNorm: text("rep_name_norm"),
   serviceType: text("service_type"),
   utility: text("utility"),
   saleDate: date("sale_date"),

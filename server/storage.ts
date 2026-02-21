@@ -4117,13 +4117,31 @@ export const storage = {
 
   // Orders matching for finance - find potential matches for a finance row
   async findOrdersForMatching(clientId: string, saleDateStart: string, saleDateEnd: string, customerNameNorm?: string) {
-    return db.select()
+    return db.select({
+      id: salesOrders.id,
+      customerName: salesOrders.customerName,
+      dateSold: salesOrders.dateSold,
+      clientId: salesOrders.clientId,
+      providerId: salesOrders.providerId,
+      serviceId: salesOrders.serviceId,
+      repId: salesOrders.repId,
+      accountNumber: salesOrders.accountNumber,
+      invoiceNumber: salesOrders.invoiceNumber,
+      expectedAmountCents: salesOrders.expectedAmountCents,
+      baseCommissionEarned: salesOrders.baseCommissionEarned,
+      incentiveEarned: salesOrders.incentiveEarned,
+      overrideDeduction: salesOrders.overrideDeduction,
+      approvalStatus: salesOrders.approvalStatus,
+      repName: users.name,
+    })
       .from(salesOrders)
+      .leftJoin(users, eq(salesOrders.repId, users.repId))
       .where(and(
         eq(salesOrders.clientId, clientId),
+        eq(salesOrders.approvalStatus, 'APPROVED'),
         gte(salesOrders.dateSold, saleDateStart),
         lte(salesOrders.dateSold, saleDateEnd),
-        isNull(salesOrders.clientAcceptedAt) // Not already matched
+        isNull(salesOrders.clientAcceptedAt)
       ));
   },
 
