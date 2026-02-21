@@ -62,9 +62,7 @@ export default function Orders() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("global");
   const [approvalFilter, setApprovalFilter] = useState<string>("all");
-  const [showRejectDialog, setShowRejectDialog] = useState(false);
-  const [rejectingOrder, setRejectingOrder] = useState<SalesOrder | null>(null);
-  const [rejectionNote, setRejectionNote] = useState("");
+  
 
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
@@ -580,29 +578,25 @@ export default function Orders() {
     },
   });
 
-  const rejectOrderMutation = useMutation({
-    mutationFn: async ({ orderId, rejectionNote }: { orderId: string; rejectionNote: string }) => {
-      const res = await fetch(`/api/orders/${orderId}/reject`, {
+  const moveToPendingMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await fetch(`/api/orders/${orderId}/move-to-pending`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ rejectionNote }),
       });
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || "Failed to reject order");
+        throw new Error(error.message || "Failed to move order to pending");
       }
       return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setSelectedOrder(data);
-      setShowRejectDialog(false);
-      setRejectingOrder(null);
-      setRejectionNote("");
-      toast({ title: "Order rejected" });
+      toast({ title: "Order moved to pending" });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to reject order", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to move order to pending", description: error.message, variant: "destructive" });
     },
   });
 
@@ -629,17 +623,7 @@ export default function Orders() {
     },
   });
 
-  const handleRejectOrder = (order: SalesOrder) => {
-    setRejectingOrder(order);
-    setRejectionNote("");
-    setShowRejectDialog(true);
-  };
-
-  const handleConfirmReject = () => {
-    if (rejectingOrder && rejectionNote.trim()) {
-      rejectOrderMutation.mutate({ orderId: rejectingOrder.id, rejectionNote: rejectionNote.trim() });
-    }
-  };
+  
 
   const handleExportToExcel = () => {
     if (!filteredOrders?.length) {
@@ -1605,7 +1589,7 @@ export default function Orders() {
                 <SelectItem value="all">All Approval</SelectItem>
                 <SelectItem value="UNAPPROVED">Pending Approval</SelectItem>
                 <SelectItem value="APPROVED">Approved</SelectItem>
-                <SelectItem value="REJECTED">Rejected</SelectItem>
+                
               </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={setSortBy}>
@@ -2126,38 +2110,37 @@ export default function Orders() {
             </div>
           )}
           <DialogFooter className="gap-2 flex-wrap">
-            {/* Approve/Reject buttons for ADMIN, OPERATIONS, EXECUTIVE */}
+            {/* Approve button for ADMIN, OPERATIONS, EXECUTIVE */}
             {isAdmin && selectedOrder && selectedOrder.approvalStatus === "UNAPPROVED" && (
-              <>
-                <Button 
-                  variant="default"
-                  onClick={() => approveOrderMutation.mutate(selectedOrder.id)}
-                  disabled={approveOrderMutation.isPending}
-                  data-testid="button-approve-order"
-                >
-                  <ThumbsUp className="h-4 w-4 mr-2" />
-                  {approveOrderMutation.isPending ? "Approving..." : "Approve"}
-                </Button>
-                <Button 
-                  variant="destructive"
-                  onClick={() => handleRejectOrder(selectedOrder)}
-                  disabled={rejectOrderMutation.isPending}
-                  data-testid="button-reject-order"
-                >
-                  <ThumbsDown className="h-4 w-4 mr-2" />
-                  Reject
-                </Button>
-              </>
+              <Button 
+                variant="default"
+                onClick={() => approveOrderMutation.mutate(selectedOrder.id)}
+                disabled={approveOrderMutation.isPending}
+                data-testid="button-approve-order"
+              >
+                <ThumbsUp className="h-4 w-4 mr-2" />
+                {approveOrderMutation.isPending ? "Approving..." : "Approve"}
+              </Button>
             )}
-            {/* Show approval status if already approved/rejected */}
-            {selectedOrder && selectedOrder.approvalStatus !== "UNAPPROVED" && (
+            {/* Move to Pending button for completed orders */}
+            {isAdmin && selectedOrder && selectedOrder.jobStatus === "COMPLETED" && (
+              <Button 
+                variant="outline"
+                onClick={() => {
+                  if (confirm("Move this order back to Pending status? This will also reset its approval.")) {
+                    moveToPendingMutation.mutate(selectedOrder.id);
+                  }
+                }}
+                disabled={moveToPendingMutation.isPending}
+                data-testid="button-move-to-pending"
+              >
+                {moveToPendingMutation.isPending ? "Moving..." : "Move to Pending"}
+              </Button>
+            )}
+            {/* Show approval status if already approved */}
+            {selectedOrder && selectedOrder.approvalStatus === "APPROVED" && (
               <div className="flex items-center gap-2 mr-auto">
                 <ApprovalStatusBadge status={selectedOrder.approvalStatus} />
-                {selectedOrder.rejectionNote && (
-                  <span className="text-sm text-muted-foreground">
-                    Reason: {selectedOrder.rejectionNote}
-                  </span>
-                )}
               </div>
             )}
             {/* Reverse Approval - for ADMIN/OPERATIONS/EXECUTIVE on approved orders */}
@@ -2780,47 +2763,7 @@ export default function Orders() {
       </Dialog>
 
       {/* Reject Order Dialog */}
-      <Dialog open={showRejectDialog} onOpenChange={(open) => { 
-        if (!open) { 
-          setShowRejectDialog(false); 
-          setRejectingOrder(null); 
-          setRejectionNote(""); 
-        } 
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reject Order</DialogTitle>
-            <DialogDescription>
-              Please provide a reason for rejecting order {rejectingOrder?.invoiceNumber || rejectingOrder?.id?.slice(0, 8)}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Rejection Reason *</Label>
-              <Textarea
-                value={rejectionNote}
-                onChange={(e) => setRejectionNote(e.target.value)}
-                placeholder="Enter the reason for rejection..."
-                rows={3}
-                data-testid="input-rejection-note"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowRejectDialog(false); setRejectingOrder(null); setRejectionNote(""); }}>
-              Cancel
-            </Button>
-            <Button 
-              variant="destructive"
-              onClick={handleConfirmReject}
-              disabled={rejectOrderMutation.isPending || !rejectionNote.trim()}
-              data-testid="button-confirm-reject"
-            >
-              {rejectOrderMutation.isPending ? "Rejecting..." : "Confirm Reject"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      
     </div>
   );
 }

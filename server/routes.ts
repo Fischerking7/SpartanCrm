@@ -2113,39 +2113,34 @@ export async function registerRoutes(
     }
   });
 
-  // Reject order - ADMIN, OPERATIONS, EXECUTIVE only
-  app.post("/api/orders/:id/reject", auth, async (req: AuthRequest, res) => {
+  // Move order to pending - ADMIN, OPERATIONS, EXECUTIVE only
+  app.post("/api/orders/:id/move-to-pending", auth, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const { rejectionNote } = req.body;
       const user = req.user!;
       
       if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
-        return res.status(403).json({ message: "Only ADMIN, OPERATIONS, or EXECUTIVE can reject orders" });
-      }
-      
-      if (!rejectionNote || rejectionNote.trim() === "") {
-        return res.status(400).json({ message: "Rejection note is required" });
+        return res.status(403).json({ message: "Only ADMIN, OPERATIONS, or EXECUTIVE can move orders to pending" });
       }
       
       const order = await storage.getOrderById(id);
       if (!order) return res.status(404).json({ message: "Order not found" });
       
-      if (order.approvalStatus === "REJECTED") {
-        return res.status(400).json({ message: "Order is already rejected" });
+      if (order.jobStatus === "PENDING") {
+        return res.status(400).json({ message: "Order is already pending" });
       }
       
       const beforeJson = JSON.stringify(order);
       
       const updatedOrder = await storage.updateOrder(id, {
-        approvalStatus: "REJECTED",
-        rejectionNote: rejectionNote.trim(),
-        approvedByUserId: user.id,
-        approvedAt: new Date(),
+        jobStatus: "PENDING",
+        approvalStatus: "UNAPPROVED",
+        approvedByUserId: null,
+        approvedAt: null,
       });
       
       await storage.createAuditLog({
-        action: "reject_order",
+        action: "move_order_to_pending",
         tableName: "sales_orders",
         recordId: id,
         beforeJson,
@@ -2155,7 +2150,7 @@ export async function registerRoutes(
       
       res.json(updatedOrder);
     } catch (error: any) {
-      res.status(500).json({ message: error.message || "Failed to reject order" });
+      res.status(500).json({ message: error.message || "Failed to move order to pending" });
     }
   });
 

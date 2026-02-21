@@ -45,11 +45,10 @@ interface MobileLineEntry {
   mobilePortedStatus: string;
 }
 
-type OrderStatus = "pending" | "completed" | "approved" | "paid" | "rejected" | "canceled";
+type OrderStatus = "pending" | "completed" | "approved" | "paid" | "canceled";
 
 function getOrderStatus(order: SalesOrder): OrderStatus {
   if (order.jobStatus === "CANCELED") return "canceled";
-  if (order.approvalStatus === "REJECTED") return "rejected";
   if (order.paymentStatus === "PAID") return "paid";
   if (order.approvalStatus === "APPROVED") return "approved";
   if (order.jobStatus === "COMPLETED") return "completed";
@@ -66,8 +65,6 @@ function getStatusConfig(status: OrderStatus) {
       return { label: "Approved", variant: "default" as const, icon: ThumbsUp, color: "text-green-600 dark:text-green-400" };
     case "paid":
       return { label: "Paid", variant: "default" as const, icon: DollarSign, color: "text-emerald-600 dark:text-emerald-400" };
-    case "rejected":
-      return { label: "Rejected", variant: "destructive" as const, icon: XCircle, color: "text-red-600 dark:text-red-400" };
     case "canceled":
       return { label: "Canceled", variant: "outline" as const, icon: XCircle, color: "text-muted-foreground" };
   }
@@ -79,7 +76,6 @@ function getStepIndex(status: OrderStatus): number {
     case "completed": return 1;
     case "approved": return 2;
     case "paid": return 3;
-    case "rejected": return -1;
     case "canceled": return -1;
   }
 }
@@ -772,7 +768,7 @@ export default function OrderTracker() {
   const sortedOrders = useMemo(() => {
     return [...filteredOrders].sort((a, b) => {
       const statusPriority: Record<OrderStatus, number> = {
-        pending: 0, completed: 1, approved: 2, rejected: 3, canceled: 4, paid: 5,
+        pending: 0, completed: 1, approved: 2, canceled: 3, paid: 4,
       };
       const sPri = statusPriority[getOrderStatus(a)] - statusPriority[getOrderStatus(b)];
       if (sPri !== 0) return sPri;
@@ -1667,12 +1663,7 @@ function OrderDetailPanel({
         </div>
       )}
 
-      {status === "rejected" && order.rejectionNote && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
-          <p className="text-sm font-medium text-destructive mb-0.5">Rejection Reason</p>
-          <p className="text-sm">{order.rejectionNote}</p>
-        </div>
-      )}
+      
 
       {isEditing ? (
         <div className="space-y-3">
