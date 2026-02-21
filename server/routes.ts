@@ -12306,7 +12306,7 @@ export async function registerRoutes(
       }
 
       if (commissionChanged) {
-        updateData.commissionSource = 'MANUAL';
+        updateData.commissionSource = 'MANUAL_OVERRIDE';
         updateData.calcAt = new Date();
       }
 
