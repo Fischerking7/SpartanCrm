@@ -4066,6 +4066,12 @@ export const storage = {
     });
   },
 
+  async getArExpectationByOrderId(orderId: string) {
+    return db.query.arExpectations.findFirst({
+      where: eq(arExpectations.orderId, orderId)
+    });
+  },
+
   async updateArExpectation(id: string, data: Partial<ArExpectation>) {
     const [result] = await db.update(arExpectations)
       .set({ ...data, updatedAt: new Date() })

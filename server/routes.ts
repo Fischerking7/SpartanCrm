@@ -12101,10 +12101,13 @@ export async function registerRoutes(
             reasons.push('near_date:+5');
           }
 
-          // Service type matching (max 5 pts)
+          // Service type matching (max 5 pts) - any recognized service type gets points
           if (row.serviceType) {
             const svcLower = row.serviceType.toLowerCase();
-            if (svcLower.includes('internet') || svcLower.includes('fiber') || svcLower.includes('data')) {
+            if (svcLower.includes('internet') || svcLower.includes('fiber') || svcLower.includes('data') ||
+                svcLower.includes('tv') || svcLower.includes('television') || svcLower.includes('video') ||
+                svcLower.includes('mobile') || svcLower.includes('phone') || svcLower.includes('voice') ||
+                svcLower.includes('bundle')) {
               score += 5;
               reasons.push('service_match:+5');
             }
@@ -12375,52 +12378,64 @@ export async function registerRoutes(
       let ordersAccepted = 0;
       let ordersRejected = 0;
 
+      const orderRowGroups: Record<string, typeof rows> = {};
       for (const row of rows) {
         if (row.isDuplicate) continue;
-
-        const status = (row.clientStatus || '').toUpperCase();
-        const isEnrolled = status === 'ENROLLED' || status === 'ACCEPTED';
-        const isRejected = status === 'REJECTED';
-
         if (row.matchStatus === 'MATCHED' && row.matchedOrderId) {
-          if (isEnrolled) {
-            // Mark order as accepted
-            await storage.setOrderClientAcceptance(
-              row.matchedOrderId,
-              'ACCEPTED',
-              row.expectedAmountCents || undefined
-            );
-            ordersAccepted++;
-
-            // Create AR expectation if not exists
-            const existingAr = await storage.getArExpectationByRowId(row.id);
-            if (!existingAr) {
-              const expectedCents = row.expectedAmountCents || 0;
-              const paidCents = row.paidAmountCents || 0;
-              const varianceCents = expectedCents - paidCents;
-              let arStatus: string = 'OPEN';
-              if (paidCents > 0 && paidCents >= expectedCents) {
-                arStatus = 'SATISFIED';
-              } else if (paidCents > 0) {
-                arStatus = 'PARTIAL';
-              }
-              await storage.createArExpectation({
-                clientId: financeImport.clientId,
-                orderId: row.matchedOrderId,
-                financeImportRowId: row.id,
-                expectedAmountCents: expectedCents,
-                actualAmountCents: paidCents,
-                varianceAmountCents: varianceCents,
-                expectedFromDate: row.saleDate || new Date().toISOString().split('T')[0],
-                status: arStatus
-              });
-              arCreated++;
-            }
-          } else if (isRejected) {
-            // Mark order as rejected
-            await storage.setOrderClientAcceptance(row.matchedOrderId, 'REJECTED');
-            ordersRejected++;
+          if (!orderRowGroups[row.matchedOrderId]) {
+            orderRowGroups[row.matchedOrderId] = [];
           }
+          orderRowGroups[row.matchedOrderId].push(row);
+        }
+      }
+
+      for (const [orderId, groupRows] of Object.entries(orderRowGroups)) {
+        const enrolledRows = groupRows.filter(r => {
+          const status = (r.clientStatus || '').toUpperCase();
+          return status === 'ENROLLED' || status === 'ACCEPTED' || status === 'COMPLETED' || status === 'ACTIVE';
+        });
+        const rejectedRows = groupRows.filter(r => {
+          const status = (r.clientStatus || '').toUpperCase();
+          return status === 'REJECTED';
+        });
+
+        if (enrolledRows.length > 0) {
+          const expectedCents = enrolledRows[0].expectedAmountCents || 0;
+          const totalPaidCents = enrolledRows.reduce((sum, r) => sum + (r.paidAmountCents || 0), 0);
+
+          await storage.setOrderClientAcceptance(
+            orderId,
+            'ACCEPTED',
+            expectedCents || undefined
+          );
+          ordersAccepted++;
+
+          const primaryRow = enrolledRows[0];
+          const existingArByRow = await storage.getArExpectationByRowId(primaryRow.id);
+          const existingArByOrder = existingArByRow ? existingArByRow : await storage.getArExpectationByOrderId(orderId);
+          if (!existingArByOrder) {
+            const varianceCents = expectedCents - totalPaidCents;
+            let arStatus: string = 'OPEN';
+            if (totalPaidCents > 0 && totalPaidCents >= expectedCents) {
+              arStatus = 'SATISFIED';
+            } else if (totalPaidCents > 0) {
+              arStatus = 'PARTIAL';
+            }
+            await storage.createArExpectation({
+              clientId: financeImport.clientId,
+              orderId: orderId,
+              financeImportRowId: primaryRow.id,
+              expectedAmountCents: expectedCents,
+              actualAmountCents: totalPaidCents,
+              varianceAmountCents: varianceCents,
+              expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
+              status: arStatus
+            });
+            arCreated++;
+          }
+        } else if (rejectedRows.length > 0) {
+          await storage.setOrderClientAcceptance(orderId, 'REJECTED');
+          ordersRejected++;
         }
       }
 
