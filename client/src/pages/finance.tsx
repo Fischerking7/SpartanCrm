@@ -442,7 +442,8 @@ export default function Finance() {
     mutationFn: async () => {
       const res = await fetch(`/api/finance/imports/${selectedImportId}/auto-match`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ force: true }),
       });
       if (!res.ok) {
         const error = await res.json();
@@ -1012,7 +1013,7 @@ export default function Finance() {
                         </TableCell>
                         <TableCell>{new Date(imp.importedAt).toLocaleDateString()}</TableCell>
                         <TableCell className="flex gap-1">
-                          {imp.status === 'IMPORTED' && (
+                          {imp.status !== 'POSTED' && imp.status !== 'LOCKED' && (
                             <Button 
                               variant="outline" 
                               size="sm" 
@@ -1024,7 +1025,26 @@ export default function Finance() {
                                   if (rawRows.length > 0) {
                                     const firstRow = JSON.parse(rawRows[0].rawJson);
                                     const cols = Object.keys(firstRow);
-                                    setColumnMapping({ customerName: "", repName: "", saleDate: "", serviceType: "", utility: "", status: "", usage: "", rate: "", rejectionReason: "" });
+                                    const colLower = cols.map(c => c.toLowerCase().trim());
+                                    const findCol = (patterns: string[]) => {
+                                      for (const p of patterns) {
+                                        const idx = colLower.findIndex(c => c === p || c.includes(p));
+                                        if (idx >= 0) return cols[idx];
+                                      }
+                                      return "";
+                                    };
+                                    const detected = {
+                                      customerName: findCol(["customer name", "customer_name", "customername"]),
+                                      repName: findCol(["rep name", "rep_name", "repname", "sales rep", "representative"]),
+                                      saleDate: findCol(["date sold", "date_sold", "sale date", "sale_date", "install date"]),
+                                      serviceType: findCol(["service type", "service_type", "service", "product"]),
+                                      utility: findCol(["utility", "provider", "vendor"]),
+                                      status: findCol(["status", "client status"]),
+                                      usage: findCol(["usage", "usage units", "units"]),
+                                      rate: findCol(["rate", "amount", "commission", "price", "payment"]),
+                                      rejectionReason: findCol(["rejection reason", "rejection_reason", "reason"])
+                                    };
+                                    setColumnMapping(detected);
                                     setUploadPreview({ columns: cols, preview: rawRows.slice(0, 5).map((r: any) => JSON.parse(r.rawJson)), totalRows: rawRows.length, importId: imp.id });
                                   }
                                 } catch (e: any) {

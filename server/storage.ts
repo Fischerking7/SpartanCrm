@@ -3957,6 +3957,10 @@ export const storage = {
     return db.insert(financeImportRows).values(data).returning();
   },
 
+  async deleteFinanceImportRows(financeImportId: string) {
+    return db.delete(financeImportRows).where(eq(financeImportRows.financeImportId, financeImportId));
+  },
+
   async getFinanceImportRows(financeImportId: string, matchStatus?: string) {
     if (matchStatus) {
       return db.select()
@@ -4156,6 +4160,7 @@ export const storage = {
       incentiveEarned: salesOrders.incentiveEarned,
       overrideDeduction: salesOrders.overrideDeduction,
       approvalStatus: salesOrders.approvalStatus,
+      jobStatus: salesOrders.jobStatus,
       repName: users.name,
     })
       .from(salesOrders)

@@ -11851,8 +11851,13 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Import not found" });
       }
 
+      if (financeImport.status === 'POSTED' || financeImport.status === 'LOCKED') {
+        return res.status(400).json({ message: "Cannot remap a posted or locked import" });
+      }
+
+      // Delete existing processed rows if re-mapping
       if (financeImport.status !== 'IMPORTED') {
-        return res.status(400).json({ message: "Import has already been mapped" });
+        await storage.deleteFinanceImportRows(req.params.id);
       }
 
       // Get raw rows
@@ -11990,32 +11995,50 @@ export async function registerRoutes(
       const rows = await storage.getFinanceImportRows(req.params.id);
 
       if (rows.length === 0) {
-        return res.status(400).json({ message: "No processed rows found. Please map columns first." });
+        return res.status(400).json({ message: "No processed rows found. Please use 'Map Columns' first to create processed rows." });
       }
+
+      const { force } = req.body || {};
+
+      // Reset rows for re-matching
+      for (const row of rows) {
+        if (force || row.matchStatus === 'UNMATCHED' || row.matchStatus === 'AMBIGUOUS') {
+          if (row.matchStatus !== 'IGNORED') {
+            await storage.updateFinanceImportRow(row.id, { matchStatus: 'UNMATCHED', matchConfidence: 0, matchedOrderId: null, matchReason: null });
+          }
+        }
+      }
+
+      // Re-fetch after reset
+      const freshRows = await storage.getFinanceImportRows(req.params.id);
 
       let matchedCount = 0;
       let ambiguousCount = 0;
 
-      for (const row of rows) {
+      console.log(`[AutoMatch] Starting auto-match for import ${req.params.id} with ${freshRows.length} processed rows`);
+
+      for (const row of freshRows) {
         if (row.matchStatus === 'MATCHED' || row.matchStatus === 'IGNORED' || row.isDuplicate) {
           continue;
         }
 
         if (!row.saleDate) continue;
 
-        // Find candidate orders within date range
+        // Find candidate orders within date range (±30 days for flexibility)
         const saleDate = new Date(row.saleDate);
+        if (isNaN(saleDate.getTime())) continue;
         const startDate = new Date(saleDate);
-        startDate.setDate(startDate.getDate() - 7);
+        startDate.setDate(startDate.getDate() - 30);
         const endDate = new Date(saleDate);
-        endDate.setDate(endDate.getDate() + 7);
+        endDate.setDate(endDate.getDate() + 30);
 
         const candidates = await storage.findOrdersForMatching(
           null,
           startDate.toISOString().split('T')[0],
-          endDate.toISOString().split('T')[0],
-          row.customerNameNorm || undefined
+          endDate.toISOString().split('T')[0]
         );
+
+        console.log(`[AutoMatch] Row "${row.customerName}" (${row.saleDate}) -> ${candidates.length} candidate orders in range ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
 
         if (candidates.length === 0) continue;
 
