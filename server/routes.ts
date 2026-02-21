@@ -11421,6 +11421,68 @@ export async function registerRoutes(
     return crypto.createHash('sha256').update(data).digest('hex');
   }
 
+  function extractRepNameFromSheet(rows: any[][]): string | null {
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const row = rows[i];
+      if (row && row[0] && typeof row[0] === 'string' && row[0].toLowerCase() === 'name') {
+        const val = row[2] || row[1];
+        if (val && typeof val === 'string') {
+          return val.replace(/^Iron Crest\s*-\s*/i, '').trim();
+        }
+      }
+    }
+    return null;
+  }
+
+  function extractRepCodeFromSheet(rows: any[][]): string | null {
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const row = rows[i];
+      if (row && row[0] && typeof row[0] === 'string' && row[0].toLowerCase() === 'repcode') {
+        const val = row[2] || row[1];
+        if (val !== undefined && val !== null) return String(val).split(',')[0].trim();
+      }
+    }
+    return null;
+  }
+
+  function findDataTableInSheet(rows: any[][]): { columns: string[]; rows: any[][] } {
+    const knownHeaders = ['customer name', 'service type', 'utility', 'client', 'date sold', 'status', 'usage', 'rate'];
+    const masterHeaders = ['repcode', 'account number', 'customer name', 'utility', 'service type', 'date sold', 'status', 'client', 'state', 'usage'];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length < 3) continue;
+
+      const cellValues = row.map((c: any) => (c != null ? String(c).toLowerCase().trim() : ''));
+
+      const matchesKnown = knownHeaders.filter(h => cellValues.includes(h)).length;
+      const matchesMaster = masterHeaders.filter(h => cellValues.includes(h)).length;
+
+      if (matchesKnown >= 4 || matchesMaster >= 4) {
+        const columns = row.map((c: any) => c != null ? String(c).trim() : `Column ${row.indexOf(c)}`);
+        const dataRows: any[][] = [];
+        for (let j = i + 1; j < rows.length; j++) {
+          const dRow = rows[j];
+          if (!dRow || dRow.length === 0 || dRow.every((c: any) => c == null || c === '')) break;
+          if (dRow[0] && typeof dRow[0] === 'string' && 
+              (dRow[0].toLowerCase().includes('chargeback') || dRow[0].toLowerCase().includes('meter chargeback'))) break;
+          dataRows.push(dRow);
+        }
+        return { columns, rows: dataRows };
+      }
+    }
+
+    if (rows.length > 1 && rows[0] && rows[0].length >= 2) {
+      const firstRowHasNums = rows[1]?.some((c: any) => typeof c === 'number');
+      if (firstRowHasNums) {
+        const columns = rows[0].map((c: any) => c != null ? String(c).trim() : 'Column');
+        return { columns, rows: rows.slice(1).filter(r => r && r.length > 0 && !r.every((c: any) => c == null)) };
+      }
+    }
+
+    return { columns: [], rows: [] };
+  }
+
   // Get all finance imports
   app.get("/api/finance/imports", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
@@ -11482,6 +11544,41 @@ export async function registerRoutes(
     }
   });
 
+  // List sheets in an Excel file
+  app.post("/api/finance/import/sheets", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+      const fileName = req.file.originalname;
+      const isXlsx = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+      if (!isXlsx) {
+        return res.json({ sheets: [] });
+      }
+
+      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const sheets = workbook.SheetNames.map((name: string) => {
+        const ws = workbook.Sheets[name];
+        const allRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+        const repName = extractRepNameFromSheet(allRows);
+        const repCode = extractRepCodeFromSheet(allRows);
+        const dataInfo = findDataTableInSheet(allRows);
+        return {
+          name,
+          repName,
+          repCode,
+          rowCount: dataInfo.rows.length,
+          hasData: dataInfo.rows.length > 0,
+          preview: dataInfo.rows.slice(0, 3),
+          columns: dataInfo.columns,
+        };
+      });
+      res.json({ sheets });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to read sheets" });
+    }
+  });
+
   // Upload and import a finance file
   app.post("/api/finance/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
     try {
@@ -11489,7 +11586,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "No file uploaded" });
       }
 
-      const { clientId, periodStart, periodEnd, forceReimport } = req.body;
+      const { clientId, periodStart, periodEnd, forceReimport, sheetName: selectedSheet, repNameOverride } = req.body;
       if (!clientId) {
         return res.status(400).json({ message: "Client ID is required" });
       }
@@ -11499,8 +11596,9 @@ export async function registerRoutes(
       const isXlsx = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
       const sourceType = isXlsx ? 'XLSX' : 'CSV';
 
-      // Compute file hash
-      const fileHash = computeFileHash(req.file.buffer);
+      // Compute file hash (include sheet name for uniqueness)
+      const hashInput = selectedSheet ? req.file.buffer.toString('base64') + '::' + selectedSheet : req.file.buffer.toString('base64');
+      const fileHash = require('crypto').createHash('sha256').update(hashInput).digest('hex');
 
       // Check for duplicate import
       const existingImport = await storage.getFinanceImportByClientAndHash(clientId, fileHash);
@@ -11513,11 +11611,32 @@ export async function registerRoutes(
 
       // Parse file
       let rows: any[] = [];
+      let detectedRepName: string | null = repNameOverride || null;
       if (isXlsx) {
-        const XLSX = await import('xlsx');
         const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0];
-        rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        const sheetName = selectedSheet || workbook.SheetNames[0];
+        if (!workbook.SheetNames.includes(sheetName)) {
+          return res.status(400).json({ message: `Sheet "${sheetName}" not found in file` });
+        }
+        const ws = workbook.Sheets[sheetName];
+        const allRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+        
+        if (!detectedRepName) {
+          detectedRepName = extractRepNameFromSheet(allRows);
+        }
+        
+        const dataInfo = findDataTableInSheet(allRows);
+        if (dataInfo.columns.length > 0 && dataInfo.rows.length > 0) {
+          rows = dataInfo.rows.map(row => {
+            const obj: any = {};
+            dataInfo.columns.forEach((col, i) => {
+              obj[col] = row[i] ?? null;
+            });
+            return obj;
+          });
+        } else {
+          rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        }
       } else {
         const csvParse = await import('csv-parse/sync');
         rows = csvParse.parse(req.file.buffer, { columns: true, skip_empty_lines: true });
@@ -11527,13 +11646,24 @@ export async function registerRoutes(
         return res.status(400).json({ message: "File contains no data rows" });
       }
 
+      // Inject rep name into rows if detected from sheet header
+      if (detectedRepName) {
+        rows.forEach(row => {
+          if (!row['Rep Name'] && !row['rep_name']) {
+            row['Rep Name'] = detectedRepName;
+          }
+        });
+      }
+
+      const importFileName = selectedSheet ? `${fileName} [${selectedSheet}]` : fileName;
+
       // Create finance import record
       const financeImport = await storage.createFinanceImport({
         clientId,
         periodStart: periodStart || null,
         periodEnd: periodEnd || null,
         sourceType: sourceType as any,
-        fileName,
+        fileName: importFileName,
         fileHash,
         importedByUserId: req.user!.id,
         status: 'IMPORTED',
@@ -11566,14 +11696,15 @@ export async function registerRoutes(
         action: "finance_import_created",
         tableName: "finance_imports",
         recordId: financeImport.id,
-        afterJson: JSON.stringify({ fileName, totalRows: rows.length, clientId })
+        afterJson: JSON.stringify({ fileName: importFileName, totalRows: rows.length, clientId, sheetName: selectedSheet || null, detectedRepName })
       });
 
       res.json({
         import: financeImport,
         columns,
         preview,
-        totalRows: rows.length
+        totalRows: rows.length,
+        detectedRepName,
       });
     } catch (error: any) {
       console.error("Finance import error:", error);

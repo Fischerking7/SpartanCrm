@@ -85,6 +85,9 @@ export default function Finance() {
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [matchFilter, setMatchFilter] = useState<string>("ALL");
   const [reportPeriod, setReportPeriod] = useState<string>("month");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [sheetList, setSheetList] = useState<Array<{ name: string; repName: string | null; repCode: string | null; rowCount: number; hasData: boolean; columns: string[] }>>([]);
+  const [showSheetPicker, setShowSheetPicker] = useState(false);
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
@@ -346,10 +349,12 @@ export default function Finance() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, sheetName, repNameOverride }: { file: File; sheetName?: string; repNameOverride?: string }) => {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("clientId", selectedClientId);
+      if (sheetName) formData.append("sheetName", sheetName);
+      if (repNameOverride) formData.append("repNameOverride", repNameOverride);
       const res = await fetch("/api/finance/import", {
         method: "POST",
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
@@ -368,7 +373,10 @@ export default function Finance() {
         totalRows: data.totalRows,
         importId: data.import.id,
       });
-      toast({ title: "File uploaded", description: `${data.totalRows} rows found. Please map columns.` });
+      const repMsg = data.detectedRepName ? ` Rep: ${data.detectedRepName}.` : '';
+      toast({ title: "File uploaded", description: `${data.totalRows} rows found.${repMsg} Please map columns.` });
+      setPendingFile(null);
+      setShowSheetPicker(false);
     },
     onError: (error: Error) => {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
@@ -574,13 +582,38 @@ export default function Finance() {
     },
   });
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && selectedClientId) {
-      uploadMutation.mutate(file);
-    } else if (!selectedClientId) {
+    if (!file) return;
+    if (!selectedClientId) {
       toast({ title: "Select a client", description: "Please select a client before uploading.", variant: "destructive" });
+      return;
     }
+
+    const isXlsx = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+    if (isXlsx) {
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/api/finance/import/sheets", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+          body: formData,
+        });
+        if (!res.ok) throw new Error("Failed to read sheets");
+        const data = await res.json();
+        if (data.sheets && data.sheets.length > 1) {
+          setPendingFile(file);
+          setSheetList(data.sheets);
+          setShowSheetPicker(true);
+          return;
+        }
+      } catch {
+        // Fall through to normal upload
+      }
+    }
+
+    uploadMutation.mutate({ file });
   };
 
   const formatCurrency = (cents: number) => {
@@ -1861,6 +1894,47 @@ export default function Finance() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={showSheetPicker} onOpenChange={(open) => { if (!open) { setShowSheetPicker(false); setPendingFile(null); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Select Sheet to Import</DialogTitle>
+            <DialogDescription>This Excel file contains multiple sheets. Select which sheet to import.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {sheetList.map((sheet) => (
+              <button
+                key={sheet.name}
+                className="w-full text-left p-3 rounded-lg border hover:bg-accent transition-colors"
+                data-testid={`button-select-sheet-${sheet.name}`}
+                onClick={() => {
+                  if (pendingFile) {
+                    uploadMutation.mutate({ file: pendingFile, sheetName: sheet.name, repNameOverride: sheet.repName || undefined });
+                  }
+                }}
+                disabled={uploadMutation.isPending}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">{sheet.name}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {sheet.rowCount} rows
+                      {sheet.repName && <span className="ml-2">· Rep: {sheet.repName}</span>}
+                      {sheet.repCode && <span className="ml-1">({sheet.repCode})</span>}
+                    </div>
+                  </div>
+                  {sheet.hasData && <Badge variant="secondary">Has Data</Badge>}
+                </div>
+              </button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowSheetPicker(false); setPendingFile(null); }} data-testid="button-cancel-sheet-picker">
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
