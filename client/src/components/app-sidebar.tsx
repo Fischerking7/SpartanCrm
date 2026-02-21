@@ -128,7 +128,17 @@ const preferencesItems: MenuItem[] = [
   MENU.settings,
 ];
 
-// Admin: Operations group
+// Executive/Operations: Full Operations group (original admin layout)
+const execOpsItems: MenuItem[] = [
+  MENU.orderTracker,
+  MENU.orders,
+  MENU.leads,
+  MENU.mduReview,
+  MENU.payRuns,
+  MENU.adjustments,
+];
+
+// Admin: Operations group (limited)
 const adminOpsItems: MenuItem[] = [
   MENU.orders,
   MENU.adjustments,
@@ -343,6 +353,54 @@ export function AppSidebar() {
     </>
   );
 
+  const renderExecutiveSidebar = () => (
+    <>
+      <CollapsibleSection 
+        title="Operations" 
+        icon={Briefcase} 
+        items={execOpsItems} 
+        location={location}
+        defaultOpen={true}
+      />
+      <CollapsibleSection 
+        title="Accounting" 
+        icon={Wallet} 
+        items={adminAccountingItems} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="Insights" 
+        icon={TrendingUp} 
+        items={adminInsightsItems} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="My Account" 
+        icon={User} 
+        items={[...personalItems, ...preferencesItems]} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="Resources" 
+        icon={BookOpen} 
+        items={[MENU.knowledge]} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="System Settings" 
+        icon={Cog} 
+        items={adminSettingsItems} 
+        location={location}
+      />
+    </>
+  );
+
+  const renderSidebar = () => {
+    if (user.role === "EXECUTIVE" || user.role === "OPERATIONS") return renderExecutiveSidebar();
+    if (user.role === "ADMIN") return renderAdminSidebar();
+    return renderNonAdminSidebar();
+  };
+
   return (
     <Sidebar>
       <SidebarHeader className="p-2 border-b border-sidebar-border">
@@ -352,7 +410,7 @@ export function AppSidebar() {
       </SidebarHeader>
       
       <SidebarContent className="gap-1">
-        {isAdmin ? renderAdminSidebar() : renderNonAdminSidebar()}
+        {renderSidebar()}
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border">
