@@ -12414,7 +12414,7 @@ export async function registerRoutes(
           const existingArByRow = await storage.getArExpectationByRowId(primaryRow.id);
           const existingArByOrder = existingArByRow ? existingArByRow : await storage.getArExpectationByOrderId(orderId);
           if (!existingArByOrder) {
-            const varianceCents = expectedCents - totalPaidCents;
+            const varianceCents = totalPaidCents - expectedCents;
             let arStatus: string = 'OPEN';
             if (totalPaidCents > 0 && totalPaidCents >= expectedCents) {
               arStatus = 'SATISFIED';
@@ -12582,7 +12582,7 @@ export async function registerRoutes(
       // Calculate new totals
       const allPayments = await storage.getArPaymentsByExpectationId(req.params.id);
       const totalPaidCents = allPayments.reduce((sum, p) => sum + p.amountCents, 0);
-      const varianceCents = ar.expectedAmountCents - totalPaidCents;
+      const varianceCents = totalPaidCents - ar.expectedAmountCents;
       const hasVariance = varianceCents !== 0;
       
       // Determine new status
@@ -12663,7 +12663,7 @@ export async function registerRoutes(
       if (ar) {
         const allPayments = await storage.getArPaymentsByExpectationId(arId);
         const totalPaidCents = allPayments.reduce((sum, p) => sum + p.amountCents, 0);
-        const varianceCents = ar.expectedAmountCents - totalPaidCents;
+        const varianceCents = totalPaidCents - ar.expectedAmountCents;
         const hasVariance = varianceCents !== 0;
         
         let newStatus = 'OPEN';
@@ -12770,7 +12770,7 @@ export async function registerRoutes(
       }
       
       const oldExpected = ar.expectedAmountCents;
-      const varianceCents = expectedAmountCents - ar.actualAmountCents;
+      const varianceCents = ar.actualAmountCents - expectedAmountCents;
       const hasVariance = varianceCents !== 0;
       
       // Determine new status based on updated expected
