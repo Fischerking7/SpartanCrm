@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, FileText, DollarSign, BarChart3, ArrowRight, Link2, Loader2, RefreshCw, Eye, Check, X, Pencil, Search, Download } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, FileText, DollarSign, BarChart3, ArrowRight, Link2, Loader2, RefreshCw, Eye, Check, X, Pencil, Search, Download, Trash2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -240,6 +240,25 @@ export default function Finance() {
     setSelectedAr(fresh || ar);
     setVarianceReason(fresh?.varianceReason || ar.varianceReason || "");
   };
+
+  const deleteImportMutation = useMutation({
+    mutationFn: async (importId: string) => {
+      const res = await fetch(`/api/finance/imports/${importId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed to delete import");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/imports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
+      toast({ title: "Import deleted successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
 
   const recordPaymentMutation = useMutation({
     mutationFn: async () => {
@@ -984,7 +1003,7 @@ export default function Finance() {
                           <Badge variant={imp.status === "POSTED" ? "default" : "secondary"}>{imp.status}</Badge>
                         </TableCell>
                         <TableCell>{new Date(imp.importedAt).toLocaleDateString()}</TableCell>
-                        <TableCell>
+                        <TableCell className="flex gap-1">
                           <Button 
                             variant="ghost" 
                             size="sm" 
@@ -992,6 +1011,20 @@ export default function Finance() {
                             data-testid={`button-view-import-${imp.id}`}
                           >
                             <Eye className="h-4 w-4 mr-1" /> View
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            disabled={deleteImportMutation.isPending}
+                            onClick={() => {
+                              if (window.confirm("Delete this import and all its matched data? This cannot be undone.")) {
+                                deleteImportMutation.mutate(imp.id);
+                              }
+                            }}
+                            data-testid={`button-delete-import-${imp.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" /> Delete
                           </Button>
                         </TableCell>
                       </TableRow>

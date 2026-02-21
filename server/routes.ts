@@ -11507,6 +11507,20 @@ export async function registerRoutes(
     }
   });
 
+  // Delete finance import and all related data
+  app.delete("/api/finance/imports/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const existing = await storage.getFinanceImportById(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Import not found" });
+      }
+      await storage.deleteFinanceImport(req.params.id);
+      res.json({ message: "Import deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete finance import" });
+    }
+  });
+
   // Get finance import summary (counts by status)
   app.get("/api/finance/imports/:id/summary", auth, adminOnly, async (req: AuthRequest, res) => {
     try {

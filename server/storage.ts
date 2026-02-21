@@ -3922,6 +3922,22 @@ export const storage = {
     return result;
   },
 
+  async deleteFinanceImport(id: string) {
+    const rows = await db.select({ id: financeImportRows.id }).from(financeImportRows).where(eq(financeImportRows.financeImportId, id));
+    const rowIds = rows.map(r => r.id);
+    if (rowIds.length > 0) {
+      const arExps = await db.select({ id: arExpectations.id }).from(arExpectations).where(inArray(arExpectations.financeImportRowId, rowIds));
+      const arExpIds = arExps.map(a => a.id);
+      if (arExpIds.length > 0) {
+        await db.delete(arPayments).where(inArray(arPayments.arExpectationId, arExpIds));
+      }
+      await db.delete(arExpectations).where(inArray(arExpectations.financeImportRowId, rowIds));
+      await db.delete(financeImportRows).where(inArray(financeImportRows.id, rowIds));
+    }
+    await db.delete(financeImportRowsRaw).where(eq(financeImportRowsRaw.financeImportId, id));
+    await db.delete(financeImports).where(eq(financeImports.id, id));
+  },
+
   // Finance Import Raw Rows
   async createFinanceImportRowsRaw(data: InsertFinanceImportRowRaw[]) {
     if (data.length === 0) return [];
