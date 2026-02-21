@@ -433,6 +433,7 @@ export default function KnowledgeDatabase() {
             {!uploadedFile ? (
               <div className="border-2 border-dashed rounded-lg p-6 text-center">
                 <ObjectUploader
+                  maxFileSize={100 * 1024 * 1024}
                   onGetUploadParameters={async (file) => {
                     const res = await fetch("/api/uploads/request-url", {
                       method: "POST",
