@@ -137,6 +137,8 @@ async function createOrderWithCommission(params: CreateOrderParams) {
     const userRole = salesRepUser?.role || "REP";
     const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
     
+    const isMobileOnlyOrder = (order as any).isMobileOrder === true;
+    
     if (roleOverride) {
       const overrideAmounts = {
         base: parseFloat(roleOverride.overrideDeduction || "0"),
@@ -144,9 +146,11 @@ async function createOrderWithCommission(params: CreateOrderParams) {
         mobile: parseFloat(roleOverride.mobileOverrideDeduction || "0"),
       };
       
-      totalDeductions += overrideAmounts.base;
-      if (order.tvSold) {
-        totalDeductions += overrideAmounts.tv;
+      if (!isMobileOnlyOrder) {
+        totalDeductions += overrideAmounts.base;
+        if (order.tvSold) {
+          totalDeductions += overrideAmounts.tv;
+        }
       }
       if (order.mobileSold) {
         totalDeductions += overrideAmounts.mobile;
@@ -159,9 +163,11 @@ async function createOrderWithCommission(params: CreateOrderParams) {
         mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
       };
       
-      totalDeductions += overrideAmounts.base;
-      if (order.tvSold) {
-        totalDeductions += overrideAmounts.tv;
+      if (!isMobileOnlyOrder) {
+        totalDeductions += overrideAmounts.base;
+        if (order.tvSold) {
+          totalDeductions += overrideAmounts.tv;
+        }
       }
       if (order.mobileSold) {
         totalDeductions += overrideAmounts.mobile;
@@ -1677,6 +1683,7 @@ export async function registerRoutes(
         // Look up role-based override for this user's role
         const userRole = salesRep?.role || "REP";
         const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
+        const isMobileOnlyOrder = (order as any).isMobileOrder === true;
         
         if (roleOverride) {
           const overrideAmounts = {
@@ -1685,9 +1692,11 @@ export async function registerRoutes(
             mobile: parseFloat(roleOverride.mobileOverrideDeduction || "0"),
           };
           
-          totalDeductions += overrideAmounts.base;
-          if (order.tvSold) {
-            totalDeductions += overrideAmounts.tv;
+          if (!isMobileOnlyOrder) {
+            totalDeductions += overrideAmounts.base;
+            if (order.tvSold) {
+              totalDeductions += overrideAmounts.tv;
+            }
           }
           if (order.mobileSold) {
             totalDeductions += overrideAmounts.mobile;
@@ -1700,9 +1709,11 @@ export async function registerRoutes(
             mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
           };
           
-          totalDeductions += overrideAmounts.base;
-          if (order.tvSold) {
-            totalDeductions += overrideAmounts.tv;
+          if (!isMobileOnlyOrder) {
+            totalDeductions += overrideAmounts.base;
+            if (order.tvSold) {
+              totalDeductions += overrideAmounts.tv;
+            }
           }
           if (order.mobileSold) {
             totalDeductions += overrideAmounts.mobile;
@@ -3894,6 +3905,7 @@ export async function registerRoutes(
             // Look up role-based override for this user's role
             const userRole = salesRep?.role || "REP";
             const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
+            const isMobileOnlyOrder = (order as any).isMobileOrder === true;
             
             if (roleOverride) {
               const overrideAmounts = {
@@ -3902,9 +3914,11 @@ export async function registerRoutes(
                 mobile: parseFloat(roleOverride.mobileOverrideDeduction || "0"),
               };
               
-              totalDeductions += overrideAmounts.base;
-              if (order.tvSold) {
-                totalDeductions += overrideAmounts.tv;
+              if (!isMobileOnlyOrder) {
+                totalDeductions += overrideAmounts.base;
+                if (order.tvSold) {
+                  totalDeductions += overrideAmounts.tv;
+                }
               }
               if (order.mobileSold) {
                 totalDeductions += overrideAmounts.mobile;
@@ -3917,9 +3931,11 @@ export async function registerRoutes(
                 mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
               };
               
-              totalDeductions += overrideAmounts.base;
-              if (order.tvSold) {
-                totalDeductions += overrideAmounts.tv;
+              if (!isMobileOnlyOrder) {
+                totalDeductions += overrideAmounts.base;
+                if (order.tvSold) {
+                  totalDeductions += overrideAmounts.tv;
+                }
               }
               if (order.mobileSold) {
                 totalDeductions += overrideAmounts.mobile;

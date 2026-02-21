@@ -510,9 +510,10 @@ export const storage = {
     
     const baseAmount = parseFloat(rateCard.baseAmount || "0");
     const tvAddonAmount = parseFloat(rateCard.tvAddonAmount || "0");
+    const isMobileOnly = (order as any).isMobileOrder === true;
     
-    // Internet line item (base service)
-    if (baseAmount > 0) {
+    // Internet line item (base service) - skip for mobile-only orders
+    if (baseAmount > 0 && !isMobileOnly) {
       lineItems.push({
         serviceCategory: "INTERNET",
         quantity: 1,
@@ -524,8 +525,8 @@ export const storage = {
       });
     }
     
-    // Video/TV line item
-    if (order.tvSold && tvAddonAmount > 0) {
+    // Video/TV line item - skip for mobile-only orders
+    if (order.tvSold && tvAddonAmount > 0 && !isMobileOnly) {
       lineItems.push({
         serviceCategory: "VIDEO",
         quantity: 1,
