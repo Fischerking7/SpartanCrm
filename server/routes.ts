@@ -11760,7 +11760,7 @@ export async function registerRoutes(
         const clientStatus = data[mapping.status] || '';
         const usageUnits = parseFloat(data[mapping.usage]) || null;
         const rate = parseFloat(String(data[mapping.rate] || '0').replace(/[$,]/g, '')) || 0;
-        const expectedAmountCents = Math.round(rate * 100);
+        const paidAmountCents = Math.round(rate * 100);
         const rejectionReason = data[mapping.rejectionReason] || null;
 
         // Dedupe by fingerprint
@@ -11768,7 +11768,7 @@ export async function registerRoutes(
           financeImport.clientId,
           customerNameNorm,
           saleDate,
-          expectedAmountCents,
+          paidAmountCents,
           serviceType
         );
 
@@ -11776,7 +11776,7 @@ export async function registerRoutes(
         seenFingerprints.add(fingerprint);
 
         if (!isDuplicate && clientStatus.toUpperCase() === 'ENROLLED') {
-          totalAmountCents += expectedAmountCents;
+          totalAmountCents += paidAmountCents;
         }
 
         normalizedRows.push({
@@ -11791,7 +11791,8 @@ export async function registerRoutes(
           saleDate: saleDate || null,
           clientStatus,
           usageUnits: usageUnits?.toString() || null,
-          expectedAmountCents,
+          expectedAmountCents: 0,
+          paidAmountCents,
           rejectionReason,
           matchStatus: 'UNMATCHED',
           matchConfidence: 0,
@@ -11970,13 +11971,18 @@ export async function registerRoutes(
             });
             ambiguousCount++;
           } else {
-            // Matched
+            // Matched - set expectedAmountCents from matched order's gross commission
+            const matchedOrder = scored[0].order;
+            const grossCommissionCents = Math.round(
+              (parseFloat(matchedOrder.baseCommissionEarned || '0') + parseFloat(matchedOrder.incentiveEarned || '0')) * 100
+            );
             await storage.updateFinanceImportRow(row.id, {
-              matchedOrderId: scored[0].order.id,
+              matchedOrderId: matchedOrder.id,
               matchStatus: 'MATCHED',
               matchConfidence: scored[0].score,
+              expectedAmountCents: grossCommissionCents,
               matchReason: JSON.stringify({
-                orderId: scored[0].order.id,
+                orderId: matchedOrder.id,
                 score: scored[0].score,
                 reasons: scored[0].reasons
               })
@@ -12014,10 +12020,14 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Order not found" });
       }
 
+      const grossCommissionCents = Math.round(
+        (parseFloat(order.baseCommissionEarned || '0') + parseFloat(order.incentiveEarned || '0')) * 100
+      );
       await storage.updateFinanceImportRow(rowId, {
         matchedOrderId: orderId,
         matchStatus: 'MATCHED',
         matchConfidence: 100,
+        expectedAmountCents: grossCommissionCents,
         matchReason: JSON.stringify({ manual: true, matchedBy: req.user!.id })
       });
 
@@ -12076,6 +12086,7 @@ export async function registerRoutes(
           repName: row.repName,
           serviceType: row.serviceType,
           expectedAmountCents: row.expectedAmountCents,
+          paidAmountCents: row.paidAmountCents,
         }
       });
     } catch (error: any) {
@@ -12219,13 +12230,24 @@ export async function registerRoutes(
             // Create AR expectation if not exists
             const existingAr = await storage.getArExpectationByRowId(row.id);
             if (!existingAr) {
+              const expectedCents = row.expectedAmountCents || 0;
+              const paidCents = row.paidAmountCents || 0;
+              const varianceCents = expectedCents - paidCents;
+              let arStatus: string = 'OPEN';
+              if (paidCents > 0 && paidCents >= expectedCents) {
+                arStatus = 'SATISFIED';
+              } else if (paidCents > 0) {
+                arStatus = 'PARTIAL';
+              }
               await storage.createArExpectation({
                 clientId: financeImport.clientId,
                 orderId: row.matchedOrderId,
                 financeImportRowId: row.id,
-                expectedAmountCents: row.expectedAmountCents || 0,
+                expectedAmountCents: expectedCents,
+                actualAmountCents: paidCents,
+                varianceAmountCents: varianceCents,
                 expectedFromDate: row.saleDate || new Date().toISOString().split('T')[0],
-                status: 'OPEN'
+                status: arStatus
               });
               arCreated++;
             }

@@ -1834,6 +1834,7 @@ export const financeImportRows = pgTable("finance_import_rows", {
   clientStatus: text("client_status"), // Enrolled, Rejected, Pending
   usageUnits: decimal("usage_units", { precision: 12, scale: 4 }),
   expectedAmountCents: integer("expected_amount_cents"),
+  paidAmountCents: integer("paid_amount_cents"),
   rejectionReason: text("rejection_reason"),
   matchedOrderId: varchar("matched_order_id").references(() => salesOrders.id),
   matchStatus: financeMatchStatusEnum("match_status").notNull().default("UNMATCHED"),

@@ -44,6 +44,7 @@ interface FinanceImportRow {
   saleDate: string | null;
   clientStatus: string | null;
   expectedAmountCents: number | null;
+  paidAmountCents: number | null;
   matchStatus: string;
   matchedOrderId: string | null;
   matchConfidence: number | null;
@@ -1076,7 +1077,8 @@ export default function Finance() {
                             <TableHead>Service</TableHead>
                             <TableHead>Sale Date</TableHead>
                             <TableHead>Client Status</TableHead>
-                            <TableHead>Amount</TableHead>
+                            <TableHead>Expected</TableHead>
+                            <TableHead>Paid</TableHead>
                             <TableHead>Match Status</TableHead>
                             <TableHead>Confidence</TableHead>
                             <TableHead></TableHead>
@@ -1094,6 +1096,7 @@ export default function Finance() {
                               <TableCell>{row.saleDate ? new Date(row.saleDate).toLocaleDateString() : "—"}</TableCell>
                               <TableCell>{getClientStatusBadge(row.clientStatus || "")}</TableCell>
                               <TableCell>{row.expectedAmountCents ? formatCurrency(row.expectedAmountCents) : "—"}</TableCell>
+                              <TableCell>{row.paidAmountCents ? formatCurrency(row.paidAmountCents) : "—"}</TableCell>
                               <TableCell>{getStatusBadge(row.matchStatus)}</TableCell>
                               <TableCell>{row.matchConfidence ? `${row.matchConfidence}%` : "—"}</TableCell>
                               <TableCell>
@@ -1253,7 +1256,7 @@ export default function Finance() {
                           <div><strong>Customer:</strong> {reconcileData.importRow.customerName}</div>
                           <div><strong>Rep:</strong> {reconcileData.importRow.repName || "—"}</div>
                           <div><strong>Service:</strong> {reconcileData.importRow.serviceType || "—"}</div>
-                          <div><strong>Rate:</strong> {reconcileData.importRow.expectedAmountCents ? formatCurrency(reconcileData.importRow.expectedAmountCents) : "—"}</div>
+                          <div><strong>Paid (Rate):</strong> {reconcileData.importRow.paidAmountCents ? formatCurrency(reconcileData.importRow.paidAmountCents) : (reconcileData.importRow.expectedAmountCents ? formatCurrency(reconcileData.importRow.expectedAmountCents) : "—")}</div>
                         </div>
                         <div>
                           <div className="text-xs text-muted-foreground mb-1">Matched Order</div>
