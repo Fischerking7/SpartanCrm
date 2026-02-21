@@ -1378,7 +1378,14 @@ export async function registerRoutes(
     try {
       const user = req.user!;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const search = req.query.search as string | undefined;
       const viewMode = req.query.viewMode as string | undefined; // "own", "team", "global" for EXECUTIVE
+
+      if (search && search.length >= 2 && (user.role === "ADMIN" || user.role === "OPERATIONS")) {
+        const results = await storage.searchOrders(search, limit || 20);
+        return res.json(results);
+      }
+
       let orders;
 
       if (user.role === "ADMIN" || user.role === "OPERATIONS") {

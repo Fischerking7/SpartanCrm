@@ -855,6 +855,34 @@ export const storage = {
     }
     return db.query.salesOrders.findMany({ orderBy: [desc(salesOrders.createdAt)], limit: filter?.limit });
   },
+  async searchOrders(searchTerm: string, limit: number = 20) {
+    const term = `%${searchTerm}%`;
+    return db.select({
+      id: salesOrders.id,
+      customerName: salesOrders.customerName,
+      invoiceNumber: salesOrders.invoiceNumber,
+      accountNumber: salesOrders.accountNumber,
+      dateSold: salesOrders.dateSold,
+      approvalStatus: salesOrders.approvalStatus,
+      jobStatus: salesOrders.jobStatus,
+      repId: salesOrders.repId,
+      baseCommissionEarned: salesOrders.baseCommissionEarned,
+      incentiveEarned: salesOrders.incentiveEarned,
+      overrideDeduction: salesOrders.overrideDeduction,
+    })
+      .from(salesOrders)
+      .where(and(
+        ne(salesOrders.approvalStatus, 'REJECTED'),
+        or(
+          ilike(salesOrders.customerName, term),
+          ilike(salesOrders.invoiceNumber, term),
+          ilike(salesOrders.accountNumber, term)
+        )
+      ))
+      .orderBy(desc(salesOrders.dateSold))
+      .limit(limit);
+  },
+
   async getOrderById(id: string) {
     return db.query.salesOrders.findFirst({ where: eq(salesOrders.id, id) });
   },
