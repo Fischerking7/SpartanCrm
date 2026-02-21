@@ -86,7 +86,7 @@ export default function Finance() {
   const [matchFilter, setMatchFilter] = useState<string>("ALL");
   const [reportPeriod, setReportPeriod] = useState<string>("month");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [sheetList, setSheetList] = useState<Array<{ name: string; repName: string | null; repCode: string | null; rowCount: number; hasData: boolean; columns: string[] }>>([]);
+  const [sheetList, setSheetList] = useState<Array<{ name: string; repName: string | null; repCode: string | null; repNameSource: string | null; rowCount: number; hasData: boolean; columns: string[] }>>([]);
   const [showSheetPicker, setShowSheetPicker] = useState(false);
 
   const { data: clients } = useQuery<Client[]>({
@@ -1919,7 +1919,11 @@ export default function Finance() {
                     <div className="font-medium">{sheet.name}</div>
                     <div className="text-sm text-muted-foreground">
                       {sheet.rowCount} rows
-                      {sheet.repName && <span className="ml-2">· Rep: {sheet.repName}</span>}
+                      {sheet.repName && (
+                        <span className="ml-2">· Rep: <span className="font-medium text-foreground">{sheet.repName}</span>
+                          {sheet.repNameSource === 'tab_name' && <span className="text-xs ml-1">(from tab name)</span>}
+                        </span>
+                      )}
                       {sheet.repCode && <span className="ml-1">({sheet.repCode})</span>}
                     </div>
                   </div>

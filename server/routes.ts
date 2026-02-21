@@ -11557,16 +11557,22 @@ export async function registerRoutes(
       }
 
       const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const masterSheetNames = ['master', 'master report', 'summary', 'all reps', 'combined'];
       const sheets = workbook.SheetNames.map((name: string) => {
         const ws = workbook.Sheets[name];
         const allRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-        const repName = extractRepNameFromSheet(allRows);
+        let repName = extractRepNameFromSheet(allRows);
         const repCode = extractRepCodeFromSheet(allRows);
         const dataInfo = findDataTableInSheet(allRows);
+        const isMasterSheet = masterSheetNames.includes(name.toLowerCase().trim());
+        if (!repName && !isMasterSheet) {
+          repName = name.trim();
+        }
         return {
           name,
           repName,
           repCode,
+          repNameSource: repName ? (extractRepNameFromSheet(allRows) ? 'header' : 'tab_name') : null,
           rowCount: dataInfo.rows.length,
           hasData: dataInfo.rows.length > 0,
           preview: dataInfo.rows.slice(0, 3),
@@ -11623,6 +11629,12 @@ export async function registerRoutes(
         
         if (!detectedRepName) {
           detectedRepName = extractRepNameFromSheet(allRows);
+        }
+        if (!detectedRepName && selectedSheet) {
+          const masterSheetNames = ['master', 'master report', 'summary', 'all reps', 'combined'];
+          if (!masterSheetNames.includes(selectedSheet.toLowerCase().trim())) {
+            detectedRepName = selectedSheet.trim();
+          }
         }
         
         const dataInfo = findDataTableInSheet(allRows);
