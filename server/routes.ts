@@ -12582,7 +12582,15 @@ export async function registerRoutes(
       const status = req.query.status as string | undefined;
       const hasVariance = req.query.hasVariance === 'true' ? true : req.query.hasVariance === 'false' ? false : undefined;
       const expectations = await storage.getArExpectations(clientId, status, hasVariance);
-      res.json(expectations);
+      const enriched = await Promise.all(expectations.map(async (ar: any) => {
+        let repName: string | null = null;
+        if (ar.order?.repId) {
+          const repUser = await storage.getUserByRepId(ar.order.repId);
+          repName = repUser?.name || ar.order.repId;
+        }
+        return { ...ar, order: ar.order ? { ...ar.order, repName } : ar.order };
+      }));
+      res.json(enriched);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to get AR expectations" });
     }
@@ -12647,7 +12655,12 @@ export async function registerRoutes(
     try {
       const ar = await storage.getArExpectationById(req.params.id);
       if (!ar) return res.status(404).json({ message: "AR expectation not found" });
-      res.json(ar);
+      let repName: string | null = null;
+      if (ar.order?.repId) {
+        const repUser = await storage.getUserByRepId(ar.order.repId);
+        repName = repUser?.name || ar.order.repId;
+      }
+      res.json({ ...ar, order: ar.order ? { ...ar.order, repName } : ar.order });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to get AR expectation" });
     }

@@ -183,7 +183,7 @@ export default function Finance() {
   });
 
   const [arFilter, setArFilter] = useState<string>("ALL");
-  const [selectedAr, setSelectedAr] = useState<ArExpectation | null>(null);
+  const [selectedAr, setSelectedAr] = useState<any | null>(null);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [manualMatchRow, setManualMatchRow] = useState<FinanceImportRow | null>(null);
   const [orderSearchTerm, setOrderSearchTerm] = useState("");
@@ -1871,7 +1871,7 @@ export default function Finance() {
 
           {/* AR Detail Dialog */}
           <Dialog open={!!selectedAr && !showPaymentDialog} onOpenChange={(open) => !open && setSelectedAr(null)}>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>AR Details</DialogTitle>
                 <DialogDescription>
@@ -1911,113 +1911,259 @@ export default function Finance() {
                     </div>
                   </div>
 
-                  {editingExpected && (
-                    <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
-                      <div className="font-medium">Edit Expected Amount</div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <Label>New Amount ($)</Label>
-                          <Input 
-                            type="number" 
-                            step="0.01"
-                            value={newExpectedAmount}
-                            onChange={(e) => setNewExpectedAmount(e.target.value)}
-                            placeholder="0.00"
-                            data-testid="input-new-expected-amount"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Reason for Change</Label>
-                          <Input 
-                            value={expectedChangeReason}
-                            onChange={(e) => setExpectedChangeReason(e.target.value)}
-                            placeholder="e.g., Client correction, rate adjustment"
-                            data-testid="input-expected-change-reason"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex gap-2 justify-end">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            setEditingExpected(false);
-                            setNewExpectedAmount("");
-                            setExpectedChangeReason("");
-                          }}
-                          data-testid="button-cancel-edit-expected"
-                        >
-                          Cancel
-                        </Button>
-                        <Button 
-                          size="sm"
-                          onClick={() => {
-                            const amountCents = Math.round(parseFloat(newExpectedAmount) * 100);
-                            if (isNaN(amountCents) || amountCents < 0) {
-                              toast({ title: "Invalid Amount", description: "Please enter a valid amount", variant: "destructive" });
-                              return;
-                            }
-                            updateExpectedAmountMutation.mutate({ 
-                              id: selectedAr.id, 
-                              amountCents, 
-                              reason: expectedChangeReason 
-                            });
-                          }}
-                          disabled={updateExpectedAmountMutation.isPending || !newExpectedAmount}
-                          data-testid="button-save-expected"
-                        >
-                          {updateExpectedAmountMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
+                  <Tabs defaultValue="order-details" className="w-full">
+                    <TabsList className="grid w-full grid-cols-3">
+                      <TabsTrigger value="order-details" data-testid="tab-order-details">Order Details</TabsTrigger>
+                      <TabsTrigger value="financials" data-testid="tab-financials">Financials</TabsTrigger>
+                      <TabsTrigger value="payments" data-testid="tab-payments">
+                        Payments {selectedAr.payments?.length ? `(${selectedAr.payments.length})` : ""}
+                      </TabsTrigger>
+                    </TabsList>
 
-                  {selectedAr.hasVariance && (
-                    <div className="space-y-2">
-                      <Label>Variance Reason</Label>
-                      <div className="flex gap-2">
-                        <Input 
-                          value={varianceReason || selectedAr.varianceReason || ""} 
-                          onChange={(e) => setVarianceReason(e.target.value)}
-                          placeholder="Explain the variance..."
-                          data-testid="input-variance-reason"
-                        />
-                        <Button 
-                          onClick={() => updateVarianceReasonMutation.mutate({ id: selectedAr.id, reason: varianceReason })}
-                          disabled={updateVarianceReasonMutation.isPending}
-                          data-testid="button-save-variance-reason"
-                        >
-                          Save
-                        </Button>
-                      </div>
-                    </div>
-                  )}
+                    <TabsContent value="order-details" className="space-y-3 mt-3">
+                      {selectedAr.order ? (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                            <div>
+                              <div className="text-muted-foreground">Invoice Number</div>
+                              <div className="font-medium" data-testid="text-ar-invoice">{selectedAr.order.invoiceNumber || "-"}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Customer Name</div>
+                              <div className="font-medium" data-testid="text-ar-customer">{selectedAr.order.customerName}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Sales Rep</div>
+                              <div className="font-medium" data-testid="text-ar-rep">{(selectedAr.order as any).repName || selectedAr.order.repId || "-"}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Client</div>
+                              <div className="font-medium" data-testid="text-ar-client">{selectedAr.client?.name || "-"}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Provider</div>
+                              <div className="font-medium" data-testid="text-ar-provider">{(selectedAr.order as any).provider?.name || "-"}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Service Type</div>
+                              <div className="font-medium" data-testid="text-ar-service">{(selectedAr.order as any).service?.name || "-"}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Date Sold</div>
+                              <div className="font-medium" data-testid="text-ar-date-sold">{selectedAr.order.dateSold ? new Date(selectedAr.order.dateSold).toLocaleDateString() : "-"}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Install Date</div>
+                              <div className="font-medium" data-testid="text-ar-install-date">{selectedAr.order.installDate ? new Date(selectedAr.order.installDate).toLocaleDateString() : "-"}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Job Status</div>
+                              <div className="font-medium" data-testid="text-ar-job-status">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                  selectedAr.order.jobStatus === "COMPLETED" ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" :
+                                  selectedAr.order.jobStatus === "PENDING" ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400" :
+                                  "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
+                                }`}>{selectedAr.order.jobStatus}</span>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Approval Status</div>
+                              <div className="font-medium" data-testid="text-ar-approval-status">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                  selectedAr.order.approvalStatus === "APPROVED" ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" :
+                                  selectedAr.order.approvalStatus === "REJECTED" ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" :
+                                  "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                }`}>{selectedAr.order.approvalStatus}</span>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Account Number</div>
+                              <div className="font-medium" data-testid="text-ar-account">{selectedAr.order.accountNumber || "-"}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Customer Address</div>
+                              <div className="font-medium" data-testid="text-ar-address">{selectedAr.order.customerAddress || "-"}</div>
+                            </div>
+                          </div>
+                          {(selectedAr.order.tvSold || selectedAr.order.mobileSold) && (
+                            <div className="flex gap-2 mt-2">
+                              {selectedAr.order.tvSold && <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">TV Sold</span>}
+                              {selectedAr.order.mobileSold && <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">Mobile Sold ({selectedAr.order.mobileLinesQty} lines)</span>}
+                            </div>
+                          )}
+                          {selectedAr.order.notes && (
+                            <div className="mt-2">
+                              <div className="text-sm text-muted-foreground">Notes</div>
+                              <div className="text-sm bg-muted/30 p-2 rounded">{selectedAr.order.notes}</div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground text-center py-4">No order linked to this AR record</div>
+                      )}
+                    </TabsContent>
 
-                  {selectedAr.payments && selectedAr.payments.length > 0 && (
-                    <div className="space-y-2">
-                      <Label>Payment History</Label>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Amount</TableHead>
-                            <TableHead>Reference</TableHead>
-                            <TableHead>Recorded By</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {selectedAr.payments.map((p) => (
-                            <TableRow key={p.id}>
-                              <TableCell>{new Date(p.paymentDate).toLocaleDateString()}</TableCell>
-                              <TableCell>{formatCurrency(p.amountCents)}</TableCell>
-                              <TableCell>{p.paymentReference || "-"}</TableCell>
-                              <TableCell>{p.recordedBy?.name || "-"}</TableCell>
+                    <TabsContent value="financials" className="space-y-3 mt-3">
+                      {selectedAr.order ? (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                            <div>
+                              <div className="text-muted-foreground">Base Commission</div>
+                              <div className="font-medium" data-testid="text-ar-base-comm">${parseFloat(selectedAr.order.baseCommissionEarned || "0").toFixed(2)}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Incentive Earned</div>
+                              <div className="font-medium" data-testid="text-ar-incentive">${parseFloat(selectedAr.order.incentiveEarned || "0").toFixed(2)}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Override Deduction</div>
+                              <div className="font-medium" data-testid="text-ar-override">${parseFloat(selectedAr.order.overrideDeduction || "0").toFixed(2)}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Gross Commission</div>
+                              <div className="font-medium text-green-600" data-testid="text-ar-gross">
+                                ${(parseFloat(selectedAr.order.baseCommissionEarned || "0") + parseFloat(selectedAr.order.incentiveEarned || "0") + parseFloat(selectedAr.order.overrideDeduction || "0")).toFixed(2)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Net Commission (Rep Payout)</div>
+                              <div className="font-medium" data-testid="text-ar-net">
+                                ${(parseFloat(selectedAr.order.baseCommissionEarned || "0") + parseFloat(selectedAr.order.incentiveEarned || "0")).toFixed(2)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Commission Source</div>
+                              <div className="font-medium" data-testid="text-ar-source">{selectedAr.order.commissionSource || "-"}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Payment Status</div>
+                              <div className="font-medium" data-testid="text-ar-pay-status">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                  selectedAr.order.paymentStatus === "PAID" ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" :
+                                  "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                }`}>{selectedAr.order.paymentStatus}</span>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Commission Paid</div>
+                              <div className="font-medium" data-testid="text-ar-comm-paid">${parseFloat(selectedAr.order.commissionPaid || "0").toFixed(2)}</div>
+                            </div>
+                          </div>
+
+                          {editingExpected && (
+                            <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                              <div className="font-medium">Edit Expected Amount</div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <Label>New Amount ($)</Label>
+                                  <Input 
+                                    type="number" 
+                                    step="0.01"
+                                    value={newExpectedAmount}
+                                    onChange={(e) => setNewExpectedAmount(e.target.value)}
+                                    placeholder="0.00"
+                                    data-testid="input-new-expected-amount"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label>Reason for Change</Label>
+                                  <Input 
+                                    value={expectedChangeReason}
+                                    onChange={(e) => setExpectedChangeReason(e.target.value)}
+                                    placeholder="e.g., Client correction, rate adjustment"
+                                    data-testid="input-expected-change-reason"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex gap-2 justify-end">
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingExpected(false);
+                                    setNewExpectedAmount("");
+                                    setExpectedChangeReason("");
+                                  }}
+                                  data-testid="button-cancel-edit-expected"
+                                >
+                                  Cancel
+                                </Button>
+                                <Button 
+                                  size="sm"
+                                  onClick={() => {
+                                    const amountCents = Math.round(parseFloat(newExpectedAmount) * 100);
+                                    if (isNaN(amountCents) || amountCents < 0) {
+                                      toast({ title: "Invalid Amount", description: "Please enter a valid amount", variant: "destructive" });
+                                      return;
+                                    }
+                                    updateExpectedAmountMutation.mutate({ 
+                                      id: selectedAr.id, 
+                                      amountCents, 
+                                      reason: expectedChangeReason 
+                                    });
+                                  }}
+                                  disabled={updateExpectedAmountMutation.isPending || !newExpectedAmount}
+                                  data-testid="button-save-expected"
+                                >
+                                  {updateExpectedAmountMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
+                          {selectedAr.hasVariance && (
+                            <div className="space-y-2">
+                              <Label>Variance Reason</Label>
+                              <div className="flex gap-2">
+                                <Input 
+                                  value={varianceReason || selectedAr.varianceReason || ""} 
+                                  onChange={(e) => setVarianceReason(e.target.value)}
+                                  placeholder="Explain the variance..."
+                                  data-testid="input-variance-reason"
+                                />
+                                <Button 
+                                  onClick={() => updateVarianceReasonMutation.mutate({ id: selectedAr.id, reason: varianceReason })}
+                                  disabled={updateVarianceReasonMutation.isPending}
+                                  data-testid="button-save-variance-reason"
+                                >
+                                  Save
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground text-center py-4">No order linked to this AR record</div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="payments" className="space-y-3 mt-3">
+                      {selectedAr.payments && selectedAr.payments.length > 0 ? (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Amount</TableHead>
+                              <TableHead>Reference</TableHead>
+                              <TableHead>Recorded By</TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
+                          </TableHeader>
+                          <TableBody>
+                            {selectedAr.payments.map((p) => (
+                              <TableRow key={p.id}>
+                                <TableCell>{new Date(p.paymentDate).toLocaleDateString()}</TableCell>
+                                <TableCell>{formatCurrency(p.amountCents)}</TableCell>
+                                <TableCell>{p.paymentReference || "-"}</TableCell>
+                                <TableCell>{p.recordedBy?.name || "-"}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      ) : (
+                        <div className="text-sm text-muted-foreground text-center py-4">No payments recorded yet</div>
+                      )}
+                    </TabsContent>
+                  </Tabs>
                 </div>
               )}
               <DialogFooter className="flex-wrap gap-2">

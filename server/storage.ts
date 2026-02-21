@@ -4049,14 +4049,14 @@ export const storage = {
     return db.query.arExpectations.findMany({
       where: conditions.length > 0 ? and(...conditions) : undefined,
       orderBy: [desc(arExpectations.createdAt)],
-      with: { client: true, order: true, payments: true }
+      with: { client: true, order: { with: { provider: true, service: true } }, payments: true }
     });
   },
 
   async getArExpectationById(id: string) {
     return db.query.arExpectations.findFirst({
       where: eq(arExpectations.id, id),
-      with: { client: true, order: true, payments: { with: { recordedBy: true } } }
+      with: { client: true, order: { with: { provider: true, service: true } }, payments: { with: { recordedBy: true } } }
     });
   },
 
