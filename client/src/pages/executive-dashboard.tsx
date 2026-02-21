@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Eye } from "lucide-react";
+import AdminDashboard from "./admin-dashboard";
 
 type Cadence = "WEEK" | "MONTH";
 
@@ -104,6 +105,7 @@ interface ProductionData {
 
 export default function ExecutiveDashboard() {
   const { user } = useAuth();
+  const [viewMode, setViewMode] = useState<"my" | "global">("my");
   const [cadence, setCadence] = useState<Cadence>("WEEK");
   const [drillDownManager, setDrillDownManager] = useState<{ id: string; name: string } | null>(null);
 
@@ -229,27 +231,61 @@ export default function ExecutiveDashboard() {
     },
   ];
 
+  if (viewMode === "global") {
+    return (
+      <div>
+        <div className="px-6 pt-6 pb-0 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold" data-testid="text-exec-dashboard-title">Dashboard</h1>
+            <p className="text-muted-foreground">Organization-wide overview</p>
+          </div>
+          <div className="flex items-center gap-1 bg-muted rounded-lg p-1" data-testid="exec-dashboard-view-toggle">
+            <Eye className="h-4 w-4 ml-2 text-muted-foreground" />
+            <Button size="sm" variant="ghost" onClick={() => setViewMode("my")} data-testid="button-exec-view-my">
+              My Content
+            </Button>
+            <Button size="sm" variant="default" onClick={() => setViewMode("global")} data-testid="button-exec-view-global">
+              Global
+            </Button>
+          </div>
+        </div>
+        <AdminDashboard hideHeader />
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">Organization Dashboard</h1>
+          <h1 className="text-2xl font-semibold" data-testid="text-exec-dashboard-title">Dashboard</h1>
           <p className="text-muted-foreground">
             Welcome back, {user?.name}
           </p>
         </div>
-        <div className="flex gap-1 bg-muted p-1 rounded-md">
-          {(["WEEK", "MONTH"] as Cadence[]).map((c) => (
-            <Button
-              key={c}
-              variant={cadence === c ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setCadence(c)}
-              data-testid={`button-cadence-${c.toLowerCase()}`}
-            >
-              {cadenceLabels[c]}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-muted rounded-lg p-1" data-testid="exec-dashboard-view-toggle">
+            <Eye className="h-4 w-4 ml-2 text-muted-foreground" />
+            <Button size="sm" variant="default" onClick={() => setViewMode("my")} data-testid="button-exec-view-my">
+              My Content
             </Button>
-          ))}
+            <Button size="sm" variant="ghost" onClick={() => setViewMode("global")} data-testid="button-exec-view-global">
+              Global
+            </Button>
+          </div>
+          <div className="flex gap-1 bg-muted p-1 rounded-md">
+            {(["WEEK", "MONTH"] as Cadence[]).map((c) => (
+              <Button
+                key={c}
+                variant={cadence === c ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setCadence(c)}
+                data-testid={`button-cadence-${c.toLowerCase()}`}
+              >
+                {cadenceLabels[c]}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 

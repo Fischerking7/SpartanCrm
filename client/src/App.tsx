@@ -14,6 +14,7 @@ import Login from "@/pages/login";
 import ChangePassword from "@/pages/change-password";
 import SalesDashboard from "@/pages/sales-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
+import ExecutiveDashboard from "@/pages/executive-dashboard";
 import Orders from "@/pages/orders";
 import Leads from "@/pages/leads";
 import Commissions from "@/pages/commissions";
@@ -60,8 +61,9 @@ function Dashboard() {
   switch (user.role) {
     case "OPERATIONS":
     case "ADMIN":
-    case "EXECUTIVE":
       return <AdminDashboard />;
+    case "EXECUTIVE":
+      return <ExecutiveDashboard />;
     default:
       return <SalesDashboard />;
   }

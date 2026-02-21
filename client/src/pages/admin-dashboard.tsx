@@ -33,7 +33,7 @@ interface AdminStats {
   pendingAdjustments: number;
 }
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ hideHeader = false }: { hideHeader?: boolean }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const isFounder = user?.role === "OPERATIONS";
@@ -137,12 +137,14 @@ export default function AdminDashboard() {
 
   return (
     <div className="p-6 space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Admin Dashboard</h1>
-        <p className="text-muted-foreground">
-          System overview and quick actions
-        </p>
-      </div>
+      {!hideHeader && (
+        <div>
+          <h1 className="text-2xl font-semibold">Admin Dashboard</h1>
+          <p className="text-muted-foreground">
+            System overview and quick actions
+          </p>
+        </div>
+      )}
 
       {statsLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
