@@ -4825,6 +4825,17 @@ export async function registerRoutes(
       // Validate row count
       if (!validateRowCount(rows, res)) return;
 
+      // Determine total column count from header row for complete-row validation
+      // xlsx sheet_to_json only includes keys for cells with data, so we need
+      // to know the total columns to detect rows with blank cells
+      const allHeaderKeys = new Set<string>();
+      for (const row of rows) {
+        for (const key of Object.keys(row)) {
+          allHeaderKeys.add(key);
+        }
+      }
+      const totalColumnCount = allHeaderKeys.size;
+
       const errors: string[] = [];
       let success = 0;
       let failed = 0;
@@ -4891,15 +4902,20 @@ export async function registerRoutes(
         console.log("Excel import - normalized columns:", colNames.map(normalizeColumnName));
       }
 
-      console.log(`[Leads Import] Total rows parsed from Excel: ${rows.length}`);
+      console.log(`[Leads Import] Total rows parsed from Excel: ${rows.length}, total columns detected: ${totalColumnCount}`);
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const rowNum = i + 2;
 
-        // Skip completely empty rows or rows with only whitespace values
-        const rowValues = Object.values(row).map(v => v?.toString().trim() || "").filter(v => v.length > 0);
-        if (rowValues.length === 0) {
+        // Skip rows where any column has a blank/empty value
+        // xlsx only includes keys for cells with data, so a row missing keys = blank cells
+        const rowKeyCount = Object.keys(row).length;
+        const filledCount = Object.values(row).filter(v => {
+          const s = v?.toString().trim();
+          return s && s.length > 0;
+        }).length;
+        if (rowKeyCount < totalColumnCount || filledCount < totalColumnCount) {
           skipped++;
           continue;
         }
