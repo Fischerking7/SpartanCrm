@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, FileText, DollarSign, BarChart3, ArrowRight, Link2, Loader2, RefreshCw, Eye, Check, X, Pencil, Search } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, FileText, DollarSign, BarChart3, ArrowRight, Link2, Loader2, RefreshCw, Eye, Check, X, Pencil, Search, Download } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -1413,19 +1413,49 @@ export default function Finance() {
                   Track expected payments from clients and record actual receipts
                 </CardDescription>
               </div>
-              <Select value={arFilter} onValueChange={setArFilter}>
-                <SelectTrigger className="w-[150px]" data-testid="select-ar-filter">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All</SelectItem>
-                  <SelectItem value="OPEN">Open</SelectItem>
-                  <SelectItem value="PARTIAL">Partial</SelectItem>
-                  <SelectItem value="SATISFIED">Satisfied</SelectItem>
-                  <SelectItem value="WRITTEN_OFF">Written Off</SelectItem>
-                  <SelectItem value="VARIANCE">With Variance</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <Select value={arFilter} onValueChange={setArFilter}>
+                  <SelectTrigger className="w-[150px]" data-testid="select-ar-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All</SelectItem>
+                    <SelectItem value="OPEN">Open</SelectItem>
+                    <SelectItem value="PARTIAL">Partial</SelectItem>
+                    <SelectItem value="SATISFIED">Satisfied</SelectItem>
+                    <SelectItem value="WRITTEN_OFF">Written Off</SelectItem>
+                    <SelectItem value="VARIANCE">With Variance</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      let url = "/api/finance/ar/export";
+                      if (arFilter === "VARIANCE") url += "?hasVariance=true";
+                      else if (arFilter !== "ALL") url += `?status=${arFilter}`;
+                      const res = await fetch(url, { headers: getAuthHeaders() });
+                      if (!res.ok) throw new Error("Export failed");
+                      const blob = await res.blob();
+                      const link = document.createElement("a");
+                      link.href = URL.createObjectURL(blob);
+                      link.download = `ar-export-${new Date().toISOString().split("T")[0]}.csv`;
+                      document.body.appendChild(link);
+                      link.click();
+                      URL.revokeObjectURL(link.href);
+                      document.body.removeChild(link);
+                      toast({ title: "AR Exported", description: "CSV file downloaded successfully" });
+                    } catch {
+                      toast({ title: "Export failed", variant: "destructive" });
+                    }
+                  }}
+                  data-testid="button-export-ar"
+                >
+                  <Download className="h-4 w-4 mr-1" />
+                  Export CSV
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {arExpectations && arExpectations.length > 0 ? (

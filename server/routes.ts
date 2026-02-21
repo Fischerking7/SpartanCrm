@@ -12144,6 +12144,51 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/finance/ar/export", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const clientId = req.query.clientId as string | undefined;
+      const status = req.query.status as string | undefined;
+      const hasVariance = req.query.hasVariance === 'true' ? true : req.query.hasVariance === 'false' ? false : undefined;
+      const expectations = await storage.getArExpectations(clientId, status, hasVariance);
+
+      const header = "Client,Invoice Number,Customer Name,Status,Expected Amount,Amount Paid,Balance,Variance,Variance Reason,Has Variance,Expected From Date,Satisfied At,Written Off At,Written Off Reason,Created At\n";
+      const rows = expectations.map((ar: any) => {
+        const expectedDollars = (ar.expectedAmountCents / 100).toFixed(2);
+        const actualDollars = (ar.actualAmountCents / 100).toFixed(2);
+        const balanceDollars = ((ar.expectedAmountCents - ar.actualAmountCents) / 100).toFixed(2);
+        const varianceDollars = (ar.varianceAmountCents / 100).toFixed(2);
+        const esc = (v: string | null | undefined) => {
+          if (!v) return '';
+          return `"${v.replace(/"/g, '""')}"`;
+        };
+        return [
+          esc(ar.client?.name || ar.clientId),
+          esc(ar.order?.invoiceNumber || ''),
+          esc(ar.order?.customerName || ''),
+          ar.status,
+          expectedDollars,
+          actualDollars,
+          balanceDollars,
+          varianceDollars,
+          esc(ar.varianceReason),
+          ar.hasVariance ? 'Yes' : 'No',
+          ar.expectedFromDate || '',
+          ar.satisfiedAt ? new Date(ar.satisfiedAt).toISOString().split('T')[0] : '',
+          ar.writtenOffAt ? new Date(ar.writtenOffAt).toISOString().split('T')[0] : '',
+          esc(ar.writtenOffReason),
+          ar.createdAt ? new Date(ar.createdAt).toISOString().split('T')[0] : '',
+        ].join(',');
+      });
+
+      const csv = header + rows.join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="ar-export-${new Date().toISOString().split('T')[0]}.csv"`);
+      res.send(csv);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to export AR" });
+    }
+  });
+
   app.get("/api/finance/ar/summary", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const summary = await storage.getArSummaryByClient();
