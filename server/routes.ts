@@ -28,7 +28,7 @@ const authLimiter = rateLimit({
 });
 
 // File upload validation constants
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const MAX_ROW_COUNT = 10000;
 const ALLOWED_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // xlsx
