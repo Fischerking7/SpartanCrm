@@ -1351,7 +1351,23 @@ export default function Orders() {
             <Plus className="h-4 w-4 mr-2" />
             New Order
           </Button>
-          <Button variant="outline" onClick={() => setShowMobileOrderDialog(true)} data-testid="button-mobile-entry">
+          <Button variant="outline" onClick={() => {
+            if (selectedOrder) {
+              setMobileOrderForm({
+                providerId: selectedOrder.providerId || "",
+                clientId: selectedOrder.clientId || "",
+                serviceId: "",
+                customerName: selectedOrder.customerName || "",
+                dateSold: selectedOrder.dateSold || "",
+                customerPhone: selectedOrder.customerPhone || "",
+                customerAddress: selectedOrder.customerAddress || "",
+                accountNumber: selectedOrder.accountNumber || "",
+                repId: selectedOrder.repId || "",
+                mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
+              });
+            }
+            setShowMobileOrderDialog(true);
+          }} data-testid="button-mobile-entry">
             <Smartphone className="h-4 w-4 mr-2" />
             Mobile Entry
           </Button>
