@@ -4816,7 +4816,7 @@ export async function registerRoutes(
       const workbook = validation.workbook;
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet) as Record<string, any>[];
+      const rows = XLSX.utils.sheet_to_json(sheet, { blankrows: false }) as Record<string, any>[];
 
       if (rows.length === 0) {
         return res.status(400).json({ message: "Excel file is empty" });
@@ -4828,6 +4828,7 @@ export async function registerRoutes(
       const errors: string[] = [];
       let success = 0;
       let failed = 0;
+      let skipped = 0;
 
       // Get users for validation
       const users = await storage.getUsers();
@@ -4890,9 +4891,18 @@ export async function registerRoutes(
         console.log("Excel import - normalized columns:", colNames.map(normalizeColumnName));
       }
 
+      console.log(`[Leads Import] Total rows parsed from Excel: ${rows.length}`);
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const rowNum = i + 2;
+
+        // Skip completely empty rows or rows with only whitespace values
+        const rowValues = Object.values(row).map(v => v?.toString().trim() || "").filter(v => v.length > 0);
+        if (rowValues.length === 0) {
+          skipped++;
+          continue;
+        }
 
         try {
           // Determine repId for this lead:
@@ -5004,15 +5014,17 @@ export async function registerRoutes(
         }
       }
 
+      console.log(`[Leads Import] Results: ${success} imported, ${failed} failed, ${skipped} empty rows skipped, ${rows.length} total rows parsed`);
+
       // Audit log
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "leads_import",
         tableName: "leads",
-        afterJson: JSON.stringify({ success, failed, totalRows: rows.length }),
+        afterJson: JSON.stringify({ success, failed, skipped, totalRows: rows.length }),
       });
 
-      res.json({ success, failed, errors: errors.slice(0, 20) });
+      res.json({ success, failed, skipped, errors: errors.slice(0, 20) });
     } catch (error: any) {
       console.error("Lead import error:", error);
       res.status(500).json({ message: error.message || "Failed to import leads" });

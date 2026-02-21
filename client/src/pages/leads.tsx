@@ -669,7 +669,7 @@ export default function Leads() {
       if (result.success > 0) {
         toast({
           title: "Import completed",
-          description: `Successfully imported ${result.success} leads${result.failed > 0 ? `, ${result.failed} failed` : ""}`,
+          description: `Successfully imported ${result.success} leads${result.failed > 0 ? `, ${result.failed} failed` : ""}${result.skipped > 0 ? `, ${result.skipped} empty rows skipped` : ""}`,
         });
       }
     } catch (error: any) {
