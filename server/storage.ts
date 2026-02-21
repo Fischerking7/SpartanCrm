@@ -4137,7 +4137,6 @@ export const storage = {
       eq(salesOrders.approvalStatus, 'APPROVED'),
       gte(salesOrders.dateSold, saleDateStart),
       lte(salesOrders.dateSold, saleDateEnd),
-      isNull(salesOrders.clientAcceptedAt)
     ];
     if (clientId) {
       conditions.push(eq(salesOrders.clientId, clientId));
