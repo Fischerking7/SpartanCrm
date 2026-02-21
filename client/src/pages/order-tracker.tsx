@@ -30,6 +30,8 @@ import {
   Loader2,
   StickyNote,
   Plus,
+  Smartphone,
+  Trash2,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,6 +39,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from "@/hooks/use-toast";
 import type { SalesOrder, Client, Provider, Service, User as UserType } from "@shared/schema";
 import { Link } from "wouter";
+
+interface MobileLineEntry {
+  mobileProductType: string;
+  mobilePortedStatus: string;
+}
 
 type OrderStatus = "pending" | "completed" | "approved" | "paid" | "rejected" | "canceled";
 
@@ -479,6 +486,52 @@ export default function OrderTracker() {
     });
   };
 
+  const [showMobileOrderDialog, setShowMobileOrderDialog] = useState(false);
+  const [mobileOrderForm, setMobileOrderForm] = useState({
+    repId: "",
+    clientId: "",
+    providerId: "",
+    serviceId: "",
+    dateSold: "",
+    customerName: "",
+    customerPhone: "",
+    customerAddress: "",
+    accountNumber: "",
+    mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }] as MobileLineEntry[],
+  });
+
+  const addMobileLine = () => {
+    setMobileOrderForm(f => ({
+      ...f,
+      mobileLines: [...f.mobileLines, { mobileProductType: "", mobilePortedStatus: "" }]
+    }));
+  };
+
+  const removeMobileLine = (index: number) => {
+    setMobileOrderForm(f => ({
+      ...f,
+      mobileLines: f.mobileLines.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateMobileLine = (index: number, field: keyof MobileLineEntry, value: string) => {
+    setMobileOrderForm(f => ({
+      ...f,
+      mobileLines: f.mobileLines.map((line, i) =>
+        i === index ? { ...line, [field]: value } : line
+      )
+    }));
+  };
+
+  const resetMobileOrderForm = () => {
+    setMobileOrderForm({
+      repId: "", clientId: "", providerId: "", serviceId: "",
+      dateSold: "", customerName: "", customerPhone: "", customerAddress: "",
+      accountNumber: "",
+      mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
+    });
+  };
+
   const { data: orders, isLoading } = useQuery<SalesOrder[]>({
     queryKey: ["/api/orders"],
     queryFn: async () => {
@@ -538,6 +591,54 @@ export default function OrderTracker() {
       return res.json();
     },
     enabled: showNewOrderDialog && !!newOrderForm.clientId && !!newOrderForm.providerId,
+  });
+
+  const { data: mobileAvailableServices } = useQuery<Service[]>({
+    queryKey: ["/api/services/available", mobileOrderForm.clientId, mobileOrderForm.providerId, "mobile"],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (mobileOrderForm.clientId) params.append("clientId", mobileOrderForm.clientId);
+      if (mobileOrderForm.providerId) params.append("providerId", mobileOrderForm.providerId);
+      const res = await fetch(`/api/services/available?${params}`, { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: showMobileOrderDialog && !!mobileOrderForm.clientId && !!mobileOrderForm.providerId,
+  });
+
+  const createMobileOrderMutation = useMutation({
+    mutationFn: async (orderData: typeof mobileOrderForm) => {
+      const res = await fetch("/api/orders/mobile", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repId: isAdmin ? orderData.repId : user?.repId,
+          clientId: orderData.clientId || null,
+          providerId: orderData.providerId || null,
+          serviceId: orderData.serviceId || null,
+          dateSold: orderData.dateSold,
+          customerName: orderData.customerName,
+          customerPhone: orderData.customerPhone || null,
+          customerAddress: orderData.customerAddress || null,
+          accountNumber: orderData.accountNumber || null,
+          mobileLines: orderData.mobileLines,
+        }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create mobile order");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setShowMobileOrderDialog(false);
+      resetMobileOrderForm();
+      toast({ title: "Mobile order created successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to create mobile order", description: error.message, variant: "destructive" });
+    },
   });
 
   const createOrderMutation = useMutation({
@@ -715,6 +816,26 @@ export default function OrderTracker() {
           <Button onClick={() => setShowNewOrderDialog(true)} data-testid="button-new-order-tracker">
             <Plus className="h-4 w-4 mr-1.5" />
             New Order
+          </Button>
+          <Button variant="outline" onClick={() => {
+            if (selectedOrder) {
+              setMobileOrderForm({
+                providerId: selectedOrder.providerId || "",
+                clientId: selectedOrder.clientId || "",
+                serviceId: "",
+                customerName: selectedOrder.customerName || "",
+                dateSold: selectedOrder.dateSold || "",
+                customerPhone: selectedOrder.customerPhone || "",
+                customerAddress: selectedOrder.customerAddress || "",
+                accountNumber: selectedOrder.accountNumber || "",
+                repId: selectedOrder.repId || "",
+                mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
+              });
+            }
+            setShowMobileOrderDialog(true);
+          }} data-testid="button-mobile-entry-tracker">
+            <Smartphone className="h-4 w-4 mr-1.5" />
+            Mobile Entry
           </Button>
           <Link href="/orders">
             <Button variant="outline" data-testid="link-full-orders">
@@ -1151,6 +1272,192 @@ export default function OrderTracker() {
               canSeeCommissions={canSeeCommissions}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMobileOrderDialog} onOpenChange={(open) => { setShowMobileOrderDialog(open); if (!open) resetMobileOrderForm(); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Smartphone className="h-5 w-5" />
+              Create Mobile Order
+            </DialogTitle>
+            <DialogDescription>
+              Create a new mobile-only order with separate commission tracking.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {isAdmin && (
+              <div className="space-y-2">
+                <Label>Rep ID *</Label>
+                <Input
+                  placeholder="Enter rep ID"
+                  value={mobileOrderForm.repId}
+                  onChange={(e) => setMobileOrderForm(f => ({ ...f, repId: e.target.value }))}
+                  data-testid="input-mobile-rep-id-tracker"
+                />
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Provider *</Label>
+                <Select value={mobileOrderForm.providerId} onValueChange={(v) => setMobileOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}>
+                  <SelectTrigger data-testid="select-mobile-provider-tracker">
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {providers?.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Client *</Label>
+                <Select value={mobileOrderForm.clientId} onValueChange={(v) => setMobileOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}>
+                  <SelectTrigger data-testid="select-mobile-client-tracker">
+                    <SelectValue placeholder="Select client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Service *</Label>
+              <Select value={mobileOrderForm.serviceId} onValueChange={(v) => setMobileOrderForm(f => ({ ...f, serviceId: v }))}>
+                <SelectTrigger data-testid="select-mobile-service-tracker">
+                  <SelectValue placeholder={mobileAvailableServices?.length ? "Select service" : "Select provider & client first"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(mobileAvailableServices || []).map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Customer Name *</Label>
+                <Input
+                  placeholder="Enter customer name"
+                  value={mobileOrderForm.customerName}
+                  onChange={(e) => setMobileOrderForm(f => ({ ...f, customerName: e.target.value }))}
+                  data-testid="input-mobile-customer-name-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Date Sold *</Label>
+                <Input
+                  type="date"
+                  value={mobileOrderForm.dateSold}
+                  onChange={(e) => setMobileOrderForm(f => ({ ...f, dateSold: e.target.value }))}
+                  data-testid="input-mobile-date-sold-tracker"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Customer Phone</Label>
+                <Input
+                  placeholder="Enter phone number"
+                  value={mobileOrderForm.customerPhone}
+                  onChange={(e) => setMobileOrderForm(f => ({ ...f, customerPhone: e.target.value }))}
+                  data-testid="input-mobile-customer-phone-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Account Number</Label>
+                <Input
+                  placeholder="Enter account number"
+                  value={mobileOrderForm.accountNumber}
+                  onChange={(e) => setMobileOrderForm(f => ({ ...f, accountNumber: e.target.value }))}
+                  data-testid="input-mobile-account-number-tracker"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Customer Address</Label>
+              <Textarea
+                placeholder="Enter customer address"
+                value={mobileOrderForm.customerAddress}
+                onChange={(e) => setMobileOrderForm(f => ({ ...f, customerAddress: e.target.value }))}
+                data-testid="input-mobile-customer-address-tracker"
+              />
+            </div>
+            <div className="space-y-3 border rounded-md p-4 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Mobile Lines ({mobileOrderForm.mobileLines.length})</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addMobileLine}
+                  data-testid="button-add-mobile-line-tracker"
+                >
+                  <Plus className="h-4 w-4 mr-1" /> Add Line
+                </Button>
+              </div>
+              {mobileOrderForm.mobileLines.map((line, index) => (
+                <div key={index} className="flex items-center gap-3 p-2 bg-background rounded-md border">
+                  <span className="text-sm text-muted-foreground w-8">#{index + 1}</span>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm">Product:</Label>
+                    <Select
+                      value={line.mobileProductType || "__none__"}
+                      onValueChange={(v) => updateMobileLine(index, "mobileProductType", v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger className="w-28" data-testid={`select-mobile-product-type-tracker-${index}`}>
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Select</SelectItem>
+                        <SelectItem value="UNLIMITED">Unlimited</SelectItem>
+                        <SelectItem value="3_GIG">3 Gig</SelectItem>
+                        <SelectItem value="1_GIG">1 Gig</SelectItem>
+                        <SelectItem value="BYOD">BYOD</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm">Ported:</Label>
+                    <Select
+                      value={line.mobilePortedStatus || "__none__"}
+                      onValueChange={(v) => updateMobileLine(index, "mobilePortedStatus", v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger className="w-28" data-testid={`select-mobile-ported-status-tracker-${index}`}>
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Select</SelectItem>
+                        <SelectItem value="PORTED">Ported</SelectItem>
+                        <SelectItem value="NON_PORTED">Non-Ported</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeMobileLine(index)}
+                    disabled={mobileOrderForm.mobileLines.length === 1}
+                    data-testid={`button-remove-mobile-line-tracker-${index}`}
+                  >
+                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowMobileOrderDialog(false); resetMobileOrderForm(); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => createMobileOrderMutation.mutate(mobileOrderForm)}
+              disabled={createMobileOrderMutation.isPending || !mobileOrderForm.customerName || !mobileOrderForm.dateSold}
+              data-testid="button-submit-mobile-order-tracker"
+            >
+              {createMobileOrderMutation.isPending ? "Creating..." : "Create Mobile Order"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
