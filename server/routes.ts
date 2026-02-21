@@ -12079,7 +12079,7 @@ export async function registerRoutes(
           // Rate/amount matching (max 15 pts)
           if (row.expectedAmountCents && row.expectedAmountCents > 0) {
             const orderGrossCents = Math.round(
-              (parseFloat(order.baseCommissionEarned || '0') + parseFloat(order.incentiveEarned || '0')) * 100
+              (parseFloat(order.baseCommissionEarned || '0') + parseFloat(order.incentiveEarned || '0') + parseFloat(order.overrideDeduction || '0')) * 100
             );
             if (order.expectedAmountCents && order.expectedAmountCents === row.expectedAmountCents) {
               score += 15;
@@ -12139,7 +12139,7 @@ export async function registerRoutes(
             // Matched - set expectedAmountCents from matched order's gross commission
             const matchedOrder = scored[0].order;
             const grossCommissionCents = Math.round(
-              (parseFloat(matchedOrder.baseCommissionEarned || '0') + parseFloat(matchedOrder.incentiveEarned || '0')) * 100
+              (parseFloat(matchedOrder.baseCommissionEarned || '0') + parseFloat(matchedOrder.incentiveEarned || '0') + parseFloat(matchedOrder.overrideDeduction || '0')) * 100
             );
             await storage.updateFinanceImportRow(row.id, {
               matchedOrderId: matchedOrder.id,
@@ -12186,7 +12186,7 @@ export async function registerRoutes(
       }
 
       const grossCommissionCents = Math.round(
-        (parseFloat(order.baseCommissionEarned || '0') + parseFloat(order.incentiveEarned || '0')) * 100
+        (parseFloat(order.baseCommissionEarned || '0') + parseFloat(order.incentiveEarned || '0') + parseFloat(order.overrideDeduction || '0')) * 100
       );
       await storage.updateFinanceImportRow(rowId, {
         matchedOrderId: orderId,
