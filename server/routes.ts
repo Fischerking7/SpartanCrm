@@ -563,6 +563,13 @@ export async function registerRoutes(
   
   // One-time migration to free up Rep IDs from deleted users
   await migrateDeletedUserRepIds();
+
+  // Recalculate AR variance as (paid - expected) on every startup to ensure correctness
+  try {
+    await db.execute(sql`UPDATE ar_expectations SET variance_amount_cents = actual_amount_cents - expected_amount_cents WHERE variance_amount_cents != (actual_amount_cents - expected_amount_cents)`);
+  } catch (e) {
+    console.log('AR variance recalc skipped:', e);
+  }
   
   // Bootstrap OPERATIONS and ADMIN on first run
   await bootstrapFounder();
