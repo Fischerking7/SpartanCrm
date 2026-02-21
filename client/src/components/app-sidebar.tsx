@@ -130,7 +130,6 @@ const preferencesItems: MenuItem[] = [
 
 // Admin: Operations group
 const adminOpsItems: MenuItem[] = [
-  MENU.orderTracker,
   MENU.orders,
   MENU.leads,
   MENU.mduReview,
