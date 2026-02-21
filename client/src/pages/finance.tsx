@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, FileText, DollarSign, BarChart3, ArrowRight, Link2, Loader2, RefreshCw, Eye, Check, X, Pencil, Search, Download, Trash2 } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, FileText, DollarSign, BarChart3, ArrowRight, Link2, Loader2, RefreshCw, Eye, Check, X, Pencil, Search, Download, Trash2, Plus } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -91,9 +91,25 @@ export default function Finance() {
   const [showSheetPicker, setShowSheetPicker] = useState(false);
   const [selectedSheets, setSelectedSheets] = useState<Set<string>>(new Set());
   const [batchImportProgress, setBatchImportProgress] = useState<{ current: number; total: number; results: Array<{ sheet: string; success: boolean; error?: string }> } | null>(null);
+  const [createOrderRow, setCreateOrderRow] = useState<FinanceImportRow | null>(null);
+  const [createOrderProviderId, setCreateOrderProviderId] = useState("");
+  const [createOrderServiceId, setCreateOrderServiceId] = useState("");
+  const [createOrderRepId, setCreateOrderRepId] = useState("");
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
+  });
+
+  const { data: providers } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: ["/api/providers"],
+  });
+
+  const { data: services } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: ["/api/services"],
+  });
+
+  const { data: allUsers } = useQuery<Array<{ id: string; name: string; repId: string | null; role: string }>>({
+    queryKey: ["/api/users"],
   });
 
   const { data: imports, isLoading: importsLoading } = useQuery<FinanceImport[]>({
@@ -479,6 +495,32 @@ export default function Finance() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to ignore row", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const createOrderFromRowMutation = useMutation({
+    mutationFn: async ({ rowId, providerId, serviceId, repId }: { rowId: string; providerId: string; serviceId: string; repId?: string }) => {
+      const res = await fetch(`/api/finance/imports/${selectedImportId}/create-order`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ rowId, providerId, serviceId, repId: repId || undefined }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create order");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/imports", selectedImportId] });
+      setCreateOrderRow(null);
+      setCreateOrderProviderId("");
+      setCreateOrderServiceId("");
+      setCreateOrderRepId("");
+      toast({ title: "Order created and matched" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
     },
   });
 
@@ -1212,6 +1254,23 @@ export default function Finance() {
                                         <Link2 className="h-4 w-4 mr-1" />
                                         Match
                                       </Button>
+                                      {(row.paidAmountCents || row.expectedAmountCents) && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setCreateOrderRow(row);
+                                            setCreateOrderProviderId("");
+                                            setCreateOrderServiceId("");
+                                            setCreateOrderRepId("");
+                                          }}
+                                          disabled={selectedImport?.status === "POSTED"}
+                                          data-testid={`button-create-order-${row.id}`}
+                                        >
+                                          <Plus className="h-4 w-4 mr-1" />
+                                          Create Order
+                                        </Button>
+                                      )}
                                       <Button
                                         variant="ghost"
                                         size="sm"
@@ -1319,6 +1378,88 @@ export default function Finance() {
                     >
                       {manualMatchMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
                       Confirm Match
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* Create Order from Import Row Dialog */}
+              <Dialog open={!!createOrderRow} onOpenChange={(open) => { if (!open) setCreateOrderRow(null); }}>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Create Order from Import</DialogTitle>
+                    <DialogDescription>
+                      Create a new order for "{createOrderRow?.customerName}" using the import data
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="p-3 bg-muted rounded-lg">
+                      <div className="text-sm text-muted-foreground mb-2">Import Row Details</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div><strong>Customer:</strong> {createOrderRow?.customerName}</div>
+                        <div><strong>Service:</strong> {createOrderRow?.serviceType || "—"}</div>
+                        <div><strong>Sale Date:</strong> {createOrderRow?.saleDate ? new Date(createOrderRow.saleDate).toLocaleDateString() : "—"}</div>
+                        <div><strong>Rate:</strong> {createOrderRow?.paidAmountCents ? formatCurrency(createOrderRow.paidAmountCents) : createOrderRow?.expectedAmountCents ? formatCurrency(createOrderRow.expectedAmountCents) : "—"}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Provider *</Label>
+                      <Select value={createOrderProviderId} onValueChange={setCreateOrderProviderId}>
+                        <SelectTrigger data-testid="select-create-order-provider">
+                          <SelectValue placeholder="Select provider..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {providers?.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Service *</Label>
+                      <Select value={createOrderServiceId} onValueChange={setCreateOrderServiceId}>
+                        <SelectTrigger data-testid="select-create-order-service">
+                          <SelectValue placeholder="Select service..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {services?.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Assign to Rep (optional)</Label>
+                      <Select value={createOrderRepId} onValueChange={setCreateOrderRepId}>
+                        <SelectTrigger data-testid="select-create-order-rep">
+                          <SelectValue placeholder="Select rep..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Rep</SelectItem>
+                          {allUsers?.filter(u => u.repId).map((u) => (
+                            <SelectItem key={u.id} value={u.repId!}>{u.name} ({u.repId})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setCreateOrderRow(null)}>Cancel</Button>
+                    <Button
+                      onClick={() => createOrderRow && createOrderFromRowMutation.mutate({
+                        rowId: createOrderRow.id,
+                        providerId: createOrderProviderId,
+                        serviceId: createOrderServiceId,
+                        repId: createOrderRepId && createOrderRepId !== "none" ? createOrderRepId : undefined,
+                      })}
+                      disabled={!createOrderProviderId || !createOrderServiceId || createOrderFromRowMutation.isPending}
+                      data-testid="button-confirm-create-order"
+                    >
+                      {createOrderFromRowMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                      Create Order
                     </Button>
                   </DialogFooter>
                 </DialogContent>

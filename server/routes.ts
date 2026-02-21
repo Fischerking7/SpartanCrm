@@ -12349,6 +12349,93 @@ export async function registerRoutes(
     }
   });
 
+  // Create order from unmatched finance import row
+  app.post("/api/finance/imports/:id/create-order", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { rowId, providerId, serviceId, repId } = req.body;
+      if (!rowId || !providerId || !serviceId) {
+        return res.status(400).json({ message: "Row ID, Provider ID, and Service ID are required" });
+      }
+
+      const row = await storage.getFinanceImportRowById(rowId);
+      if (!row || row.financeImportId !== req.params.id) {
+        return res.status(404).json({ message: "Row not found in this import" });
+      }
+
+      if (row.matchStatus === 'MATCHED') {
+        return res.status(400).json({ message: "Row is already matched to an order" });
+      }
+
+      const financeImport = await storage.getFinanceImportById(req.params.id);
+      if (!financeImport) {
+        return res.status(404).json({ message: "Import not found" });
+      }
+
+      const rateCents = row.paidAmountCents || row.expectedAmountCents || 0;
+      const rateDecimal = (rateCents / 100).toFixed(2);
+
+      let assignedRepId: string | null = null;
+      if (repId) {
+        const rep = await storage.getUserByRepId(repId);
+        if (rep) {
+          assignedRepId = repId;
+        }
+      }
+
+      const orderData: any = {
+        clientId: financeImport.clientId,
+        providerId,
+        serviceId,
+        dateSold: row.saleDate || new Date().toISOString().split('T')[0],
+        customerName: row.customerName || 'Unknown Customer',
+        repId: assignedRepId,
+        baseCommissionEarned: rateDecimal,
+        incentiveEarned: "0",
+        overrideDeduction: "0",
+        commissionPaid: "0",
+        commissionSource: 'MANUAL_OVERRIDE',
+        jobStatus: 'COMPLETED',
+        approvalStatus: 'APPROVED',
+        approvedByUserId: req.user!.id,
+        approvedAt: new Date(),
+        calcAt: new Date(),
+        paymentStatus: 'UNPAID',
+        exportedToAccounting: false,
+        tvSold: false,
+        mobileSold: false,
+        isMobileOrder: false,
+        mobileLinesQty: 0,
+        notes: `Created from finance import row. Service: ${row.serviceType || 'N/A'}`,
+      };
+
+      const newOrder = await storage.createOrder(orderData);
+
+      await storage.updateFinanceImportRow(rowId, {
+        matchedOrderId: newOrder.id,
+        matchStatus: 'MATCHED',
+        matchConfidence: 100,
+        matchReason: JSON.stringify(['created_from_import:+100']),
+      });
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: 'ORDER_CREATED_FROM_IMPORT',
+        entityType: 'ORDER',
+        entityId: newOrder.id,
+        details: JSON.stringify({
+          financeImportId: req.params.id,
+          rowId,
+          customerName: row.customerName,
+          rateCents,
+        })
+      });
+
+      res.json({ success: true, order: newOrder });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create order from import row" });
+    }
+  });
+
   // Ignore a row
   app.post("/api/finance/imports/:id/ignore-row", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
