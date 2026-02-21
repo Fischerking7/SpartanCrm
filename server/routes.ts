@@ -12591,7 +12591,7 @@ export async function registerRoutes(
       
       // When AR is satisfied, update the linked order's paymentStatus to PAID
       if (newStatus === 'SATISFIED' && ar.orderId) {
-        const order = await storage.getOrder(ar.orderId);
+        const order = await storage.getOrderById(ar.orderId);
         if (order) {
           await storage.updateOrder(ar.orderId, {
             paymentStatus: 'PAID',
@@ -12608,7 +12608,7 @@ export async function registerRoutes(
         }
       } else if (newStatus === 'PARTIAL' && ar.orderId) {
         // Update to partially paid when partial payment received
-        const order = await storage.getOrder(ar.orderId);
+        const order = await storage.getOrderById(ar.orderId);
         if (order && order.paymentStatus !== 'PAID') {
           await storage.updateOrder(ar.orderId, {
             paymentStatus: 'PARTIALLY_PAID',
@@ -12668,7 +12668,7 @@ export async function registerRoutes(
         
         // Update linked order's payment status based on new AR status
         if (ar.orderId) {
-          const order = await storage.getOrder(ar.orderId);
+          const order = await storage.getOrderById(ar.orderId);
           if (order) {
             let orderPaymentStatus = order.paymentStatus;
             if (newStatus === 'SATISFIED') {
@@ -12778,7 +12778,7 @@ export async function registerRoutes(
       
       // If now satisfied, update order payment status
       if (newStatus === 'SATISFIED' && ar.orderId) {
-        const order = await storage.getOrder(ar.orderId);
+        const order = await storage.getOrderById(ar.orderId);
         if (order && order.paymentStatus !== 'PAID') {
           await storage.updateOrder(ar.orderId, {
             paymentStatus: 'PAID',
