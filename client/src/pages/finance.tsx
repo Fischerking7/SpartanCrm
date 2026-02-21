@@ -88,6 +88,8 @@ export default function Finance() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [sheetList, setSheetList] = useState<Array<{ name: string; repName: string | null; repCode: string | null; repNameSource: string | null; rowCount: number; hasData: boolean; columns: string[] }>>([]);
   const [showSheetPicker, setShowSheetPicker] = useState(false);
+  const [selectedSheets, setSelectedSheets] = useState<Set<string>>(new Set());
+  const [batchImportProgress, setBatchImportProgress] = useState<{ current: number; total: number; results: Array<{ sheet: string; success: boolean; error?: string }> } | null>(null);
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
@@ -605,6 +607,9 @@ export default function Finance() {
         if (data.sheets && data.sheets.length > 1) {
           setPendingFile(file);
           setSheetList(data.sheets);
+          const sheetsWithData = new Set<string>(data.sheets.filter((s: any) => s.hasData).map((s: any) => s.name));
+          setSelectedSheets(sheetsWithData);
+          setBatchImportProgress(null);
           setShowSheetPicker(true);
           return;
         }
@@ -614,6 +619,52 @@ export default function Finance() {
     }
 
     uploadMutation.mutate({ file });
+  };
+
+  const handleBatchImport = async () => {
+    if (!pendingFile || selectedSheets.size === 0) return;
+    const sheetsToImport = sheetList.filter(s => selectedSheets.has(s.name));
+    setBatchImportProgress({ current: 0, total: sheetsToImport.length, results: [] });
+
+    const results: Array<{ sheet: string; success: boolean; error?: string }> = [];
+    for (let i = 0; i < sheetsToImport.length; i++) {
+      const sheet = sheetsToImport[i];
+      setBatchImportProgress({ current: i + 1, total: sheetsToImport.length, results: [...results] });
+      try {
+        const formData = new FormData();
+        formData.append("file", pendingFile);
+        formData.append("clientId", selectedClientId);
+        formData.append("sheetName", sheet.name);
+        if (sheet.repName) formData.append("repNameOverride", sheet.repName);
+        const res = await fetch("/api/finance/import", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+          body: formData,
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          results.push({ sheet: sheet.name, success: false, error: err.message });
+        } else {
+          results.push({ sheet: sheet.name, success: true });
+        }
+      } catch (err: any) {
+        results.push({ sheet: sheet.name, success: false, error: err.message || "Unknown error" });
+      }
+    }
+
+    setBatchImportProgress({ current: sheetsToImport.length, total: sheetsToImport.length, results });
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.filter(r => !r.success).length;
+    queryClient.invalidateQueries({ queryKey: ["/api/finance/imports"] });
+
+    if (failCount === 0) {
+      toast({ title: "Import complete", description: `${successCount} sheet(s) imported successfully.` });
+      setPendingFile(null);
+      setShowSheetPicker(false);
+      setBatchImportProgress(null);
+    } else {
+      toast({ title: "Import partially complete", description: `${successCount} succeeded, ${failCount} failed.`, variant: "destructive" });
+    }
   };
 
   const formatCurrency = (cents: number) => {
@@ -1895,48 +1946,91 @@ export default function Finance() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={showSheetPicker} onOpenChange={(open) => { if (!open) { setShowSheetPicker(false); setPendingFile(null); } }}>
+      <Dialog open={showSheetPicker} onOpenChange={(open) => { if (!open && !batchImportProgress) { setShowSheetPicker(false); setPendingFile(null); } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Select Sheet to Import</DialogTitle>
-            <DialogDescription>This Excel file contains multiple sheets. Select which sheet to import.</DialogDescription>
+            <DialogTitle>Select Sheets to Import</DialogTitle>
+            <DialogDescription>Choose one or more sheets to import. Sheets with data are pre-selected.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {sheetList.map((sheet) => (
-              <button
-                key={sheet.name}
-                className="w-full text-left p-3 rounded-lg border hover:bg-accent transition-colors"
-                data-testid={`button-select-sheet-${sheet.name}`}
-                onClick={() => {
-                  if (pendingFile) {
-                    uploadMutation.mutate({ file: pendingFile, sheetName: sheet.name, repNameOverride: sheet.repName || undefined });
-                  }
-                }}
-                disabled={uploadMutation.isPending}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">{sheet.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {sheet.rowCount} rows
-                      {sheet.repName && (
-                        <span className="ml-2">· Rep: <span className="font-medium text-foreground">{sheet.repName}</span>
-                          {sheet.repNameSource === 'tab_name' && <span className="text-xs ml-1">(from tab name)</span>}
-                        </span>
-                      )}
-                      {sheet.repCode && <span className="ml-1">({sheet.repCode})</span>}
-                    </div>
-                  </div>
-                  {sheet.hasData && <Badge variant="secondary">Has Data</Badge>}
+
+          {batchImportProgress && batchImportProgress.results.length > 0 ? (
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              <div className="text-sm text-muted-foreground mb-2">
+                Importing {batchImportProgress.current} of {batchImportProgress.total}...
+              </div>
+              {batchImportProgress.results.map((r) => (
+                <div key={r.sheet} className="flex items-center gap-2 p-2 rounded border text-sm">
+                  {r.success ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" /> : <XCircle className="h-4 w-4 text-red-500 shrink-0" />}
+                  <span className="font-medium">{r.sheet}</span>
+                  {r.error && <span className="text-red-500 text-xs ml-auto">{r.error}</span>}
                 </div>
-              </button>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowSheetPicker(false); setPendingFile(null); }} data-testid="button-cancel-sheet-picker">
-              Cancel
-            </Button>
-          </DialogFooter>
+              ))}
+              {batchImportProgress.current === batchImportProgress.total && (
+                <div className="pt-2">
+                  <Button onClick={() => { setShowSheetPicker(false); setPendingFile(null); setBatchImportProgress(null); }} className="w-full" data-testid="button-close-batch-results">
+                    Done
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-muted-foreground">{selectedSheets.size} of {sheetList.length} selected</span>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedSheets(new Set(sheetList.map(s => s.name)))} data-testid="button-select-all-sheets">
+                    Select All
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedSheets(new Set())} data-testid="button-deselect-all-sheets">
+                    Clear
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-1 max-h-80 overflow-y-auto">
+                {sheetList.map((sheet) => (
+                  <label
+                    key={sheet.name}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${selectedSheets.has(sheet.name) ? 'bg-accent border-primary/30' : 'hover:bg-accent/50'}`}
+                    data-testid={`label-sheet-${sheet.name}`}
+                  >
+                    <Checkbox
+                      checked={selectedSheets.has(sheet.name)}
+                      onCheckedChange={(checked) => {
+                        const next = new Set(selectedSheets);
+                        if (checked) next.add(sheet.name); else next.delete(sheet.name);
+                        setSelectedSheets(next);
+                      }}
+                      data-testid={`checkbox-sheet-${sheet.name}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm">{sheet.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {sheet.rowCount} rows
+                        {sheet.repName && (
+                          <span className="ml-2">· Rep: <span className="font-medium text-foreground">{sheet.repName}</span>
+                            {sheet.repNameSource === 'tab_name' && <span className="text-xs ml-1">(from tab name)</span>}
+                          </span>
+                        )}
+                        {sheet.repCode && <span className="ml-1">({sheet.repCode})</span>}
+                      </div>
+                    </div>
+                    {sheet.hasData && <Badge variant="secondary" className="shrink-0">Has Data</Badge>}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
+          {!batchImportProgress && (
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => { setShowSheetPicker(false); setPendingFile(null); }} data-testid="button-cancel-sheet-picker">
+                Cancel
+              </Button>
+              <Button onClick={handleBatchImport} disabled={selectedSheets.size === 0} data-testid="button-import-selected-sheets">
+                {selectedSheets.size === 1 ? 'Import 1 Sheet' : `Import ${selectedSheets.size} Sheets`}
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
     </div>
