@@ -335,27 +335,9 @@ export function AppSidebar() {
         location={location}
       />
       <CollapsibleSection 
-        title="Insights" 
-        icon={TrendingUp} 
-        items={adminInsightsItems} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="My Account" 
-        icon={User} 
-        items={[...personalItems, ...preferencesItems]} 
-        location={location}
-      />
-      <CollapsibleSection 
         title="Resources" 
         icon={BookOpen} 
         items={[MENU.knowledge]} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="System Settings" 
-        icon={Cog} 
-        items={adminSettingsItems} 
         location={location}
       />
     </>
