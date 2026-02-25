@@ -1583,8 +1583,8 @@ export default function Leads() {
             </DialogDescription>
           </DialogHeader>
           
-          <div className="grid grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto p-1">
-            <div className="col-span-2 space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto p-1">
+            <div className="col-span-1 sm:col-span-2 space-y-2">
               <Label>Assign to Rep *</Label>
               <Select value={newLeadForm.repId} onValueChange={(v) => setNewLeadForm(f => ({ ...f, repId: v }))}>
                 <SelectTrigger data-testid="select-create-lead-rep">
@@ -1653,7 +1653,7 @@ export default function Leads() {
                 data-testid="input-create-lead-apt"
               />
             </div>
-            <div className="col-span-2 space-y-2">
+            <div className="col-span-1 sm:col-span-2 space-y-2">
               <Label>Street Name</Label>
               <Input
                 placeholder="Main Street"
@@ -1689,7 +1689,7 @@ export default function Leads() {
                 data-testid="input-create-lead-zip"
               />
             </div>
-            <div className="col-span-2 space-y-2">
+            <div className="col-span-1 sm:col-span-2 space-y-2">
               <Label>Notes</Label>
               <Textarea
                 placeholder="Additional notes about this lead..."

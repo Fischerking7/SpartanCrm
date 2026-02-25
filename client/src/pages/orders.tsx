@@ -1689,7 +1689,7 @@ export default function Orders() {
           </DialogHeader>
           {selectedOrder && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label className="text-muted-foreground">Customer</Label>
                   {isOperations ? (
@@ -1700,7 +1700,7 @@ export default function Orders() {
                           updateJobStatusMutation.mutate({ orderId: selectedOrder.id, customerName: e.target.value });
                         }
                       }}
-                      className="w-[180px]"
+                      className="w-full"
                       data-testid="input-order-customer-name"
                     />
                   ) : (
@@ -1717,7 +1717,7 @@ export default function Orders() {
                           updateJobStatusMutation.mutate({ orderId: selectedOrder.id, customerEmail: e.target.value });
                         }
                       }}
-                      className="w-[180px]"
+                      className="w-full"
                       data-testid="input-order-customer-email"
                     />
                   ) : (
@@ -1734,7 +1734,7 @@ export default function Orders() {
                           updateJobStatusMutation.mutate({ orderId: selectedOrder.id, customerPhone: e.target.value });
                         }
                       }}
-                      className="w-[180px]"
+                      className="w-full"
                       data-testid="input-order-customer-phone"
                     />
                   ) : (
@@ -1749,7 +1749,7 @@ export default function Orders() {
                       onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, repId: value })}
                       disabled={updateJobStatusMutation.isPending}
                     >
-                      <SelectTrigger className="w-[180px]" data-testid="select-order-rep">
+                      <SelectTrigger className="w-full" data-testid="select-order-rep">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1770,7 +1770,7 @@ export default function Orders() {
                       onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, clientId: value })}
                       disabled={updateJobStatusMutation.isPending}
                     >
-                      <SelectTrigger className="w-[180px]" data-testid="select-order-client">
+                      <SelectTrigger className="w-full" data-testid="select-order-client">
                         <SelectValue placeholder="Select client" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1791,7 +1791,7 @@ export default function Orders() {
                       onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, providerId: value })}
                       disabled={updateJobStatusMutation.isPending}
                     >
-                      <SelectTrigger className="w-[180px]" data-testid="select-order-provider">
+                      <SelectTrigger className="w-full" data-testid="select-order-provider">
                         <SelectValue placeholder="Select provider" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1812,7 +1812,7 @@ export default function Orders() {
                       onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, serviceId: value })}
                       disabled={updateJobStatusMutation.isPending}
                     >
-                      <SelectTrigger className="w-[180px]" data-testid="select-order-service">
+                      <SelectTrigger className="w-full" data-testid="select-order-service">
                         <SelectValue placeholder="Select service" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1893,7 +1893,7 @@ export default function Orders() {
                         onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, mobileProductType: value })}
                         disabled={updateJobStatusMutation.isPending}
                       >
-                        <SelectTrigger className="w-[140px]" data-testid="select-mobile-product-type">
+                        <SelectTrigger className="w-full" data-testid="select-mobile-product-type">
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1923,7 +1923,7 @@ export default function Orders() {
                           updateJobStatusMutation.mutate({ orderId: selectedOrder.id, accountNumber: e.target.value });
                         }
                       }}
-                      className="w-[180px] font-mono"
+                      className="w-full font-mono"
                       data-testid="input-order-account-number"
                     />
                   ) : (
@@ -1940,7 +1940,7 @@ export default function Orders() {
                           updateJobStatusMutation.mutate({ orderId: selectedOrder.id, customerAddress: e.target.value });
                         }
                       }}
-                      className="w-[180px]"
+                      className="w-full"
                       data-testid="input-order-customer-address"
                     />
                   ) : (
@@ -1966,7 +1966,7 @@ export default function Orders() {
                       onChange={(e) => {
                         updateJobStatusMutation.mutate({ orderId: selectedOrder.id, jobStatus: selectedOrder.jobStatus, installDate: e.target.value });
                       }}
-                      className="w-[160px]"
+                      className="w-full"
                       data-testid="input-install-date"
                     />
                   </div>
@@ -1979,7 +1979,7 @@ export default function Orders() {
                       onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, installTime: value })}
                       disabled={updateJobStatusMutation.isPending}
                     >
-                      <SelectTrigger className="w-[140px]" data-testid="select-detail-install-time">
+                      <SelectTrigger className="w-full" data-testid="select-detail-install-time">
                         <SelectValue placeholder="Select time" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1998,7 +1998,7 @@ export default function Orders() {
                       onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, installType: value })}
                       disabled={updateJobStatusMutation.isPending}
                     >
-                      <SelectTrigger className="w-[160px]" data-testid="select-detail-install-type">
+                      <SelectTrigger className="w-full" data-testid="select-detail-install-type">
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                       <SelectContent>
@@ -2017,7 +2017,7 @@ export default function Orders() {
                       onValueChange={(value) => updateJobStatusMutation.mutate({ orderId: selectedOrder.id, jobStatus: value })}
                       disabled={updateJobStatusMutation.isPending}
                     >
-                      <SelectTrigger className="w-[140px]" data-testid="select-job-status">
+                      <SelectTrigger className="w-full" data-testid="select-job-status">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -2654,7 +2654,7 @@ export default function Orders() {
                 />
               </div>
             )}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Provider *</Label>
                 <Select value={mobileOrderForm.providerId} onValueChange={(v) => setMobileOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}>
@@ -2689,7 +2689,7 @@ export default function Orders() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Customer Name *</Label>
                 <Input 
@@ -2709,7 +2709,7 @@ export default function Orders() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Customer Phone</Label>
                 <Input 
@@ -2752,7 +2752,7 @@ export default function Orders() {
                 </Button>
               </div>
               {mobileOrderForm.mobileLines.map((line, index) => (
-                <div key={index} className="flex items-center gap-3 p-2 bg-background rounded-md border">
+                <div key={index} className="flex flex-col sm:flex-row sm:items-center gap-3 p-2 bg-background rounded-md border">
                   <span className="text-sm text-muted-foreground w-8">#{index + 1}</span>
                   <div className="flex items-center gap-2">
                     <Label className="text-sm">Product:</Label>
@@ -2760,7 +2760,7 @@ export default function Orders() {
                       value={line.mobileProductType || "__none__"} 
                       onValueChange={(v) => updateMobileLine(index, "mobileProductType", v === "__none__" ? "" : v)}
                     >
-                      <SelectTrigger className="w-28" data-testid={`select-mobile-product-type-${index}`}>
+                      <SelectTrigger className="w-full sm:w-28" data-testid={`select-mobile-product-type-${index}`}>
                         <SelectValue placeholder="Select" />
                       </SelectTrigger>
                       <SelectContent>
@@ -2778,7 +2778,7 @@ export default function Orders() {
                       value={line.mobilePortedStatus || "__none__"} 
                       onValueChange={(v) => updateMobileLine(index, "mobilePortedStatus", v === "__none__" ? "" : v)}
                     >
-                      <SelectTrigger className="w-28" data-testid={`select-mobile-ported-status-${index}`}>
+                      <SelectTrigger className="w-full sm:w-28" data-testid={`select-mobile-ported-status-${index}`}>
                         <SelectValue placeholder="Select" />
                       </SelectTrigger>
                       <SelectContent>

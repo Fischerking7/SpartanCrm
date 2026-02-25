@@ -1,4 +1,4 @@
-import { Switch, Route, Redirect } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -93,8 +93,38 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
   return <>{children}</>;
 }
 
+const routeTitles: Record<string, string> = {
+  "/": "Dashboard",
+  "/dashboard": "Dashboard",
+  "/orders": "Orders",
+  "/order-tracker": "Order Tracker",
+  "/mobile-entry": "Quick Entry",
+  "/leads": "Leads",
+  "/commissions": "Commissions",
+  "/commission-forecast": "Forecast",
+  "/my-pay": "My Pay",
+  "/my-disputes": "Disputes",
+  "/knowledge": "Knowledge Base",
+  "/notifications": "Notifications",
+  "/notification-settings": "Alert Settings",
+  "/reports": "Reports",
+  "/executive-reports": "Reports",
+  "/sales-pipeline": "Sales Pipeline",
+  "/adjustments": "Adjustments",
+  "/change-password": "Settings",
+  "/my-credentials": "My Credentials",
+  "/payruns": "Pay Runs",
+  "/accounting": "Accounting",
+  "/finance": "Finance",
+  "/audit": "Audit Log",
+  "/queues": "Queues",
+  "/export-history": "Exports",
+  "/recalculate": "Recalculate",
+};
+
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const [location] = useLocation();
   
   if (!user) return null;
 
@@ -105,6 +135,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 
   const fieldRoles = ["REP", "MDU", "LEAD"];
   const showBottomNav = fieldRoles.includes(user.role);
+  const pageTitle = routeTitles[location] || routeTitles[location.split("/").slice(0, 2).join("/")] || "";
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
@@ -113,6 +144,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
         <div className="flex flex-col flex-1 min-w-0">
           <header className="flex items-center justify-between gap-4 p-2 border-b bg-background sticky top-0 z-50">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
+            <span className="text-sm font-medium md:hidden truncate flex-1" data-testid="text-page-title">{pageTitle}</span>
             <ThemeToggle />
           </header>
           <main className={`flex-1 overflow-auto ${showBottomNav ? "pb-16 md:pb-0" : ""}`}>
