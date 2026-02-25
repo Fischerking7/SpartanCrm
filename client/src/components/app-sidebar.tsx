@@ -371,7 +371,14 @@ export function AppSidebar() {
           location={location}
           defaultOpen={true}
         />
-        {!isExec && (
+        {isExec ? (
+          <CollapsibleSection 
+            title="Accounting" 
+            icon={Wallet} 
+            items={[MENU.audit]} 
+            location={location}
+          />
+        ) : (
           <CollapsibleSection 
             title="Accounting" 
             icon={Wallet} 
