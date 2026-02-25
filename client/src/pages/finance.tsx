@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -67,6 +68,7 @@ interface ColumnMapping {
 
 export default function Finance() {
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [selectedImportId, setSelectedImportId] = useState<string>("");
   const [activeTab, setActiveTab] = useState("import");
@@ -1772,95 +1774,176 @@ export default function Finance() {
             </CardHeader>
             <CardContent>
               {arExpectations && arExpectations.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Client</TableHead>
-                      <TableHead>Order</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Expected Amount</TableHead>
-                      <TableHead className="text-right">Amount Paid</TableHead>
-                      <TableHead className="text-right">Variance</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                isMobile ? (
+                  <div className="space-y-3">
                     {arExpectations.map((ar) => (
-                      <TableRow 
-                        key={ar.id} 
-                        className={ar.hasVariance ? "bg-orange-50 dark:bg-orange-900/20" : ""}
-                      >
-                        <TableCell>{ar.client?.name || ar.clientId}</TableCell>
-                        <TableCell>
-                          {ar.order?.invoiceNumber || "-"}
-                          {ar.order?.customerName && (
-                            <div className="text-xs text-muted-foreground">{ar.order.customerName}</div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge 
-                            variant={
-                              ar.status === "SATISFIED" ? "default" :
-                              ar.status === "PARTIAL" ? "secondary" :
-                              ar.status === "WRITTEN_OFF" ? "destructive" : "outline"
-                            }
-                          >
-                            {ar.status}
-                          </Badge>
-                          {ar.hasVariance && (
-                            <Badge variant="destructive" className="ml-1">
-                              <AlertTriangle className="h-3 w-3 mr-1" />
-                              Variance
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="font-semibold text-base">{formatCurrency(ar.expectedAmountCents)}</div>
-                          <div className="text-xs text-muted-foreground">Expected</div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="font-semibold text-base text-green-600 dark:text-green-400">
-                            {formatCurrency(ar.actualAmountCents)}
+                      <Card key={ar.id} className={ar.hasVariance ? "border-orange-400 bg-orange-50/50 dark:bg-orange-900/10" : ""} data-testid={`card-ar-${ar.id}`}>
+                        <CardContent className="p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="font-semibold truncate" data-testid={`text-ar-client-${ar.id}`}>{ar.client?.name || ar.clientId}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {ar.order?.invoiceNumber || "-"}
+                                {ar.order?.customerName && ` · ${ar.order.customerName}`}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
+                              <Badge 
+                                variant={
+                                  ar.status === "SATISFIED" ? "default" :
+                                  ar.status === "PARTIAL" ? "secondary" :
+                                  ar.status === "WRITTEN_OFF" ? "destructive" : "outline"
+                                }
+                              >
+                                {ar.status}
+                              </Badge>
+                              {ar.hasVariance && (
+                                <Badge variant="destructive">
+                                  <AlertTriangle className="h-3 w-3 mr-1" />
+                                  Variance
+                                </Badge>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {ar.expectedAmountCents > 0 
-                              ? `${Math.round((ar.actualAmountCents / ar.expectedAmountCents) * 100)}% paid`
-                              : "Paid"
-                            }
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div className="p-2 rounded-md bg-muted/50">
+                              <div className="text-xs text-muted-foreground">Expected</div>
+                              <div className="font-semibold text-sm" data-testid={`text-ar-expected-${ar.id}`}>{formatCurrency(ar.expectedAmountCents)}</div>
+                            </div>
+                            <div className="p-2 rounded-md bg-muted/50">
+                              <div className="text-xs text-muted-foreground">Paid</div>
+                              <div className="font-semibold text-sm text-green-600 dark:text-green-400" data-testid={`text-ar-paid-${ar.id}`}>
+                                {formatCurrency(ar.actualAmountCents)}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {ar.expectedAmountCents > 0 
+                                  ? `${Math.round((ar.actualAmountCents / ar.expectedAmountCents) * 100)}%`
+                                  : ""}
+                              </div>
+                            </div>
+                            <div className="p-2 rounded-md bg-muted/50">
+                              <div className="text-xs text-muted-foreground">Variance</div>
+                              <div className={`font-semibold text-sm ${ar.varianceAmountCents > 0 ? "text-green-600" : ar.varianceAmountCents < 0 ? "text-red-600" : ""}`} data-testid={`text-ar-variance-${ar.id}`}>
+                                {ar.varianceAmountCents > 0 && "+"}{formatCurrency(ar.varianceAmountCents)}
+                              </div>
+                            </div>
                           </div>
-                        </TableCell>
-                        <TableCell className={`text-right font-medium ${ar.varianceAmountCents > 0 ? "text-green-600" : ar.varianceAmountCents < 0 ? "text-red-600" : ""}`}>
-                          {ar.varianceAmountCents > 0 && "+"}
-                          {formatCurrency(ar.varianceAmountCents)}
-                          {ar.varianceReason && (
-                            <div className="text-xs text-muted-foreground">{ar.varianceReason}</div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
+                          <div className="flex gap-2 justify-end">
                             <Button 
-                              size="sm" 
+                              size="icon"
                               variant="outline"
+                              className="h-10 w-10"
                               onClick={async () => { await openArDetail(ar); setShowPaymentDialog(true); }}
                               disabled={ar.status === "WRITTEN_OFF"}
                               data-testid={`button-record-payment-${ar.id}`}
                             >
-                              <DollarSign className="h-4 w-4" />
+                              <DollarSign className="h-5 w-5" />
                             </Button>
                             <Button 
-                              size="sm" 
+                              size="icon"
                               variant="ghost"
+                              className="h-10 w-10"
                               onClick={() => openArDetail(ar)}
                               data-testid={`button-view-ar-${ar.id}`}
                             >
-                              <Eye className="h-4 w-4" />
+                              <Eye className="h-5 w-5" />
                             </Button>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        </CardContent>
+                      </Card>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Client</TableHead>
+                        <TableHead>Order</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Expected Amount</TableHead>
+                        <TableHead className="text-right">Amount Paid</TableHead>
+                        <TableHead className="text-right">Variance</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {arExpectations.map((ar) => (
+                        <TableRow 
+                          key={ar.id} 
+                          className={ar.hasVariance ? "bg-orange-50 dark:bg-orange-900/20" : ""}
+                        >
+                          <TableCell>{ar.client?.name || ar.clientId}</TableCell>
+                          <TableCell>
+                            {ar.order?.invoiceNumber || "-"}
+                            {ar.order?.customerName && (
+                              <div className="text-xs text-muted-foreground">{ar.order.customerName}</div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge 
+                              variant={
+                                ar.status === "SATISFIED" ? "default" :
+                                ar.status === "PARTIAL" ? "secondary" :
+                                ar.status === "WRITTEN_OFF" ? "destructive" : "outline"
+                              }
+                            >
+                              {ar.status}
+                            </Badge>
+                            {ar.hasVariance && (
+                              <Badge variant="destructive" className="ml-1">
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                Variance
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="font-semibold text-base">{formatCurrency(ar.expectedAmountCents)}</div>
+                            <div className="text-xs text-muted-foreground">Expected</div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="font-semibold text-base text-green-600 dark:text-green-400">
+                              {formatCurrency(ar.actualAmountCents)}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {ar.expectedAmountCents > 0 
+                                ? `${Math.round((ar.actualAmountCents / ar.expectedAmountCents) * 100)}% paid`
+                                : "Paid"
+                              }
+                            </div>
+                          </TableCell>
+                          <TableCell className={`text-right font-medium ${ar.varianceAmountCents > 0 ? "text-green-600" : ar.varianceAmountCents < 0 ? "text-red-600" : ""}`}>
+                            {ar.varianceAmountCents > 0 && "+"}
+                            {formatCurrency(ar.varianceAmountCents)}
+                            {ar.varianceReason && (
+                              <div className="text-xs text-muted-foreground">{ar.varianceReason}</div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={async () => { await openArDetail(ar); setShowPaymentDialog(true); }}
+                                disabled={ar.status === "WRITTEN_OFF"}
+                                data-testid={`button-record-payment-${ar.id}`}
+                              >
+                                <DollarSign className="h-4 w-4" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="ghost"
+                                onClick={() => openArDetail(ar)}
+                                data-testid={`button-view-ar-${ar.id}`}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   No AR expectations yet. Post a finance import to create AR records.

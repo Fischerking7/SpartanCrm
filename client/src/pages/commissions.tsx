@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,6 +74,7 @@ export default function Commissions() {
     },
   });
 
+  const isMobile = useIsMobile();
   const isRep = user?.role === "REP";
   // EXECUTIVE, ADMIN, OPERATIONS can see override earnings they receive from their teams
   const canSeeOverrides = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
@@ -208,7 +210,7 @@ export default function Commissions() {
         </Card>
       )}
 
-      <div className={`grid grid-cols-1 gap-4 ${isRep ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
+      <div className={`grid grid-cols-2 gap-4 ${isRep ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Connected</CardTitle>
@@ -386,38 +388,52 @@ export default function Commissions() {
         </CardHeader>
         <CardContent>
           {data?.ownSoldCommissions && data.ownSoldCommissions.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-3 px-2 font-medium">Date</th>
-                    <th className="text-left py-3 px-2 font-medium">Customer</th>
-                    <th className="text-left py-3 px-2 font-medium">Account</th>
-                    {!isRep && <th className="text-right py-3 px-2 font-medium">Base</th>}
-                    {!isRep && <th className="text-right py-3 px-2 font-medium">Incentive</th>}
-                    <th className="text-right py-3 px-2 font-medium">{isRep ? "Commission" : "Total"}</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <>
+              {isMobile ? (
+                <div className="space-y-3">
                   {data.ownSoldCommissions.map((comm) => (
-                    <tr key={comm.id} className="border-b" data-testid={`row-commission-${comm.id}`}>
-                      <td className="py-3 px-2">{comm.dateSold}</td>
-                      <td className="py-3 px-2">{comm.customerName}</td>
-                      <td className="py-3 px-2 font-mono text-xs">{comm.accountNumber}</td>
-                      {!isRep && <td className="py-3 px-2 text-right">{formatCurrency(comm.baseCommission)}</td>}
-                      {!isRep && <td className="py-3 px-2 text-right">{formatCurrency(comm.incentive)}</td>}
-                      <td className="py-3 px-2 text-right font-medium">{formatCurrency(comm.total)}</td>
-                    </tr>
+                    <div key={comm.id} className="border rounded-md p-3 space-y-2" data-testid={`card-commission-${comm.id}`}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="font-medium" data-testid={`text-commission-customer-${comm.id}`}>{comm.customerName}</span>
+                        <span className="font-bold text-green-600 dark:text-green-400" data-testid={`text-commission-amount-${comm.id}`}>{formatCurrency(comm.total)}</span>
+                      </div>
+                      <div className="text-sm text-muted-foreground" data-testid={`text-commission-date-${comm.id}`}>{comm.dateSold}</div>
+                    </div>
                   ))}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-muted/50">
-                    <td colSpan={isRep ? 3 : 5} className="py-3 px-2 font-medium">Total</td>
-                    <td className="py-3 px-2 text-right font-bold">{formatCurrency(data.ownTotalEarned)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-2 font-medium">Date</th>
+                        <th className="text-left py-3 px-2 font-medium">Customer</th>
+                        <th className="text-left py-3 px-2 font-medium">Account</th>
+                        {!isRep && <th className="text-right py-3 px-2 font-medium">Base</th>}
+                        {!isRep && <th className="text-right py-3 px-2 font-medium">Incentive</th>}
+                        <th className="text-right py-3 px-2 font-medium">{isRep ? "Commission" : "Total"}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.ownSoldCommissions.map((comm) => (
+                        <tr key={comm.id} className="border-b" data-testid={`row-commission-${comm.id}`}>
+                          <td className="py-3 px-2">{comm.dateSold}</td>
+                          <td className="py-3 px-2">{comm.customerName}</td>
+                          <td className="py-3 px-2 font-mono text-xs">{comm.accountNumber}</td>
+                          {!isRep && <td className="py-3 px-2 text-right">{formatCurrency(comm.baseCommission)}</td>}
+                          {!isRep && <td className="py-3 px-2 text-right">{formatCurrency(comm.incentive)}</td>}
+                          <td className="py-3 px-2 text-right font-medium">{formatCurrency(comm.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2 flex-wrap bg-muted/50 rounded-md py-3 px-2 mt-2">
+                <span className="font-medium">Total</span>
+                <span className="font-bold" data-testid="text-commission-total">{formatCurrency(data.ownTotalEarned)}</span>
+              </div>
+            </>
           ) : (
             <div className="py-8 text-center text-muted-foreground">
               <DollarSign className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -435,38 +451,55 @@ export default function Commissions() {
           </CardHeader>
           <CardContent>
             {data.overrideEarnings.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-3 px-2 font-medium">Date</th>
-                      <th className="text-left py-3 px-2 font-medium">Customer</th>
-                      <th className="text-left py-3 px-2 font-medium">Source Rep</th>
-                      <th className="text-left py-3 px-2 font-medium">Level</th>
-                      <th className="text-right py-3 px-2 font-medium">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <>
+                {isMobile ? (
+                  <div className="space-y-3">
                     {data.overrideEarnings.map((override) => (
-                      <tr key={override.id} className="border-b" data-testid={`row-override-${override.id}`}>
-                        <td className="py-3 px-2">{override.dateSold}</td>
-                        <td className="py-3 px-2">{override.customerName}</td>
-                        <td className="py-3 px-2 font-mono text-xs">{override.sourceRepId}</td>
-                        <td className="py-3 px-2">
-                          <Badge variant="outline" className="text-xs">{override.sourceLevelUsed}</Badge>
-                        </td>
-                        <td className="py-3 px-2 text-right font-medium">{formatCurrency(override.amount)}</td>
-                      </tr>
+                      <div key={override.id} className="border rounded-md p-3 space-y-2" data-testid={`card-override-${override.id}`}>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-medium" data-testid={`text-override-customer-${override.id}`}>{override.customerName}</span>
+                          <span className="font-bold text-green-600 dark:text-green-400" data-testid={`text-override-amount-${override.id}`}>{formatCurrency(override.amount)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-sm text-muted-foreground" data-testid={`text-override-date-${override.id}`}>{override.dateSold}</span>
+                          <Badge variant="outline" className="text-xs" data-testid={`badge-override-rep-${override.id}`}>{override.sourceRepId}</Badge>
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-muted/50">
-                      <td colSpan={4} className="py-3 px-2 font-medium">Total Override Earnings</td>
-                      <td className="py-3 px-2 text-right font-bold">{formatCurrency(data.overrideTotalEarned || 0)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-3 px-2 font-medium">Date</th>
+                          <th className="text-left py-3 px-2 font-medium">Customer</th>
+                          <th className="text-left py-3 px-2 font-medium">Source Rep</th>
+                          <th className="text-left py-3 px-2 font-medium">Level</th>
+                          <th className="text-right py-3 px-2 font-medium">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.overrideEarnings.map((override) => (
+                          <tr key={override.id} className="border-b" data-testid={`row-override-${override.id}`}>
+                            <td className="py-3 px-2">{override.dateSold}</td>
+                            <td className="py-3 px-2">{override.customerName}</td>
+                            <td className="py-3 px-2 font-mono text-xs">{override.sourceRepId}</td>
+                            <td className="py-3 px-2">
+                              <Badge variant="outline" className="text-xs">{override.sourceLevelUsed}</Badge>
+                            </td>
+                            <td className="py-3 px-2 text-right font-medium">{formatCurrency(override.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-2 flex-wrap bg-muted/50 rounded-md py-3 px-2 mt-2">
+                  <span className="font-medium">Total Override Earnings</span>
+                  <span className="font-bold" data-testid="text-override-total">{formatCurrency(data.overrideTotalEarned || 0)}</span>
+                </div>
+              </>
             ) : (
               <div className="py-8 text-center text-muted-foreground">
                 <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />

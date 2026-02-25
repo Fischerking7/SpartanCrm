@@ -3,6 +3,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
 import { JobStatusBadge, PaymentStatusBadge, ApprovalStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -136,6 +138,7 @@ export default function Orders() {
   const isOperations = user?.role === "OPERATIONS";
   const isExecutive = user?.role === "EXECUTIVE";
   const isTouchDevice = useIsTouchDevice();
+  const isMobile = useIsMobile();
 
   // Handle pre-filling form from lead or MDU query params
   useEffect(() => {
@@ -1381,7 +1384,7 @@ export default function Orders() {
 
         return (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3" data-testid="orders-insights">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 [&>*]:min-h-[72px]" data-testid="orders-insights">
               <Card
                 className={`cursor-pointer transition-colors ${activeTab === "orders" ? "ring-2 ring-primary" : ""}`}
                 onClick={() => setActiveTab("orders")}
@@ -1496,19 +1499,25 @@ export default function Orders() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search orders..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-                data-testid="input-search-orders"
-              />
-            </div>
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search orders..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+              data-testid="input-search-orders"
+            />
+          </div>
+          <MobileFilterDrawer
+            activeFilterCount={
+              [providerFilter, clientFilter, statusFilter, approvalFilter, exportFilter].filter(v => v !== "all").length +
+              (dateFromFilter ? 1 : 0) + (dateToFilter ? 1 : 0) +
+              (sortBy !== "createdAt_desc" ? 1 : 0)
+            }
+          >
             <Select value={providerFilter} onValueChange={setProviderFilter}>
-              <SelectTrigger className="w-[140px]" data-testid="select-provider-filter">
+              <SelectTrigger className={isMobile ? "w-full" : "w-[140px]"} data-testid="select-provider-filter">
                 <SelectValue placeholder="Provider" />
               </SelectTrigger>
               <SelectContent>
@@ -1519,7 +1528,7 @@ export default function Orders() {
               </SelectContent>
             </Select>
             <Select value={clientFilter} onValueChange={setClientFilter}>
-              <SelectTrigger className="w-[130px]" data-testid="select-client-filter">
+              <SelectTrigger className={isMobile ? "w-full" : "w-[130px]"} data-testid="select-client-filter">
                 <SelectValue placeholder="Client" />
               </SelectTrigger>
               <SelectContent>
@@ -1530,7 +1539,7 @@ export default function Orders() {
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[140px]" data-testid="select-status-filter">
+              <SelectTrigger className={isMobile ? "w-full" : "w-[140px]"} data-testid="select-status-filter">
                 <SelectValue placeholder="Job Status" />
               </SelectTrigger>
               <SelectContent>
@@ -1540,9 +1549,9 @@ export default function Orders() {
                 <SelectItem value="CANCELED">Canceled</SelectItem>
               </SelectContent>
             </Select>
-                        <div className="flex items-center gap-2">
+            <div className={isMobile ? "space-y-2 w-full" : "flex items-center gap-2"}>
               <Select value={dateFilterType} onValueChange={setDateFilterType}>
-                <SelectTrigger className="w-[130px]" data-testid="select-date-filter-type">
+                <SelectTrigger className={isMobile ? "w-full" : "w-[130px]"} data-testid="select-date-filter-type">
                   <SelectValue placeholder="Date Type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1554,23 +1563,23 @@ export default function Orders() {
                 type="date"
                 value={dateFromFilter}
                 onChange={(e) => setDateFromFilter(e.target.value)}
-                className="w-[140px]"
+                className={isMobile ? "w-full" : "w-[140px]"}
                 placeholder="From"
                 data-testid="input-date-from"
               />
-              <span className="text-muted-foreground">to</span>
+              {!isMobile && <span className="text-muted-foreground">to</span>}
               <Input
                 type="date"
                 value={dateToFilter}
                 onChange={(e) => setDateToFilter(e.target.value)}
-                className="w-[140px]"
+                className={isMobile ? "w-full" : "w-[140px]"}
                 placeholder="To"
                 data-testid="input-date-to"
               />
             </div>
             {isAdmin && (
               <Select value={exportFilter} onValueChange={setExportFilter}>
-                <SelectTrigger className="w-[160px]" data-testid="select-export-filter">
+                <SelectTrigger className={isMobile ? "w-full" : "w-[160px]"} data-testid="select-export-filter">
                   <SelectValue placeholder="Export status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1582,18 +1591,17 @@ export default function Orders() {
               </Select>
             )}
             <Select value={approvalFilter} onValueChange={setApprovalFilter}>
-              <SelectTrigger className="w-[160px]" data-testid="select-approval-filter">
+              <SelectTrigger className={isMobile ? "w-full" : "w-[160px]"} data-testid="select-approval-filter">
                 <SelectValue placeholder="Approval" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Approval</SelectItem>
                 <SelectItem value="UNAPPROVED">Pending Approval</SelectItem>
                 <SelectItem value="APPROVED">Approved</SelectItem>
-                
               </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-[180px]" data-testid="select-sort-orders">
+              <SelectTrigger className={isMobile ? "w-full" : "w-[180px]"} data-testid="select-sort-orders">
                 <SelectValue placeholder="Sort by" />
               </SelectTrigger>
               <SelectContent>
@@ -1611,7 +1619,7 @@ export default function Orders() {
                 <SelectItem value="createdAt_asc">Created (Oldest)</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </MobileFilterDrawer>
         </CardHeader>
         <CardContent>
           <DataTable
@@ -1620,6 +1628,53 @@ export default function Orders() {
             isLoading={isLoading}
             emptyMessage="No orders found"
             testId="table-orders"
+            mobileCard={{
+              title: (row: SalesOrder) => row.customerName,
+              subtitle: (row: SalesOrder) => `${row.invoiceNumber || "No Invoice"} \u00B7 ${row.repId || ""}`,
+              fields: [
+                {
+                  label: "Date Sold",
+                  render: (row: SalesOrder) => formatLocalDate(row.dateSold),
+                },
+                {
+                  label: "Install Date",
+                  render: (row: SalesOrder) => row.installDate ? formatLocalDate(row.installDate) : "-",
+                },
+                {
+                  label: "Job Status",
+                  render: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
+                },
+                {
+                  label: "Approval",
+                  render: (row: SalesOrder) => <ApprovalStatusBadge status={row.approvalStatus} />,
+                },
+                {
+                  label: "Commission",
+                  render: (row: SalesOrder) => {
+                    const netCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
+                    return <span className="font-mono">${netCommission.toFixed(2)}</span>;
+                  },
+                },
+                {
+                  label: "Provider",
+                  render: (row: SalesOrder) => {
+                    const provider = providers?.find(p => p.id === row.providerId);
+                    return provider?.name || "-";
+                  },
+                },
+              ],
+              actions: (row: SalesOrder) => (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-10 w-10"
+                  onClick={() => setSelectedOrder(row)}
+                  data-testid={`button-view-order-mobile-${row.id}`}
+                >
+                  <Eye className="h-5 w-5" />
+                </Button>
+              ),
+            }}
           />
         </CardContent>
       </Card>
