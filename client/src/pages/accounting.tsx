@@ -129,7 +129,7 @@ export default function Accounting() {
       }
       const res = await fetch("/api/admin/accounting/import-payments", {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
         body: formData,
       });
       if (!res.ok) {
@@ -160,7 +160,7 @@ export default function Accounting() {
       }
       const res = await fetch("/api/admin/chargebacks/import", {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
         body: formData,
       });
       if (!res.ok) {

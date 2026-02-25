@@ -20,8 +20,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem("token");
-    const storedMustChange = localStorage.getItem("mustChangePassword") === "true";
+    const storedToken = sessionStorage.getItem("token");
+    const storedMustChange = sessionStorage.getItem("mustChangePassword") === "true";
     if (storedToken) {
       setToken(storedToken);
       setMustChangePassword(storedMustChange);
@@ -41,21 +41,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data.user);
         if (data.user?.mustChangePassword) {
           setMustChangePassword(true);
-          localStorage.setItem("mustChangePassword", "true");
+          sessionStorage.setItem("mustChangePassword", "true");
         }
       } else {
         const data = await res.json().catch(() => ({}));
         if (data.forceLogout) {
           localStorage.setItem("sessionExpiredMessage", "Your session has expired at midnight. Please log in again.");
         }
-        localStorage.removeItem("token");
-        localStorage.removeItem("mustChangePassword");
+        sessionStorage.removeItem("token");
+        sessionStorage.removeItem("mustChangePassword");
         setToken(null);
         setMustChangePassword(false);
       }
     } catch {
-      localStorage.removeItem("token");
-      localStorage.removeItem("mustChangePassword");
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("mustChangePassword");
       setToken(null);
       setMustChangePassword(false);
     } finally {
@@ -76,22 +76,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     setToken(data.token);
     setUser(data.user);
-    localStorage.setItem("token", data.token);
+    sessionStorage.setItem("token", data.token);
     
-    // Handle mustChangePassword flag from login response
     if (data.mustChangePassword) {
       setMustChangePassword(true);
-      localStorage.setItem("mustChangePassword", "true");
+      sessionStorage.setItem("mustChangePassword", "true");
     } else {
       setMustChangePassword(false);
-      localStorage.removeItem("mustChangePassword");
+      sessionStorage.removeItem("mustChangePassword");
     }
   }
   
   async function refreshUser() {
     if (token) {
       await fetchUser(token);
-      // Clear mustChangePassword if user no longer requires it
       const res = await fetch("/api/auth/me", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -99,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         if (!data.user?.mustChangePassword) {
           setMustChangePassword(false);
-          localStorage.removeItem("mustChangePassword");
+          sessionStorage.removeItem("mustChangePassword");
         }
       }
     }
@@ -109,8 +107,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setUser(null);
     setMustChangePassword(false);
-    localStorage.removeItem("token");
-    localStorage.removeItem("mustChangePassword");
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("mustChangePassword");
   }
 
   return (
@@ -127,6 +125,6 @@ export function useAuth() {
 }
 
 export function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem("token");
+  const token = sessionStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }

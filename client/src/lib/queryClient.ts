@@ -1,7 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem("token");
+  const token = sessionStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -12,8 +12,8 @@ async function throwIfResNotOk(res: Response) {
       try {
         const data = JSON.parse(text);
         if (data.forceLogout) {
-          localStorage.removeItem("token");
-          localStorage.removeItem("mustChangePassword");
+          sessionStorage.removeItem("token");
+          sessionStorage.removeItem("mustChangePassword");
           localStorage.setItem("sessionExpiredMessage", "Your session has expired at midnight. Please log in again.");
           window.location.href = "/";
         }
@@ -50,7 +50,6 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    // Build URL from query key - only use string parts, filter out objects
     const urlParts = queryKey.filter((part): part is string => typeof part === "string");
     const url = urlParts.join("/") || "/";
     

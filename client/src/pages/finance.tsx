@@ -397,7 +397,7 @@ export default function Finance() {
       if (repNameOverride) formData.append("repNameOverride", repNameOverride);
       const res = await fetch("/api/finance/import", {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
         body: formData,
       });
       if (!res.ok) {
@@ -672,7 +672,7 @@ export default function Finance() {
         formData.append("file", file);
         const res = await fetch("/api/finance/import/sheets", {
           method: "POST",
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+          headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
           body: formData,
         });
         if (!res.ok) throw new Error("Failed to read sheets");
@@ -711,7 +711,7 @@ export default function Finance() {
         if (sheet.repName) formData.append("repNameOverride", sheet.repName);
         const res = await fetch("/api/finance/import", {
           method: "POST",
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+          headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
           body: formData,
         });
         if (!res.ok) {
