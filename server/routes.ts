@@ -4927,14 +4927,12 @@ export async function registerRoutes(
         const row = rows[i];
         const rowNum = i + 2;
 
-        // Skip rows where any column has a blank/empty value
-        // xlsx only includes keys for cells with data, so a row missing keys = blank cells
-        const rowKeyCount = Object.keys(row).length;
+        // Skip rows that are completely empty (no filled cells at all)
         const filledCount = Object.values(row).filter(v => {
           const s = v?.toString().trim();
           return s && s.length > 0;
         }).length;
-        if (rowKeyCount < totalColumnCount || filledCount < totalColumnCount) {
+        if (filledCount === 0) {
           skipped++;
           continue;
         }
