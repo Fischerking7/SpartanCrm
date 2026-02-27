@@ -1395,16 +1395,13 @@ export async function registerRoutes(
 
       let orders;
 
-      if (user.role === "ADMIN" || user.role === "OPERATIONS") {
-        // Admin/Founder sees all orders
+      // viewMode=own forces personal-only orders for any role (used by Order Tracker)
+      if (viewMode === "own") {
+        orders = await storage.getOrders({ repId: user.repId, limit });
+      } else if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         orders = await storage.getOrders({ limit });
       } else if (user.role === "EXECUTIVE") {
-        // Executive can toggle between own, team, and global views
-        if (viewMode === "own") {
-          // Only their own orders
-          orders = await storage.getOrders({ repId: user.repId, limit });
-        } else if (viewMode === "global") {
-          // All orders (like ADMIN)
+        if (viewMode === "global") {
           orders = await storage.getOrders({ limit });
         } else {
           // Default: team view - orders from their org tree
@@ -1413,17 +1410,14 @@ export async function registerRoutes(
           orders = await storage.getOrders({ teamRepIds, limit });
         }
       } else if (user.role === "MANAGER") {
-        // Manager sees direct reps + reps under their supervisors
         const scope = await storage.getManagerScope(user.id);
-        const teamRepIds = [...scope.allRepRepIds, user.repId]; // Include manager's own orders
+        const teamRepIds = [...scope.allRepRepIds, user.repId];
         orders = await storage.getOrders({ teamRepIds, limit });
       } else if (user.role === "LEAD") {
-        // Supervisor sees their assigned reps + own orders
         const supervisedReps = await storage.getSupervisedReps(user.id);
         const teamRepIds = [...supervisedReps.map(r => r.repId), user.repId];
         orders = await storage.getOrders({ teamRepIds, limit });
       } else {
-        // REP sees only their own orders
         orders = await storage.getOrders({ repId: user.repId, limit });
       }
 

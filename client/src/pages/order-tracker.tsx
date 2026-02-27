@@ -530,9 +530,9 @@ export default function OrderTracker() {
   };
 
   const { data: orders, isLoading } = useQuery<SalesOrder[]>({
-    queryKey: ["/api/orders"],
+    queryKey: ["/api/orders", "own"],
     queryFn: async () => {
-      const res = await fetch("/api/orders", { headers: getAuthHeaders() });
+      const res = await fetch("/api/orders?viewMode=own", { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch orders");
       return res.json();
     },
