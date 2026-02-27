@@ -4963,30 +4963,47 @@ export async function registerRoutes(
             "Building No.", "Building No", "Building Number", "Building #",
             "Address No", "Address Number", "Street No", "Street Number"
           );
-          const aptUnit = getRowValue(row, "apt", "Apt", "Apt.", "Apt #", "Apartment", "Unit", "Unit #", "Suite", "Ste", "Basement", "Bsmt", "apt_unit", "aptUnit");
+          let aptUnit = getRowValue(row, "apt", "Apt", "Apt.", "Apt #", "Apartment", "Unit", "Unit #", "Suite", "Ste", "Basement", "Bsmt", "apt_unit", "aptUnit",
+            "ADDR2", "Addr2", "addr2", "Address 2", "Address2"
+          );
           
           let streetName = getRowValue(row, "streetName", "street_name", "Street Name", "StreetName");
           const customerAddress = getRowValue(row, "customerAddress", "customer_address", "Address", "Full Address");
           const street = getRowValue(row, "street", "Street");
+          const addr1 = getRowValue(row, "ADDR1", "Addr1", "addr1", "Address 1", "Address1");
           const customerName = getRowValue(row, "customerName", "customer_name", "Customer Name", "Name", "Customer");
           
           // Skip rows that have no meaningful lead data (no address AND no customer name)
-          // This prevents importing rows that only have data in unrelated columns
-          if (!houseNumber && !streetName && !customerAddress && !street && !customerName) {
+          if (!houseNumber && !streetName && !customerAddress && !street && !addr1 && !customerName) {
             skipped++;
             continue;
+          }
+          
+          // Parse ADDR1-style combined street address (e.g., "101 W 147TH ST")
+          if (!houseNumber && !streetName && addr1) {
+            const fullAddr = addr1.trim();
+            const match = fullAddr.match(/^(\d+[A-Za-z]?)\s+(.+)$/);
+            if (match) {
+              houseNumber = match[1];
+              streetName = match[2];
+            } else {
+              streetName = fullAddr;
+            }
+          }
+          
+          // Parse ADDR2 for apartment - strip "APT" prefix if present
+          if (aptUnit) {
+            aptUnit = aptUnit.replace(/^(APT\.?|APARTMENT|UNIT|STE\.?|SUITE)\s*/i, "").trim();
           }
           
           // If no separate fields, try to parse from combined address
           if (!houseNumber && !streetName && (customerAddress || street)) {
             const fullAddr = (customerAddress || street).trim();
-            // Try number at the BEGINNING: "123 Main St"
             let match = fullAddr.match(/^(\d+[A-Za-z]?)\s+(.+)$/);
             if (match) {
               houseNumber = match[1];
               streetName = match[2];
             } else {
-              // Try number at the END: "Main St 123"
               match = fullAddr.match(/^(.+)\s+(\d+[A-Za-z]?)$/);
               if (match) {
                 streetName = match[1];
@@ -4997,21 +5014,44 @@ export async function registerRoutes(
             }
           }
           
-          if (!houseNumber && !streetName && !customerAddress && !street) {
+          if (!houseNumber && !streetName && !customerAddress && !street && !addr1) {
             errors.push(`Row ${rowNum}: Missing address (houseNumber/streetName or address required)`);
             failed++;
             continue;
           }
           const customerPhone = getRowValue(row, "customerPhone", "customer_phone", "Phone", "Phone Number", "Telephone");
           const customerEmail = getRowValue(row, "customerEmail", "customer_email", "Email", "E-mail");
-          const city = getRowValue(row, "city", "City");
-          const state = getRowValue(row, "state", "State");
-          const zipCode = getRowValue(row, "zipCode", "zip_code", "Zip", "Zip Code", "ZIP", "Postal Code");
+          let city = getRowValue(row, "city", "City");
+          let state = getRowValue(row, "state", "State");
+          let zipCode = getRowValue(row, "zipCode", "zip_code", "Zip", "Zip Code", "ZIP", "Postal Code");
           const notes = getRowValue(row, "notes", "Notes", "Comments");
           
+          // Parse ADDR3 for combined city/state/zip (e.g., "NEW YORK, NY 10039-436")
+          if (!city && !state && !zipCode) {
+            const addr3 = getRowValue(row, "ADDR3", "Addr3", "addr3", "Address 3", "Address3", "City State Zip", "CityStateZip");
+            if (addr3) {
+              const cityStateZipMatch = addr3.match(/^(.+?),\s*([A-Z]{2})\s+(\d{5}(?:-\d{1,4})?)$/i);
+              if (cityStateZipMatch) {
+                city = cityStateZipMatch[1].trim();
+                state = cityStateZipMatch[2].trim().toUpperCase();
+                zipCode = cityStateZipMatch[3].trim();
+              } else {
+                const cityStateMatch = addr3.match(/^(.+?),\s*([A-Z]{2})$/i);
+                if (cityStateMatch) {
+                  city = cityStateMatch[1].trim();
+                  state = cityStateMatch[2].trim().toUpperCase();
+                } else {
+                  city = addr3;
+                }
+              }
+            }
+          }
+          
           // Additional fields from file
-          const accountNumber = getRowValue(row, "accountNumber", "account_number", "Account Number", "Account No", "Account #", "Account", "Acct", "Acct No", "Acct #");
-          const customerStatus = getRowValue(row, "customerStatus", "customer_status", "Customer Status", "Status", "Cust Status");
+          const accountNumber = getRowValue(row, "accountNumber", "account_number", "Account Number", "Account No", "Account #", "Account", "Acct", "Acct No", "Acct #",
+            "ACCOUNT", "ACCOUNT#", "ACCOUNT #", "ACCT", "ACCT#", "ACCT #");
+          const customerStatus = getRowValue(row, "customerStatus", "customer_status", "Customer Status", "Status", "Cust Status",
+            "STAT", "Stat");
           const discoReason = getRowValue(row, "discoReason", "disco_reason", "Disco Reason", "Disconnect Reason", "Disconnection Reason", "Disco", "DC Reason");
 
           // Verify rep exists (for non-REPs importing for other reps)
