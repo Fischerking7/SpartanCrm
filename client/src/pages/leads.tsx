@@ -1347,10 +1347,10 @@ export default function Leads() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5" />
-              Import Leads from Excel
+              Import Leads
             </DialogTitle>
-            <DialogDescription>
-              Upload an Excel file (.xlsx) with lead data. Required: houseNumber + streetName (or address). Optional: apt/unit, customerName, customerPhone, customerEmail, city, state, zipCode, notes.
+            <DialogDescription className="text-xs sm:text-sm">
+              Upload an Excel file (.xlsx) with address data. Supports columns like ADDR1, ADDR2, ADDR3, or houseNumber + streetName.
             </DialogDescription>
           </DialogHeader>
           
@@ -1359,7 +1359,7 @@ export default function Leads() {
               <div className="space-y-2">
                 <Label>Import leads for</Label>
                 <Select value={targetRepId} onValueChange={setTargetRepId}>
-                  <SelectTrigger data-testid="select-target-user">
+                  <SelectTrigger className="h-11" data-testid="select-target-user">
                     <SelectValue placeholder="Myself (or select a user)" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1372,12 +1372,16 @@ export default function Leads() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Leave as "Myself" to import leads to your own page, or select a user to import leads into their page.
+                  Leave as "Myself" to import to your own page, or select a user.
                 </p>
               </div>
             )}
             
-            <div className="border-2 border-dashed rounded-lg p-6 text-center">
+            <div
+              className="border-2 border-dashed rounded-lg p-8 sm:p-6 text-center cursor-pointer active:bg-muted/50 transition-colors"
+              onClick={() => !importFile && fileInputRef.current?.click()}
+              data-testid="dropzone-import-file"
+            >
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1387,26 +1391,25 @@ export default function Leads() {
                 data-testid="input-import-file"
               />
               {importFile ? (
-                <div className="flex items-center justify-center gap-2">
-                  <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
-                  <span className="font-medium">{importFile.name}</span>
+                <div className="flex items-center justify-center gap-3">
+                  <FileSpreadsheet className="h-6 w-6 text-muted-foreground shrink-0" />
+                  <span className="font-medium text-sm truncate max-w-[200px]">{importFile.name}</span>
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => { setImportFile(null); setImportResult(null); }}
+                    className="h-10 w-10 shrink-0"
+                    onClick={(e) => { e.stopPropagation(); setImportFile(null); setImportResult(null); }}
                     data-testid="button-clear-file"
                   >
-                    <X className="h-4 w-4" />
+                    <X className="h-5 w-5" />
                   </Button>
                 </div>
               ) : (
-                <div>
-                  <Button variant="outline" onClick={() => fileInputRef.current?.click()} data-testid="button-select-file">
-                    <Upload className="h-4 w-4 mr-2" />
-                    Select Excel File
-                  </Button>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Supports .xlsx and .xls files
+                <div className="space-y-3">
+                  <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
+                  <p className="font-medium text-sm">Tap to select Excel file</p>
+                  <p className="text-xs text-muted-foreground">
+                    .xlsx and .xls files supported
                   </p>
                 </div>
               )}
@@ -1439,12 +1442,13 @@ export default function Leads() {
             )}
           </div>
 
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={closeImportDialog}>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" className="w-full sm:w-auto h-11" onClick={closeImportDialog}>
               {importResult ? "Close" : "Cancel"}
             </Button>
             {!importResult && (
               <Button
+                className="w-full sm:w-auto h-11"
                 onClick={handleImport}
                 disabled={!importFile || isImporting}
                 data-testid="button-start-import"
