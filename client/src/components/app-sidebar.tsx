@@ -203,7 +203,7 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
       };
     case "EXECUTIVE":
       return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.reports, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.reports, MENU.execReports, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users],
         ...base,
       };
     default:
