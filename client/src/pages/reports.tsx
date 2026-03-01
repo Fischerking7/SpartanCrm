@@ -356,19 +356,23 @@ export default function Reports() {
     },
   });
 
+  type StatBucket = { submitted: number; connected: number; approved: number };
+  type DeltaBucket = { submitted: { value: number; percent: number }; connected: { value: number; percent: number } };
+
   type SalesTrackerRepData = {
     repId: string;
     name: string;
     role: string;
-    today: { submitted: number; connected: number; approved: number };
-    yesterday: { submitted: number; connected: number; approved: number };
-    dayOverDay: { submitted: { value: number; percent: number }; connected: { value: number; percent: number } };
-    thisWeek: { submitted: number; connected: number; approved: number };
-    lastWeek: { submitted: number; connected: number; approved: number };
-    weekOverWeek: { submitted: { value: number; percent: number }; connected: { value: number; percent: number } };
-    thisMonth: { submitted: number; connected: number; approved: number };
-    lastMonth: { submitted: number; connected: number; approved: number };
-    monthOverMonth: { submitted: { value: number; percent: number }; connected: { value: number; percent: number } };
+    today: StatBucket;
+    yesterday: StatBucket;
+    dayOverDay: DeltaBucket;
+    thisWeek: StatBucket;
+    lastWeek: StatBucket;
+    weekOverWeek: DeltaBucket;
+    thisMonth: StatBucket;
+    lastMonth: StatBucket;
+    priorMonth: StatBucket;
+    monthOverMonth: DeltaBucket;
     dailyBreakdown: Array<{ day: string; date: string; submitted: number; connected: number; approved: number }>;
     prevDailyBreakdown: Array<{ day: string; date: string; submitted: number; connected: number; approved: number }>;
   };
@@ -376,12 +380,13 @@ export default function Reports() {
   type SalesTrackerData = {
     data: SalesTrackerRepData[];
     totals: {
-      today: { submitted: number; connected: number; approved: number };
-      yesterday: { submitted: number; connected: number; approved: number };
-      thisWeek: { submitted: number; connected: number; approved: number };
-      lastWeek: { submitted: number; connected: number; approved: number };
-      thisMonth: { submitted: number; connected: number; approved: number };
-      lastMonth: { submitted: number; connected: number; approved: number };
+      today: StatBucket;
+      yesterday: StatBucket;
+      thisWeek: StatBucket;
+      lastWeek: StatBucket;
+      thisMonth: StatBucket;
+      lastMonth: StatBucket;
+      priorMonth: StatBucket;
     };
     dailyTotals: Array<{ day: string; date: string; submitted: number; connected: number; approved: number }>;
     prevDailyTotals: Array<{ day: string; date: string; submitted: number; connected: number; approved: number }>;
@@ -392,6 +397,7 @@ export default function Reports() {
       lastWeek: { start: string; end: string };
       thisMonth: string;
       lastMonth: string;
+      priorMonth: string;
     };
   };
 

@@ -7336,6 +7336,8 @@ export async function registerRoutes(
       const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
       const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const lastMonthEnd = new Date(thisMonthStart);
+      const priorMonthStart = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      const priorMonthEnd = new Date(lastMonthStart);
 
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const todayEnd = new Date(todayStart);
@@ -7366,6 +7368,7 @@ export async function registerRoutes(
         const lw = repOrders.filter(o => inRange(o, lastWeekStart, lastWeekEnd));
         const tm = repOrders.filter(o => inRange(o, thisMonthStart, thisMonthEnd));
         const lm = repOrders.filter(o => inRange(o, lastMonthStart, lastMonthEnd));
+        const pm = repOrders.filter(o => inRange(o, priorMonthStart, priorMonthEnd));
 
         const stats = (arr: typeof repOrders) => ({
           submitted: arr.length,
@@ -7395,6 +7398,7 @@ export async function registerRoutes(
         const lwStats = stats(lw);
         const tmStats = stats(tm);
         const lmStats = stats(lm);
+        const pmStats = stats(pm);
         const todayStats = stats(todayOrders);
         const yesterdayStats = stats(yesterdayOrders);
 
@@ -7421,9 +7425,10 @@ export async function registerRoutes(
           },
           thisMonth: tmStats,
           lastMonth: lmStats,
+          priorMonth: pmStats,
           monthOverMonth: {
-            submitted: delta(tmStats.submitted, lmStats.submitted),
-            connected: delta(tmStats.connected, lmStats.connected),
+            submitted: delta(lmStats.submitted, pmStats.submitted),
+            connected: delta(lmStats.connected, pmStats.connected),
           },
           dailyBreakdown,
           prevDailyBreakdown,
@@ -7431,7 +7436,8 @@ export async function registerRoutes(
       }).filter(u => u.today.submitted > 0 || u.yesterday.submitted > 0 || u.thisWeek.submitted > 0 || u.lastWeek.submitted > 0 || u.thisMonth.submitted > 0 || u.lastMonth.submitted > 0)
         .sort((a, b) => b.thisWeek.submitted - a.thisWeek.submitted);
 
-      const sumStats = (arr: typeof trackerData, key: "today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "lastMonth") => ({
+      type TrackerKeys = "today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "lastMonth" | "priorMonth";
+      const sumStats = (arr: typeof trackerData, key: TrackerKeys) => ({
         submitted: arr.reduce((s, u) => s + u[key].submitted, 0),
         connected: arr.reduce((s, u) => s + u[key].connected, 0),
         approved: arr.reduce((s, u) => s + u[key].approved, 0),
@@ -7444,6 +7450,7 @@ export async function registerRoutes(
         lastWeek: sumStats(trackerData, "lastWeek"),
         thisMonth: sumStats(trackerData, "thisMonth"),
         lastMonth: sumStats(trackerData, "lastMonth"),
+        priorMonth: sumStats(trackerData, "priorMonth"),
       };
 
       const dailyTotals = dayLabels.map((label, i) => {
@@ -7469,6 +7476,7 @@ export async function registerRoutes(
         lastWeek: { start: getWeekLabel(lastWeekStart), end: getWeekLabel(new Date(lastWeekEnd.getTime() - 86400000)) },
         thisMonth: now.toLocaleString("default", { month: "long", year: "numeric" }),
         lastMonth: new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleString("default", { month: "long", year: "numeric" }),
+        priorMonth: new Date(now.getFullYear(), now.getMonth() - 2, 1).toLocaleString("default", { month: "long", year: "numeric" }),
       };
 
       res.json({ data: trackerData, totals, dailyTotals, prevDailyTotals, periods });
