@@ -1395,7 +1395,6 @@ export async function registerRoutes(
 
       let orders;
 
-      // viewMode=own forces personal-only orders for any role (used by Order Tracker)
       if (viewMode === "own") {
         orders = await storage.getOrders({ repId: user.repId, limit });
       } else if (user.role === "ADMIN" || user.role === "OPERATIONS") {
@@ -1403,20 +1402,31 @@ export async function registerRoutes(
       } else if (user.role === "EXECUTIVE") {
         if (viewMode === "global") {
           orders = await storage.getOrders({ limit });
-        } else {
-          // Default: team view - orders from their org tree
+        } else if (viewMode === "team") {
           const scope = await storage.getExecutiveScope(user.id);
           const teamRepIds = [...scope.allRepRepIds, user.repId];
           orders = await storage.getOrders({ teamRepIds, limit });
+        } else {
+          orders = await storage.getOrders({ repId: user.repId, limit });
         }
       } else if (user.role === "MANAGER") {
-        const scope = await storage.getManagerScope(user.id);
-        const teamRepIds = [...scope.allRepRepIds, user.repId];
-        orders = await storage.getOrders({ teamRepIds, limit });
+        if (viewMode === "global") {
+          orders = await storage.getOrders({ limit });
+        } else if (viewMode === "team") {
+          const scope = await storage.getManagerScope(user.id);
+          const teamRepIds = [...scope.allRepRepIds, user.repId];
+          orders = await storage.getOrders({ teamRepIds, limit });
+        } else {
+          orders = await storage.getOrders({ repId: user.repId, limit });
+        }
       } else if (user.role === "LEAD") {
-        const supervisedReps = await storage.getSupervisedReps(user.id);
-        const teamRepIds = [...supervisedReps.map(r => r.repId), user.repId];
-        orders = await storage.getOrders({ teamRepIds, limit });
+        if (viewMode === "team") {
+          const supervisedReps = await storage.getSupervisedReps(user.id);
+          const teamRepIds = [...supervisedReps.map(r => r.repId), user.repId];
+          orders = await storage.getOrders({ teamRepIds, limit });
+        } else {
+          orders = await storage.getOrders({ repId: user.repId, limit });
+        }
       } else {
         orders = await storage.getOrders({ repId: user.repId, limit });
       }

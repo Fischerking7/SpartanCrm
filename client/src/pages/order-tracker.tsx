@@ -462,6 +462,8 @@ export default function OrderTracker() {
   const { user } = useAuth();
   const { toast } = useToast();
   const canSeeCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
+  const hasViewModeToggle = ["LEAD", "MANAGER", "EXECUTIVE"].includes(user?.role || "");
+  const [viewMode, setViewMode] = useState<"own" | "team" | "global">("own");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [orderType, setOrderType] = useState<"data" | "mobile">("data");
@@ -546,10 +548,12 @@ export default function OrderTracker() {
     });
   };
 
+  const effectiveViewMode = hasViewModeToggle ? viewMode : (["ADMIN", "OPERATIONS"].includes(user?.role || "") ? undefined : "own");
   const { data: orders, isLoading } = useQuery<SalesOrder[]>({
-    queryKey: ["/api/orders", "own"],
+    queryKey: ["/api/orders", "tracker", effectiveViewMode || "all"],
     queryFn: async () => {
-      const res = await fetch("/api/orders?viewMode=own", { headers: getAuthHeaders() });
+      const params = effectiveViewMode ? `?viewMode=${effectiveViewMode}` : "";
+      const res = await fetch(`/api/orders${params}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch orders");
       return res.json();
     },
@@ -815,8 +819,43 @@ export default function OrderTracker() {
             Order Tracker
           </h1>
           <p className="text-muted-foreground text-sm">
-            Track your orders from sale to payment
+            {hasViewModeToggle && viewMode === "team" ? "Viewing your team's orders" :
+             hasViewModeToggle && viewMode === "global" ? "Viewing all orders globally" :
+             "Track your orders from sale to payment"}
           </p>
+          {hasViewModeToggle && (
+            <div className="flex items-center gap-1 mt-2 bg-muted rounded-lg p-1">
+              <Button
+                variant={viewMode === "own" ? "default" : "ghost"}
+                size="sm"
+                className="h-7 text-xs px-3"
+                onClick={() => setViewMode("own")}
+                data-testid="button-view-my-orders"
+              >
+                My Orders
+              </Button>
+              <Button
+                variant={viewMode === "team" ? "default" : "ghost"}
+                size="sm"
+                className="h-7 text-xs px-3"
+                onClick={() => setViewMode("team")}
+                data-testid="button-view-my-team"
+              >
+                My Team
+              </Button>
+              {(user?.role === "EXECUTIVE" || user?.role === "MANAGER") && (
+                <Button
+                  variant={viewMode === "global" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs px-3"
+                  onClick={() => setViewMode("global")}
+                  data-testid="button-view-global"
+                >
+                  Global
+                </Button>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Select value={dateRange} onValueChange={setDateRange}>
