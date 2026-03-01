@@ -138,6 +138,9 @@ function OrderCard({
   onEdit,
   onCancelEdit,
   onSelect,
+  isSelectable,
+  isSelected,
+  onToggleSelect,
 }: {
   order: SalesOrder;
   clientMap: Map<string, string>;
@@ -149,6 +152,9 @@ function OrderCard({
   onEdit: () => void;
   onCancelEdit: () => void;
   onSelect: () => void;
+  isSelectable?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const { toast } = useToast();
   const status = getOrderStatus(order);
@@ -316,12 +322,21 @@ function OrderCard({
 
   return (
     <Card
-      className="hover-elevate cursor-pointer"
-      onClick={onSelect}
+      className={`hover-elevate cursor-pointer ${isSelected ? "ring-2 ring-primary" : ""}`}
+      onClick={isSelectable ? onToggleSelect : onSelect}
       data-testid={`card-order-${order.id}`}
     >
       <CardContent className="p-4">
         <div className="flex items-center gap-4 flex-wrap">
+          {isSelectable && (
+            <Checkbox
+              checked={isSelected}
+              onCheckedChange={() => onToggleSelect?.()}
+              onClick={(e) => e.stopPropagation()}
+              className="h-5 w-5 shrink-0"
+              data-testid={`checkbox-select-order-${order.id}`}
+            />
+          )}
           <div className="flex-1 min-w-[200px]">
             <div className="flex items-center gap-2 flex-wrap">
               <User className="h-3.5 w-3.5 text-muted-foreground" />
@@ -454,8 +469,10 @@ export default function OrderTracker() {
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
   const isTouchDevice = useIsTouchDevice();
+  const isPaidTab = activeTab === "paid";
 
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
@@ -958,7 +975,7 @@ export default function OrderTracker() {
             data-testid="input-search-orders"
           />
         </div>
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelectedOrderIds(new Set()); }}>
           <TabsList>
             <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
             <TabsTrigger value="pending" data-testid="tab-pending">
@@ -978,6 +995,40 @@ export default function OrderTracker() {
           </TabsList>
         </Tabs>
       </div>
+
+      {isPaidTab && sortedOrders.length > 0 && (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <Checkbox
+              checked={sortedOrders.length > 0 && selectedOrderIds.size === sortedOrders.length}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  setSelectedOrderIds(new Set(sortedOrders.map(o => o.id)));
+                } else {
+                  setSelectedOrderIds(new Set());
+                }
+              }}
+              className="h-5 w-5"
+              data-testid="checkbox-select-all-paid"
+            />
+            <span className="text-sm text-muted-foreground">
+              {selectedOrderIds.size > 0
+                ? `${selectedOrderIds.size} of ${sortedOrders.length} selected`
+                : `Select all (${sortedOrders.length})`}
+            </span>
+          </div>
+          {selectedOrderIds.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedOrderIds(new Set())}
+              data-testid="button-clear-selection"
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      )}
 
       {sortedOrders.length === 0 ? (
         <Card>
@@ -1004,6 +1055,16 @@ export default function OrderTracker() {
               onEdit={() => setEditingOrderId(order.id)}
               onCancelEdit={() => setEditingOrderId(null)}
               onSelect={() => setSelectedOrder(order)}
+              isSelectable={isPaidTab}
+              isSelected={selectedOrderIds.has(order.id)}
+              onToggleSelect={() => {
+                setSelectedOrderIds(prev => {
+                  const next = new Set(prev);
+                  if (next.has(order.id)) next.delete(order.id);
+                  else next.add(order.id);
+                  return next;
+                });
+              }}
             />
           ))}
         </div>
