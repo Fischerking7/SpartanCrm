@@ -319,6 +319,43 @@ export default function Reports() {
     enabled: summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE",
   });
 
+  type UserActivityData = {
+    data: Array<{
+      repId: string;
+      name: string;
+      role: string;
+      thisWeek: { submitted: number; connected: number };
+      lastWeek: { submitted: number; connected: number };
+      weekOverWeek: { submitted: { value: number; percent: number }; connected: { value: number; percent: number } };
+      thisMonth: { submitted: number; connected: number };
+      lastMonth: { submitted: number; connected: number };
+      monthOverMonth: { submitted: { value: number; percent: number }; connected: { value: number; percent: number } };
+    }>;
+    totals: {
+      thisWeek: { submitted: number; connected: number };
+      lastWeek: { submitted: number; connected: number };
+      thisMonth: { submitted: number; connected: number };
+      lastMonth: { submitted: number; connected: number };
+    };
+    periods: {
+      thisWeek: { start: string; end: string };
+      lastWeek: { start: string; end: string };
+      thisMonth: string;
+      lastMonth: string;
+    };
+  };
+
+  const { data: userActivity, isLoading: userActivityLoading } = useQuery<UserActivityData>({
+    queryKey: ["/api/reports/user-activity", execViewMode],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (isExecutive) params.set("viewMode", execViewMode);
+      const res = await fetch(`/api/reports/user-activity?${params.toString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
   const handleExport = () => {
     if (!commissionSummary?.data?.length) {
       toast({ title: "No data to export", variant: "destructive" });
@@ -640,6 +677,7 @@ export default function Reports() {
             {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
               <TabsTrigger value="product-mix" data-testid="tab-product-mix">Product Mix</TabsTrigger>
             )}
+            <TabsTrigger value="user-activity" data-testid="tab-user-activity">User Activity</TabsTrigger>
           </TabsList>
           <div className="flex items-center gap-3 flex-wrap">
             <Select value={period} onValueChange={setPeriod}>
@@ -1361,6 +1399,191 @@ export default function Reports() {
             <ProductMixTab period={period} customStartDate={customStartDate} customEndDate={customEndDate} />
           </TabsContent>
         )}
+
+        <TabsContent value="user-activity" className="space-y-6">
+          {userActivityLoading ? (
+            <div className="grid gap-4 md:grid-cols-4">
+              {[1,2,3,4].map(i => <Card key={i}><CardContent className="p-6"><Skeleton className="h-4 w-24 mb-2" /><Skeleton className="h-8 w-32" /></CardContent></Card>)}
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+                <Card data-testid="activity-tw-submitted">
+                  <CardContent className="p-5">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">This Week Submitted</p>
+                    <p className="text-2xl font-bold font-mono mt-1">{userActivity?.totals?.thisWeek?.submitted || 0}</p>
+                    <p className="text-xs text-muted-foreground">{userActivity?.periods?.thisWeek?.start} – {userActivity?.periods?.thisWeek?.end}</p>
+                  </CardContent>
+                </Card>
+                <Card data-testid="activity-tw-connected">
+                  <CardContent className="p-5">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">This Week Connected</p>
+                    <p className="text-2xl font-bold font-mono mt-1 text-green-600">{userActivity?.totals?.thisWeek?.connected || 0}</p>
+                    <p className="text-xs text-muted-foreground">{userActivity?.periods?.thisWeek?.start} – {userActivity?.periods?.thisWeek?.end}</p>
+                  </CardContent>
+                </Card>
+                <Card data-testid="activity-tm-submitted">
+                  <CardContent className="p-5">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">This Month Submitted</p>
+                    <p className="text-2xl font-bold font-mono mt-1">{userActivity?.totals?.thisMonth?.submitted || 0}</p>
+                    <p className="text-xs text-muted-foreground">{userActivity?.periods?.thisMonth}</p>
+                  </CardContent>
+                </Card>
+                <Card data-testid="activity-tm-connected">
+                  <CardContent className="p-5">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">This Month Connected</p>
+                    <p className="text-2xl font-bold font-mono mt-1 text-green-600">{userActivity?.totals?.thisMonth?.connected || 0}</p>
+                    <p className="text-xs text-muted-foreground">{userActivity?.periods?.thisMonth}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Users className="h-5 w-5" />
+                    Week over Week
+                  </CardTitle>
+                  <CardDescription>
+                    {userActivity?.periods?.thisWeek?.start} – {userActivity?.periods?.thisWeek?.end} vs {userActivity?.periods?.lastWeek?.start} – {userActivity?.periods?.lastWeek?.end}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {userActivity?.data?.length ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/50">
+                            <th className="text-left py-3 px-2 font-medium">User</th>
+                            <th className="text-right py-3 px-2 font-medium">Submitted</th>
+                            <th className="text-right py-3 px-2 font-medium">Connected</th>
+                            <th className="text-right py-3 px-2 font-medium">Last Wk Submitted</th>
+                            <th className="text-right py-3 px-2 font-medium">Last Wk Connected</th>
+                            <th className="text-right py-3 px-2 font-medium">WoW Submitted</th>
+                            <th className="text-right py-3 px-2 font-medium">WoW Connected</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {userActivity.data.map((u) => (
+                            <tr key={u.repId} className="border-b last:border-0 hover-elevate" data-testid={`row-activity-wow-${u.repId}`}>
+                              <td className="py-3 px-2">
+                                <div className="font-medium">{u.name}</div>
+                                <div className="text-xs text-muted-foreground">{u.repId} · {u.role}</div>
+                              </td>
+                              <td className="text-right py-3 px-2 font-mono">{u.thisWeek.submitted}</td>
+                              <td className="text-right py-3 px-2 font-mono text-green-600">{u.thisWeek.connected}</td>
+                              <td className="text-right py-3 px-2 font-mono text-muted-foreground">{u.lastWeek.submitted}</td>
+                              <td className="text-right py-3 px-2 font-mono text-muted-foreground">{u.lastWeek.connected}</td>
+                              <td className="text-right py-3 px-2">
+                                <span className={`font-mono text-sm ${u.weekOverWeek.submitted.value > 0 ? "text-green-600" : u.weekOverWeek.submitted.value < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                                  {u.weekOverWeek.submitted.value > 0 ? "+" : ""}{u.weekOverWeek.submitted.value} ({u.weekOverWeek.submitted.percent}%)
+                                </span>
+                              </td>
+                              <td className="text-right py-3 px-2">
+                                <span className={`font-mono text-sm ${u.weekOverWeek.connected.value > 0 ? "text-green-600" : u.weekOverWeek.connected.value < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                                  {u.weekOverWeek.connected.value > 0 ? "+" : ""}{u.weekOverWeek.connected.value} ({u.weekOverWeek.connected.percent}%)
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-muted/50 font-medium">
+                            <td className="py-3 px-2">Totals</td>
+                            <td className="text-right py-3 px-2 font-mono">{userActivity.totals.thisWeek.submitted}</td>
+                            <td className="text-right py-3 px-2 font-mono text-green-600">{userActivity.totals.thisWeek.connected}</td>
+                            <td className="text-right py-3 px-2 font-mono text-muted-foreground">{userActivity.totals.lastWeek.submitted}</td>
+                            <td className="text-right py-3 px-2 font-mono text-muted-foreground">{userActivity.totals.lastWeek.connected}</td>
+                            <td className="text-right py-3 px-2 font-mono">
+                              {(() => { const v = userActivity.totals.thisWeek.submitted - userActivity.totals.lastWeek.submitted; return <span className={v > 0 ? "text-green-600" : v < 0 ? "text-red-600" : ""}>{v > 0 ? "+" : ""}{v}</span>; })()}
+                            </td>
+                            <td className="text-right py-3 px-2 font-mono">
+                              {(() => { const v = userActivity.totals.thisWeek.connected - userActivity.totals.lastWeek.connected; return <span className={v > 0 ? "text-green-600" : v < 0 ? "text-red-600" : ""}>{v > 0 ? "+" : ""}{v}</span>; })()}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center text-muted-foreground">No user activity data available</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Calendar className="h-5 w-5" />
+                    Month over Month
+                  </CardTitle>
+                  <CardDescription>
+                    {userActivity?.periods?.thisMonth} vs {userActivity?.periods?.lastMonth}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {userActivity?.data?.length ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/50">
+                            <th className="text-left py-3 px-2 font-medium">User</th>
+                            <th className="text-right py-3 px-2 font-medium">Submitted</th>
+                            <th className="text-right py-3 px-2 font-medium">Connected</th>
+                            <th className="text-right py-3 px-2 font-medium">Last Mo Submitted</th>
+                            <th className="text-right py-3 px-2 font-medium">Last Mo Connected</th>
+                            <th className="text-right py-3 px-2 font-medium">MoM Submitted</th>
+                            <th className="text-right py-3 px-2 font-medium">MoM Connected</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {userActivity.data.sort((a, b) => b.thisMonth.submitted - a.thisMonth.submitted).map((u) => (
+                            <tr key={u.repId} className="border-b last:border-0 hover-elevate" data-testid={`row-activity-mom-${u.repId}`}>
+                              <td className="py-3 px-2">
+                                <div className="font-medium">{u.name}</div>
+                                <div className="text-xs text-muted-foreground">{u.repId} · {u.role}</div>
+                              </td>
+                              <td className="text-right py-3 px-2 font-mono">{u.thisMonth.submitted}</td>
+                              <td className="text-right py-3 px-2 font-mono text-green-600">{u.thisMonth.connected}</td>
+                              <td className="text-right py-3 px-2 font-mono text-muted-foreground">{u.lastMonth.submitted}</td>
+                              <td className="text-right py-3 px-2 font-mono text-muted-foreground">{u.lastMonth.connected}</td>
+                              <td className="text-right py-3 px-2">
+                                <span className={`font-mono text-sm ${u.monthOverMonth.submitted.value > 0 ? "text-green-600" : u.monthOverMonth.submitted.value < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                                  {u.monthOverMonth.submitted.value > 0 ? "+" : ""}{u.monthOverMonth.submitted.value} ({u.monthOverMonth.submitted.percent}%)
+                                </span>
+                              </td>
+                              <td className="text-right py-3 px-2">
+                                <span className={`font-mono text-sm ${u.monthOverMonth.connected.value > 0 ? "text-green-600" : u.monthOverMonth.connected.value < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                                  {u.monthOverMonth.connected.value > 0 ? "+" : ""}{u.monthOverMonth.connected.value} ({u.monthOverMonth.connected.percent}%)
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-muted/50 font-medium">
+                            <td className="py-3 px-2">Totals</td>
+                            <td className="text-right py-3 px-2 font-mono">{userActivity.totals.thisMonth.submitted}</td>
+                            <td className="text-right py-3 px-2 font-mono text-green-600">{userActivity.totals.thisMonth.connected}</td>
+                            <td className="text-right py-3 px-2 font-mono text-muted-foreground">{userActivity.totals.lastMonth.submitted}</td>
+                            <td className="text-right py-3 px-2 font-mono text-muted-foreground">{userActivity.totals.lastMonth.connected}</td>
+                            <td className="text-right py-3 px-2 font-mono">
+                              {(() => { const v = userActivity.totals.thisMonth.submitted - userActivity.totals.lastMonth.submitted; return <span className={v > 0 ? "text-green-600" : v < 0 ? "text-red-600" : ""}>{v > 0 ? "+" : ""}{v}</span>; })()}
+                            </td>
+                            <td className="text-right py-3 px-2 font-mono">
+                              {(() => { const v = userActivity.totals.thisMonth.connected - userActivity.totals.lastMonth.connected; return <span className={v > 0 ? "text-green-600" : v < 0 ? "text-red-600" : ""}>{v > 0 ? "+" : ""}{v}</span>; })()}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center text-muted-foreground">No user activity data available</div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
       </Tabs>
     </div>
   );

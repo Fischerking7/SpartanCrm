@@ -7307,6 +7307,106 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/reports/user-activity", auth, async (req: AuthRequest, res) => {
+    try {
+      const { viewMode } = req.query;
+      const user = req.user!;
+      const now = new Date();
+
+      const allOrders = await storage.getOrders({});
+      const allUsers = await storage.getUsers();
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user, viewMode as string | undefined);
+
+      const dow = now.getDay();
+      const mondayOffset = dow === 0 ? -6 : 1 - dow;
+      const thisWeekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset);
+      const thisWeekEnd = new Date(thisWeekStart);
+      thisWeekEnd.setDate(thisWeekEnd.getDate() + 7);
+      const lastWeekStart = new Date(thisWeekStart);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+      const lastWeekEnd = new Date(thisWeekStart);
+
+      const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(thisMonthStart);
+
+      const getWeekLabel = (d: Date) => {
+        const m = d.toLocaleString("default", { month: "short" });
+        return `${m} ${d.getDate()}`;
+      };
+
+      const periods = {
+        thisWeek: { start: getWeekLabel(thisWeekStart), end: getWeekLabel(new Date(thisWeekEnd.getTime() - 86400000)) },
+        lastWeek: { start: getWeekLabel(lastWeekStart), end: getWeekLabel(new Date(lastWeekEnd.getTime() - 86400000)) },
+        thisMonth: now.toLocaleString("default", { month: "long", year: "numeric" }),
+        lastMonth: new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleString("default", { month: "long", year: "numeric" }),
+      };
+
+      const inRange = (o: any, s: Date, e: Date) => {
+        const d = new Date(o.dateSold);
+        return d >= s && d < e;
+      };
+
+      const repIds = [...new Set(orders.map(o => o.repId))];
+      const userData = repIds.map(repId => {
+        const repUser = allUsers.find(u => u.repId === repId && !u.deletedAt);
+        const repOrders = orders.filter(o => o.repId === repId);
+
+        const tw = repOrders.filter(o => inRange(o, thisWeekStart, thisWeekEnd));
+        const lw = repOrders.filter(o => inRange(o, lastWeekStart, lastWeekEnd));
+        const tm = repOrders.filter(o => inRange(o, thisMonthStart, thisMonthEnd));
+        const lm = repOrders.filter(o => inRange(o, lastMonthStart, lastMonthEnd));
+
+        const stats = (arr: typeof repOrders) => ({
+          submitted: arr.length,
+          connected: arr.filter(o => o.jobStatus === "COMPLETED").length,
+        });
+
+        const twStats = stats(tw);
+        const lwStats = stats(lw);
+        const tmStats = stats(tm);
+        const lmStats = stats(lm);
+
+        const delta = (curr: number, prev: number) => ({
+          value: curr - prev,
+          percent: prev > 0 ? Math.round(((curr - prev) / prev) * 100) : (curr > 0 ? 100 : 0),
+        });
+
+        return {
+          repId,
+          name: repUser?.name || repId,
+          role: repUser?.role || "REP",
+          thisWeek: twStats,
+          lastWeek: lwStats,
+          weekOverWeek: {
+            submitted: delta(twStats.submitted, lwStats.submitted),
+            connected: delta(twStats.connected, lwStats.connected),
+          },
+          thisMonth: tmStats,
+          lastMonth: lmStats,
+          monthOverMonth: {
+            submitted: delta(tmStats.submitted, lmStats.submitted),
+            connected: delta(tmStats.connected, lmStats.connected),
+          },
+        };
+      }).filter(u => u.thisWeek.submitted > 0 || u.lastWeek.submitted > 0 || u.thisMonth.submitted > 0 || u.lastMonth.submitted > 0)
+        .sort((a, b) => b.thisWeek.submitted - a.thisWeek.submitted);
+
+      const totals = {
+        thisWeek: { submitted: userData.reduce((s, u) => s + u.thisWeek.submitted, 0), connected: userData.reduce((s, u) => s + u.thisWeek.connected, 0) },
+        lastWeek: { submitted: userData.reduce((s, u) => s + u.lastWeek.submitted, 0), connected: userData.reduce((s, u) => s + u.lastWeek.connected, 0) },
+        thisMonth: { submitted: userData.reduce((s, u) => s + u.thisMonth.submitted, 0), connected: userData.reduce((s, u) => s + u.thisMonth.connected, 0) },
+        lastMonth: { submitted: userData.reduce((s, u) => s + u.lastMonth.submitted, 0), connected: userData.reduce((s, u) => s + u.lastMonth.connected, 0) },
+      };
+
+      res.json({ data: userData, totals, periods });
+    } catch (error) {
+      console.error("User activity report error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
   // Register object storage routes
   registerObjectStorageRoutes(app);
 
