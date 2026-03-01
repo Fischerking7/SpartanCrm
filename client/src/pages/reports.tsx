@@ -1706,6 +1706,7 @@ function ProductMixTab({ period, customStartDate, customEndDate }: { period: str
     providerBreakdown: Array<{
       id: string;
       name: string;
+      orders: number;
       totalCommission: number;
       percentOfTotal: number;
     }>;
@@ -1748,12 +1749,25 @@ function ProductMixTab({ period, customStartDate, customEndDate }: { period: str
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
+        <Card data-testid="mix-stat-orders">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Total Orders</p>
+                <p className="text-3xl font-bold font-mono mt-2">{productMix?.totals?.totalOrders || 0}</p>
+              </div>
+              <div className="p-2 rounded-md bg-green-500/10">
+                <BarChart3 className="h-5 w-5 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
         <Card data-testid="mix-stat-base">
           <CardContent className="p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Base Commissions</p>
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Base Commission</p>
                 <p className="text-3xl font-bold font-mono mt-2">{formatCurrency(productMix?.totals?.totalBaseCommission || 0)}</p>
               </div>
               <div className="p-2 rounded-md bg-blue-500/10">
@@ -1863,14 +1877,16 @@ function ProductMixTab({ period, customStartDate, customEndDate }: { period: str
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <th className="text-left py-3 px-2 font-medium">Provider</th>
+                      <th className="text-right py-3 px-2 font-medium">Orders</th>
                       <th className="text-right py-3 px-2 font-medium">Total Commission</th>
-                      <th className="text-right py-3 px-2 font-medium">% of Total</th>
+                      <th className="text-right py-3 px-2 font-medium">%</th>
                     </tr>
                   </thead>
                   <tbody>
                     {productMix.providerBreakdown.map((row) => (
                       <tr key={row.id} className="border-b last:border-0 hover-elevate">
                         <td className="py-3 px-2 font-medium">{row.name}</td>
+                        <td className="text-right py-3 px-2">{row.orders}</td>
                         <td className="text-right py-3 px-2 font-mono font-semibold">{formatCurrency(row.totalCommission)}</td>
                         <td className="text-right py-3 px-2">
                           <Badge variant="outline">{row.percentOfTotal.toFixed(1)}%</Badge>

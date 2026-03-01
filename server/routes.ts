@@ -7273,17 +7273,19 @@ export async function registerRoutes(
       }), { totalOrders: 0, totalBaseCommission: 0, totalIncentiveCommission: 0, totalOverrideCommission: 0, grandTotalCommission: 0 });
       
       // Also break down by provider
-      const providerBreakdown: Record<string, { name: string; totalCommission: number; percentOfTotal: number }> = {};
+      const providerBreakdown: Record<string, { name: string; orders: number; totalCommission: number; percentOfTotal: number }> = {};
       for (const order of periodOrders) {
         if (order.jobStatus !== "COMPLETED") continue;
         const provider = providers.find(p => p.id === order.providerId);
         if (!providerBreakdown[order.providerId]) {
           providerBreakdown[order.providerId] = {
             name: provider?.name || "Unknown",
+            orders: 0,
             totalCommission: 0,
             percentOfTotal: 0,
           };
         }
+        providerBreakdown[order.providerId].orders++;
         providerBreakdown[order.providerId].totalCommission += 
           (parseFloat(order.baseCommissionEarned) || 0) + (parseFloat(order.incentiveEarned || "0") || 0);
       }
