@@ -1537,7 +1537,8 @@ export const storage = {
       case "WEEK":
         startDate = new Date(now);
         const dayOfWeek = startDate.getDay();
-        startDate.setDate(startDate.getDate() - dayOfWeek); // Start of week (Sunday)
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        startDate.setDate(startDate.getDate() + mondayOffset); // Start of week (Monday)
         startDate.setHours(0, 0, 0, 0);
         break;
       case "MONTH":

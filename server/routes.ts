@@ -749,7 +749,8 @@ export async function registerRoutes(
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const weekStart = new Date(now);
-      weekStart.setDate(now.getDate() - now.getDay());
+      const dow = now.getDay();
+      weekStart.setDate(now.getDate() + (dow === 0 ? -6 : 1 - dow)); // Monday start
 
       const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
       const earnedMTD = monthOrders.filter(o => o.paymentStatus === "PAID").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
@@ -13036,7 +13037,8 @@ export async function registerRoutes(
       switch (period) {
         case 'week':
           const weekStart = new Date(now);
-          weekStart.setDate(now.getDate() - now.getDay());
+          const wDay = now.getDay();
+          weekStart.setDate(now.getDate() + (wDay === 0 ? -6 : 1 - wDay)); // Monday start
           startDate = weekStart.toISOString().split('T')[0];
           break;
         case 'ytd':
