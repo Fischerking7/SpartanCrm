@@ -733,18 +733,24 @@ export default function OrderTracker() {
   const dateFilteredOrders = useMemo(() => {
     if (!orders) return [];
     const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const dow = now.getDay();
+    const mondayOffset = dow === 0 ? -6 : 1 - dow;
+    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset);
+
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
     return orders.filter(o => {
       const isMobile = (o as any).isMobileOrder === true;
       if (orderType === "data" && isMobile) return false;
       if (orderType === "mobile" && !isMobile) return false;
 
       if (dateRange === "all") return true;
-      const status = getOrderStatus(o);
-      if (status === "paid") return true;
       const sold = new Date(o.dateSold);
-      if (dateRange === "7d") return now.getTime() - sold.getTime() <= 7 * 86400000;
-      if (dateRange === "30d") return now.getTime() - sold.getTime() <= 30 * 86400000;
-      if (dateRange === "90d") return now.getTime() - sold.getTime() <= 90 * 86400000;
+      if (dateRange === "today") return sold >= today;
+      if (dateRange === "this_week") return sold >= weekStart;
+      if (dateRange === "this_month") return sold >= monthStart;
       return true;
     });
   }, [orders, dateRange, orderType]);
@@ -865,9 +871,9 @@ export default function OrderTracker() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Time</SelectItem>
-              <SelectItem value="7d">Last 7 Days</SelectItem>
-              <SelectItem value="30d">Last 30 Days</SelectItem>
-              <SelectItem value="90d">Last 90 Days</SelectItem>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="this_week">This Week</SelectItem>
+              <SelectItem value="this_month">This Month</SelectItem>
             </SelectContent>
           </Select>
           <Button onClick={() => setShowNewOrderDialog(true)} data-testid="button-new-order-tracker">
