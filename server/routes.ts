@@ -7307,6 +7307,177 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/reports/sales-tracker", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { viewMode, view } = req.query;
+      const user = req.user!;
+      const now = new Date();
+
+      const allowedGlobal = ["ADMIN", "OPERATIONS", "EXECUTIVE"];
+      const allOrders = await storage.getOrders({});
+      const allUsers = await storage.getUsers();
+
+      let effectiveViewMode = viewMode as string | undefined;
+      if (allowedGlobal.includes(user.role) && !effectiveViewMode) {
+        effectiveViewMode = "global";
+      }
+      const { filteredOrders: orders } = await applyRoleBasedOrderFilter(allOrders, user, effectiveViewMode);
+
+      const dow = now.getDay();
+      const mondayOffset = dow === 0 ? -6 : 1 - dow;
+      const thisWeekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset);
+      const thisWeekEnd = new Date(thisWeekStart);
+      thisWeekEnd.setDate(thisWeekEnd.getDate() + 7);
+      const lastWeekStart = new Date(thisWeekStart);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+      const lastWeekEnd = new Date(thisWeekStart);
+
+      const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(thisMonthStart);
+
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayEnd = new Date(todayStart);
+      todayEnd.setDate(todayEnd.getDate() + 1);
+      const yesterdayStart = new Date(todayStart);
+      yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+      const yesterdayEnd = new Date(todayStart);
+
+      const inRange = (o: any, s: Date, e: Date) => {
+        const d = new Date(o.dateSold);
+        return d >= s && d < e;
+      };
+
+      const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      const getWeekLabel = (d: Date) => {
+        const m = d.toLocaleString("default", { month: "short" });
+        return `${m} ${d.getDate()}`;
+      };
+
+      const repIds = [...new Set(orders.map(o => o.repId))];
+      const trackerData = repIds.map(repId => {
+        const repUser = allUsers.find(u => u.repId === repId && !u.deletedAt);
+        const repOrders = orders.filter(o => o.repId === repId);
+
+        const todayOrders = repOrders.filter(o => inRange(o, todayStart, todayEnd));
+        const yesterdayOrders = repOrders.filter(o => inRange(o, yesterdayStart, yesterdayEnd));
+        const tw = repOrders.filter(o => inRange(o, thisWeekStart, thisWeekEnd));
+        const lw = repOrders.filter(o => inRange(o, lastWeekStart, lastWeekEnd));
+        const tm = repOrders.filter(o => inRange(o, thisMonthStart, thisMonthEnd));
+        const lm = repOrders.filter(o => inRange(o, lastMonthStart, lastMonthEnd));
+
+        const stats = (arr: typeof repOrders) => ({
+          submitted: arr.length,
+          connected: arr.filter(o => o.jobStatus === "COMPLETED").length,
+          approved: arr.filter(o => o.approvalStatus === "APPROVED").length,
+        });
+
+        const dailyBreakdown = dayLabels.map((label, i) => {
+          const dayStart = new Date(thisWeekStart);
+          dayStart.setDate(dayStart.getDate() + i);
+          const dayEnd = new Date(dayStart);
+          dayEnd.setDate(dayEnd.getDate() + 1);
+          const dayOrders = repOrders.filter(o => inRange(o, dayStart, dayEnd));
+          return { day: label, date: dayStart.toISOString().split("T")[0], ...stats(dayOrders) };
+        });
+
+        const prevDailyBreakdown = dayLabels.map((label, i) => {
+          const dayStart = new Date(lastWeekStart);
+          dayStart.setDate(dayStart.getDate() + i);
+          const dayEnd = new Date(dayStart);
+          dayEnd.setDate(dayEnd.getDate() + 1);
+          const dayOrders = repOrders.filter(o => inRange(o, dayStart, dayEnd));
+          return { day: label, date: dayStart.toISOString().split("T")[0], ...stats(dayOrders) };
+        });
+
+        const twStats = stats(tw);
+        const lwStats = stats(lw);
+        const tmStats = stats(tm);
+        const lmStats = stats(lm);
+        const todayStats = stats(todayOrders);
+        const yesterdayStats = stats(yesterdayOrders);
+
+        const delta = (curr: number, prev: number) => ({
+          value: curr - prev,
+          percent: prev > 0 ? Math.round(((curr - prev) / prev) * 100) : (curr > 0 ? 100 : 0),
+        });
+
+        return {
+          repId,
+          name: repUser?.name || repId,
+          role: repUser?.role || "REP",
+          today: todayStats,
+          yesterday: yesterdayStats,
+          dayOverDay: {
+            submitted: delta(todayStats.submitted, yesterdayStats.submitted),
+            connected: delta(todayStats.connected, yesterdayStats.connected),
+          },
+          thisWeek: twStats,
+          lastWeek: lwStats,
+          weekOverWeek: {
+            submitted: delta(twStats.submitted, lwStats.submitted),
+            connected: delta(twStats.connected, lwStats.connected),
+          },
+          thisMonth: tmStats,
+          lastMonth: lmStats,
+          monthOverMonth: {
+            submitted: delta(tmStats.submitted, lmStats.submitted),
+            connected: delta(tmStats.connected, lmStats.connected),
+          },
+          dailyBreakdown,
+          prevDailyBreakdown,
+        };
+      }).filter(u => u.today.submitted > 0 || u.yesterday.submitted > 0 || u.thisWeek.submitted > 0 || u.lastWeek.submitted > 0 || u.thisMonth.submitted > 0 || u.lastMonth.submitted > 0)
+        .sort((a, b) => b.thisWeek.submitted - a.thisWeek.submitted);
+
+      const sumStats = (arr: typeof trackerData, key: "today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "lastMonth") => ({
+        submitted: arr.reduce((s, u) => s + u[key].submitted, 0),
+        connected: arr.reduce((s, u) => s + u[key].connected, 0),
+        approved: arr.reduce((s, u) => s + u[key].approved, 0),
+      });
+
+      const totals = {
+        today: sumStats(trackerData, "today"),
+        yesterday: sumStats(trackerData, "yesterday"),
+        thisWeek: sumStats(trackerData, "thisWeek"),
+        lastWeek: sumStats(trackerData, "lastWeek"),
+        thisMonth: sumStats(trackerData, "thisMonth"),
+        lastMonth: sumStats(trackerData, "lastMonth"),
+      };
+
+      const dailyTotals = dayLabels.map((label, i) => {
+        const submitted = trackerData.reduce((s, u) => s + u.dailyBreakdown[i].submitted, 0);
+        const connected = trackerData.reduce((s, u) => s + u.dailyBreakdown[i].connected, 0);
+        const approved = trackerData.reduce((s, u) => s + u.dailyBreakdown[i].approved, 0);
+        const date = trackerData.length > 0 ? trackerData[0].dailyBreakdown[i].date : "";
+        return { day: label, date, submitted, connected, approved };
+      });
+
+      const prevDailyTotals = dayLabels.map((label, i) => {
+        const submitted = trackerData.reduce((s, u) => s + u.prevDailyBreakdown[i].submitted, 0);
+        const connected = trackerData.reduce((s, u) => s + u.prevDailyBreakdown[i].connected, 0);
+        const approved = trackerData.reduce((s, u) => s + u.prevDailyBreakdown[i].approved, 0);
+        const date = trackerData.length > 0 ? trackerData[0].prevDailyBreakdown[i].date : "";
+        return { day: label, date, submitted, connected, approved };
+      });
+
+      const periods = {
+        today: todayStart.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }),
+        yesterday: yesterdayStart.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }),
+        thisWeek: { start: getWeekLabel(thisWeekStart), end: getWeekLabel(new Date(thisWeekEnd.getTime() - 86400000)) },
+        lastWeek: { start: getWeekLabel(lastWeekStart), end: getWeekLabel(new Date(lastWeekEnd.getTime() - 86400000)) },
+        thisMonth: now.toLocaleString("default", { month: "long", year: "numeric" }),
+        lastMonth: new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleString("default", { month: "long", year: "numeric" }),
+      };
+
+      res.json({ data: trackerData, totals, dailyTotals, prevDailyTotals, periods });
+    } catch (error) {
+      console.error("Sales tracker report error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
   app.get("/api/reports/user-activity", auth, async (req: AuthRequest, res) => {
     try {
       const { viewMode } = req.query;

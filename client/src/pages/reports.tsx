@@ -356,6 +356,59 @@ export default function Reports() {
     },
   });
 
+  type SalesTrackerRepData = {
+    repId: string;
+    name: string;
+    role: string;
+    today: { submitted: number; connected: number; approved: number };
+    yesterday: { submitted: number; connected: number; approved: number };
+    dayOverDay: { submitted: { value: number; percent: number }; connected: { value: number; percent: number } };
+    thisWeek: { submitted: number; connected: number; approved: number };
+    lastWeek: { submitted: number; connected: number; approved: number };
+    weekOverWeek: { submitted: { value: number; percent: number }; connected: { value: number; percent: number } };
+    thisMonth: { submitted: number; connected: number; approved: number };
+    lastMonth: { submitted: number; connected: number; approved: number };
+    monthOverMonth: { submitted: { value: number; percent: number }; connected: { value: number; percent: number } };
+    dailyBreakdown: Array<{ day: string; date: string; submitted: number; connected: number; approved: number }>;
+    prevDailyBreakdown: Array<{ day: string; date: string; submitted: number; connected: number; approved: number }>;
+  };
+
+  type SalesTrackerData = {
+    data: SalesTrackerRepData[];
+    totals: {
+      today: { submitted: number; connected: number; approved: number };
+      yesterday: { submitted: number; connected: number; approved: number };
+      thisWeek: { submitted: number; connected: number; approved: number };
+      lastWeek: { submitted: number; connected: number; approved: number };
+      thisMonth: { submitted: number; connected: number; approved: number };
+      lastMonth: { submitted: number; connected: number; approved: number };
+    };
+    dailyTotals: Array<{ day: string; date: string; submitted: number; connected: number; approved: number }>;
+    prevDailyTotals: Array<{ day: string; date: string; submitted: number; connected: number; approved: number }>;
+    periods: {
+      today: string;
+      yesterday: string;
+      thisWeek: { start: string; end: string };
+      lastWeek: { start: string; end: string };
+      thisMonth: string;
+      lastMonth: string;
+    };
+  };
+
+  const [trackerView, setTrackerView] = useState<"daily" | "weekly" | "monthly">("weekly");
+
+  const { data: salesTracker, isLoading: salesTrackerLoading } = useQuery<SalesTrackerData>({
+    queryKey: ["/api/reports/sales-tracker", execViewMode],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (isExecutive) params.set("viewMode", execViewMode);
+      const res = await fetch(`/api/reports/sales-tracker?${params.toString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user?.role || ""),
+  });
+
   const handleExport = () => {
     if (!commissionSummary?.data?.length) {
       toast({ title: "No data to export", variant: "destructive" });
@@ -678,6 +731,9 @@ export default function Reports() {
               <TabsTrigger value="product-mix" data-testid="tab-product-mix">Product Mix</TabsTrigger>
             )}
             <TabsTrigger value="user-activity" data-testid="tab-user-activity">User Activity</TabsTrigger>
+            {["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(summary?.scopeInfo?.role || "") && (
+              <TabsTrigger value="sales-tracker" data-testid="tab-sales-tracker">Sales Tracker</TabsTrigger>
+            )}
           </TabsList>
           <div className="flex items-center gap-3 flex-wrap">
             <Select value={period} onValueChange={setPeriod}>
@@ -1581,6 +1637,313 @@ export default function Reports() {
                   )}
                 </CardContent>
               </Card>
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="sales-tracker" className="space-y-6">
+          {salesTrackerLoading ? (
+            <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
+              {[1,2,3,4,5,6].map(i => <Card key={i}><CardContent className="p-6"><Skeleton className="h-4 w-24 mb-2" /><Skeleton className="h-8 w-32" /></CardContent></Card>)}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 border rounded-md p-1 w-fit" data-testid="toggle-tracker-view">
+                <Button variant={trackerView === "daily" ? "default" : "ghost"} size="sm" onClick={() => setTrackerView("daily")} data-testid="button-tracker-daily">Daily</Button>
+                <Button variant={trackerView === "weekly" ? "default" : "ghost"} size="sm" onClick={() => setTrackerView("weekly")} data-testid="button-tracker-weekly">Weekly</Button>
+                <Button variant={trackerView === "monthly" ? "default" : "ghost"} size="sm" onClick={() => setTrackerView("monthly")} data-testid="button-tracker-monthly">Monthly</Button>
+              </div>
+
+              {trackerView === "daily" && (
+                <>
+                  <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+                    <Card data-testid="tracker-today-submitted">
+                      <CardContent className="p-5">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Today Submitted</p>
+                        <p className="text-2xl font-bold font-mono mt-1">{salesTracker?.totals?.today?.submitted || 0}</p>
+                        <p className="text-xs text-muted-foreground">{salesTracker?.periods?.today}</p>
+                      </CardContent>
+                    </Card>
+                    <Card data-testid="tracker-today-connected">
+                      <CardContent className="p-5">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Today Connected</p>
+                        <p className="text-2xl font-bold font-mono mt-1 text-green-600">{salesTracker?.totals?.today?.connected || 0}</p>
+                        <p className="text-xs text-muted-foreground">{salesTracker?.periods?.today}</p>
+                      </CardContent>
+                    </Card>
+                    <Card data-testid="tracker-yesterday-submitted">
+                      <CardContent className="p-5">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Yesterday Submitted</p>
+                        <p className="text-2xl font-bold font-mono mt-1">{salesTracker?.totals?.yesterday?.submitted || 0}</p>
+                        <p className="text-xs text-muted-foreground">{salesTracker?.periods?.yesterday}</p>
+                      </CardContent>
+                    </Card>
+                    <Card data-testid="tracker-yesterday-connected">
+                      <CardContent className="p-5">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Yesterday Connected</p>
+                        <p className="text-2xl font-bold font-mono mt-1 text-green-600">{salesTracker?.totals?.yesterday?.connected || 0}</p>
+                        <p className="text-xs text-muted-foreground">{salesTracker?.periods?.yesterday}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <BarChart3 className="h-5 w-5" />
+                        Daily Breakdown — This Week
+                      </CardTitle>
+                      <CardDescription>
+                        {salesTracker?.periods?.thisWeek?.start} – {salesTracker?.periods?.thisWeek?.end}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {salesTracker?.dailyTotals?.length ? (
+                        <div className="h-64 mb-6">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={salesTracker.dailyTotals}>
+                              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                              <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+                              <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                              <Tooltip />
+                              <Bar dataKey="submitted" name="Submitted" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="connected" name="Connected" fill="#10b981" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      ) : null}
+                      {salesTracker?.data?.length ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b bg-muted/50">
+                                <th className="text-left py-3 px-2 font-medium">Sales ID</th>
+                                {salesTracker.dailyTotals.map(d => (
+                                  <th key={d.day} className="text-right py-3 px-2 font-medium">{d.day}</th>
+                                ))}
+                                <th className="text-right py-3 px-2 font-medium">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {salesTracker.data.map(u => (
+                                <tr key={u.repId} className="border-b last:border-0 hover-elevate" data-testid={`row-tracker-daily-${u.repId}`}>
+                                  <td className="py-3 px-2">
+                                    <div className="font-medium">{u.name}</div>
+                                    <div className="text-xs text-muted-foreground">{u.repId}</div>
+                                  </td>
+                                  {u.dailyBreakdown.map(d => (
+                                    <td key={d.day} className="text-right py-3 px-2 font-mono">{d.submitted || ""}</td>
+                                  ))}
+                                  <td className="text-right py-3 px-2 font-mono font-medium">{u.thisWeek.submitted}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-muted/50 font-medium">
+                                <td className="py-3 px-2">Totals</td>
+                                {salesTracker.dailyTotals.map(d => (
+                                  <td key={d.day} className="text-right py-3 px-2 font-mono">{d.submitted || ""}</td>
+                                ))}
+                                <td className="text-right py-3 px-2 font-mono">{salesTracker.totals.thisWeek.submitted}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="py-12 text-center text-muted-foreground">No sales data available</div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              )}
+
+              {trackerView === "weekly" && (
+                <>
+                  <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
+                    <Card data-testid="tracker-tw-submitted">
+                      <CardContent className="p-5">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">This Week Submitted</p>
+                        <p className="text-2xl font-bold font-mono mt-1">{salesTracker?.totals?.thisWeek?.submitted || 0}</p>
+                        <p className="text-xs text-muted-foreground">{salesTracker?.periods?.thisWeek?.start} – {salesTracker?.periods?.thisWeek?.end}</p>
+                      </CardContent>
+                    </Card>
+                    <Card data-testid="tracker-tw-connected">
+                      <CardContent className="p-5">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">This Week Connected</p>
+                        <p className="text-2xl font-bold font-mono mt-1 text-green-600">{salesTracker?.totals?.thisWeek?.connected || 0}</p>
+                        <p className="text-xs text-muted-foreground">{salesTracker?.periods?.thisWeek?.start} – {salesTracker?.periods?.thisWeek?.end}</p>
+                      </CardContent>
+                    </Card>
+                    <Card data-testid="tracker-lw-submitted">
+                      <CardContent className="p-5">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Last Week Submitted</p>
+                        <p className="text-2xl font-bold font-mono mt-1 text-muted-foreground">{salesTracker?.totals?.lastWeek?.submitted || 0}</p>
+                        <p className="text-xs text-muted-foreground">{salesTracker?.periods?.lastWeek?.start} – {salesTracker?.periods?.lastWeek?.end}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <TrendingUp className="h-5 w-5" />
+                        Current Week vs Previous Week
+                      </CardTitle>
+                      <CardDescription>
+                        {salesTracker?.periods?.thisWeek?.start} – {salesTracker?.periods?.thisWeek?.end} vs {salesTracker?.periods?.lastWeek?.start} – {salesTracker?.periods?.lastWeek?.end}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {salesTracker?.data?.length ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b bg-muted/50">
+                                <th className="text-left py-3 px-2 font-medium">Sales ID</th>
+                                <th className="text-right py-3 px-2 font-medium">This Wk</th>
+                                <th className="text-right py-3 px-2 font-medium">Connected</th>
+                                <th className="text-right py-3 px-2 font-medium">Last Wk</th>
+                                <th className="text-right py-3 px-2 font-medium">Connected</th>
+                                <th className="text-right py-3 px-2 font-medium">Change</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {salesTracker.data.map(u => {
+                                const diff = u.thisWeek.submitted - u.lastWeek.submitted;
+                                return (
+                                  <tr key={u.repId} className="border-b last:border-0 hover-elevate" data-testid={`row-tracker-wow-${u.repId}`}>
+                                    <td className="py-3 px-2">
+                                      <div className="font-medium">{u.name}</div>
+                                      <div className="text-xs text-muted-foreground">{u.repId}</div>
+                                    </td>
+                                    <td className="text-right py-3 px-2 font-mono">{u.thisWeek.submitted}</td>
+                                    <td className="text-right py-3 px-2 font-mono text-green-600">{u.thisWeek.connected}</td>
+                                    <td className="text-right py-3 px-2 font-mono text-muted-foreground">{u.lastWeek.submitted}</td>
+                                    <td className="text-right py-3 px-2 font-mono text-muted-foreground">{u.lastWeek.connected}</td>
+                                    <td className="text-right py-3 px-2">
+                                      <span className={`font-mono text-sm ${diff > 0 ? "text-green-600" : diff < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                                        {diff > 0 ? "+" : ""}{diff} ({u.weekOverWeek.submitted.percent}%)
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-muted/50 font-medium">
+                                <td className="py-3 px-2">Totals</td>
+                                <td className="text-right py-3 px-2 font-mono">{salesTracker.totals.thisWeek.submitted}</td>
+                                <td className="text-right py-3 px-2 font-mono text-green-600">{salesTracker.totals.thisWeek.connected}</td>
+                                <td className="text-right py-3 px-2 font-mono text-muted-foreground">{salesTracker.totals.lastWeek.submitted}</td>
+                                <td className="text-right py-3 px-2 font-mono text-muted-foreground">{salesTracker.totals.lastWeek.connected}</td>
+                                <td className="text-right py-3 px-2 font-mono">
+                                  {(() => { const v = salesTracker.totals.thisWeek.submitted - salesTracker.totals.lastWeek.submitted; return <span className={v > 0 ? "text-green-600" : v < 0 ? "text-red-600" : ""}>{v > 0 ? "+" : ""}{v}</span>; })()}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="py-12 text-center text-muted-foreground">No sales data available</div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              )}
+
+              {trackerView === "monthly" && (
+                <>
+                  <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
+                    <Card data-testid="tracker-tm-submitted">
+                      <CardContent className="p-5">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">This Month Submitted</p>
+                        <p className="text-2xl font-bold font-mono mt-1">{salesTracker?.totals?.thisMonth?.submitted || 0}</p>
+                        <p className="text-xs text-muted-foreground">{salesTracker?.periods?.thisMonth}</p>
+                      </CardContent>
+                    </Card>
+                    <Card data-testid="tracker-tm-connected">
+                      <CardContent className="p-5">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">This Month Connected</p>
+                        <p className="text-2xl font-bold font-mono mt-1 text-green-600">{salesTracker?.totals?.thisMonth?.connected || 0}</p>
+                        <p className="text-xs text-muted-foreground">{salesTracker?.periods?.thisMonth}</p>
+                      </CardContent>
+                    </Card>
+                    <Card data-testid="tracker-lm-submitted">
+                      <CardContent className="p-5">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Last Month Submitted</p>
+                        <p className="text-2xl font-bold font-mono mt-1 text-muted-foreground">{salesTracker?.totals?.lastMonth?.submitted || 0}</p>
+                        <p className="text-xs text-muted-foreground">{salesTracker?.periods?.lastMonth}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <TrendingUp className="h-5 w-5" />
+                        Current Month vs Previous Month
+                      </CardTitle>
+                      <CardDescription>
+                        {salesTracker?.periods?.thisMonth} vs {salesTracker?.periods?.lastMonth}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {salesTracker?.data?.length ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b bg-muted/50">
+                                <th className="text-left py-3 px-2 font-medium">Sales ID</th>
+                                <th className="text-right py-3 px-2 font-medium">This Mo</th>
+                                <th className="text-right py-3 px-2 font-medium">Connected</th>
+                                <th className="text-right py-3 px-2 font-medium">Last Mo</th>
+                                <th className="text-right py-3 px-2 font-medium">Connected</th>
+                                <th className="text-right py-3 px-2 font-medium">Change</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {salesTracker.data.sort((a, b) => b.thisMonth.submitted - a.thisMonth.submitted).map(u => {
+                                const diff = u.thisMonth.submitted - u.lastMonth.submitted;
+                                return (
+                                  <tr key={u.repId} className="border-b last:border-0 hover-elevate" data-testid={`row-tracker-mom-${u.repId}`}>
+                                    <td className="py-3 px-2">
+                                      <div className="font-medium">{u.name}</div>
+                                      <div className="text-xs text-muted-foreground">{u.repId}</div>
+                                    </td>
+                                    <td className="text-right py-3 px-2 font-mono">{u.thisMonth.submitted}</td>
+                                    <td className="text-right py-3 px-2 font-mono text-green-600">{u.thisMonth.connected}</td>
+                                    <td className="text-right py-3 px-2 font-mono text-muted-foreground">{u.lastMonth.submitted}</td>
+                                    <td className="text-right py-3 px-2 font-mono text-muted-foreground">{u.lastMonth.connected}</td>
+                                    <td className="text-right py-3 px-2">
+                                      <span className={`font-mono text-sm ${diff > 0 ? "text-green-600" : diff < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                                        {diff > 0 ? "+" : ""}{diff} ({u.monthOverMonth.submitted.percent}%)
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-muted/50 font-medium">
+                                <td className="py-3 px-2">Totals</td>
+                                <td className="text-right py-3 px-2 font-mono">{salesTracker.totals.thisMonth.submitted}</td>
+                                <td className="text-right py-3 px-2 font-mono text-green-600">{salesTracker.totals.thisMonth.connected}</td>
+                                <td className="text-right py-3 px-2 font-mono text-muted-foreground">{salesTracker.totals.lastMonth.submitted}</td>
+                                <td className="text-right py-3 px-2 font-mono text-muted-foreground">{salesTracker.totals.lastMonth.connected}</td>
+                                <td className="text-right py-3 px-2 font-mono">
+                                  {(() => { const v = salesTracker.totals.thisMonth.submitted - salesTracker.totals.lastMonth.submitted; return <span className={v > 0 ? "text-green-600" : v < 0 ? "text-red-600" : ""}>{v > 0 ? "+" : ""}{v}</span>; })()}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="py-12 text-center text-muted-foreground">No sales data available</div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              )}
             </>
           )}
         </TabsContent>
