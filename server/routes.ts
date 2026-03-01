@@ -889,6 +889,7 @@ export async function registerRoutes(
     try {
       const user = req.user!;
       const role = user.role;
+      const viewMode = req.query.viewMode as string | undefined; // "own", "team", "global"
       
       // America/New_York timezone calculations
       const now = new Date();
@@ -919,9 +920,19 @@ export async function registerRoutes(
       
       const formatDate = (d: Date) => d.toISOString().split('T')[0];
       
+      // Determine scope based on viewMode
+      const isGlobalView = viewMode === "global" && ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(role);
+      const isOwnView = viewMode === "own";
+      
       // Get rep IDs for personal and team scopes
       const personalRepIds = await storage.getRepIdsForScope(user.id, role, "personal");
-      const teamRepIds = role !== "REP" ? await storage.getRepIdsForScope(user.id, role, "team") : [];
+      let teamRepIds: string[] = [];
+      if (isGlobalView) {
+        const allUsers = await storage.getUsers();
+        teamRepIds = allUsers.filter(u => ["REP", "LEAD", "MANAGER", "EXECUTIVE"].includes(u.role) && !u.deletedAt && u.status === "ACTIVE").map(u => u.repId);
+      } else if (!isOwnView && role !== "REP" && role !== "MDU") {
+        teamRepIds = await storage.getRepIdsForScope(user.id, role, "team");
+      }
       
       // Personal metrics
       const personalWeekly = await storage.getProductionMetrics(personalRepIds, formatDate(weekStart), formatDate(weekEnd));
@@ -932,7 +943,7 @@ export async function registerRoutes(
       const personalMtdPrior = await storage.getProductionMetrics(personalRepIds, formatDate(priorMtdStart), formatDate(priorMtdEnd));
       const personalMtdSeries = await storage.getDailyProductionSeries(personalRepIds, formatDate(mtdStart), formatDate(mtdEnd));
       
-      // Team metrics (null for REP)
+      // Team metrics (null for REP/MDU or own-only view)
       let teamWeekly = null;
       let teamWeeklyPrior = null;
       let teamWeeklySeries: any[] = [];
@@ -972,13 +983,13 @@ export async function registerRoutes(
       let teamByRep = null;
       let teamByManager = null;
       
-      if (["LEAD", "MANAGER"].includes(role)) {
-        teamByRep = await storage.getTeamBreakdownByRep(user.id, role, formatDate(mtdStart), formatDate(mtdEnd));
-      }
-      
-      if (["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(role)) {
-        teamByManager = await storage.getTeamBreakdownByManager(formatDate(mtdStart), formatDate(mtdEnd));
-        teamByRep = await storage.getTeamBreakdownByRep(user.id, role, formatDate(mtdStart), formatDate(mtdEnd));
+      if (!isOwnView) {
+        if (isGlobalView || ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(role)) {
+          teamByManager = await storage.getTeamBreakdownByManager(formatDate(mtdStart), formatDate(mtdEnd));
+          teamByRep = await storage.getTeamBreakdownByRep(user.id, isGlobalView ? "ADMIN" : role, formatDate(mtdStart), formatDate(mtdEnd));
+        } else if (["LEAD", "MANAGER"].includes(role)) {
+          teamByRep = await storage.getTeamBreakdownByRep(user.id, role, formatDate(mtdStart), formatDate(mtdEnd));
+        }
       }
       
       res.json({

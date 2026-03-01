@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronRight, Eye } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 
 type Cadence = "WEEK" | "MONTH";
@@ -105,14 +105,15 @@ interface ProductionData {
 
 export default function ExecutiveDashboard() {
   const { user } = useAuth();
-  const [viewMode, setViewMode] = useState<"my" | "global">("my");
+  const [viewMode, setViewMode] = useState<"my" | "team" | "global">("my");
   const [cadence, setCadence] = useState<Cadence>("WEEK");
   const [drillDownManager, setDrillDownManager] = useState<{ id: string; name: string } | null>(null);
 
+  const apiViewMode = viewMode === "my" ? "own" : viewMode === "team" ? "team" : "global";
   const { data: summary, isLoading: summaryLoading } = useQuery<DashboardSummary>({
-    queryKey: ["/api/dashboard/summary"],
+    queryKey: ["/api/dashboard/summary", apiViewMode],
     queryFn: async () => {
-      const res = await fetch("/api/dashboard/summary", { headers: getAuthHeaders() });
+      const res = await fetch(`/api/dashboard/summary?viewMode=${apiViewMode}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch summary");
       return res.json();
     },
@@ -231,22 +232,28 @@ export default function ExecutiveDashboard() {
     },
   ];
 
+  const viewToggle = (
+    <div className="flex items-center gap-1 bg-muted rounded-lg p-1" data-testid="exec-dashboard-view-toggle">
+      <Button size="sm" variant={viewMode === "my" ? "default" : "ghost"} className="h-7 text-xs px-3" onClick={() => setViewMode("my")} data-testid="button-exec-view-my">
+        My Sales
+      </Button>
+      <Button size="sm" variant={viewMode === "team" ? "default" : "ghost"} className="h-7 text-xs px-3" onClick={() => setViewMode("team")} data-testid="button-exec-view-team">
+        My Team
+      </Button>
+      <Button size="sm" variant={viewMode === "global" ? "default" : "ghost"} className="h-7 text-xs px-3" onClick={() => setViewMode("global")} data-testid="button-exec-view-global">
+        Global
+      </Button>
+    </div>
+  );
+
   if (viewMode === "global") {
     return (
       <div>
-        <div className="px-6 pt-6 pb-0 flex items-center justify-between">
+        <div className="px-6 pt-6 pb-0 flex items-center justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-semibold" data-testid="text-exec-dashboard-title">Dashboard</h1>
             <p className="text-muted-foreground">Organization-wide overview</p>
-          </div>
-          <div className="flex items-center gap-1 bg-muted rounded-lg p-1" data-testid="exec-dashboard-view-toggle">
-            <Eye className="h-4 w-4 ml-2 text-muted-foreground" />
-            <Button size="sm" variant="ghost" onClick={() => setViewMode("my")} data-testid="button-exec-view-my">
-              My Content
-            </Button>
-            <Button size="sm" variant="default" onClick={() => setViewMode("global")} data-testid="button-exec-view-global">
-              Global
-            </Button>
+            <div className="mt-2">{viewToggle}</div>
           </div>
         </div>
         <AdminDashboard hideHeader />
@@ -254,25 +261,19 @@ export default function ExecutiveDashboard() {
     );
   }
 
+  const showTeamData = viewMode === "team" && summary?.weekly.team;
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold" data-testid="text-exec-dashboard-title">Dashboard</h1>
           <p className="text-muted-foreground">
-            Welcome back, {user?.name}
+            {viewMode === "team" ? `Welcome back, ${user?.name} — viewing team` : `Welcome back, ${user?.name}`}
           </p>
+          <div className="mt-2">{viewToggle}</div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 bg-muted rounded-lg p-1" data-testid="exec-dashboard-view-toggle">
-            <Eye className="h-4 w-4 ml-2 text-muted-foreground" />
-            <Button size="sm" variant="default" onClick={() => setViewMode("my")} data-testid="button-exec-view-my">
-              My Content
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setViewMode("global")} data-testid="button-exec-view-global">
-              Global
-            </Button>
-          </div>
           <div className="flex gap-1 bg-muted p-1 rounded-md">
             {(["WEEK", "MONTH"] as Cadence[]).map((c) => (
               <Button
@@ -310,26 +311,26 @@ export default function ExecutiveDashboard() {
           <ProductionMetricsModule
             personalWeekly={summary.weekly.personal}
             personalMtd={summary.mtd.personal}
-            teamWeekly={summary.weekly.team}
-            teamMtd={summary.mtd.team}
+            teamWeekly={showTeamData ? summary.weekly.team : null}
+            teamMtd={showTeamData ? summary.mtd.team : null}
           />
           <DashboardChartsModule
             personalWeekly={summary.weekly.personal.sparklineSeries}
             personalMtd={summary.mtd.personal.sparklineSeries}
-            teamWeekly={summary.weekly.team?.sparklineSeries || null}
-            teamMtd={summary.mtd.team?.sparklineSeries || null}
+            teamWeekly={showTeamData ? (summary.weekly.team?.sparklineSeries || null) : null}
+            teamMtd={showTeamData ? (summary.mtd.team?.sparklineSeries || null) : null}
           />
         </>
       ) : null}
 
-      {summary?.breakdowns.teamByManager && summary.breakdowns.teamByManager.length > 0 && (
+      {viewMode === "team" && summary?.breakdowns.teamByManager && summary.breakdowns.teamByManager.length > 0 && (
         <TeamBreakdownByManagerTable
           data={summary.breakdowns.teamByManager}
           title="Manager Breakdown (MTD)"
         />
       )}
 
-      {summary?.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && (
+      {viewMode === "team" && summary?.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && (
         <TeamBreakdownByRepTable
           data={summary.breakdowns.teamByRep}
           title="All Reps Breakdown (MTD)"

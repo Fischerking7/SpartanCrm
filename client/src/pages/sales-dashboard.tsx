@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { ProductionMetricsModule } from "@/components/production-metrics-card";
@@ -8,6 +9,7 @@ import { Leaderboard } from "@/components/leaderboard";
 import { QuotaProgress } from "@/components/quota-progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 interface DashboardSummary {
   weekly: {
@@ -74,26 +76,66 @@ interface DashboardSummary {
 
 export default function SalesDashboard() {
   const { user } = useAuth();
-  const isRep = user?.role === "REP";
+  const isRep = user?.role === "REP" || user?.role === "MDU";
+  const hasViewModeToggle = ["LEAD", "MANAGER"].includes(user?.role || "");
+  const canViewGlobal = user?.role === "MANAGER";
+  const [viewMode, setViewMode] = useState<"own" | "team" | "global">("team");
 
+  const effectiveViewMode = hasViewModeToggle ? viewMode : undefined;
   const { data: summary, isLoading } = useQuery<DashboardSummary>({
-    queryKey: ["/api/dashboard/summary"],
+    queryKey: ["/api/dashboard/summary", effectiveViewMode || "default"],
     queryFn: async () => {
-      const res = await fetch("/api/dashboard/summary", { headers: getAuthHeaders() });
+      const params = effectiveViewMode ? `?viewMode=${effectiveViewMode}` : "";
+      const res = await fetch(`/api/dashboard/summary${params}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch summary");
       return res.json();
     },
   });
 
-  const hasTeamData = !isRep && summary?.weekly.team;
+  const hasTeamData = !isRep && summary?.weekly.team && viewMode !== "own";
 
   return (
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold" data-testid="text-dashboard-title">Dashboard</h1>
         <p className="text-muted-foreground">
-          Welcome back, {user?.name}
+          {hasViewModeToggle && viewMode === "global" ? "Organization-wide overview" :
+           hasViewModeToggle && viewMode === "team" ? `Welcome back, ${user?.name} — viewing team` :
+           `Welcome back, ${user?.name}`}
         </p>
+        {hasViewModeToggle && (
+          <div className="flex items-center gap-1 mt-2 bg-muted rounded-lg p-1 w-fit">
+            <Button
+              variant={viewMode === "own" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 text-xs px-3"
+              onClick={() => setViewMode("own")}
+              data-testid="button-dashboard-view-own"
+            >
+              My Sales
+            </Button>
+            <Button
+              variant={viewMode === "team" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 text-xs px-3"
+              onClick={() => setViewMode("team")}
+              data-testid="button-dashboard-view-team"
+            >
+              My Team
+            </Button>
+            {canViewGlobal && (
+              <Button
+                variant={viewMode === "global" ? "default" : "ghost"}
+                size="sm"
+                className="h-7 text-xs px-3"
+                onClick={() => setViewMode("global")}
+                data-testid="button-dashboard-view-global"
+              >
+                Global
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -120,8 +162,8 @@ export default function SalesDashboard() {
               <ProductionMetricsModule
                 personalWeekly={summary.weekly.personal}
                 personalMtd={summary.mtd.personal}
-                teamWeekly={isRep ? null : summary.weekly.team}
-                teamMtd={isRep ? null : summary.mtd.team}
+                teamWeekly={hasTeamData ? summary.weekly.team : null}
+                teamMtd={hasTeamData ? summary.mtd.team : null}
               />
             </div>
             <div className="space-y-6">
@@ -133,11 +175,11 @@ export default function SalesDashboard() {
           <DashboardChartsModule
             personalWeekly={summary.weekly.personal.sparklineSeries}
             personalMtd={summary.mtd.personal.sparklineSeries}
-            teamWeekly={isRep ? null : (summary.weekly.team?.sparklineSeries || null)}
-            teamMtd={isRep ? null : (summary.mtd.team?.sparklineSeries || null)}
+            teamWeekly={hasTeamData ? (summary.weekly.team?.sparklineSeries || null) : null}
+            teamMtd={hasTeamData ? (summary.mtd.team?.sparklineSeries || null) : null}
           />
 
-          {!isRep && summary.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && (
+          {summary.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && viewMode !== "own" && (
             <TeamBreakdownByRepTable
               data={summary.breakdowns.teamByRep}
               title="Team Breakdown (MTD)"
