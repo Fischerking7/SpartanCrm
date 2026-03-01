@@ -12563,6 +12563,17 @@ export async function registerRoutes(
               status: arStatus
             });
             arCreated++;
+            
+            // When AR is created as satisfied, mark order completed, approved, and paid
+            if (arStatus === 'SATISFIED' && order) {
+              const orderUpdate: Record<string, any> = {
+                paymentStatus: 'PAID',
+                paidDate: new Date().toISOString().split('T')[0],
+              };
+              if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+              if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+              await storage.updateOrder(orderId, orderUpdate);
+            }
           }
         } else if (rejectedRows.length > 0) {
           await storage.setOrderClientAcceptance(orderId, 'REJECTED');
@@ -12748,25 +12759,28 @@ export async function registerRoutes(
         satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
       });
       
-      // When AR is satisfied, update the linked order's paymentStatus to PAID
+      // When AR is satisfied, mark the linked order as completed, approved, and paid
       if (newStatus === 'SATISFIED' && ar.orderId) {
         const order = await storage.getOrderById(ar.orderId);
         if (order) {
-          await storage.updateOrder(ar.orderId, {
+          const orderUpdate: Record<string, any> = {
             paymentStatus: 'PAID',
             paidDate: new Date().toISOString().split('T')[0],
-          });
+          };
+          if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+          if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+          
+          await storage.updateOrder(ar.orderId, orderUpdate);
           
           await storage.createAuditLog({
             action: "order_payment_status_updated",
             tableName: "sales_orders",
             recordId: ar.orderId,
-            afterJson: JSON.stringify({ paymentStatus: 'PAID', reason: 'AR satisfied', arId: req.params.id }),
+            afterJson: JSON.stringify({ ...orderUpdate, reason: 'AR satisfied', arId: req.params.id }),
             userId: req.user!.id,
           });
         }
       } else if (newStatus === 'PARTIAL' && ar.orderId) {
-        // Update to partially paid when partial payment received
         const order = await storage.getOrderById(ar.orderId);
         if (order && order.paymentStatus !== 'PAID') {
           await storage.updateOrder(ar.orderId, {
@@ -12825,30 +12839,30 @@ export async function registerRoutes(
           satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
         });
         
-        // Update linked order's payment status based on new AR status
+        // Update linked order's status based on new AR status
         if (ar.orderId) {
           const order = await storage.getOrderById(ar.orderId);
           if (order) {
-            let orderPaymentStatus = order.paymentStatus;
+            const orderUpdate: Record<string, any> = {};
             if (newStatus === 'SATISFIED') {
-              orderPaymentStatus = 'PAID';
+              orderUpdate.paymentStatus = 'PAID';
+              orderUpdate.paidDate = new Date().toISOString().split('T')[0];
+              if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+              if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
             } else if (newStatus === 'PARTIAL') {
-              orderPaymentStatus = 'PARTIALLY_PAID';
+              orderUpdate.paymentStatus = 'PARTIALLY_PAID';
             } else if (newStatus === 'OPEN') {
-              orderPaymentStatus = 'UNPAID';
+              orderUpdate.paymentStatus = 'UNPAID';
             }
             
-            if (orderPaymentStatus !== order.paymentStatus) {
-              await storage.updateOrder(ar.orderId, {
-                paymentStatus: orderPaymentStatus,
-                paidDate: orderPaymentStatus === 'PAID' ? new Date().toISOString().split('T')[0] : null,
-              });
+            if (Object.keys(orderUpdate).length > 0 && orderUpdate.paymentStatus !== order.paymentStatus) {
+              await storage.updateOrder(ar.orderId, orderUpdate);
               
               await storage.createAuditLog({
                 action: "order_payment_status_updated",
                 tableName: "sales_orders",
                 recordId: ar.orderId,
-                afterJson: JSON.stringify({ paymentStatus: orderPaymentStatus, reason: 'AR payment deleted', arId }),
+                afterJson: JSON.stringify({ ...orderUpdate, reason: 'AR payment deleted', arId }),
                 userId: req.user!.id,
               });
             }
@@ -12935,14 +12949,17 @@ export async function registerRoutes(
         satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
       });
       
-      // If now satisfied, update order payment status
+      // If now satisfied, mark order as completed, approved, and paid
       if (newStatus === 'SATISFIED' && ar.orderId) {
         const order = await storage.getOrderById(ar.orderId);
-        if (order && order.paymentStatus !== 'PAID') {
-          await storage.updateOrder(ar.orderId, {
+        if (order) {
+          const orderUpdate: Record<string, any> = {
             paymentStatus: 'PAID',
             paidDate: new Date().toISOString().split('T')[0],
-          });
+          };
+          if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+          if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+          await storage.updateOrder(ar.orderId, orderUpdate);
         }
       }
       
