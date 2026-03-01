@@ -85,7 +85,7 @@ export default function Leads() {
   const canAssignToOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
   const canBulkManage = canAssignToOthers; // LEAD+ can multi-select and bulk manage
   const isAdmin = ["ADMIN", "OPERATIONS"].includes(user?.role || "");
-  const canCreateLead = ["EXECUTIVE", "OPERATIONS", "ADMIN"].includes(user?.role || "");
+  const canCreateLead = true;
   const canViewPipeline = ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
 
   const getStreetAddress = (lead: Lead): string => {
@@ -1588,21 +1588,23 @@ export default function Leads() {
           </DialogHeader>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto p-1">
-            <div className="col-span-1 sm:col-span-2 space-y-2">
-              <Label>Assign to Rep *</Label>
-              <Select value={newLeadForm.repId} onValueChange={(v) => setNewLeadForm(f => ({ ...f, repId: v }))}>
-                <SelectTrigger data-testid="select-create-lead-rep">
-                  <SelectValue placeholder="Select a rep" />
-                </SelectTrigger>
-                <SelectContent>
-                  {assignableUsers.map(u => (
-                    <SelectItem key={u.id} value={u.repId}>
-                      {u.name} ({u.repId}) - {u.role}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {canAssignToOthers ? (
+              <div className="col-span-1 sm:col-span-2 space-y-2">
+                <Label>Assign to Rep *</Label>
+                <Select value={newLeadForm.repId} onValueChange={(v) => setNewLeadForm(f => ({ ...f, repId: v }))}>
+                  <SelectTrigger data-testid="select-create-lead-rep">
+                    <SelectValue placeholder="Select a rep" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {assignableUsers.map(u => (
+                      <SelectItem key={u.id} value={u.repId}>
+                        {u.name} ({u.repId}) - {u.role}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <div className="space-y-2">
               <Label>Customer Name</Label>
               <Input
@@ -1710,7 +1712,7 @@ export default function Leads() {
             </Button>
             <Button
               onClick={() => createLeadMutation.mutate(newLeadForm)}
-              disabled={!newLeadForm.repId || createLeadMutation.isPending}
+              disabled={(canAssignToOthers && !newLeadForm.repId) || createLeadMutation.isPending}
               data-testid="button-confirm-create-lead"
             >
               {createLeadMutation.isPending ? "Creating..." : "Create Lead"}

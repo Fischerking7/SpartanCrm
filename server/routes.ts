@@ -4418,21 +4418,14 @@ export async function registerRoutes(
   // Create a single lead (EXECUTIVE, OPERATIONS, ADMIN only)
   app.post("/api/leads", auth, async (req: AuthRequest, res) => {
     try {
-      const allowedRoles = ["EXECUTIVE", "OPERATIONS", "ADMIN"];
-      if (!allowedRoles.includes(req.user!.role)) {
-        return res.status(403).json({ message: "Only executives, operations, and admins can create leads manually" });
-      }
-      
       const { 
-        repId, customerName, houseNumber, aptUnit, streetName, street, 
+        repId: requestedRepId, customerName, houseNumber, aptUnit, streetName, street, 
         city, state, zipCode, customerPhone, customerEmail, accountNumber, 
         customerStatus, discoReason, notes 
       } = req.body;
       
-      // Validate repId
-      if (!repId) {
-        return res.status(400).json({ message: "Rep ID is required" });
-      }
+      const canAssignToOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
+      const repId = canAssignToOthers && requestedRepId ? requestedRepId : req.user!.repId;
       
       const users = await storage.getUsers();
       const targetUser = users.find(u => u.repId === repId && !u.deletedAt && u.status === "ACTIVE");
