@@ -892,7 +892,8 @@ export const storage = {
     return db.query.salesOrders.findFirst({ where: eq(salesOrders.invoiceNumber, invoiceNumber) });
   },
   async createOrder(data: InsertSalesOrder) {
-    const invoiceNumber = await this.generateInvoiceNumber();
+    const isMobile = data.isMobileOrder === true || data.mobileSold === true;
+    const invoiceNumber = await this.generateInvoiceNumber(isMobile);
     const [order] = await db.insert(salesOrders).values({ ...data, invoiceNumber }).returning();
     return order;
   },
@@ -954,7 +955,7 @@ export const storage = {
   },
 
   // Invoice Numbering
-  async generateInvoiceNumber(): Promise<string> {
+  async generateInvoiceNumber(isMobile: boolean = false): Promise<string> {
     const key = "invoice_number";
     const year = new Date().getFullYear().toString().slice(-2);
     const month = (new Date().getMonth() + 1).toString().padStart(2, "0");
@@ -967,7 +968,8 @@ export const storage = {
     } else {
       await db.insert(counters).values({ key, value: nextValue });
     }
-    return `INV-${month}${year}-${nextValue.toString().padStart(5, "0")}`;
+    const prefix = isMobile ? "MINV" : "INV";
+    return `${prefix}-${month}${year}-${nextValue.toString().padStart(5, "0")}`;
   },
 
   // Incentives
