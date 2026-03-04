@@ -7316,6 +7316,7 @@ export async function registerRoutes(
       const allowedGlobal = ["ADMIN", "OPERATIONS", "EXECUTIVE"];
       const allOrders = await storage.getOrders({});
       const allUsers = await storage.getUsers();
+      const allServices = await storage.getServices();
 
       let effectiveViewMode = viewMode as string | undefined;
       if (allowedGlobal.includes(user.role) && !effectiveViewMode) {
@@ -7469,6 +7470,28 @@ export async function registerRoutes(
         return { day: label, date, submitted, connected, approved };
       });
 
+      const serviceMap = new Map(allServices.map(s => [s.id, s.name]));
+      const serviceMixByDay = dayLabels.map((label, i) => {
+        const dayStart = new Date(thisWeekStart);
+        dayStart.setDate(dayStart.getDate() + i);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        const dayOrders = orders.filter(o => inRange(o, dayStart, dayEnd));
+        const mix: Record<string, number> = {};
+        dayOrders.forEach(o => {
+          const sName = serviceMap.get(o.serviceId) || "Unknown";
+          mix[sName] = (mix[sName] || 0) + 1;
+        });
+        return { day: label, date: dayStart.toISOString().split("T")[0], mix };
+      });
+
+      const thisWeekOrders = orders.filter(o => inRange(o, thisWeekStart, thisWeekEnd));
+      const weekServiceMix: Record<string, number> = {};
+      thisWeekOrders.forEach(o => {
+        const sName = serviceMap.get(o.serviceId) || "Unknown";
+        weekServiceMix[sName] = (weekServiceMix[sName] || 0) + 1;
+      });
+
       const periods = {
         today: todayStart.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }),
         yesterday: yesterdayStart.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }),
@@ -7479,7 +7502,7 @@ export async function registerRoutes(
         priorMonth: new Date(now.getFullYear(), now.getMonth() - 2, 1).toLocaleString("default", { month: "long", year: "numeric" }),
       };
 
-      res.json({ data: trackerData, totals, dailyTotals, prevDailyTotals, periods });
+      res.json({ data: trackerData, totals, dailyTotals, prevDailyTotals, periods, serviceMixByDay, weekServiceMix });
     } catch (error) {
       console.error("Sales tracker report error:", error);
       res.status(500).json({ message: "Failed to generate report" });

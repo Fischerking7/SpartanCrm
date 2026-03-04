@@ -39,6 +39,7 @@ import {
   Smartphone,
   Target,
   BarChart3,
+  Layers,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -390,6 +391,8 @@ export default function Reports() {
     };
     dailyTotals: Array<{ day: string; date: string; submitted: number; connected: number; approved: number }>;
     prevDailyTotals: Array<{ day: string; date: string; submitted: number; connected: number; approved: number }>;
+    serviceMixByDay: Array<{ day: string; date: string; mix: Record<string, number> }>;
+    weekServiceMix: Record<string, number>;
     periods: {
       today: string;
       yesterday: string;
@@ -1760,6 +1763,102 @@ export default function Reports() {
                       )}
                     </CardContent>
                   </Card>
+
+                  {salesTracker?.weekServiceMix && Object.keys(salesTracker.weekServiceMix).length > 0 && (
+                    <Card data-testid="tracker-service-mix">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Layers className="h-5 w-5" />
+                          Service Mix — This Week
+                        </CardTitle>
+                        <CardDescription>
+                          {salesTracker?.periods?.thisWeek?.start} – {salesTracker?.periods?.thisWeek?.end}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie
+                                  data={Object.entries(salesTracker.weekServiceMix).map(([name, count]) => ({ name, value: count })).sort((a, b) => b.value - a.value)}
+                                  cx="50%"
+                                  cy="50%"
+                                  outerRadius={90}
+                                  dataKey="value"
+                                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                  labelLine={false}
+                                >
+                                  {Object.keys(salesTracker.weekServiceMix).map((_, i) => (
+                                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="space-y-2">
+                            {Object.entries(salesTracker.weekServiceMix)
+                              .sort(([, a], [, b]) => b - a)
+                              .map(([name, count], i) => {
+                                const total = Object.values(salesTracker.weekServiceMix).reduce((s, v) => s + v, 0);
+                                const pct = total > 0 ? ((count / total) * 100).toFixed(1) : "0";
+                                return (
+                                  <div key={name} className="flex items-center justify-between py-1.5 border-b last:border-0" data-testid={`service-mix-row-${i}`}>
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                                      <span className="text-sm font-medium">{name}</span>
+                                    </div>
+                                    <span className="text-sm font-mono text-muted-foreground">{count} ({pct}%)</span>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+
+                        {salesTracker.serviceMixByDay?.length > 0 && (() => {
+                          const allServiceNames = [...new Set(salesTracker.serviceMixByDay.flatMap(d => Object.keys(d.mix)))].sort();
+                          if (allServiceNames.length === 0) return null;
+                          return (
+                            <div className="overflow-x-auto mt-6">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="border-b bg-muted/50">
+                                    <th className="text-left py-3 px-2 font-medium">Service</th>
+                                    {salesTracker.serviceMixByDay.map(d => (
+                                      <th key={d.day} className="text-right py-3 px-2 font-medium">{d.day}</th>
+                                    ))}
+                                    <th className="text-right py-3 px-2 font-medium">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {allServiceNames.map(svc => (
+                                    <tr key={svc} className="border-b last:border-0 hover-elevate">
+                                      <td className="py-3 px-2 font-medium">{svc}</td>
+                                      {salesTracker.serviceMixByDay.map(d => (
+                                        <td key={d.day} className="text-right py-3 px-2 font-mono">{d.mix[svc] || ""}</td>
+                                      ))}
+                                      <td className="text-right py-3 px-2 font-mono font-medium">{salesTracker.weekServiceMix[svc] || 0}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="bg-muted/50 font-medium">
+                                    <td className="py-3 px-2">Totals</td>
+                                    {salesTracker.serviceMixByDay.map(d => {
+                                      const dayTotal = Object.values(d.mix).reduce((s, v) => s + v, 0);
+                                      return <td key={d.day} className="text-right py-3 px-2 font-mono">{dayTotal || ""}</td>;
+                                    })}
+                                    <td className="text-right py-3 px-2 font-mono">{Object.values(salesTracker.weekServiceMix).reduce((s, v) => s + v, 0)}</td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          );
+                        })()}
+                      </CardContent>
+                    </Card>
+                  )}
                 </>
               )}
 
