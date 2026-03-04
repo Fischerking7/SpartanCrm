@@ -49,6 +49,7 @@ import {
   Smartphone,
   MessageSquareWarning,
   User,
+  Activity,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -106,6 +107,7 @@ const MENU = {
   overrides: { title: "Overrides", url: "/admin/overrides", icon: Users },
   empCredentials: { title: "Employee Credentials", url: "/admin/employee-credentials", icon: Key },
   adminDisputes: { title: "Disputes", url: "/admin/disputes", icon: MessageSquareWarning },
+  userActivity: { title: "User Activity", url: "/admin/user-activity", icon: Activity },
   payroll: { title: "Payroll", url: "/admin/payroll", icon: Calendar },
   advPayroll: { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
   quickbooks: { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
@@ -174,6 +176,7 @@ const adminSettingsItems: MenuItem[] = [
   MENU.empCredentials,
   MENU.adminDisputes,
   MENU.quickbooks,
+  MENU.userActivity,
 ];
 
 // ============ ROLE-SPECIFIC MENUS (Composed from blocks) ============

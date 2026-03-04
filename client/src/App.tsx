@@ -10,6 +10,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useActivityTracker } from "@/hooks/use-activity-tracker";
 
 import Login from "@/pages/login";
 import ChangePassword from "@/pages/change-password";
@@ -53,6 +54,7 @@ import MobileOrderEntry from "@/pages/mobile-order-entry";
 import MyDisputes from "@/pages/my-disputes";
 import AdminDisputes from "@/pages/admin-disputes";
 import OrderTracker from "@/pages/order-tracker";
+import UserActivityPage from "@/pages/admin/user-activity";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -120,11 +122,13 @@ const routeTitles: Record<string, string> = {
   "/queues": "Queues",
   "/export-history": "Exports",
   "/recalculate": "Recalculate",
+  "/admin/user-activity": "User Activity",
 };
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [location] = useLocation();
+  useActivityTracker();
   
   if (!user) return null;
 
@@ -251,6 +255,7 @@ function Router() {
             <Route path="/admin/quickbooks" component={AdminQuickBooks} />
             <Route path="/admin/employee-credentials" component={AdminEmployeeCredentials} />
             <Route path="/admin/disputes" component={AdminDisputes} />
+            <Route path="/admin/user-activity" component={UserActivityPage} />
           </>
         )}
         
