@@ -66,12 +66,14 @@ export default function Orders() {
   const [approvalFilter, setApprovalFilter] = useState<string>("all");
   
 
+  const getTodayDate = () => new Date().toISOString().split("T")[0];
+
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
     clientId: "",
     providerId: "",
     serviceId: "",
-    dateSold: "",
+    dateSold: getTodayDate(),
     installDate: "",
     installTime: "",
     installType: "",
@@ -88,7 +90,7 @@ export default function Orders() {
     clientId: "",
     providerId: "",
     serviceId: "",
-    dateSold: "",
+    dateSold: getTodayDate(),
     customerName: "",
     customerPhone: "",
     customerAddress: "",
@@ -125,7 +127,7 @@ export default function Orders() {
       clientId: "",
       providerId: "",
       serviceId: "",
-      dateSold: "",
+      dateSold: getTodayDate(),
       customerName: "",
       customerPhone: "",
       customerAddress: "",
@@ -481,7 +483,7 @@ export default function Orders() {
       clientId: "",
       providerId: "",
       serviceId: "",
-      dateSold: "",
+      dateSold: getTodayDate(),
       installDate: "",
       installTime: "",
       installType: "",

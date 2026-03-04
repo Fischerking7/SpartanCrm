@@ -476,12 +476,14 @@ export default function OrderTracker() {
   const isTouchDevice = useIsTouchDevice();
   const isPaidTab = activeTab === "paid";
 
+  const getTodayDate = () => new Date().toISOString().split("T")[0];
+
   const [newOrderForm, setNewOrderForm] = useState({
     repId: "",
     clientId: "",
     providerId: "",
     serviceId: "",
-    dateSold: "",
+    dateSold: getTodayDate(),
     installDate: "",
     installTime: "",
     installType: "",
@@ -495,7 +497,7 @@ export default function OrderTracker() {
 
   const resetNewOrderForm = () => {
     setNewOrderForm({
-      repId: "", clientId: "", providerId: "", serviceId: "", dateSold: "",
+      repId: "", clientId: "", providerId: "", serviceId: "", dateSold: getTodayDate(),
       installDate: "", installTime: "", installType: "", accountNumber: "",
       customerName: "", customerAddress: "", customerPhone: "", customerEmail: "",
       hasTv: false,
@@ -508,7 +510,7 @@ export default function OrderTracker() {
     clientId: "",
     providerId: "",
     serviceId: "",
-    dateSold: "",
+    dateSold: getTodayDate(),
     customerName: "",
     customerPhone: "",
     customerAddress: "",
@@ -542,7 +544,7 @@ export default function OrderTracker() {
   const resetMobileOrderForm = () => {
     setMobileOrderForm({
       repId: "", clientId: "", providerId: "", serviceId: "",
-      dateSold: "", customerName: "", customerPhone: "", customerAddress: "",
+      dateSold: getTodayDate(), customerName: "", customerPhone: "", customerAddress: "",
       accountNumber: "",
       mobileLines: [{ mobileProductType: "", mobilePortedStatus: "" }],
     });
