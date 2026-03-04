@@ -602,6 +602,33 @@ export async function registerRoutes(
       
       const token = generateToken(user);
       await storage.createAuditLog({ action: "login", tableName: "users", recordId: user.id, userId: user.id });
+
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+      const ua = req.headers["user-agent"] || "";
+      const deviceType = /Mobile|Android|iPhone|iPad/i.test(ua) ? "Mobile" : "Desktop";
+      try {
+        const geoRes = await fetch(`http://ip-api.com/json/${ip}?fields=city,regionName,country`);
+        const geo = geoRes.ok ? await geoRes.json() : {};
+        await storage.createUserActivityLog({
+          userId: user.id,
+          eventType: "LOGIN",
+          ipAddress: ip,
+          city: geo.city || null,
+          region: geo.regionName || null,
+          country: geo.country || null,
+          userAgent: ua,
+          deviceType,
+        });
+      } catch {
+        await storage.createUserActivityLog({
+          userId: user.id,
+          eventType: "LOGIN",
+          ipAddress: ip,
+          userAgent: ua,
+          deviceType,
+        });
+      }
+
       res.json({ 
         token, 
         user: { ...user, passwordHash: undefined },
@@ -10785,6 +10812,93 @@ export async function registerRoutes(
       res.json({ success: true, ...results });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ========== User Activity Tracking ==========
+
+  app.post("/api/activity", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { page } = req.body;
+      if (!page) return res.status(400).json({ message: "Page is required" });
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+      const ua = req.headers["user-agent"] || "";
+      const deviceType = /Mobile|Android|iPhone|iPad/i.test(ua) ? "Mobile" : "Desktop";
+      await storage.createUserActivityLog({
+        userId: user.id,
+        eventType: "PAGE_VIEW",
+        page,
+        ipAddress: ip,
+        userAgent: ua,
+        deviceType,
+      });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to log activity" });
+    }
+  });
+
+  app.get("/api/user-activity", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const allUsers = await storage.getUsers();
+      const logs = await storage.getUserActivityLogs(2000);
+
+      const userMap = new Map(allUsers.map(u => [u.id, { name: u.name, repId: u.repId, role: u.role }]));
+
+      const enriched = logs.map(log => ({
+        ...log,
+        userName: userMap.get(log.userId)?.name || "Unknown",
+        userRepId: userMap.get(log.userId)?.repId || "",
+        userRole: userMap.get(log.userId)?.role || "",
+      }));
+
+      const now = new Date();
+      const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      const recentLogins = enriched.filter(l => l.eventType === "LOGIN" && new Date(l.createdAt) >= last24h);
+      const uniqueUsersToday = new Set(recentLogins.map(l => l.userId)).size;
+
+      const loginsByUser = new Map<string, typeof enriched[0]>();
+      for (const log of enriched) {
+        if (log.eventType === "LOGIN" && !loginsByUser.has(log.userId)) {
+          loginsByUser.set(log.userId, log);
+        }
+      }
+
+      const last7dLogs = enriched.filter(l => new Date(l.createdAt) >= last7d);
+      const deviceBreakdown: Record<string, number> = {};
+      const locationBreakdown: Record<string, number> = {};
+      const pageBreakdown: Record<string, number> = {};
+      for (const log of last7dLogs) {
+        if (log.deviceType) deviceBreakdown[log.deviceType] = (deviceBreakdown[log.deviceType] || 0) + 1;
+        if (log.eventType === "LOGIN" && (log.city || log.region)) {
+          const loc = [log.city, log.region].filter(Boolean).join(", ");
+          locationBreakdown[loc] = (locationBreakdown[loc] || 0) + 1;
+        }
+        if (log.page) pageBreakdown[log.page] = (pageBreakdown[log.page] || 0) + 1;
+      }
+
+      res.json({
+        logs: enriched.slice(0, 500),
+        stats: {
+          uniqueUsersToday,
+          totalLogins24h: recentLogins.length,
+          totalEvents7d: last7dLogs.length,
+        },
+        lastLoginByUser: Array.from(loginsByUser.values()),
+        deviceBreakdown,
+        locationBreakdown,
+        pageBreakdown,
+      });
+    } catch (error) {
+      console.error("User activity error:", error);
+      res.status(500).json({ message: "Failed to fetch activity data" });
     }
   });
 

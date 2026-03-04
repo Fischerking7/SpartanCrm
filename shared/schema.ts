@@ -1986,3 +1986,24 @@ export const insertClientColumnMappingSchema = createInsertSchema(clientColumnMa
 });
 export type ClientColumnMapping = typeof clientColumnMappings.$inferSelect;
 export type InsertClientColumnMapping = z.infer<typeof insertClientColumnMappingSchema>;
+
+export const userActivityLogs = pgTable("user_activity_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  eventType: text("event_type").notNull(),
+  page: text("page"),
+  ipAddress: text("ip_address"),
+  city: text("city"),
+  region: text("region"),
+  country: text("country"),
+  userAgent: text("user_agent"),
+  deviceType: text("device_type"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertUserActivityLogSchema = createInsertSchema(userActivityLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type UserActivityLog = typeof userActivityLogs.$inferSelect;
+export type InsertUserActivityLog = z.infer<typeof insertUserActivityLogSchema>;

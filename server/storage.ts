@@ -67,6 +67,7 @@ import {
   type ArExpectation, type InsertArExpectation,
   type ArPayment, type InsertArPayment, arPayments,
   type ClientColumnMapping, type InsertClientColumnMapping,
+  userActivityLogs, type UserActivityLog, type InsertUserActivityLog,
 } from "@shared/schema";
 
 export const storage = {
@@ -4218,5 +4219,32 @@ export const storage = {
       .where(eq(salesOrders.id, orderId))
       .returning();
     return result;
+  },
+
+  async createUserActivityLog(data: InsertUserActivityLog) {
+    const [log] = await db.insert(userActivityLogs).values(data).returning();
+    return log;
+  },
+  async getUserActivityLogs(limit = 500) {
+    return db.query.userActivityLogs.findMany({
+      orderBy: [desc(userActivityLogs.createdAt)],
+      limit,
+    });
+  },
+  async getUserActivityLogsByUser(userId: string, limit = 100) {
+    return db.query.userActivityLogs.findMany({
+      where: eq(userActivityLogs.userId, userId),
+      orderBy: [desc(userActivityLogs.createdAt)],
+      limit,
+    });
+  },
+  async getRecentLogins(since: Date) {
+    return db.query.userActivityLogs.findMany({
+      where: and(
+        eq(userActivityLogs.eventType, "LOGIN"),
+        gte(userActivityLogs.createdAt, since),
+      ),
+      orderBy: [desc(userActivityLogs.createdAt)],
+    });
   },
 };
