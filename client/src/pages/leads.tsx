@@ -347,23 +347,18 @@ export default function Leads() {
   const hasActiveFilters = filters.houseNumber || filters.streetName || filters.city || filters.zipCode || filters.dateFrom || filters.dateTo || filters.customerName || filters.disposition || sortBy !== "date_desc" || currentPage > 1;
 
   const createOrderFromLead = (lead: Lead) => {
-    // Build full street address
-    const streetPart = lead.houseNumber 
-      ? `${lead.houseNumber} ${lead.streetName || lead.street || ""}`.trim()
-      : (lead.street || lead.streetName || "");
-    
-    // Build city, state, zip part
-    const cityStateZip = [lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ");
-    
-    // Combine into full address
-    const address = [streetPart, cityStateZip].filter(Boolean).join(", ") || lead.customerAddress || "";
-    
     const params = new URLSearchParams();
     if (lead.customerName) params.set("customerName", lead.customerName);
-    if (address) params.set("customerAddress", address);
     if (lead.customerPhone) params.set("customerPhone", lead.customerPhone);
     if (lead.customerEmail) params.set("customerEmail", lead.customerEmail);
     if (lead.accountNumber) params.set("accountNumber", lead.accountNumber);
+    if (lead.houseNumber) params.set("houseNumber", lead.houseNumber);
+    const street = lead.streetName || lead.street || "";
+    if (street) params.set("streetName", street);
+    if (lead.aptUnit) params.set("aptUnit", lead.aptUnit);
+    if (lead.city) params.set("city", lead.city);
+    if (lead.zipCode) params.set("zipCode", lead.zipCode);
+    if (lead.customerAddress) params.set("customerAddress", lead.customerAddress);
     params.set("fromLead", lead.id);
     
     setLocation(`/orders?${params.toString()}`);

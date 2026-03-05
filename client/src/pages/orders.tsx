@@ -158,6 +158,11 @@ export default function Orders() {
       const customerPhone = params.get("customerPhone");
       const customerEmail = params.get("customerEmail");
       const accountNumber = params.get("accountNumber");
+      const houseNumber = params.get("houseNumber");
+      const streetName = params.get("streetName");
+      const aptUnit = params.get("aptUnit");
+      const city = params.get("city");
+      const zipCode = params.get("zipCode");
       
       if (fromLead) {
         setFromLeadId(fromLead);
@@ -165,6 +170,11 @@ export default function Orders() {
           ...f,
           customerName: customerName || "",
           customerAddress: customerAddress || "",
+          houseNumber: houseNumber || "",
+          streetName: streetName || "",
+          aptUnit: aptUnit || "",
+          city: city || "",
+          zipCode: zipCode || "",
           customerPhone: customerPhone || "",
           customerEmail: customerEmail || "",
           accountNumber: accountNumber || "",
