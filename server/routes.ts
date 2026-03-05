@@ -606,19 +606,44 @@ export async function registerRoutes(
       const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
       const ua = req.headers["user-agent"] || "";
       const deviceType = /Mobile|Android|iPhone|iPad/i.test(ua) ? "Mobile" : "Desktop";
+      let geoCity: string | null = null;
+      let geoRegion: string | null = null;
+      let geoCountry: string | null = null;
       try {
-        const geoRes = await fetch(`http://ip-api.com/json/${ip}?fields=city,regionName,country`);
-        const geo = geoRes.ok ? await geoRes.json() : {};
+        const geoRes = await fetch(`https://ipapi.co/${ip}/json/`, { signal: AbortSignal.timeout(3000) });
+        if (geoRes.ok) {
+          const geo = await geoRes.json();
+          if (!geo.error) {
+            geoCity = geo.city || null;
+            geoRegion = geo.region || null;
+            geoCountry = geo.country_name || null;
+          }
+        }
+      } catch {}
+      if (!geoCity && !geoRegion) {
+        try {
+          const geoRes2 = await fetch(`http://ip-api.com/json/${ip}?fields=city,regionName,country`, { signal: AbortSignal.timeout(3000) });
+          if (geoRes2.ok) {
+            const geo2 = await geoRes2.json();
+            geoCity = geo2.city || null;
+            geoRegion = geo2.regionName || null;
+            geoCountry = geo2.country || null;
+          }
+        } catch {}
+      }
+      const locationStr = [geoCity, geoRegion, geoCountry].filter(Boolean).join(", ") || null;
+      try {
         await storage.createUserActivityLog({
           userId: user.id,
           eventType: "LOGIN",
           ipAddress: ip,
-          city: geo.city || null,
-          region: geo.regionName || null,
-          country: geo.country || null,
+          city: geoCity,
+          region: geoRegion,
+          country: geoCountry,
           userAgent: ua,
           deviceType,
         });
+        await storage.updateUserLastLogin(user.id, ip, locationStr);
       } catch {
         await storage.createUserActivityLog({
           userId: user.id,
@@ -627,6 +652,7 @@ export async function registerRoutes(
           userAgent: ua,
           deviceType,
         });
+        await storage.updateUserLastLogin(user.id, ip, null);
       }
 
       res.json({ 
@@ -10833,6 +10859,7 @@ export async function registerRoutes(
         userAgent: ua,
         deviceType,
       });
+      await storage.updateUserLastActive(user.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: "Failed to log activity" });
@@ -10845,10 +10872,16 @@ export async function registerRoutes(
       if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
         return res.status(403).json({ message: "Forbidden" });
       }
+      const rangeDays = parseInt(req.query.range as string) || 7;
       const allUsers = await storage.getUsers();
-      const logs = await storage.getUserActivityLogs(2000);
+      const logs = await storage.getUserActivityLogs(3000);
 
-      const userMap = new Map(allUsers.map(u => [u.id, { name: u.name, repId: u.repId, role: u.role }]));
+      const userMap = new Map(allUsers.map(u => [u.id, {
+        name: u.name, repId: u.repId, role: u.role,
+        lastLoginAt: u.lastLoginAt, lastLoginIp: u.lastLoginIp,
+        lastLoginLocation: u.lastLoginLocation, lastActiveAt: u.lastActiveAt,
+        status: u.status,
+      }]));
 
       const enriched = logs.map(log => ({
         ...log,
@@ -10859,23 +10892,42 @@ export async function registerRoutes(
 
       const now = new Date();
       const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const rangeStart = new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000);
+      const onlineThreshold = new Date(now.getTime() - 5 * 60 * 1000);
 
       const recentLogins = enriched.filter(l => l.eventType === "LOGIN" && new Date(l.createdAt) >= last24h);
       const uniqueUsersToday = new Set(recentLogins.map(l => l.userId)).size;
 
-      const loginsByUser = new Map<string, typeof enriched[0]>();
-      for (const log of enriched) {
-        if (log.eventType === "LOGIN" && !loginsByUser.has(log.userId)) {
-          loginsByUser.set(log.userId, log);
-        }
-      }
+      const onlineUsers = allUsers
+        .filter(u => u.lastActiveAt && new Date(u.lastActiveAt) >= onlineThreshold && u.status === "ACTIVE")
+        .map(u => ({
+          id: u.id, name: u.name, repId: u.repId, role: u.role,
+          lastActiveAt: u.lastActiveAt,
+        }));
 
-      const last7dLogs = enriched.filter(l => new Date(l.createdAt) >= last7d);
+      const userSummaries = allUsers
+        .filter(u => u.status === "ACTIVE" && !u.deletedAt)
+        .map(u => ({
+          id: u.id, name: u.name, repId: u.repId, role: u.role,
+          lastLoginAt: u.lastLoginAt,
+          lastLoginIp: u.lastLoginIp,
+          lastLoginLocation: u.lastLoginLocation,
+          lastActiveAt: u.lastActiveAt,
+          isOnline: u.lastActiveAt ? new Date(u.lastActiveAt) >= onlineThreshold : false,
+        }))
+        .sort((a, b) => {
+          if (a.isOnline && !b.isOnline) return -1;
+          if (!a.isOnline && b.isOnline) return 1;
+          const aTime = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+          const bTime = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+          return bTime - aTime;
+        });
+
+      const rangeLogs = enriched.filter(l => new Date(l.createdAt) >= rangeStart);
       const deviceBreakdown: Record<string, number> = {};
       const locationBreakdown: Record<string, number> = {};
       const pageBreakdown: Record<string, number> = {};
-      for (const log of last7dLogs) {
+      for (const log of rangeLogs) {
         if (log.deviceType) deviceBreakdown[log.deviceType] = (deviceBreakdown[log.deviceType] || 0) + 1;
         if (log.eventType === "LOGIN" && (log.city || log.region)) {
           const loc = [log.city, log.region].filter(Boolean).join(", ");
@@ -10889,12 +10941,15 @@ export async function registerRoutes(
         stats: {
           uniqueUsersToday,
           totalLogins24h: recentLogins.length,
-          totalEvents7d: last7dLogs.length,
+          totalEventsRange: rangeLogs.length,
+          onlineNow: onlineUsers.length,
         },
-        lastLoginByUser: Array.from(loginsByUser.values()),
+        onlineUsers,
+        userSummaries,
         deviceBreakdown,
         locationBreakdown,
         pageBreakdown,
+        rangeDays,
       });
     } catch (error) {
       console.error("User activity error:", error);

@@ -3,19 +3,20 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Users,
   MapPin,
   Monitor,
   Smartphone,
-  Clock,
   Activity,
   Search,
   Globe,
+  Circle,
+  Wifi,
 } from "lucide-react";
 import {
   PieChart,
@@ -29,6 +30,7 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
 
@@ -49,20 +51,44 @@ type ActivityLog = {
   userRole: string;
 };
 
+type UserSummary = {
+  id: string;
+  name: string;
+  repId: string;
+  role: string;
+  lastLoginAt: string | null;
+  lastLoginIp: string | null;
+  lastLoginLocation: string | null;
+  lastActiveAt: string | null;
+  isOnline: boolean;
+};
+
+type OnlineUser = {
+  id: string;
+  name: string;
+  repId: string;
+  role: string;
+  lastActiveAt: string | null;
+};
+
 type ActivityData = {
   logs: ActivityLog[];
   stats: {
     uniqueUsersToday: number;
     totalLogins24h: number;
-    totalEvents7d: number;
+    totalEventsRange: number;
+    onlineNow: number;
   };
-  lastLoginByUser: ActivityLog[];
+  onlineUsers: OnlineUser[];
+  userSummaries: UserSummary[];
   deviceBreakdown: Record<string, number>;
   locationBreakdown: Record<string, number>;
   pageBreakdown: Record<string, number>;
+  rangeDays: number;
 };
 
-function formatTimeAgo(dateStr: string) {
+function formatTimeAgo(dateStr: string | null) {
+  if (!dateStr) return "Never";
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "Just now";
@@ -70,10 +96,12 @@ function formatTimeAgo(dateStr: string) {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  if (days < 30) return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
 }
 
-function formatDate(dateStr: string) {
+function formatDate(dateStr: string | null) {
+  if (!dateStr) return "—";
   return new Date(dateStr).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
@@ -87,11 +115,13 @@ export default function UserActivity() {
   const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
+  const [rangeDays, setRangeDays] = useState("7");
+  const isMobile = useIsMobile();
 
   const { data, isLoading } = useQuery<ActivityData>({
-    queryKey: ["/api/user-activity"],
+    queryKey: ["/api/user-activity", rangeDays],
     queryFn: async () => {
-      const res = await fetch("/api/user-activity", { headers: getAuthHeaders() });
+      const res = await fetch(`/api/user-activity?range=${rangeDays}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -106,8 +136,8 @@ export default function UserActivity() {
     return (
       <div className="p-6 space-y-4">
         <Skeleton className="h-8 w-48" />
-        <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
-          {[1, 2, 3].map(i => <Skeleton key={i} className="h-24" />)}
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24" />)}
         </div>
         <Skeleton className="h-64" />
       </div>
@@ -131,25 +161,47 @@ export default function UserActivity() {
     );
   }) || [];
 
-  const filteredLastLogins = data?.lastLoginByUser?.filter(log => {
+  const filteredUsers = data?.userSummaries?.filter(u => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return log.userName.toLowerCase().includes(q) || log.userRepId.toLowerCase().includes(q);
+    return u.name.toLowerCase().includes(q) || u.repId.toLowerCase().includes(q) || u.role.toLowerCase().includes(q) || (u.lastLoginLocation || "").toLowerCase().includes(q);
   }) || [];
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-activity-title">User Activity</h1>
-        <p className="text-muted-foreground text-sm">Track user logins, locations, and page usage</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-activity-title">User Activity</h1>
+          <p className="text-muted-foreground text-sm">Monitor usage, locations, and login activity</p>
+        </div>
+        <Select value={rangeDays} onValueChange={setRangeDays}>
+          <SelectTrigger className="w-36" data-testid="select-activity-range">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="1">Last 24 hours</SelectItem>
+            <SelectItem value="7">Last 7 days</SelectItem>
+            <SelectItem value="30">Last 30 days</SelectItem>
+            <SelectItem value="90">Last 90 days</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+        <Card data-testid="stat-online-now">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <Wifi className="h-4 w-4 text-green-500" />
+              <p className="text-xs font-medium uppercase tracking-wide">Online Now</p>
+            </div>
+            <p className="text-2xl font-bold font-mono">{data?.stats?.onlineNow || 0}</p>
+          </CardContent>
+        </Card>
         <Card data-testid="stat-unique-users">
           <CardContent className="p-5">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
               <Users className="h-4 w-4" />
-              <p className="text-xs font-medium uppercase tracking-wide">Active Users (24h)</p>
+              <p className="text-xs font-medium uppercase tracking-wide">Active (24h)</p>
             </div>
             <p className="text-2xl font-bold font-mono">{data?.stats?.uniqueUsersToday || 0}</p>
           </CardContent>
@@ -163,13 +215,13 @@ export default function UserActivity() {
             <p className="text-2xl font-bold font-mono">{data?.stats?.totalLogins24h || 0}</p>
           </CardContent>
         </Card>
-        <Card data-testid="stat-events-7d">
+        <Card data-testid="stat-events-range">
           <CardContent className="p-5">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
               <Globe className="h-4 w-4" />
-              <p className="text-xs font-medium uppercase tracking-wide">Events (7d)</p>
+              <p className="text-xs font-medium uppercase tracking-wide">Events ({rangeDays}d)</p>
             </div>
-            <p className="text-2xl font-bold font-mono">{data?.stats?.totalEvents7d || 0}</p>
+            <p className="text-2xl font-bold font-mono">{data?.stats?.totalEventsRange || 0}</p>
           </CardContent>
         </Card>
       </div>
@@ -177,7 +229,7 @@ export default function UserActivity() {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search by name, rep ID, location, or page..."
+          placeholder="Search by name, rep ID, location, or role..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="pl-9"
@@ -188,7 +240,8 @@ export default function UserActivity() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex flex-wrap w-full h-auto gap-1">
           <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
-          <TabsTrigger value="logins" data-testid="tab-logins">Last Logins</TabsTrigger>
+          <TabsTrigger value="users" data-testid="tab-users">All Users</TabsTrigger>
+          <TabsTrigger value="online" data-testid="tab-online">Online Now</TabsTrigger>
           <TabsTrigger value="pages" data-testid="tab-pages">Page Usage</TabsTrigger>
           <TabsTrigger value="logs" data-testid="tab-logs">Activity Log</TabsTrigger>
         </TabsList>
@@ -199,13 +252,13 @@ export default function UserActivity() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Monitor className="h-5 w-5" />
-                  Device Breakdown (7d)
+                  Device Breakdown
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {deviceData.length > 0 ? (
                   <div className="flex items-center gap-6">
-                    <div className="h-48 w-48">
+                    <div className="h-48 w-48 shrink-0">
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie data={deviceData} cx="50%" cy="50%" outerRadius={70} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
@@ -235,16 +288,16 @@ export default function UserActivity() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <MapPin className="h-5 w-5" />
-                  Login Locations (7d)
+                  Login Locations
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {locationData.length > 0 ? (
                   <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {locationData.map(([loc, count], i) => (
+                    {locationData.map(([loc, count]) => (
                       <div key={loc} className="flex items-center justify-between py-1.5 border-b last:border-0">
                         <div className="flex items-center gap-2">
-                          <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+                          <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                           <span className="text-sm">{loc}</span>
                         </div>
                         <span className="text-sm font-mono text-muted-foreground">{count} login{count !== 1 ? "s" : ""}</span>
@@ -252,7 +305,7 @@ export default function UserActivity() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground py-8 text-center">No location data yet. Locations are captured on login.</p>
+                  <p className="text-sm text-muted-foreground py-8 text-center">No location data yet</p>
                 )}
               </CardContent>
             </Card>
@@ -261,7 +314,7 @@ export default function UserActivity() {
           {pageData.length > 0 && (
             <Card data-testid="card-page-chart">
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Most Visited Pages (7d)</CardTitle>
+                <CardTitle className="text-lg">Most Visited Pages</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="h-64">
@@ -280,66 +333,148 @@ export default function UserActivity() {
           )}
         </TabsContent>
 
-        <TabsContent value="logins" className="mt-4">
+        <TabsContent value="users" className="mt-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Last Login by User</CardTitle>
-              <CardDescription>Most recent login session for each user</CardDescription>
+              <CardTitle className="text-lg">All Users — Last Login & Activity</CardTitle>
+              <CardDescription>Sorted by most recently active. Green dot = online now.</CardDescription>
             </CardHeader>
             <CardContent>
-              {filteredLastLogins.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="text-left py-3 px-2 font-medium">User</th>
-                        <th className="text-left py-3 px-2 font-medium">Role</th>
-                        <th className="text-left py-3 px-2 font-medium">Location</th>
-                        <th className="text-left py-3 px-2 font-medium">Device</th>
-                        <th className="text-left py-3 px-2 font-medium">IP</th>
-                        <th className="text-right py-3 px-2 font-medium">Last Login</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredLastLogins.map(log => (
-                        <tr key={log.userId} className="border-b last:border-0 hover-elevate" data-testid={`row-login-${log.userRepId}`}>
-                          <td className="py-3 px-2">
-                            <div className="font-medium">{log.userName}</div>
-                            <div className="text-xs text-muted-foreground">{log.userRepId}</div>
-                          </td>
-                          <td className="py-3 px-2">
-                            <Badge variant="outline" className="text-xs">{log.userRole}</Badge>
-                          </td>
-                          <td className="py-3 px-2">
-                            {log.city || log.region ? (
-                              <div className="flex items-center gap-1">
-                                <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-                                <span className="text-sm">{[log.city, log.region].filter(Boolean).join(", ")}</span>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-2">
-                            <div className="flex items-center gap-1">
-                              {log.deviceType === "Mobile" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
-                              <span className="text-sm">{log.deviceType}</span>
+              {filteredUsers.length > 0 ? (
+                isMobile ? (
+                  <div className="flex flex-col gap-3">
+                    {filteredUsers.map(u => (
+                      <Card key={u.id} data-testid={`card-user-${u.repId}`}>
+                        <CardContent className="p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Circle className={`h-2.5 w-2.5 shrink-0 ${u.isOnline ? "fill-green-500 text-green-500" : "fill-muted text-muted"}`} />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium truncate">{u.name}</div>
+                              <div className="text-xs text-muted-foreground">{u.repId} · {u.role}</div>
                             </div>
-                          </td>
-                          <td className="py-3 px-2">
-                            <span className="text-xs font-mono text-muted-foreground">{log.ipAddress}</span>
-                          </td>
-                          <td className="text-right py-3 px-2">
-                            <div className="text-sm">{formatTimeAgo(log.createdAt)}</div>
-                            <div className="text-xs text-muted-foreground">{formatDate(log.createdAt)}</div>
-                          </td>
+                            <Badge variant={u.isOnline ? "default" : "outline"} className="text-xs shrink-0">
+                              {u.isOnline ? "Online" : "Offline"}
+                            </Badge>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <span className="text-muted-foreground">Last Login</span>
+                              <div className="font-medium">{formatTimeAgo(u.lastLoginAt)}</div>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Last Active</span>
+                              <div className="font-medium">{formatTimeAgo(u.lastActiveAt)}</div>
+                            </div>
+                            <div className="col-span-2">
+                              <span className="text-muted-foreground">Location</span>
+                              <div className="font-medium flex items-center gap-1">
+                                {u.lastLoginLocation ? (
+                                  <><MapPin className="h-3 w-3 text-muted-foreground shrink-0" />{u.lastLoginLocation}</>
+                                ) : "—"}
+                              </div>
+                            </div>
+                            {u.lastLoginIp && (
+                              <div className="col-span-2">
+                                <span className="text-muted-foreground">IP</span>
+                                <div className="font-mono text-xs">{u.lastLoginIp}</div>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="text-left py-3 px-2 font-medium">Status</th>
+                          <th className="text-left py-3 px-2 font-medium">User</th>
+                          <th className="text-left py-3 px-2 font-medium">Role</th>
+                          <th className="text-left py-3 px-2 font-medium">Last Login</th>
+                          <th className="text-left py-3 px-2 font-medium">Last Active</th>
+                          <th className="text-left py-3 px-2 font-medium">Location</th>
+                          <th className="text-left py-3 px-2 font-medium">IP</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {filteredUsers.map(u => (
+                          <tr key={u.id} className="border-b last:border-0 hover-elevate" data-testid={`row-user-${u.repId}`}>
+                            <td className="py-3 px-2">
+                              <div className="flex items-center gap-1.5">
+                                <Circle className={`h-2.5 w-2.5 ${u.isOnline ? "fill-green-500 text-green-500" : "fill-muted text-muted"}`} />
+                                <span className="text-xs">{u.isOnline ? "Online" : "Offline"}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-2">
+                              <div className="font-medium">{u.name}</div>
+                              <div className="text-xs text-muted-foreground">{u.repId}</div>
+                            </td>
+                            <td className="py-3 px-2">
+                              <Badge variant="outline" className="text-xs">{u.role}</Badge>
+                            </td>
+                            <td className="py-3 px-2">
+                              <div className="text-sm">{formatTimeAgo(u.lastLoginAt)}</div>
+                              <div className="text-xs text-muted-foreground">{formatDate(u.lastLoginAt)}</div>
+                            </td>
+                            <td className="py-3 px-2">
+                              <div className="text-sm">{formatTimeAgo(u.lastActiveAt)}</div>
+                            </td>
+                            <td className="py-3 px-2">
+                              {u.lastLoginLocation ? (
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                  <span className="text-sm">{u.lastLoginLocation}</span>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-2">
+                              <span className="text-xs font-mono text-muted-foreground">{u.lastLoginIp || "—"}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              ) : (
+                <p className="py-12 text-center text-muted-foreground">No users found</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="online" className="mt-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Wifi className="h-5 w-5 text-green-500" />
+                Online Now ({data?.onlineUsers?.length || 0})
+              </CardTitle>
+              <CardDescription>Users active in the last 5 minutes</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(data?.onlineUsers?.length || 0) > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {data!.onlineUsers.map(u => (
+                    <div key={u.id} className="flex items-center gap-3 p-3 rounded-lg border bg-green-50/50 dark:bg-green-950/20" data-testid={`card-online-${u.repId}`}>
+                      <Circle className="h-3 w-3 fill-green-500 text-green-500 shrink-0 animate-pulse" />
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm truncate">{u.name}</div>
+                        <div className="text-xs text-muted-foreground">{u.repId} · {u.role}</div>
+                        <div className="text-xs text-muted-foreground">Active {formatTimeAgo(u.lastActiveAt)}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : (
-                <p className="py-12 text-center text-muted-foreground">No login data yet</p>
+                <div className="py-12 text-center">
+                  <Wifi className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
+                  <p className="text-muted-foreground">No users are online right now</p>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -348,7 +483,7 @@ export default function UserActivity() {
         <TabsContent value="pages" className="mt-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Page Usage (7d)</CardTitle>
+              <CardTitle className="text-lg">Page Usage ({rangeDays}d)</CardTitle>
               <CardDescription>Most visited pages across all users</CardDescription>
             </CardHeader>
             <CardContent>
@@ -392,43 +527,67 @@ export default function UserActivity() {
             </CardHeader>
             <CardContent>
               {filteredLogs.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="text-left py-3 px-2 font-medium">User</th>
-                        <th className="text-left py-3 px-2 font-medium">Event</th>
-                        <th className="text-left py-3 px-2 font-medium">Page</th>
-                        <th className="text-left py-3 px-2 font-medium">Device</th>
-                        <th className="text-left py-3 px-2 font-medium">Location</th>
-                        <th className="text-right py-3 px-2 font-medium">Time</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredLogs.slice(0, 200).map(log => (
-                        <tr key={log.id} className="border-b last:border-0 hover-elevate" data-testid={`row-activity-${log.id}`}>
-                          <td className="py-2 px-2">
-                            <div className="font-medium text-xs">{log.userName}</div>
-                            <div className="text-xs text-muted-foreground">{log.userRepId}</div>
-                          </td>
-                          <td className="py-2 px-2">
-                            <Badge variant={log.eventType === "LOGIN" ? "default" : "outline"} className="text-xs">
-                              {log.eventType}
-                            </Badge>
-                          </td>
-                          <td className="py-2 px-2 text-xs text-muted-foreground">{log.page || "—"}</td>
-                          <td className="py-2 px-2">
-                            {log.deviceType === "Mobile" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
-                          </td>
-                          <td className="py-2 px-2 text-xs">
-                            {log.city || log.region ? [log.city, log.region].filter(Boolean).join(", ") : "—"}
-                          </td>
-                          <td className="text-right py-2 px-2 text-xs text-muted-foreground">{formatDate(log.createdAt)}</td>
+                isMobile ? (
+                  <div className="flex flex-col gap-2">
+                    {filteredLogs.slice(0, 200).map(log => (
+                      <div key={log.id} className="p-3 border rounded-lg" data-testid={`card-activity-${log.id}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="font-medium text-sm">{log.userName}</div>
+                          <Badge variant={log.eventType === "LOGIN" ? "default" : "outline"} className="text-xs">
+                            {log.eventType}
+                          </Badge>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{log.userRepId} · {log.userRole}</div>
+                        {log.page && <div className="text-xs text-muted-foreground mt-1">Page: {log.page}</div>}
+                        <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1">
+                            {log.deviceType === "Mobile" ? <Smartphone className="h-3 w-3" /> : <Monitor className="h-3 w-3" />}
+                            {log.city || log.region ? [log.city, log.region].filter(Boolean).join(", ") : ""}
+                          </div>
+                          <span>{formatDate(log.createdAt)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="text-left py-3 px-2 font-medium">User</th>
+                          <th className="text-left py-3 px-2 font-medium">Event</th>
+                          <th className="text-left py-3 px-2 font-medium">Page</th>
+                          <th className="text-left py-3 px-2 font-medium">Device</th>
+                          <th className="text-left py-3 px-2 font-medium">Location</th>
+                          <th className="text-right py-3 px-2 font-medium">Time</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {filteredLogs.slice(0, 200).map(log => (
+                          <tr key={log.id} className="border-b last:border-0 hover-elevate" data-testid={`row-activity-${log.id}`}>
+                            <td className="py-2 px-2">
+                              <div className="font-medium text-xs">{log.userName}</div>
+                              <div className="text-xs text-muted-foreground">{log.userRepId}</div>
+                            </td>
+                            <td className="py-2 px-2">
+                              <Badge variant={log.eventType === "LOGIN" ? "default" : "outline"} className="text-xs">
+                                {log.eventType}
+                              </Badge>
+                            </td>
+                            <td className="py-2 px-2 text-xs text-muted-foreground">{log.page || "—"}</td>
+                            <td className="py-2 px-2">
+                              {log.deviceType === "Mobile" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
+                            </td>
+                            <td className="py-2 px-2 text-xs">
+                              {log.city || log.region ? [log.city, log.region].filter(Boolean).join(", ") : "—"}
+                            </td>
+                            <td className="text-right py-2 px-2 text-xs text-muted-foreground">{formatDate(log.createdAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
               ) : (
                 <p className="py-12 text-center text-muted-foreground">No activity logged yet</p>
               )}

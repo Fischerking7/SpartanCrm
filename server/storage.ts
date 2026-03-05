@@ -4247,4 +4247,14 @@ export const storage = {
       orderBy: [desc(userActivityLogs.createdAt)],
     });
   },
+  async updateUserLastLogin(userId: string, ip: string, location: string | null) {
+    await db.update(users)
+      .set({ lastLoginAt: new Date(), lastLoginIp: ip, lastLoginLocation: location, lastActiveAt: new Date() })
+      .where(eq(users.id, userId));
+  },
+  async updateUserLastActive(userId: string) {
+    await db.update(users)
+      .set({ lastActiveAt: new Date() })
+      .where(eq(users.id, userId));
+  },
 };
