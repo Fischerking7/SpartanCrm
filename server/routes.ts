@@ -1539,7 +1539,8 @@ export async function registerRoutes(
       
       // Base order data (non-mobile fields)
       const baseFields = ["clientId", "providerId", "serviceId", "dateSold", "customerName",
-        "customerPhone", "customerEmail", "customerAddress", "accountNumber", "installDate", "notes"];
+        "customerPhone", "customerEmail", "customerAddress", "houseNumber", "streetName", "aptUnit", "city", "zipCode",
+        "accountNumber", "installDate", "notes"];
       
       const baseOrderData: Record<string, any> = {};
       for (const field of baseFields) {
@@ -2445,6 +2446,11 @@ export async function registerRoutes(
 
           // Get other optional fields with flexible naming
           const customerAddress = getColumnValue(row, 'customerAddress', 'customer_address', 'Customer Address', 'address', 'Address')?.toString().trim() || "";
+          const houseNumber = getColumnValue(row, 'houseNumber', 'house_number', 'House Number', 'House #', 'Bldg', 'Building')?.toString().trim() || null;
+          const streetName = getColumnValue(row, 'streetName', 'street_name', 'Street Name', 'Street', 'street')?.toString().trim() || null;
+          const aptUnit = getColumnValue(row, 'aptUnit', 'apt_unit', 'Apt', 'Apt #', 'Unit', 'Suite', 'Apartment')?.toString().trim() || null;
+          const orderCity = getColumnValue(row, 'city', 'City')?.toString().trim() || null;
+          const zipCode = getColumnValue(row, 'zipCode', 'zip_code', 'Zip Code', 'Zip', 'zip', 'Zipcode', 'ZIP')?.toString().trim() || null;
           const accountNumber = getColumnValue(row, 'accountNumber', 'account_number', 'Account Number', 'account', 'Account')?.toString().trim() || null;
           const invoiceNumber = getColumnValue(row, 'invoiceNumber', 'invoice_number', 'Invoice Number', 'invoice', 'Invoice')?.toString().trim() || null;
           const tvSoldVal = getColumnValue(row, 'tvSold', 'tv_sold', 'TV Sold', 'TV', 'tv');
@@ -2456,6 +2462,11 @@ export async function registerRoutes(
             repId,
             customerName,
             customerAddress,
+            houseNumber,
+            streetName,
+            aptUnit,
+            city: orderCity,
+            zipCode,
             accountNumber,
             dateSold: dateSold.toISOString(),
             installDate: installDate ? installDate.toISOString() : null,
@@ -3755,8 +3766,15 @@ export async function registerRoutes(
         return {
           "Invoice #": o.invoiceNumber || "",
           "Rep ID": o.repId,
+          "User Name": user?.name || "",
           "Customer Name": o.customerName || "",
           "Account #": o.accountNumber || "",
+          "House #/Bldg": o.houseNumber || "",
+          "Street": o.streetName || "",
+          "Apt/Unit": o.aptUnit || "",
+          "City": o.city || "",
+          "Zip Code": o.zipCode || "",
+          "Address": o.customerAddress || "",
           "Date Sold": formatDate(o.dateSold),
           "Install Date": formatDate(o.installDate),
           "Install Type": o.installType ? (typeLabels[o.installType] || o.installType) : "",
@@ -3771,7 +3789,6 @@ export async function registerRoutes(
           "Net Commission": netCommission.toFixed(2),
           "Client": o.client?.name || "",
           "Provider": o.provider?.name || "",
-          "User Name": user?.name || "",
         };
       }));
 

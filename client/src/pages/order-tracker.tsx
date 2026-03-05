@@ -167,6 +167,11 @@ function OrderCard({
   const [formData, setFormData] = useState({
     customerName: order.customerName || "",
     customerAddress: order.customerAddress || "",
+    houseNumber: order.houseNumber || "",
+    streetName: order.streetName || "",
+    aptUnit: order.aptUnit || "",
+    city: order.city || "",
+    zipCode: order.zipCode || "",
     customerPhone: order.customerPhone || "",
     customerEmail: order.customerEmail || "",
     installDate: order.installDate ? order.installDate.split("T")[0] : "",
@@ -213,6 +218,11 @@ function OrderCard({
     const payload: Record<string, any> = {};
     if (formData.customerName !== (order.customerName || "")) payload.customerName = formData.customerName;
     if (formData.customerAddress !== (order.customerAddress || "")) payload.customerAddress = formData.customerAddress;
+    if (formData.houseNumber !== (order.houseNumber || "")) payload.houseNumber = formData.houseNumber;
+    if (formData.streetName !== (order.streetName || "")) payload.streetName = formData.streetName;
+    if (formData.aptUnit !== (order.aptUnit || "")) payload.aptUnit = formData.aptUnit;
+    if (formData.city !== (order.city || "")) payload.city = formData.city;
+    if (formData.zipCode !== (order.zipCode || "")) payload.zipCode = formData.zipCode;
     if (formData.customerPhone !== (order.customerPhone || "")) payload.customerPhone = formData.customerPhone;
     if (formData.customerEmail !== (order.customerEmail || "")) payload.customerEmail = formData.customerEmail;
     if (formData.installDate !== (order.installDate ? order.installDate.split("T")[0] : "")) payload.installDate = formData.installDate;
@@ -305,13 +315,49 @@ function OrderCard({
                 </SelectContent>
               </Select>
             </div>
-            <div className="sm:col-span-2">
-              <Label className="text-xs">Address</Label>
+            <div>
+              <Label className="text-xs">House #/Bldg</Label>
               <Input
-                value={formData.customerAddress}
-                onChange={(e) => updateField("customerAddress", e.target.value)}
+                value={formData.houseNumber || ""}
+                onChange={(e) => updateField("houseNumber", e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                data-testid={`input-inline-address-${order.id}`}
+                data-testid={`input-inline-house-${order.id}`}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Street</Label>
+              <Input
+                value={formData.streetName || ""}
+                onChange={(e) => updateField("streetName", e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`input-inline-street-${order.id}`}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Apt/Unit</Label>
+              <Input
+                value={formData.aptUnit || ""}
+                onChange={(e) => updateField("aptUnit", e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`input-inline-apt-${order.id}`}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">City</Label>
+              <Input
+                value={formData.city || ""}
+                onChange={(e) => updateField("city", e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`input-inline-city-${order.id}`}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Zip Code</Label>
+              <Input
+                value={formData.zipCode || ""}
+                onChange={(e) => updateField("zipCode", e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`input-inline-zip-${order.id}`}
               />
             </div>
           </div>
@@ -367,10 +413,14 @@ function OrderCard({
                   {order.customerPhone}
                 </span>
               )}
-              {order.customerAddress && (
+              {(order.houseNumber || order.streetName || order.city || order.zipCode || order.customerAddress) && (
                 <span className="flex items-center gap-1">
                   <MapPin className="h-3 w-3" />
-                  {order.customerAddress.length > 30 ? order.customerAddress.slice(0, 30) + "..." : order.customerAddress}
+                  {(() => {
+                    const addr = [order.houseNumber, order.streetName, order.aptUnit, order.city, order.zipCode].filter(Boolean).join(", ");
+                    const display = addr || order.customerAddress || "";
+                    return display.length > 40 ? display.slice(0, 40) + "..." : display;
+                  })()}
                 </span>
               )}
             </div>
@@ -490,6 +540,11 @@ export default function OrderTracker() {
     accountNumber: "",
     customerName: "",
     customerAddress: "",
+    houseNumber: "",
+    streetName: "",
+    aptUnit: "",
+    city: "",
+    zipCode: "",
     customerPhone: "",
     customerEmail: "",
     hasTv: false,
@@ -499,7 +554,8 @@ export default function OrderTracker() {
     setNewOrderForm({
       repId: "", clientId: "", providerId: "", serviceId: "", dateSold: getTodayDate(),
       installDate: "", installTime: "", installType: "", accountNumber: "",
-      customerName: "", customerAddress: "", customerPhone: "", customerEmail: "",
+      customerName: "", customerAddress: "", houseNumber: "", streetName: "", aptUnit: "", city: "", zipCode: "",
+      customerPhone: "", customerEmail: "",
       hasTv: false,
     });
   };
@@ -1342,14 +1398,52 @@ export default function OrderTracker() {
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Customer Address</Label>
-              <Textarea
-                placeholder="Enter customer address"
-                value={newOrderForm.customerAddress}
-                onChange={(e) => setNewOrderForm(f => ({ ...f, customerAddress: e.target.value }))}
-                data-testid="input-customer-address-tracker"
-              />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="space-y-2">
+                <Label>House #/Bldg</Label>
+                <Input
+                  placeholder="123"
+                  value={newOrderForm.houseNumber}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, houseNumber: e.target.value }))}
+                  data-testid="input-house-number-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Street</Label>
+                <Input
+                  placeholder="Main St"
+                  value={newOrderForm.streetName}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, streetName: e.target.value }))}
+                  data-testid="input-street-name-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Apt/Unit</Label>
+                <Input
+                  placeholder="Apt 4B"
+                  value={newOrderForm.aptUnit}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, aptUnit: e.target.value }))}
+                  data-testid="input-apt-unit-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>City</Label>
+                <Input
+                  placeholder="City"
+                  value={newOrderForm.city}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, city: e.target.value }))}
+                  data-testid="input-city-tracker"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Zip Code</Label>
+                <Input
+                  placeholder="12345"
+                  value={newOrderForm.zipCode}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, zipCode: e.target.value }))}
+                  data-testid="input-zip-code-tracker"
+                />
+              </div>
             </div>
             <div className="flex items-center gap-6 pt-2">
               <div className="flex items-center gap-2">
@@ -1615,6 +1709,11 @@ function OrderDetailPanel({
   const [formData, setFormData] = useState({
     customerName: order.customerName || "",
     customerAddress: order.customerAddress || "",
+    houseNumber: order.houseNumber || "",
+    streetName: order.streetName || "",
+    aptUnit: order.aptUnit || "",
+    city: order.city || "",
+    zipCode: order.zipCode || "",
     customerPhone: order.customerPhone || "",
     customerEmail: order.customerEmail || "",
     installDate: order.installDate ? order.installDate.split("T")[0] : "",
@@ -1678,6 +1777,11 @@ function OrderDetailPanel({
     const payload: Record<string, any> = {};
     if (formData.customerName !== (order.customerName || "")) payload.customerName = formData.customerName;
     if (formData.customerAddress !== (order.customerAddress || "")) payload.customerAddress = formData.customerAddress;
+    if (formData.houseNumber !== (order.houseNumber || "")) payload.houseNumber = formData.houseNumber;
+    if (formData.streetName !== (order.streetName || "")) payload.streetName = formData.streetName;
+    if (formData.aptUnit !== (order.aptUnit || "")) payload.aptUnit = formData.aptUnit;
+    if (formData.city !== (order.city || "")) payload.city = formData.city;
+    if (formData.zipCode !== (order.zipCode || "")) payload.zipCode = formData.zipCode;
     if (formData.customerPhone !== (order.customerPhone || "")) payload.customerPhone = formData.customerPhone;
     if (formData.customerEmail !== (order.customerEmail || "")) payload.customerEmail = formData.customerEmail;
     if (formData.installDate !== (order.installDate ? order.installDate.split("T")[0] : "")) payload.installDate = formData.installDate;
@@ -1793,11 +1897,43 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">Address</Label>
+            <Label className="text-xs">House #/Bldg</Label>
             <Input
-              value={formData.customerAddress}
-              onChange={(e) => updateField("customerAddress", e.target.value)}
-              data-testid="input-edit-address"
+              value={formData.houseNumber}
+              onChange={(e) => updateField("houseNumber", e.target.value)}
+              data-testid="input-edit-house"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Street</Label>
+            <Input
+              value={formData.streetName}
+              onChange={(e) => updateField("streetName", e.target.value)}
+              data-testid="input-edit-street"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Apt/Unit</Label>
+            <Input
+              value={formData.aptUnit}
+              onChange={(e) => updateField("aptUnit", e.target.value)}
+              data-testid="input-edit-apt"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">City</Label>
+            <Input
+              value={formData.city}
+              onChange={(e) => updateField("city", e.target.value)}
+              data-testid="input-edit-city"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Zip Code</Label>
+            <Input
+              value={formData.zipCode}
+              onChange={(e) => updateField("zipCode", e.target.value)}
+              data-testid="input-edit-zip"
             />
           </div>
           <div>

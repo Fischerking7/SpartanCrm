@@ -80,6 +80,11 @@ export default function Orders() {
     accountNumber: "",
     customerName: "",
     customerAddress: "",
+    houseNumber: "",
+    streetName: "",
+    aptUnit: "",
+    city: "",
+    zipCode: "",
     customerPhone: "",
     customerEmail: "",
     hasTv: false,
@@ -490,6 +495,11 @@ export default function Orders() {
       accountNumber: "",
       customerName: "",
       customerAddress: "",
+      houseNumber: "",
+      streetName: "",
+      aptUnit: "",
+      city: "",
+      zipCode: "",
       customerPhone: "",
       customerEmail: "",
       hasTv: false,
@@ -1933,21 +1943,24 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Address</Label>
-                  {isOperations ? (
-                    <Input
-                      defaultValue={selectedOrder.customerAddress || ""}
-                      onBlur={(e) => {
-                        if (e.target.value !== (selectedOrder.customerAddress || "")) {
-                          updateJobStatusMutation.mutate({ orderId: selectedOrder.id, customerAddress: e.target.value });
-                        }
-                      }}
-                      className="w-full"
-                      data-testid="input-order-customer-address"
-                    />
-                  ) : (
-                    <p className="text-sm">{selectedOrder.customerAddress || "-"}</p>
-                  )}
+                  <Label className="text-muted-foreground">House #/Bldg</Label>
+                  <p className="text-sm">{selectedOrder.houseNumber || "-"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Street</Label>
+                  <p className="text-sm">{selectedOrder.streetName || "-"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Apt/Unit</Label>
+                  <p className="text-sm">{selectedOrder.aptUnit || "-"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">City</Label>
+                  <p className="text-sm">{selectedOrder.city || "-"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Zip Code</Label>
+                  <p className="text-sm">{selectedOrder.zipCode || "-"}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Date Sold</Label>
@@ -2459,14 +2472,52 @@ export default function Orders() {
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Customer Address</Label>
-              <Textarea 
-                placeholder="Enter customer address" 
-                value={newOrderForm.customerAddress}
-                onChange={(e) => setNewOrderForm(f => ({ ...f, customerAddress: e.target.value }))}
-                data-testid="input-customer-address" 
-              />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="space-y-2">
+                <Label>House #/Bldg</Label>
+                <Input 
+                  placeholder="123"
+                  value={newOrderForm.houseNumber}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, houseNumber: e.target.value }))}
+                  data-testid="input-house-number"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Street</Label>
+                <Input 
+                  placeholder="Main St"
+                  value={newOrderForm.streetName}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, streetName: e.target.value }))}
+                  data-testid="input-street-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Apt/Unit</Label>
+                <Input 
+                  placeholder="Apt 4B"
+                  value={newOrderForm.aptUnit}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, aptUnit: e.target.value }))}
+                  data-testid="input-apt-unit"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>City</Label>
+                <Input 
+                  placeholder="City"
+                  value={newOrderForm.city}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, city: e.target.value }))}
+                  data-testid="input-city"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Zip Code</Label>
+                <Input 
+                  placeholder="12345"
+                  value={newOrderForm.zipCode}
+                  onChange={(e) => setNewOrderForm(f => ({ ...f, zipCode: e.target.value }))}
+                  data-testid="input-zip-code"
+                />
+              </div>
             </div>
             <div className="flex items-center gap-6 pt-2">
               <div className="flex items-center gap-2">
