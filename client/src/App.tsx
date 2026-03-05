@@ -255,8 +255,11 @@ function Router() {
             <Route path="/admin/quickbooks" component={AdminQuickBooks} />
             <Route path="/admin/employee-credentials" component={AdminEmployeeCredentials} />
             <Route path="/admin/disputes" component={AdminDisputes} />
-            <Route path="/admin/user-activity" component={UserActivityPage} />
           </>
+        )}
+        
+        {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role) && (
+          <Route path="/admin/user-activity" component={UserActivityPage} />
         )}
         
         <Route path="/">

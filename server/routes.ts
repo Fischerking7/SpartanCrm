@@ -10869,7 +10869,7 @@ export async function registerRoutes(
   app.get("/api/user-activity", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role)) {
         return res.status(403).json({ message: "Forbidden" });
       }
       const rangeDays = parseInt(req.query.range as string) || 7;
