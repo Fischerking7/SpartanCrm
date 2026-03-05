@@ -650,16 +650,14 @@ export default function Orders() {
     // grossCommissionTotal comes from sum of commission line items (original rate card amounts)
     // baseCommissionEarned is the NET (after override deducted)
     const headers = isAdminOrExec 
-      ? ["Rep Name", "SLSID", "Account Number", "Customer Name", "Date Sold", "Date Install", "Service", "Gross Commission", "Override", "Net Commission", "Provider"]
-      : ["Rep Name", "SLSID", "Account Number", "Customer Name", "Date Sold", "Date Install", "Service", "Commission", "Provider"];
+      ? ["Rep Name", "SLSID", "Account Number", "Customer Name", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Gross Commission", "Override", "Net Commission", "Provider"]
+      : ["Rep Name", "SLSID", "Account Number", "Customer Name", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Commission", "Provider"];
     const rows = filteredOrders.map(order => {
       const service = services?.find(s => s.id === order.serviceId);
       const provider = providers?.find(p => p.id === order.providerId);
       const repUser = reps?.find(r => r.repId === order.repId);
       const overrideAmount = getOverrideAmount(order);
-      // Gross commission from rate card (stored in grossCommissionTotal from line items)
       const grossCommission = parseFloat((order as any).grossCommissionTotal || "0");
-      // Net is baseCommissionEarned (already has override deducted) + incentive
       const netCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
       
       if (isAdminOrExec) {
@@ -668,6 +666,11 @@ export default function Orders() {
           order.repId,
           order.accountNumber || "",
           order.customerName,
+          order.houseNumber || "",
+          order.streetName || "",
+          order.aptUnit || "",
+          order.city || "",
+          order.zipCode || "",
           order.dateSold,
           order.installDate || "",
           service?.name || "",
@@ -677,12 +680,16 @@ export default function Orders() {
           provider?.name || "",
         ];
       }
-      // REPs only see net commission (no override column)
       return [
         repUser?.name || "",
         order.repId,
         order.accountNumber || "",
         order.customerName,
+        order.houseNumber || "",
+        order.streetName || "",
+        order.aptUnit || "",
+        order.city || "",
+        order.zipCode || "",
         order.dateSold,
         order.installDate || "",
         service?.name || "",
