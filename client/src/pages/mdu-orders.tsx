@@ -50,7 +50,7 @@ export default function MduOrders() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingOrder, setEditingOrder] = useState<MduStagingOrder | null>(null);
   const [formData, setFormData] = useState({
-    dateSold: new Date().toISOString().split("T")[0],
+    dateSold: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })(),
     installDate: "",
     installTime: "",
     installType: "",
@@ -152,8 +152,10 @@ export default function MduOrders() {
   });
 
   const resetForm = () => {
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     setFormData({
-      dateSold: new Date().toISOString().split("T")[0],
+      dateSold: today,
       installDate: "",
       installTime: "",
       installType: "",

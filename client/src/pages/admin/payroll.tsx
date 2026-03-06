@@ -1034,8 +1034,8 @@ function AdvancesTab() {
 function WeeklyPayStubsTab() {
   const { toast } = useToast();
   const [weekEndingDate, setWeekEndingDate] = useState(() => {
-    const today = new Date();
-    return today.toISOString().split("T")[0];
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   });
   const [lastResult, setLastResult] = useState<{ generated: number; periodStart: string; periodEnd: string; statements: any[] } | null>(null);
 
