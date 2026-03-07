@@ -4202,9 +4202,16 @@ export const storage = {
       approvalStatus: salesOrders.approvalStatus,
       jobStatus: salesOrders.jobStatus,
       repName: users.name,
+      houseNumber: salesOrders.houseNumber,
+      streetName: salesOrders.streetName,
+      aptUnit: salesOrders.aptUnit,
+      city: salesOrders.city,
+      zipCode: salesOrders.zipCode,
+      serviceName: services.name,
     })
       .from(salesOrders)
       .leftJoin(users, eq(salesOrders.repId, users.repId))
+      .leftJoin(services, eq(salesOrders.serviceId, services.id))
       .where(and(...conditions));
   },
 

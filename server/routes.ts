@@ -12607,67 +12607,149 @@ export async function registerRoutes(
 
         if (candidates.length === 0) continue;
 
+        // Token-based name similarity helper
+        const nameTokenOverlap = (a: string, b: string): number => {
+          if (!a || !b) return 0;
+          const tokensA = a.split(' ').filter(Boolean);
+          const tokensB = b.split(' ').filter(Boolean);
+          if (tokensA.length === 0 || tokensB.length === 0) return 0;
+          const matched = tokensA.filter(t => tokensB.includes(t)).length;
+          return matched / Math.max(tokensA.length, tokensB.length);
+        };
+
         // Score candidates
         const scored = candidates.map(order => {
           let score = 0;
           const reasons: string[] = [];
 
-          // Customer name matching (max 50 pts)
-          const orderNameNorm = normalizeCustomerName(order.customerName);
-          if (orderNameNorm === row.customerNameNorm) {
-            score += 50;
-            reasons.push('exact_name_match:+50');
-          } else if (orderNameNorm.includes(row.customerNameNorm || '') || (row.customerNameNorm || '').includes(orderNameNorm)) {
-            score += 30;
-            reasons.push('partial_name_match:+30');
+          // Account number matching (max 25 pts) - strong unique identifier
+          if (row.customerName && order.accountNumber) {
+            const rowAccount = (row.customerName || '').match(/\b\d{6,}\b/)?.[0];
+            if (rowAccount && order.accountNumber.includes(rowAccount)) {
+              score += 25;
+              reasons.push('account_match:+25');
+            }
           }
 
-          // Rep name matching (max 20 pts)
+          // Customer name matching (max 40 pts) - token-based for better flexibility
+          const orderNameNorm = normalizeCustomerName(order.customerName);
+          const rowNameNorm = row.customerNameNorm || '';
+          if (orderNameNorm && rowNameNorm) {
+            if (orderNameNorm === rowNameNorm) {
+              score += 40;
+              reasons.push('exact_name_match:+40');
+            } else {
+              const overlap = nameTokenOverlap(orderNameNorm, rowNameNorm);
+              if (overlap >= 0.8) {
+                score += 35;
+                reasons.push('strong_name_match:+35');
+              } else if (overlap >= 0.5) {
+                score += 25;
+                reasons.push('good_name_match:+25');
+              } else if (orderNameNorm.includes(rowNameNorm) || rowNameNorm.includes(orderNameNorm)) {
+                score += 20;
+                reasons.push('partial_name_match:+20');
+              } else if (overlap > 0) {
+                score += 10;
+                reasons.push('weak_name_match:+10');
+              }
+            }
+          }
+
+          // Rep name matching (max 15 pts)
           if (row.repNameNorm && order.repName) {
             const orderRepNorm = normalizeCustomerName(order.repName);
             if (orderRepNorm === row.repNameNorm) {
-              score += 20;
-              reasons.push('exact_rep_match:+20');
-            } else if (orderRepNorm.includes(row.repNameNorm) || row.repNameNorm.includes(orderRepNorm)) {
-              score += 10;
-              reasons.push('partial_rep_match:+10');
+              score += 15;
+              reasons.push('exact_rep_match:+15');
+            } else {
+              const repOverlap = nameTokenOverlap(orderRepNorm, row.repNameNorm);
+              if (repOverlap >= 0.5) {
+                score += 10;
+                reasons.push('partial_rep_match:+10');
+              }
             }
           }
 
           // Rate/amount matching (max 15 pts)
-          if (row.expectedAmountCents && row.expectedAmountCents > 0) {
+          const rowAmount = row.paidAmountCents || row.expectedAmountCents || 0;
+          if (rowAmount > 0) {
             const orderGrossCents = Math.round(
               (parseFloat(order.baseCommissionEarned || '0') + parseFloat(order.incentiveEarned || '0') + parseFloat(order.overrideDeduction || '0')) * 100
             );
-            if (order.expectedAmountCents && order.expectedAmountCents === row.expectedAmountCents) {
+            if (order.expectedAmountCents && order.expectedAmountCents === rowAmount) {
               score += 15;
               reasons.push('exact_amount_match:+15');
-            } else if (orderGrossCents > 0 && Math.abs(orderGrossCents - row.expectedAmountCents) <= 100) {
-              score += 10;
-              reasons.push('close_amount_match:+10');
+            } else if (orderGrossCents > 0 && Math.abs(orderGrossCents - rowAmount) <= 50) {
+              score += 12;
+              reasons.push('close_amount_match:+12');
+            } else if (orderGrossCents > 0 && Math.abs(orderGrossCents - rowAmount) <= 200) {
+              score += 7;
+              reasons.push('near_amount_match:+7');
             }
           }
 
-          // Date proximity (max 10 pts)
+          // Date proximity (max 10 pts) - graduated scoring
           const orderDate = new Date(order.dateSold);
           const diffDays = Math.abs(saleDate.getTime() - orderDate.getTime()) / (1000 * 60 * 60 * 24);
-          if (diffDays <= 2) {
+          if (diffDays <= 1) {
             score += 10;
-            reasons.push('close_date:+10');
-          } else if (diffDays <= 5) {
+            reasons.push('same_date:+10');
+          } else if (diffDays <= 3) {
+            score += 8;
+            reasons.push('close_date:+8');
+          } else if (diffDays <= 7) {
             score += 5;
             reasons.push('near_date:+5');
+          } else if (diffDays <= 14) {
+            score += 2;
+            reasons.push('within_2wk:+2');
           }
 
-          // Service type matching (max 5 pts) - any recognized service type gets points
-          if (row.serviceType) {
-            const svcLower = row.serviceType.toLowerCase();
-            if (svcLower.includes('internet') || svcLower.includes('fiber') || svcLower.includes('data') ||
-                svcLower.includes('tv') || svcLower.includes('television') || svcLower.includes('video') ||
-                svcLower.includes('mobile') || svcLower.includes('phone') || svcLower.includes('voice') ||
-                svcLower.includes('bundle')) {
+          // Service type matching (max 5 pts) - actually compare against order service
+          if (row.serviceType && order.serviceName) {
+            const rowSvc = row.serviceType.toLowerCase();
+            const orderSvc = (order.serviceName as string).toLowerCase();
+            if (rowSvc === orderSvc) {
               score += 5;
-              reasons.push('service_match:+5');
+              reasons.push('exact_service_match:+5');
+            } else if (rowSvc.includes(orderSvc) || orderSvc.includes(rowSvc)) {
+              score += 3;
+              reasons.push('partial_service_match:+3');
+            } else {
+              const svcKeywords: Record<string, string[]> = {
+                internet: ['internet', 'fiber', 'data', 'broadband', 'gig', 'wifi'],
+                tv: ['tv', 'television', 'video', 'cable'],
+                mobile: ['mobile', 'phone', 'wireless', 'cell'],
+                voice: ['voice', 'phone', 'landline'],
+                bundle: ['bundle', 'package', 'combo'],
+              };
+              for (const [, keywords] of Object.entries(svcKeywords)) {
+                const rowHit = keywords.some(k => rowSvc.includes(k));
+                const orderHit = keywords.some(k => orderSvc.includes(k));
+                if (rowHit && orderHit) {
+                  score += 3;
+                  reasons.push('category_service_match:+3');
+                  break;
+                }
+              }
+            }
+          }
+
+          // Address matching (max 5 pts) - compare city/zip if available
+          if (order.city && row.customerName) {
+            const orderCityNorm = (order.city as string).toLowerCase().trim();
+            const rowText = (row.customerName || '').toLowerCase();
+            if (rowText.includes(orderCityNorm)) {
+              score += 2;
+              reasons.push('city_hint:+2');
+            }
+          }
+          if (order.zipCode && row.customerName) {
+            const rowText = (row.customerName || '').toLowerCase();
+            if (rowText.includes(order.zipCode as string)) {
+              score += 3;
+              reasons.push('zip_hint:+3');
             }
           }
 
@@ -12677,10 +12759,9 @@ export async function registerRoutes(
         // Sort by score descending
         scored.sort((a, b) => b.score - a.score);
 
-        if (scored.length > 0 && scored[0].score >= 70) {
-          // Check if there are multiple high-scoring candidates
+        if (scored.length > 0 && scored[0].score >= 50) {
           const topScore = scored[0].score;
-          const closeMatches = scored.filter(s => topScore - s.score <= 10);
+          const closeMatches = scored.filter(s => s.score >= 50 && topScore - s.score <= 10);
 
           if (closeMatches.length > 1) {
             // Ambiguous
