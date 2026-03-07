@@ -4242,7 +4242,21 @@ export async function registerRoutes(
 
   // Order Exceptions (flagged orders)
   app.get("/api/admin/queues/order-exceptions", auth, executiveOrAdmin, async (req, res) => {
-    try { res.json(await storage.getOrderExceptions()); } catch (error) { res.status(500).json({ message: "Failed" }); }
+    try {
+      const exceptions = await storage.getOrderExceptions();
+      const enriched = await Promise.all(exceptions.map(async (exc: any) => {
+        const order = await storage.getOrderById(exc.salesOrderId);
+        const flagger = await storage.getUser(exc.flaggedByUserId);
+        return {
+          ...exc,
+          invoiceNumber: order?.invoiceNumber || null,
+          customerName: order?.customerName || null,
+          repId: order?.repId || null,
+          flaggedByName: flagger?.name || null,
+        };
+      }));
+      res.json(enriched);
+    } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
 
   app.post("/api/orders/:id/flag", auth, async (req: AuthRequest, res) => {

@@ -260,26 +260,30 @@ export default function Queues() {
     {
       key: "salesOrderId",
       header: "Order",
-      cell: (row: OrderException) => (
-        <span className="font-mono text-sm">{row.salesOrderId.slice(0, 8)}...</span>
+      cell: (row: any) => (
+        <div>
+          <div className="font-medium text-sm">{row.invoiceNumber || row.salesOrderId.slice(0, 8) + "..."}</div>
+          {row.customerName && <div className="text-xs text-muted-foreground">{row.customerName}</div>}
+          {row.repId && <div className="text-xs text-muted-foreground">Rep: {row.repId}</div>}
+        </div>
       ),
     },
     {
       key: "reason",
       header: "Reason",
-      cell: (row: OrderException) => <span className="text-sm">{row.reason}</span>,
+      cell: (row: any) => <span className="text-sm">{row.reason}</span>,
     },
     {
       key: "flaggedBy",
       header: "Flagged By",
-      cell: (row: OrderException) => (
-        <span className="text-sm text-muted-foreground">{row.flaggedByUserId.slice(0, 8)}...</span>
+      cell: (row: any) => (
+        <span className="text-sm text-muted-foreground">{row.flaggedByName || row.flaggedByUserId.slice(0, 8) + "..."}</span>
       ),
     },
     {
       key: "createdAt",
       header: "Flagged",
-      cell: (row: OrderException) => (
+      cell: (row: any) => (
         <span className="text-sm text-muted-foreground">
           {new Date(row.createdAt).toLocaleString()}
         </span>
@@ -288,7 +292,7 @@ export default function Queues() {
     {
       key: "status",
       header: "Status",
-      cell: (row: OrderException) => (
+      cell: (row: any) => (
         row.resolvedAt ? (
           <Badge variant="default">Resolved</Badge>
         ) : (
@@ -299,7 +303,7 @@ export default function Queues() {
     {
       key: "actions",
       header: "",
-      cell: (row: OrderException) => (
+      cell: (row: any) => (
         !row.resolvedAt && (
           <Button
             size="sm"
