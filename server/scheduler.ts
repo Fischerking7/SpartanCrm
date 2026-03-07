@@ -2,6 +2,32 @@ import { storage } from "./storage";
 import { emailService } from "./email";
 import { setForceLogoutTimestamp } from "./auth";
 
+function getEasternDate(date = new Date()): { year: number; month: number; day: number; hours: number; minutes: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: string) => parseInt(parts.find(p => p.type === type)?.value || "0");
+  return { year: get("year"), month: get("month"), day: get("day"), hours: get("hour"), minutes: get("minute") };
+}
+
+function msUntilEasternTime(targetHour: number, targetMinute = 0): number {
+  const now = new Date();
+  const et = getEasternDate(now);
+  const etNowMinutes = et.hours * 60 + et.minutes;
+  const targetMinutes = targetHour * 60 + targetMinute;
+  let diffMinutes = targetMinutes - etNowMinutes;
+  if (diffMinutes <= 0) {
+    diffMinutes += 24 * 60;
+  }
+  return diffMinutes * 60 * 1000;
+}
+
 export const scheduler = {
   intervalIds: [] as NodeJS.Timeout[],
   midnightTimeout: null as NodeJS.Timeout | null,
@@ -412,15 +438,9 @@ export const scheduler = {
   },
 
   scheduleDailySalesReport() {
-    const now = new Date();
-    const tenPM = new Date(now);
-    tenPM.setHours(22, 0, 0, 0);
-    if (now >= tenPM) {
-      tenPM.setDate(tenPM.getDate() + 1);
-    }
-    const msUntil = tenPM.getTime() - now.getTime();
+    const msUntil = msUntilEasternTime(22);
 
-    console.log(`[Scheduler] Daily sales report scheduled in ${Math.round(msUntil / 60000)} minutes (10:00 PM)`);
+    console.log(`[Scheduler] Daily sales report scheduled in ${Math.round(msUntil / 60000)} minutes (10:00 PM ET)`);
 
     this.dailyReportTimeout = setTimeout(() => {
       this.generateDailySalesReport();
@@ -436,12 +456,9 @@ export const scheduler = {
     try {
       await storage.updateBackgroundJob(job.id, { status: "RUNNING", startedAt: new Date() });
 
-      const today = new Date();
-      const reportDate = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, "0");
-      const dd = String(today.getDate()).padStart(2, "0");
-      const todayStr = `${yyyy}-${mm}-${dd}`;
+      const et = getEasternDate();
+      const reportDate = `${et.month}/${et.day}/${et.year}`;
+      const todayStr = `${et.year}-${String(et.month).padStart(2, "0")}-${String(et.day).padStart(2, "0")}`;
 
       const allOrders = await storage.getOrders({});
       const todaysOrders = allOrders.filter(o => o.dateSold === todayStr);
@@ -529,15 +546,9 @@ export const scheduler = {
   },
 
   scheduleDailyInstallReport() {
-    const now = new Date();
-    const threePM = new Date(now);
-    threePM.setHours(15, 0, 0, 0);
-    if (now >= threePM) {
-      threePM.setDate(threePM.getDate() + 1);
-    }
-    const msUntil = threePM.getTime() - now.getTime();
+    const msUntil = msUntilEasternTime(15);
 
-    console.log(`[Scheduler] Daily install report scheduled in ${Math.round(msUntil / 60000)} minutes (3:00 PM)`);
+    console.log(`[Scheduler] Daily install report scheduled in ${Math.round(msUntil / 60000)} minutes (3:00 PM ET)`);
 
     this.installReportTimeout = setTimeout(() => {
       this.generateDailyInstallReport();
@@ -553,12 +564,12 @@ export const scheduler = {
     try {
       await storage.updateBackgroundJob(job.id, { status: "RUNNING", startedAt: new Date() });
 
-      const today = new Date();
-      const reportDate = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
+      const et = getEasternDate();
+      const reportDate = `${et.month}/${et.day}/${et.year}`;
 
-      const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
-      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-      const monthEnd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+      const monthStart = `${et.year}-${String(et.month).padStart(2, "0")}-01`;
+      const lastDay = new Date(et.year, et.month, 0).getDate();
+      const monthEnd = `${et.year}-${String(et.month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
       const syncRuns = await storage.getInstallSyncRuns(200);
       const orderWoStatusMap = new Map<string, string>();
