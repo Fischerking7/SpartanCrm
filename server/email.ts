@@ -223,4 +223,45 @@ export const emailService = {
       relatedEntityId: "",
     });
   },
+
+  async sendCsvExportEmail(to: string, subject: string, body: string, csvContent: string, filename: string): Promise<boolean> {
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASSWORD;
+
+    if (!smtpHost || !smtpUser || !smtpPass) {
+      console.log(`[Email Service] SMTP not configured - would send CSV export to ${to}: ${subject} (${filename}, ${csvContent.length} bytes)`);
+      return true;
+    }
+
+    try {
+      const nodemailer = await import("nodemailer");
+      const transporter = nodemailer.default.createTransport({
+        host: smtpHost,
+        port: parseInt(process.env.SMTP_PORT || "587"),
+        secure: process.env.SMTP_SECURE === "true",
+        auth: { user: smtpUser, pass: smtpPass },
+      });
+
+      await transporter.sendMail({
+        from: smtpUser,
+        to,
+        subject,
+        text: body,
+        attachments: [
+          {
+            filename,
+            content: csvContent,
+            contentType: "text/csv",
+          },
+        ],
+      });
+
+      console.log(`[Email Service] CSV export sent to ${to}: ${subject}`);
+      return true;
+    } catch (error: any) {
+      console.error(`[Email Service] Failed to send CSV export:`, error.message);
+      return false;
+    }
+  },
 };

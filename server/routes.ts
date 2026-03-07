@@ -15,6 +15,9 @@ import * as XLSX from "xlsx";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import rateLimit from "express-rate-limit";
 import { encryptSsn, decryptSsn, extractSsnLast4, maskSsn } from "./encryption";
+import { fetchGoogleSheet, parseUploadedCsv } from "./google-sheets";
+import { matchInstallationsToOrders, type OrderSummary } from "./claude-matching";
+import { emailService } from "./email";
 
 // Rate limiter for auth endpoints (10 attempts per 15 minutes per IP)
 const authLimiter = rateLimit({
@@ -13671,6 +13674,212 @@ export async function registerRoutes(
       res.json(mapping || null);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to get default mapping" });
+    }
+  });
+
+  // ============ INSTALL SYNC ROUTES ============
+
+  app.get("/api/admin/install-sync/history", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
+        return res.status(403).json({ message: "Only ADMIN or OPERATIONS can access install sync" });
+      }
+      const runs = await storage.getInstallSyncRuns(50);
+      const enriched = await Promise.all(runs.map(async (run) => {
+        const runByUser = await storage.getUserById(run.runByUserId);
+        return { ...run, runByName: runByUser?.name || "Unknown" };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch sync history" });
+    }
+  });
+
+  const syncUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
+
+  app.post("/api/admin/install-sync/run", auth, syncUpload.single("file"), async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
+        return res.status(403).json({ message: "Only ADMIN or OPERATIONS can run install sync" });
+      }
+
+      const { sheetUrl, emailTo, autoApprove } = req.body;
+      const shouldAutoApprove = autoApprove === "true" || autoApprove === true;
+
+      const syncRun = await storage.createInstallSyncRun({
+        sheetUrl: sheetUrl || null,
+        sourceType: req.file ? "csv_upload" : "google_sheet",
+        emailTo: emailTo || null,
+        runByUserId: user.id,
+        status: "RUNNING",
+      });
+
+      try {
+        let sheetData;
+        if (req.file) {
+          const csvContent = req.file.buffer.toString("utf-8");
+          sheetData = await parseUploadedCsv(csvContent);
+        } else if (sheetUrl) {
+          sheetData = await fetchGoogleSheet(sheetUrl);
+        } else {
+          throw new Error("Please provide either a Google Sheet URL or upload a CSV file.");
+        }
+
+        await storage.updateInstallSyncRun(syncRun.id, { totalSheetRows: sheetData.rows.length });
+
+        const pendingOrders = await storage.getPendingUnapprovedOrders();
+
+        const allProviders = await storage.getProviders();
+        const providerMap = new Map(allProviders.map(p => [p.id, p.name]));
+
+        const orderSummaries: OrderSummary[] = await Promise.all(
+          pendingOrders.map(async (order) => {
+            const rep = await storage.getUserByRepId(order.repId);
+            const providerName = order.providerId ? (providerMap.get(order.providerId) || "") : "";
+            return {
+              id: order.id,
+              invoiceNumber: order.invoiceNumber || "",
+              customerName: order.customerName,
+              houseNumber: order.houseNumber || "",
+              streetName: order.streetName || "",
+              aptUnit: order.aptUnit || "",
+              city: order.city || "",
+              zipCode: order.zipCode || "",
+              serviceType: order.serviceType || "",
+              providerName,
+              repName: rep?.name || "",
+              dateSold: order.dateSold || "",
+              jobStatus: order.jobStatus,
+              approvalStatus: order.approvalStatus,
+            };
+          })
+        );
+
+        const matchResult = await matchInstallationsToOrders(sheetData.rows, orderSummaries);
+
+        let approvedCount = 0;
+        const approvedOrders: any[] = [];
+
+        if (shouldAutoApprove && matchResult.matches.length > 0) {
+          const now = new Date();
+          for (const match of matchResult.matches) {
+            if (match.confidence < 70) continue;
+
+            const order = await storage.getOrderById(match.orderId);
+            if (!order || order.approvalStatus === "APPROVED") continue;
+
+            const beforeJson = JSON.stringify(order);
+            const updates: Record<string, any> = {
+              approvalStatus: "APPROVED",
+              approvedByUserId: user.id,
+              approvedAt: now,
+            };
+            if (order.jobStatus === "PENDING") {
+              updates.jobStatus = "COMPLETED";
+            }
+
+            const updatedOrder = await storage.updateOrder(match.orderId, updates);
+
+            if (updatedOrder) {
+              const overrideEarnings = await generateOverrideEarnings(order, updatedOrder);
+              for (const earning of overrideEarnings) {
+                await storage.createOverrideEarning(earning);
+              }
+              approvedOrders.push(updatedOrder);
+            }
+
+            await storage.createAuditLog({
+              action: "install_sync_approve",
+              tableName: "sales_orders",
+              recordId: match.orderId,
+              beforeJson,
+              afterJson: JSON.stringify(updatedOrder),
+              userId: user.id,
+            });
+
+            approvedCount++;
+          }
+        }
+
+        let emailSent = false;
+        if (emailTo && approvedOrders.length > 0) {
+          const csvHeaders = ["Invoice #", "Customer Name", "Address", "City", "Zip", "Service Type", "Rep", "Date Sold", "Base Commission", "Incentive", "Override Deduction", "Approved At"];
+          const csvRows = approvedOrders.map((o) => [
+            o.invoiceNumber || "",
+            o.customerName,
+            [o.houseNumber, o.streetName, o.aptUnit].filter(Boolean).join(" "),
+            o.city || "",
+            o.zipCode || "",
+            o.serviceType || "",
+            o.repId,
+            o.dateSold || "",
+            o.baseCommissionEarned || "0",
+            o.incentiveEarned || "0",
+            o.overrideDeduction || "0",
+            o.approvedAt ? new Date(o.approvedAt).toLocaleString() : "",
+          ]);
+
+          const csvContent = [csvHeaders, ...csvRows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+          const d = new Date();
+          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          const filename = `install-sync-approved-${dateStr}.csv`;
+
+          emailSent = await emailService.sendCsvExportEmail(
+            emailTo,
+            `Install Sync: ${approvedCount} Orders Approved - ${dateStr}`,
+            `The automated install sync has approved ${approvedCount} orders based on installation confirmation data.\n\nPlease find the CSV export attached.\n\nSync Summary:\n- Sheet rows processed: ${sheetData.rows.length}\n- Orders matched: ${matchResult.matches.length}\n- Orders approved: ${approvedCount}\n- Unmatched records: ${matchResult.unmatched.length}`,
+            csvContent,
+            filename
+          );
+        }
+
+        await storage.updateInstallSyncRun(syncRun.id, {
+          totalSheetRows: sheetData.rows.length,
+          matchedCount: matchResult.matches.length,
+          approvedCount,
+          unmatchedCount: matchResult.unmatched.length,
+          emailSent,
+          status: "COMPLETED",
+          summary: matchResult.summary,
+          matchDetails: JSON.stringify({
+            matches: matchResult.matches.map((m) => ({
+              sheetRowIndex: m.sheetRowIndex,
+              sheetData: m.sheetData,
+              orderId: m.orderId,
+              orderInvoice: m.orderInvoice,
+              orderCustomerName: m.orderCustomerName,
+              confidence: m.confidence,
+              reasoning: m.reasoning,
+            })),
+            unmatched: matchResult.unmatched,
+          }),
+          completedAt: new Date(),
+        });
+
+        res.json({
+          syncRunId: syncRun.id,
+          totalSheetRows: sheetData.rows.length,
+          matchedCount: matchResult.matches.length,
+          approvedCount,
+          unmatchedCount: matchResult.unmatched.length,
+          emailSent,
+          summary: matchResult.summary,
+          matches: matchResult.matches,
+          unmatched: matchResult.unmatched,
+        });
+      } catch (innerError: any) {
+        await storage.updateInstallSyncRun(syncRun.id, {
+          status: "FAILED",
+          errorMessage: innerError.message,
+          completedAt: new Date(),
+        });
+        throw innerError;
+      }
+    } catch (error: any) {
+      console.error("[Install Sync] Error:", error.message);
+      res.status(500).json({ message: error.message || "Install sync failed" });
     }
   });
 

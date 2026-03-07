@@ -68,6 +68,7 @@ import {
   type ArPayment, type InsertArPayment, arPayments,
   type ClientColumnMapping, type InsertClientColumnMapping,
   userActivityLogs, type UserActivityLog, type InsertUserActivityLog,
+  installSyncRuns, type InstallSyncRun, type InsertInstallSyncRun,
 } from "@shared/schema";
 
 export const storage = {
@@ -4263,5 +4264,28 @@ export const storage = {
     await db.update(users)
       .set({ lastActiveAt: new Date() })
       .where(eq(users.id, userId));
+  },
+
+  async createInstallSyncRun(data: Partial<InsertInstallSyncRun> & { runByUserId: string }) {
+    const [run] = await db.insert(installSyncRuns).values(data as any).returning();
+    return run;
+  },
+  async updateInstallSyncRun(id: string, data: Partial<InstallSyncRun>) {
+    const [run] = await db.update(installSyncRuns).set(data).where(eq(installSyncRuns.id, id)).returning();
+    return run;
+  },
+  async getInstallSyncRuns(limit = 50) {
+    return db.select().from(installSyncRuns).orderBy(desc(installSyncRuns.createdAt)).limit(limit);
+  },
+  async getPendingUnapprovedOrders() {
+    return db.select().from(salesOrders).where(
+      and(
+        eq(salesOrders.approvalStatus, "UNAPPROVED"),
+        or(
+          eq(salesOrders.jobStatus, "PENDING"),
+          eq(salesOrders.jobStatus, "COMPLETED"),
+        ),
+      )
+    );
   },
 };

@@ -2016,3 +2016,30 @@ export const insertUserActivityLogSchema = createInsertSchema(userActivityLogs).
 });
 export type UserActivityLog = typeof userActivityLogs.$inferSelect;
 export type InsertUserActivityLog = z.infer<typeof insertUserActivityLogSchema>;
+
+export const installSyncRuns = pgTable("install_sync_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sheetUrl: text("sheet_url"),
+  sourceType: text("source_type").notNull().default("google_sheet"),
+  emailTo: text("email_to"),
+  totalSheetRows: integer("total_sheet_rows").notNull().default(0),
+  matchedCount: integer("matched_count").notNull().default(0),
+  approvedCount: integer("approved_count").notNull().default(0),
+  unmatchedCount: integer("unmatched_count").notNull().default(0),
+  emailSent: boolean("email_sent").notNull().default(false),
+  status: text("status").notNull().default("RUNNING"),
+  summary: text("summary"),
+  matchDetails: text("match_details"),
+  errorMessage: text("error_message"),
+  runByUserId: varchar("run_by_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertInstallSyncRunSchema = createInsertSchema(installSyncRuns).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+export type InstallSyncRun = typeof installSyncRuns.$inferSelect;
+export type InsertInstallSyncRun = z.infer<typeof insertInstallSyncRunSchema>;

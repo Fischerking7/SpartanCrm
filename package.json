@@ -11,6 +11,7 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@google-cloud/storage": "^7.18.0",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
@@ -45,6 +46,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.0.0",
+    "@types/nodemailer": "^7.0.11",
     "@types/pdfkit": "^0.17.4",
     "@uppy/aws-s3": "^5.1.0",
     "@uppy/core": "^5.2.0",
@@ -59,7 +61,7 @@
     "csv-stringify": "^6.6.0",
     "date-fns": "^3.6.0",
     "drizzle-orm": "^0.39.3",
-    "drizzle-zod": "^0.7.0",
+    "drizzle-zod": "^0.7.1",
     "embla-carousel-react": "^8.6.0",
     "express": "^4.21.2",
     "express-rate-limit": "^8.2.1",
@@ -72,6 +74,9 @@
     "memorystore": "^1.6.7",
     "multer": "^2.0.2",
     "next-themes": "^0.4.6",
+    "nodemailer": "^8.0.1",
+    "p-limit": "^7.3.0",
+    "p-retry": "^7.1.1",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
     "pdfkit": "^0.17.2",
@@ -90,8 +95,8 @@
     "wouter": "^3.3.5",
     "ws": "^8.18.0",
     "xlsx": "^0.18.5",
-    "zod": "^3.24.2",
-    "zod-validation-error": "^3.4.0"
+    "zod": "^3.25.76",
+    "zod-validation-error": "^3.5.4"
   },
   "devDependencies": {
     "@replit/vite-plugin-cartographer": "^0.4.4",
