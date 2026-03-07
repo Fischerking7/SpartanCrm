@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "iron-crest-crm": {
+      "command": "npx",
+      "args": ["tsx", "server/mcp-server.ts"],
+      "env": {
+        "DATABASE_URL": "YOUR_PRODUCTION_DATABASE_URL_HERE"
+      }
+    }
+  }
+}
