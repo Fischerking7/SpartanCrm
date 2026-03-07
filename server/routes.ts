@@ -12953,10 +12953,72 @@ export async function registerRoutes(
       if (commissionChanged) {
         updateData.commissionSource = 'MANUAL_OVERRIDE';
         updateData.calcAt = new Date();
+
+        if (order.paymentStatus === "PAID") {
+          const newBase = updateData.baseCommissionEarned !== undefined
+            ? parseFloat(updateData.baseCommissionEarned)
+            : parseFloat(order.baseCommissionEarned);
+          const newIncentive = updateData.incentiveEarned !== undefined
+            ? parseFloat(updateData.incentiveEarned)
+            : parseFloat(order.incentiveEarned);
+          updateData.commissionPaid = (newBase + newIncentive).toFixed(2);
+        }
       }
 
       if (Object.keys(updateData).length > 1) {
         await storage.updateOrder(orderId, updateData);
+
+        if (commissionChanged && order.paymentStatus === "PAID") {
+          const lineItems = await storage.getPayStatementLineItemsBySourceId("sales_order", orderId);
+          const newBase = updateData.baseCommissionEarned !== undefined
+            ? updateData.baseCommissionEarned
+            : order.baseCommissionEarned;
+          const newIncentive = updateData.incentiveEarned !== undefined
+            ? updateData.incentiveEarned
+            : order.incentiveEarned;
+
+          const affectedStatementIds = new Set<string>();
+
+          for (const item of lineItems) {
+            if (item.category === "Commission") {
+              await storage.updatePayStatementLineItem(item.id, { amount: newBase });
+              affectedStatementIds.add(item.payStatementId);
+            } else if (item.category === "Incentive") {
+              await storage.updatePayStatementLineItem(item.id, { amount: newIncentive });
+              affectedStatementIds.add(item.payStatementId);
+            }
+          }
+
+          for (const statementId of affectedStatementIds) {
+            const allItems = await storage.getPayStatementLineItems(statementId);
+            let grossCommission = 0;
+            let incentivesTotal = 0;
+            let chargebacksTotal = 0;
+
+            for (const item of allItems) {
+              const amt = parseFloat(item.amount);
+              if (item.category === "Commission") grossCommission += amt;
+              else if (item.category === "Incentive") incentivesTotal += amt;
+              else if (item.category === "Chargeback") chargebacksTotal += Math.abs(amt);
+            }
+
+            const statement = await storage.getPayStatementById(statementId);
+            if (statement) {
+              const overrideEarningsTotal = parseFloat(statement.overrideEarningsTotal || "0");
+              const deductionsTotal = parseFloat(statement.deductionsTotal || "0");
+              const advancesApplied = parseFloat(statement.advancesApplied || "0");
+              const taxWithheld = parseFloat(statement.taxWithheld || "0");
+              const netPay = grossCommission + incentivesTotal + overrideEarningsTotal - chargebacksTotal - deductionsTotal - advancesApplied - taxWithheld;
+
+              await storage.updatePayStatement(statementId, {
+                grossCommission: grossCommission.toFixed(2),
+                incentivesTotal: incentivesTotal.toFixed(2),
+                chargebacksTotal: chargebacksTotal.toFixed(2),
+                netPay: netPay.toFixed(2),
+              });
+            }
+          }
+        }
 
         await storage.createAuditLog({
           userId: req.user!.id,
@@ -12973,6 +13035,8 @@ export async function registerRoutes(
               baseCommissionEarned: order.baseCommissionEarned,
               incentiveEarned: order.incentiveEarned,
               overrideDeduction: order.overrideDeduction,
+              commissionPaid: order.commissionPaid,
+              paymentStatus: order.paymentStatus,
             }
           })
         });

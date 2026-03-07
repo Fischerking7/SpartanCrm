@@ -2971,6 +2971,20 @@ export const storage = {
   async deletePayStatementLineItems(payStatementId: string) {
     await db.delete(payStatementLineItems).where(eq(payStatementLineItems.payStatementId, payStatementId));
   },
+  async getPayStatementLineItemsBySourceId(sourceType: string, sourceId: string) {
+    return db.select().from(payStatementLineItems)
+      .where(and(
+        eq(payStatementLineItems.sourceType, sourceType),
+        eq(payStatementLineItems.sourceId, sourceId),
+      ));
+  },
+  async updatePayStatementLineItem(id: string, data: { amount: string }) {
+    const [item] = await db.update(payStatementLineItems)
+      .set(data)
+      .where(eq(payStatementLineItems.id, id))
+      .returning();
+    return item;
+  },
 
   // Pay Statement Deductions
   async getPayStatementDeductions(payStatementId: string) {
