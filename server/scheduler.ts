@@ -8,6 +8,7 @@ export const scheduler = {
   isRunning: false,
 
   dailyReportTimeout: null as NodeJS.Timeout | null,
+  installReportTimeout: null as NodeJS.Timeout | null,
 
   start() {
     if (this.isRunning) return;
@@ -33,6 +34,7 @@ export const scheduler = {
 
     this.scheduleMidnightLogout();
     this.scheduleDailySalesReport();
+    this.scheduleDailyInstallReport();
 
     setTimeout(() => {
       this.checkScheduledPayRuns();
@@ -53,6 +55,10 @@ export const scheduler = {
     if (this.dailyReportTimeout) {
       clearTimeout(this.dailyReportTimeout);
       this.dailyReportTimeout = null;
+    }
+    if (this.installReportTimeout) {
+      clearTimeout(this.installReportTimeout);
+      this.installReportTimeout = null;
     }
     this.isRunning = false;
     console.log("[Scheduler] Stopped all background jobs");
@@ -320,7 +326,7 @@ export const scheduler = {
     return "OTHER";
   },
 
-  async runManualJob(jobType: "SCHEDULED_PAY_RUN" | "CHARGEBACK_PROCESSOR" | "NOTIFICATION_SENDER" | "PENDING_APPROVAL_ALERT" | "LOW_PERFORMANCE_CHECK" | "DAILY_SALES_REPORT") {
+  async runManualJob(jobType: "SCHEDULED_PAY_RUN" | "CHARGEBACK_PROCESSOR" | "NOTIFICATION_SENDER" | "PENDING_APPROVAL_ALERT" | "LOW_PERFORMANCE_CHECK" | "DAILY_SALES_REPORT" | "DAILY_INSTALL_REPORT") {
     switch (jobType) {
       case "SCHEDULED_PAY_RUN":
         await this.checkScheduledPayRuns();
@@ -339,6 +345,9 @@ export const scheduler = {
         break;
       case "DAILY_SALES_REPORT":
         await this.generateDailySalesReport();
+        break;
+      case "DAILY_INSTALL_REPORT":
+        await this.generateDailyInstallReport();
         break;
     }
   },
@@ -470,6 +479,7 @@ export const scheduler = {
         }))
         .sort((a, b) => b.count - a.count);
 
+      const FIXED_OPS_EMAIL = "ironcrestoperations@ironcrest.ai";
       const recipients = allUsers
         .filter(u =>
           ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(u.role) &&
@@ -478,6 +488,9 @@ export const scheduler = {
           u.email
         )
         .map(u => u.email!);
+      if (!recipients.includes(FIXED_OPS_EMAIL)) {
+        recipients.push(FIXED_OPS_EMAIL);
+      }
 
       let emailResults = { sent: 0, failed: 0 };
       if (recipients.length > 0) {
@@ -512,6 +525,122 @@ export const scheduler = {
         errorMessage: error.message,
       });
       console.error("[Scheduler] Daily sales report failed:", error);
+    }
+  },
+
+  scheduleDailyInstallReport() {
+    const now = new Date();
+    const threePM = new Date(now);
+    threePM.setHours(15, 0, 0, 0);
+    if (now >= threePM) {
+      threePM.setDate(threePM.getDate() + 1);
+    }
+    const msUntil = threePM.getTime() - now.getTime();
+
+    console.log(`[Scheduler] Daily install report scheduled in ${Math.round(msUntil / 60000)} minutes (3:00 PM)`);
+
+    this.installReportTimeout = setTimeout(() => {
+      this.generateDailyInstallReport();
+      this.scheduleDailyInstallReport();
+    }, msUntil);
+  },
+
+  async generateDailyInstallReport() {
+    const job = await storage.createBackgroundJob({
+      jobType: "DAILY_INSTALL_REPORT",
+    });
+
+    try {
+      await storage.updateBackgroundJob(job.id, { status: "RUNNING", startedAt: new Date() });
+
+      const today = new Date();
+      const reportDate = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
+
+      const syncRuns = await storage.getInstallSyncRuns(100);
+      const matchedOrderIds = new Set<string>();
+
+      for (const run of syncRuns) {
+        if (!run.matchDetails) continue;
+        try {
+          const details = JSON.parse(run.matchDetails);
+          if (details.matches && Array.isArray(details.matches)) {
+            for (const m of details.matches) {
+              if (m.orderId) matchedOrderIds.add(m.orderId);
+            }
+          }
+        } catch {}
+      }
+
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.repId, u.name]));
+      const allProviders = await storage.getProviders();
+      const providerMap = new Map(allProviders.map(p => [p.id, p.name]));
+      const allServices = await storage.getServices();
+      const serviceMap = new Map(allServices.map(s => [s.id, s.name]));
+
+      const allOrders = matchedOrderIds.size > 0 ? await storage.getOrders({}) : [];
+      const syncedOrders = allOrders.filter(o => matchedOrderIds.has(o.id));
+
+      const installRows = syncedOrders.map(o => {
+        let statusLabel = o.jobStatus || "PENDING";
+        if (o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED") {
+          statusLabel = "INSTALLED";
+        } else if (o.jobStatus === "CANCELED") {
+          statusLabel = "CANCELLED";
+        } else {
+          statusLabel = "PENDING";
+        }
+
+        return {
+          repId: o.repId || "",
+          repName: userMap.get(o.repId || "") || o.repId || "Unknown",
+          provider: providerMap.get(o.providerId) || "Unknown",
+          service: serviceMap.get(o.serviceId) || "Unknown",
+          customerName: o.customerName || "",
+          accountNumber: o.accountNumber || "",
+          jobStatus: statusLabel,
+          dateSold: o.dateSold || "",
+          installDate: o.installDate || "",
+          installTime: o.installTime || "",
+          installType: o.installType || "",
+        };
+      });
+
+      const installed = installRows.filter(r => r.jobStatus === "INSTALLED");
+      const cancelled = installRows.filter(r => r.jobStatus === "CANCELLED");
+      const pending = installRows.filter(r => r.jobStatus === "PENDING");
+
+      const FIXED_OPS_EMAIL = "ironcrestoperations@ironcrest.ai";
+      const emailResult = await emailService.sendDailyInstallReport(
+        [FIXED_OPS_EMAIL],
+        reportDate,
+        installed,
+        cancelled,
+        pending
+      );
+
+      await storage.updateBackgroundJob(job.id, {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        result: JSON.stringify({
+          reportDate,
+          totalOrders: installRows.length,
+          installed: installed.length,
+          cancelled: cancelled.length,
+          pending: pending.length,
+          emailsSent: emailResult.sent,
+          emailsFailed: emailResult.failed,
+        }),
+      });
+
+      console.log(`[Scheduler] Daily install report: ${installed.length} installed, ${cancelled.length} cancelled, ${pending.length} pending, sent to ${emailResult.sent} recipients`);
+    } catch (error: any) {
+      await storage.updateBackgroundJob(job.id, {
+        status: "FAILED",
+        completedAt: new Date(),
+        errorMessage: error.message,
+      });
+      console.error("[Scheduler] Daily install report failed:", error);
     }
   },
 

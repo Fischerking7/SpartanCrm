@@ -352,6 +352,116 @@ export const emailService = {
     return results;
   },
 
+  async sendDailyInstallReport(
+    recipients: string[],
+    reportDate: string,
+    installed: { repId: string; repName: string; provider: string; service: string; customerName: string; accountNumber: string; jobStatus: string; dateSold: string; installDate: string; installTime: string; installType: string }[],
+    cancelled: typeof installed,
+    pending: typeof installed
+  ): Promise<{ sent: number; failed: number }> {
+    const results = { sent: 0, failed: 0 };
+
+    const buildTable = (rows: typeof installed, statusColor: string) => {
+      if (rows.length === 0) {
+        return `<tr><td colspan="11" style="padding:12px;text-align:center;color:#6b7280;">None</td></tr>`;
+      }
+      return rows.map(r => `
+        <tr>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.repId}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.repName}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.provider}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.service}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.customerName}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.accountNumber}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;color:${statusColor};font-weight:600;">${r.jobStatus}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.dateSold}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.installDate}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.installTime}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.installType}</td>
+        </tr>`).join("");
+    };
+
+    const headerRow = `
+      <tr style="background:#f8fafc;">
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Rep ID</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Name</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Provider</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Service</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Customer Name</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Account #</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Job Status</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Sold Date</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Install Date</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Install Time</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Install Type</th>
+      </tr>`;
+
+    const total = installed.length + cancelled.length + pending.length;
+
+    const html = `
+    <div style="font-family:Arial,sans-serif;max-width:1000px;margin:0 auto;">
+      <div style="background:#1e293b;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">
+        <h2 style="margin:0;font-size:20px;">Daily Install Report</h2>
+        <p style="margin:4px 0 0;color:#94a3b8;font-size:14px;">${reportDate}</p>
+      </div>
+
+      <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
+        <div style="display:flex;gap:12px;margin-bottom:24px;">
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:12px 16px;flex:1;">
+            <p style="margin:0;font-size:12px;color:#166534;">Installed (Approved)</p>
+            <p style="margin:4px 0 0;font-size:20px;font-weight:bold;color:#166534;">${installed.length}</p>
+          </div>
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 16px;flex:1;">
+            <p style="margin:0;font-size:12px;color:#991b1b;">Cancelled</p>
+            <p style="margin:4px 0 0;font-size:20px;font-weight:bold;color:#991b1b;">${cancelled.length}</p>
+          </div>
+          <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:12px 16px;flex:1;">
+            <p style="margin:0;font-size:12px;color:#92400e;">Pending</p>
+            <p style="margin:4px 0 0;font-size:20px;font-weight:bold;color:#92400e;">${pending.length}</p>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px 16px;flex:1;">
+            <p style="margin:0;font-size:12px;color:#475569;">Total</p>
+            <p style="margin:4px 0 0;font-size:20px;font-weight:bold;color:#1e293b;">${total}</p>
+          </div>
+        </div>
+
+        <h3 style="margin:0 0 8px;font-size:15px;color:#166534;">Installed (Approved) - ${installed.length}</h3>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+          <thead>${headerRow}</thead>
+          <tbody>${buildTable(installed, "#166534")}</tbody>
+        </table>
+
+        <h3 style="margin:0 0 8px;font-size:15px;color:#991b1b;">Cancelled - ${cancelled.length}</h3>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+          <thead>${headerRow}</thead>
+          <tbody>${buildTable(cancelled, "#991b1b")}</tbody>
+        </table>
+
+        <h3 style="margin:0 0 8px;font-size:15px;color:#92400e;">Pending - ${pending.length}</h3>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+          <thead>${headerRow}</thead>
+          <tbody>${buildTable(pending, "#92400e")}</tbody>
+        </table>
+
+        <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;">This is an automated report from Iron Crest CRM.</p>
+      </div>
+    </div>`;
+
+    const subject = `Daily Install Report - ${reportDate}`;
+
+    for (const email of recipients) {
+      try {
+        const sent = await this.sendHtmlEmail(email, subject, html);
+        if (sent) results.sent++;
+        else results.failed++;
+      } catch {
+        results.failed++;
+      }
+    }
+
+    return results;
+  },
+
   async sendCsvExportEmail(to: string, subject: string, body: string, csvContent: string, filename: string): Promise<boolean> {
     const smtpHost = process.env.SMTP_HOST;
     const smtpUser = process.env.SMTP_USER;
