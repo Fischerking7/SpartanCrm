@@ -59,7 +59,7 @@ export default function InstallSync() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [sheetUrl, setSheetUrl] = useState(() => localStorage.getItem("installSync_sheetUrl") || "");
-  const [emailTo, setEmailTo] = useState(() => localStorage.getItem("installSync_emailTo") || "");
+  const [emailTo, setEmailTo] = useState(() => localStorage.getItem("installSync_emailTo") || "ironcrestoperations@ironcrestai.com");
   const [autoApprove, setAutoApprove] = useState(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sourceMode, setSourceMode] = useState<"sheet" | "upload">("sheet");
