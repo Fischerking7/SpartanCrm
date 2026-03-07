@@ -556,8 +556,12 @@ export const scheduler = {
       const today = new Date();
       const reportDate = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
 
-      const syncRuns = await storage.getInstallSyncRuns(100);
-      const matchedOrderIds = new Set<string>();
+      const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+      const monthEnd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
+      const syncRuns = await storage.getInstallSyncRuns(200);
+      const orderWoStatusMap = new Map<string, string>();
 
       for (const run of syncRuns) {
         if (!run.matchDetails) continue;
@@ -565,7 +569,12 @@ export const scheduler = {
           const details = JSON.parse(run.matchDetails);
           if (details.matches && Array.isArray(details.matches)) {
             for (const m of details.matches) {
-              if (m.orderId) matchedOrderIds.add(m.orderId);
+              if (m.orderId) {
+                const woStatus = (m.sheetData?.WO_STATUS || "").trim().toUpperCase();
+                if (woStatus) {
+                  orderWoStatusMap.set(m.orderId, woStatus);
+                }
+              }
             }
           }
         } catch {}
@@ -578,15 +587,22 @@ export const scheduler = {
       const allServices = await storage.getServices();
       const serviceMap = new Map(allServices.map(s => [s.id, s.name]));
 
-      const allOrders = matchedOrderIds.size > 0 ? await storage.getOrders({}) : [];
-      const syncedOrders = allOrders.filter(o => matchedOrderIds.has(o.id));
+      const allOrders = orderWoStatusMap.size > 0 ? await storage.getOrders({}) : [];
+      const syncedOrders = allOrders.filter(o =>
+        orderWoStatusMap.has(o.id) &&
+        o.dateSold >= monthStart &&
+        o.dateSold <= monthEnd
+      );
 
       const installRows = syncedOrders.map(o => {
-        let statusLabel = o.jobStatus || "PENDING";
-        if (o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED") {
+        const woStatus = orderWoStatusMap.get(o.id) || "";
+        let statusLabel: string;
+        if (woStatus === "CP") {
           statusLabel = "INSTALLED";
-        } else if (o.jobStatus === "CANCELED") {
+        } else if (woStatus === "CN") {
           statusLabel = "CANCELLED";
+        } else if (woStatus === "OP" || woStatus === "ND") {
+          statusLabel = "PENDING";
         } else {
           statusLabel = "PENDING";
         }
