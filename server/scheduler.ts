@@ -7,6 +7,8 @@ export const scheduler = {
   midnightTimeout: null as NodeJS.Timeout | null,
   isRunning: false,
 
+  dailyReportTimeout: null as NodeJS.Timeout | null,
+
   start() {
     if (this.isRunning) return;
     this.isRunning = true;
@@ -30,6 +32,7 @@ export const scheduler = {
     this.intervalIds.push(performanceInterval);
 
     this.scheduleMidnightLogout();
+    this.scheduleDailySalesReport();
 
     setTimeout(() => {
       this.checkScheduledPayRuns();
@@ -46,6 +49,10 @@ export const scheduler = {
     if (this.midnightTimeout) {
       clearTimeout(this.midnightTimeout);
       this.midnightTimeout = null;
+    }
+    if (this.dailyReportTimeout) {
+      clearTimeout(this.dailyReportTimeout);
+      this.dailyReportTimeout = null;
     }
     this.isRunning = false;
     console.log("[Scheduler] Stopped all background jobs");
@@ -313,7 +320,7 @@ export const scheduler = {
     return "OTHER";
   },
 
-  async runManualJob(jobType: "SCHEDULED_PAY_RUN" | "CHARGEBACK_PROCESSOR" | "NOTIFICATION_SENDER" | "PENDING_APPROVAL_ALERT" | "LOW_PERFORMANCE_CHECK") {
+  async runManualJob(jobType: "SCHEDULED_PAY_RUN" | "CHARGEBACK_PROCESSOR" | "NOTIFICATION_SENDER" | "PENDING_APPROVAL_ALERT" | "LOW_PERFORMANCE_CHECK" | "DAILY_SALES_REPORT") {
     switch (jobType) {
       case "SCHEDULED_PAY_RUN":
         await this.checkScheduledPayRuns();
@@ -329,6 +336,9 @@ export const scheduler = {
         break;
       case "LOW_PERFORMANCE_CHECK":
         await this.checkLowPerformance();
+        break;
+      case "DAILY_SALES_REPORT":
+        await this.generateDailySalesReport();
         break;
     }
   },
@@ -389,6 +399,119 @@ export const scheduler = {
         errorMessage: error.message,
       });
       console.error("[Scheduler] Pending approval alert check failed:", error);
+    }
+  },
+
+  scheduleDailySalesReport() {
+    const now = new Date();
+    const tenPM = new Date(now);
+    tenPM.setHours(22, 0, 0, 0);
+    if (now >= tenPM) {
+      tenPM.setDate(tenPM.getDate() + 1);
+    }
+    const msUntil = tenPM.getTime() - now.getTime();
+
+    console.log(`[Scheduler] Daily sales report scheduled in ${Math.round(msUntil / 60000)} minutes (10:00 PM)`);
+
+    this.dailyReportTimeout = setTimeout(() => {
+      this.generateDailySalesReport();
+      this.scheduleDailySalesReport();
+    }, msUntil);
+  },
+
+  async generateDailySalesReport() {
+    const job = await storage.createBackgroundJob({
+      jobType: "DAILY_SALES_REPORT",
+    });
+
+    try {
+      await storage.updateBackgroundJob(job.id, { status: "RUNNING", startedAt: new Date() });
+
+      const today = new Date();
+      const reportDate = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, "0");
+      const dd = String(today.getDate()).padStart(2, "0");
+      const todayStr = `${yyyy}-${mm}-${dd}`;
+
+      const allOrders = await storage.getOrders({});
+      const todaysOrders = allOrders.filter(o => o.dateSold === todayStr);
+
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.repId, u.name]));
+
+      const allProviders = await storage.getProviders();
+      const providerMap = new Map(allProviders.map(p => [p.id, p.name]));
+
+      const allServices = await storage.getServices();
+      const serviceMap = new Map(allServices.map(s => [s.id, s.name]));
+
+      const salesRows = todaysOrders.map(o => ({
+        repId: o.repId || "",
+        repName: userMap.get(o.repId || "") || o.repId || "Unknown",
+        accountNumber: o.accountNumber || "",
+        provider: providerMap.get(o.providerId) || "Unknown",
+        service: serviceMap.get(o.serviceId) || "Unknown",
+        grossCommission: ((Number(o.baseCommissionEarned) || 0) + (Number(o.incentiveEarned) || 0)).toFixed(2),
+      }));
+
+      const totalGross = salesRows.reduce((sum, r) => sum + parseFloat(r.grossCommission), 0);
+
+      const providerCounts = new Map<string, number>();
+      for (const row of salesRows) {
+        providerCounts.set(row.provider, (providerCounts.get(row.provider) || 0) + 1);
+      }
+      const totalCount = salesRows.length;
+      const providerMix = Array.from(providerCounts.entries())
+        .map(([provider, count]) => ({
+          provider,
+          count,
+          percent: totalCount > 0 ? (count / totalCount) * 100 : 0,
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      const recipients = allUsers
+        .filter(u =>
+          ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(u.role) &&
+          u.status === "ACTIVE" &&
+          !u.deletedAt &&
+          u.email
+        )
+        .map(u => u.email!);
+
+      let emailResults = { sent: 0, failed: 0 };
+      if (recipients.length > 0) {
+        emailResults = await emailService.sendDailySalesReport(
+          recipients,
+          reportDate,
+          salesRows,
+          totalGross,
+          providerMix
+        );
+      }
+
+      await storage.updateBackgroundJob(job.id, {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        result: JSON.stringify({
+          reportDate,
+          totalOrders: salesRows.length,
+          totalGross: totalGross.toFixed(2),
+          providerMix,
+          recipientCount: recipients.length,
+          emailsSent: emailResults.sent,
+          emailsFailed: emailResults.failed,
+        }),
+      });
+
+      console.log(`[Scheduler] Daily sales report: ${salesRows.length} orders, $${totalGross.toFixed(2)} gross, sent to ${emailResults.sent} recipients`);
+    } catch (error: any) {
+      await storage.updateBackgroundJob(job.id, {
+        status: "FAILED",
+        completedAt: new Date(),
+        errorMessage: error.message,
+      });
+      console.error("[Scheduler] Daily sales report failed:", error);
     }
   },
 
