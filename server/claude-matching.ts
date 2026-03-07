@@ -148,19 +148,49 @@ export async function matchInstallationsToOrders(
   if (sheetRows.length === 0) {
     return { matches: [], unmatched: [], summary: "No installation records to match." };
   }
+
+  const completedRows: SheetRow[] = [];
+  const skippedRows: { rowIndex: number; data: Record<string, string>; reason: string }[] = [];
+
+  for (const row of sheetRows) {
+    const woStatus = (row.data["WO_STATUS"] || "").trim().toUpperCase();
+    if (woStatus === "CP") {
+      completedRows.push(row);
+    } else if (woStatus === "CN") {
+      skippedRows.push({ rowIndex: row.rowIndex, data: row.data, reason: "Skipped: WO_STATUS is CN (cancelled)" });
+    } else if (woStatus === "OP") {
+      skippedRows.push({ rowIndex: row.rowIndex, data: row.data, reason: "Skipped: WO_STATUS is OP (pending, not yet installed)" });
+    } else {
+      skippedRows.push({ rowIndex: row.rowIndex, data: row.data, reason: `Skipped: WO_STATUS is '${woStatus || "empty"}' (only CP/complete records are matched)` });
+    }
+  }
+
+  console.log(`[Claude Matching] Filtered: ${completedRows.length} completed (CP), ${skippedRows.length} skipped (CN/OP/other) out of ${sheetRows.length} total rows`);
+
+  if (completedRows.length === 0) {
+    return {
+      matches: [],
+      unmatched: skippedRows,
+      summary: `No completed installations (WO_STATUS=CP) found. ${skippedRows.length} rows skipped (cancelled/pending/other).`,
+    };
+  }
+
   if (orders.length === 0) {
     return {
       matches: [],
-      unmatched: sheetRows.map((r) => ({
-        rowIndex: r.rowIndex,
-        data: r.data,
-        reason: "No pending orders in the system to match against.",
-      })),
+      unmatched: [
+        ...completedRows.map((r) => ({
+          rowIndex: r.rowIndex,
+          data: r.data,
+          reason: "No pending orders in the system to match against.",
+        })),
+        ...skippedRows,
+      ],
       summary: "No pending orders available for matching.",
     };
   }
 
-  const sheetRowMap = new Map(sheetRows.map((r) => [r.rowIndex, r]));
+  const sheetRowMap = new Map(completedRows.map((r) => [r.rowIndex, r]));
   const orderMap = new Map(orders.map((o) => [o.id, o]));
 
   const compactOrders = compactifyOrders(orders);
@@ -168,11 +198,11 @@ export async function matchInstallationsToOrders(
   const allRawUnmatched: any[] = [];
 
   const batches: SheetRow[][] = [];
-  for (let i = 0; i < sheetRows.length; i += BATCH_SIZE) {
-    batches.push(sheetRows.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < completedRows.length; i += BATCH_SIZE) {
+    batches.push(completedRows.slice(i, i + BATCH_SIZE));
   }
 
-  console.log(`[Claude Matching] Processing ${sheetRows.length} rows in ${batches.length} batch(es) against ${orders.length} orders`);
+  console.log(`[Claude Matching] Processing ${completedRows.length} completed rows in ${batches.length} batch(es) against ${orders.length} orders`);
 
   for (let bIdx = 0; bIdx < batches.length; bIdx++) {
     const batch = batches[bIdx];
@@ -236,7 +266,7 @@ export async function matchInstallationsToOrders(
     });
   }
 
-  const unmatched = sheetRows
+  const unmatchedCompleted = completedRows
     .filter((r) => !usedRowIndices.has(r.rowIndex))
     .map((r) => {
       const unmatchedEntry = allRawUnmatched.find((u: any) => u.rowIndex === r.rowIndex);
@@ -247,11 +277,13 @@ export async function matchInstallationsToOrders(
       };
     });
 
-  console.log(`[Claude Matching] Done: ${validMatches.length} matched, ${unmatched.length} unmatched`);
+  const allUnmatched = [...unmatchedCompleted, ...skippedRows];
+
+  console.log(`[Claude Matching] Done: ${validMatches.length} matched, ${unmatchedCompleted.length} unmatched completed, ${skippedRows.length} skipped (CN/OP/other)`);
 
   return {
     matches: validMatches,
-    unmatched,
-    summary: `Matched ${validMatches.length} of ${sheetRows.length} installation records across ${batches.length} batch(es).`,
+    unmatched: allUnmatched,
+    summary: `Matched ${validMatches.length} of ${completedRows.length} completed installations across ${batches.length} batch(es). ${skippedRows.length} rows skipped (cancelled/pending/other status).`,
   };
 }
