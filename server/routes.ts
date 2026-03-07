@@ -13696,6 +13696,50 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/install-sync/reverse-approvals", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { orderIds } = req.body;
+      if (!Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json({ message: "orderIds array is required" });
+      }
+
+      let reversedCount = 0;
+      for (const orderId of orderIds) {
+        const order = await storage.getOrderById(orderId);
+        if (!order || order.approvalStatus !== "APPROVED") continue;
+
+        const beforeJson = JSON.stringify(order);
+        const updatedOrder = await storage.updateOrder(orderId, {
+          approvalStatus: "UNAPPROVED",
+          approvedByUserId: null,
+          approvedAt: null,
+          jobStatus: "PENDING",
+        });
+
+        await storage.createAuditLog({
+          action: "install_sync_reverse_approval",
+          tableName: "sales_orders",
+          recordId: orderId,
+          beforeJson,
+          afterJson: JSON.stringify(updatedOrder),
+          userId: user.id,
+        });
+
+        reversedCount++;
+      }
+
+      res.json({ message: `Reversed ${reversedCount} approvals`, reversedCount });
+    } catch (error: any) {
+      console.error("[Install Sync] Reversal error:", error.message);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   const syncUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 
   app.post("/api/admin/install-sync/run", auth, syncUpload.single("file"), async (req: AuthRequest, res) => {
@@ -13761,75 +13805,161 @@ export async function registerRoutes(
 
         let approvedCount = 0;
         const approvedOrders: any[] = [];
+        const statusUpdatedOrders: any[] = [];
 
-        if (shouldAutoApprove && matchResult.matches.length > 0) {
+        if (matchResult.matches.length > 0) {
           const now = new Date();
           for (const match of matchResult.matches) {
-            if (match.confidence < 70) continue;
+            const woStatus = (match.sheetData?.WO_STATUS || "").trim().toUpperCase();
 
             const order = await storage.getOrderById(match.orderId);
-            if (!order || order.approvalStatus === "APPROVED") continue;
+            if (!order) continue;
 
             const beforeJson = JSON.stringify(order);
-            const updates: Record<string, any> = {
-              approvalStatus: "APPROVED",
-              approvedByUserId: user.id,
-              approvedAt: now,
-            };
-            if (order.jobStatus === "PENDING") {
-              updates.jobStatus = "COMPLETED";
+            const updates: Record<string, any> = {};
+
+            if (woStatus === "CP") {
+              if (order.jobStatus !== "COMPLETED") {
+                updates.jobStatus = "COMPLETED";
+              }
+              if (shouldAutoApprove && match.confidence >= 70 && order.approvalStatus !== "APPROVED") {
+                updates.approvalStatus = "APPROVED";
+                updates.approvedByUserId = user.id;
+                updates.approvedAt = now;
+              }
+            } else if (woStatus === "CN") {
+              if (order.jobStatus !== "CANCELED") {
+                updates.jobStatus = "CANCELED";
+              }
+              if (order.approvalStatus === "APPROVED") {
+                updates.approvalStatus = "UNAPPROVED";
+                updates.approvedByUserId = null;
+                updates.approvedAt = null;
+              }
+            } else if (woStatus === "OP") {
+              if (order.jobStatus !== "PENDING") {
+                updates.jobStatus = "PENDING";
+              }
+              if (order.approvalStatus === "APPROVED") {
+                updates.approvalStatus = "UNAPPROVED";
+                updates.approvedByUserId = null;
+                updates.approvedAt = null;
+              }
+            } else if (woStatus === "ND") {
+              if (order.jobStatus !== "PENDING") {
+                updates.jobStatus = "PENDING";
+              }
+              if (order.approvalStatus === "APPROVED") {
+                updates.approvalStatus = "UNAPPROVED";
+                updates.approvedByUserId = null;
+                updates.approvedAt = null;
+              }
             }
+
+            if (Object.keys(updates).length === 0) continue;
 
             const updatedOrder = await storage.updateOrder(match.orderId, updates);
 
-            if (updatedOrder) {
+            if (updatedOrder && updates.approvalStatus === "APPROVED") {
               const overrideEarnings = await generateOverrideEarnings(order, updatedOrder);
               for (const earning of overrideEarnings) {
                 await storage.createOverrideEarning(earning);
               }
               approvedOrders.push(updatedOrder);
+              approvedCount++;
+            } else if (updatedOrder) {
+              statusUpdatedOrders.push(updatedOrder);
             }
 
             await storage.createAuditLog({
-              action: "install_sync_approve",
+              action: updates.approvalStatus === "APPROVED" ? "install_sync_approve" : "install_sync_status_update",
               tableName: "sales_orders",
               recordId: match.orderId,
               beforeJson,
               afterJson: JSON.stringify(updatedOrder),
               userId: user.id,
             });
-
-            approvedCount++;
           }
         }
 
         let emailSent = false;
         if (emailTo && approvedOrders.length > 0) {
-          const csvHeaders = ["Invoice #", "Customer Name", "Address", "City", "Zip", "Service Type", "Rep", "Date Sold", "Base Commission", "Incentive", "Override Deduction", "Approved At"];
-          const csvRows = approvedOrders.map((o) => [
-            o.invoiceNumber || "",
-            o.customerName,
-            [o.houseNumber, o.streetName, o.aptUnit].filter(Boolean).join(" "),
-            o.city || "",
-            o.zipCode || "",
-            o.serviceType || "",
-            o.repId,
-            o.dateSold || "",
-            o.baseCommissionEarned || "0",
-            o.incentiveEarned || "0",
-            o.overrideDeduction || "0",
-            o.approvedAt ? new Date(o.approvedAt).toLocaleString() : "",
-          ]);
+          const allServices = await storage.getServices();
+          const serviceMap = new Map(allServices.map(s => [s.id, s.name]));
+          const allClients = await storage.getClients();
+          const clientMap = new Map(allClients.map(c => [c.id, c.name]));
+
+          const csvHeaders = [
+            "Invoice #", "Rep ID", "Rep Name", "Customer Name", "Customer Address",
+            "House Number", "Street Name", "Apt/Unit", "City", "Zip Code",
+            "Customer Phone", "Customer Email", "Account Number",
+            "Client", "Provider", "Service Type",
+            "Date Sold", "Install Date", "Install Time", "Install Type",
+            "Job Status", "Approval Status", "Approved At",
+            "TV Sold", "Mobile Sold", "Mobile Lines Qty",
+            "Base Commission", "Incentive", "Override Deduction",
+            "Gross Commission", "Net Commission",
+            "Payment Status", "Paid Date", "Commission Paid",
+            "Notes", "Created At",
+          ];
+
+          const csvRows = await Promise.all(approvedOrders.map(async (o) => {
+            const rep = o.repId ? await storage.getUserByRepId(o.repId) : null;
+            const grossCommission = parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0");
+            const netCommission = grossCommission - parseFloat(o.overrideDeduction || "0");
+            return [
+              o.invoiceNumber || "",
+              o.repId || "",
+              rep?.name || "",
+              o.customerName || "",
+              o.customerAddress || "",
+              o.houseNumber || "",
+              o.streetName || "",
+              o.aptUnit || "",
+              o.city || "",
+              o.zipCode || "",
+              o.customerPhone || "",
+              o.customerEmail || "",
+              o.accountNumber || "",
+              o.clientId ? (clientMap.get(o.clientId) || "") : "",
+              o.providerId ? (providerMap.get(o.providerId) || "") : "",
+              o.serviceId ? (serviceMap.get(o.serviceId) || "") : "",
+              o.dateSold || "",
+              o.installDate || "",
+              o.installTime || "",
+              o.installType || "",
+              o.jobStatus || "",
+              o.approvalStatus || "",
+              o.approvedAt ? new Date(o.approvedAt).toLocaleString() : "",
+              o.tvSold ? "Yes" : "No",
+              o.mobileSold ? "Yes" : "No",
+              String(o.mobileLinesQty || 0),
+              o.baseCommissionEarned || "0",
+              o.incentiveEarned || "0",
+              o.overrideDeduction || "0",
+              grossCommission.toFixed(2),
+              netCommission.toFixed(2),
+              o.paymentStatus || "",
+              o.paidDate || "",
+              o.commissionPaid || "0",
+              o.notes || "",
+              o.createdAt ? new Date(o.createdAt).toLocaleString() : "",
+            ];
+          }));
 
           const csvContent = [csvHeaders, ...csvRows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
           const d = new Date();
           const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
           const filename = `install-sync-approved-${dateStr}.csv`;
 
+          const statusSummary = statusUpdatedOrders.length > 0
+            ? `\n- Orders with status updated (not approved): ${statusUpdatedOrders.length}`
+            : "";
+
           emailSent = await emailService.sendCsvExportEmail(
             emailTo,
             `Install Sync: ${approvedCount} Orders Approved - ${dateStr}`,
-            `The automated install sync has approved ${approvedCount} orders based on installation confirmation data.\n\nPlease find the CSV export attached.\n\nSync Summary:\n- Sheet rows processed: ${sheetData.rows.length}\n- Orders matched: ${matchResult.matches.length}\n- Orders approved: ${approvedCount}\n- Unmatched records: ${matchResult.unmatched.length}`,
+            `The automated install sync has approved ${approvedCount} orders based on installation confirmation data.\n\nPlease find the CSV export attached.\n\nSync Summary:\n- Sheet rows processed: ${sheetData.rows.length}\n- Orders matched: ${matchResult.matches.length}\n- Orders approved: ${approvedCount}${statusSummary}\n- Unmatched records: ${matchResult.unmatched.length}`,
             csvContent,
             filename
           );

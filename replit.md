@@ -102,8 +102,11 @@ Key entities include Users, Clients, SalesOrders, Incentives, Chargebacks, PayRu
 - **Install Sync (AI-Powered Order Matching)**: Automated workflow at `/admin/install-sync` (ADMIN/OPERATIONS only) that:
   - Accepts installation confirmation data via public Google Sheet URL or CSV upload
   - Uses Claude AI (Replit AI Integrations, claude-sonnet-4-6) to match installation records against pending/unapproved CRM orders by customer name, address, service type, etc.
-  - Auto-approves matched orders (confidence >= 70%) with full approval logic (COMPLETED + APPROVED status, override earnings generation, audit logging)
-  - Optionally emails CSV export of approved orders to specified address (via nodemailer with SMTP)
+  - **WO_STATUS-based order updates**: CP→COMPLETED+APPROVED (confidence≥70%), CN→CANCELED+UNAPPROVED, OP→PENDING+UNAPPROVED, ND→PENDING+UNAPPROVED
+  - Only CP (complete) installations trigger auto-approval; CN/OP/ND update job status and revert any prior approval
+  - Batch processing: 25 rows/batch, compactified data, 65s retry on rate limits, 2s inter-batch delay
+  - Email CSV export includes all order fields (rep name, provider, service, commissions, phone, email, account number, etc.)
+  - Reversal endpoint (`POST /api/admin/install-sync/reverse-approvals`) to undo incorrect approvals
   - Tracks sync run history in `install_sync_runs` table with match details, counts, and status
   - Key files: `server/google-sheets.ts`, `server/claude-matching.ts`, `client/src/pages/admin/install-sync.tsx`
   - Uses `AI_INTEGRATIONS_ANTHROPIC_API_KEY` and `AI_INTEGRATIONS_ANTHROPIC_BASE_URL` env vars (auto-set by Replit)

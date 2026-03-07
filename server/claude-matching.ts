@@ -149,29 +149,32 @@ export async function matchInstallationsToOrders(
     return { matches: [], unmatched: [], summary: "No installation records to match." };
   }
 
-  const completedRows: SheetRow[] = [];
+  const matchableRows: SheetRow[] = [];
   const skippedRows: { rowIndex: number; data: Record<string, string>; reason: string }[] = [];
+
+  const validStatuses = new Set(["CP", "CN", "OP", "ND"]);
 
   for (const row of sheetRows) {
     const woStatus = (row.data["WO_STATUS"] || "").trim().toUpperCase();
-    if (woStatus === "CP") {
-      completedRows.push(row);
-    } else if (woStatus === "CN") {
-      skippedRows.push({ rowIndex: row.rowIndex, data: row.data, reason: "Skipped: WO_STATUS is CN (cancelled)" });
-    } else if (woStatus === "OP") {
-      skippedRows.push({ rowIndex: row.rowIndex, data: row.data, reason: "Skipped: WO_STATUS is OP (pending, not yet installed)" });
+    if (validStatuses.has(woStatus)) {
+      matchableRows.push(row);
     } else {
-      skippedRows.push({ rowIndex: row.rowIndex, data: row.data, reason: `Skipped: WO_STATUS is '${woStatus || "empty"}' (only CP/complete records are matched)` });
+      skippedRows.push({ rowIndex: row.rowIndex, data: row.data, reason: `Skipped: WO_STATUS is '${woStatus || "empty"}' (not a recognized status)` });
     }
   }
 
-  console.log(`[Claude Matching] Filtered: ${completedRows.length} completed (CP), ${skippedRows.length} skipped (CN/OP/other) out of ${sheetRows.length} total rows`);
+  const cpCount = matchableRows.filter(r => (r.data["WO_STATUS"] || "").trim().toUpperCase() === "CP").length;
+  const cnCount = matchableRows.filter(r => (r.data["WO_STATUS"] || "").trim().toUpperCase() === "CN").length;
+  const opCount = matchableRows.filter(r => (r.data["WO_STATUS"] || "").trim().toUpperCase() === "OP").length;
+  const ndCount = matchableRows.filter(r => (r.data["WO_STATUS"] || "").trim().toUpperCase() === "ND").length;
 
-  if (completedRows.length === 0) {
+  console.log(`[Claude Matching] Filtered: ${matchableRows.length} matchable (CP:${cpCount}, CN:${cnCount}, OP:${opCount}, ND:${ndCount}), ${skippedRows.length} skipped out of ${sheetRows.length} total rows`);
+
+  if (matchableRows.length === 0) {
     return {
       matches: [],
       unmatched: skippedRows,
-      summary: `No completed installations (WO_STATUS=CP) found. ${skippedRows.length} rows skipped (cancelled/pending/other).`,
+      summary: `No matchable installation records found. ${skippedRows.length} rows skipped.`,
     };
   }
 
@@ -179,7 +182,7 @@ export async function matchInstallationsToOrders(
     return {
       matches: [],
       unmatched: [
-        ...completedRows.map((r) => ({
+        ...matchableRows.map((r) => ({
           rowIndex: r.rowIndex,
           data: r.data,
           reason: "No pending orders in the system to match against.",
@@ -190,7 +193,7 @@ export async function matchInstallationsToOrders(
     };
   }
 
-  const sheetRowMap = new Map(completedRows.map((r) => [r.rowIndex, r]));
+  const sheetRowMap = new Map(matchableRows.map((r) => [r.rowIndex, r]));
   const orderMap = new Map(orders.map((o) => [o.id, o]));
 
   const compactOrders = compactifyOrders(orders);
@@ -198,11 +201,11 @@ export async function matchInstallationsToOrders(
   const allRawUnmatched: any[] = [];
 
   const batches: SheetRow[][] = [];
-  for (let i = 0; i < completedRows.length; i += BATCH_SIZE) {
-    batches.push(completedRows.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < matchableRows.length; i += BATCH_SIZE) {
+    batches.push(matchableRows.slice(i, i + BATCH_SIZE));
   }
 
-  console.log(`[Claude Matching] Processing ${completedRows.length} completed rows in ${batches.length} batch(es) against ${orders.length} orders`);
+  console.log(`[Claude Matching] Processing ${matchableRows.length} rows in ${batches.length} batch(es) against ${orders.length} orders`);
 
   for (let bIdx = 0; bIdx < batches.length; bIdx++) {
     const batch = batches[bIdx];
@@ -266,7 +269,7 @@ export async function matchInstallationsToOrders(
     });
   }
 
-  const unmatchedCompleted = completedRows
+  const unmatchedRows = matchableRows
     .filter((r) => !usedRowIndices.has(r.rowIndex))
     .map((r) => {
       const unmatchedEntry = allRawUnmatched.find((u: any) => u.rowIndex === r.rowIndex);
@@ -277,13 +280,13 @@ export async function matchInstallationsToOrders(
       };
     });
 
-  const allUnmatched = [...unmatchedCompleted, ...skippedRows];
+  const allUnmatched = [...unmatchedRows, ...skippedRows];
 
-  console.log(`[Claude Matching] Done: ${validMatches.length} matched, ${unmatchedCompleted.length} unmatched completed, ${skippedRows.length} skipped (CN/OP/other)`);
+  console.log(`[Claude Matching] Done: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped`);
 
   return {
     matches: validMatches,
     unmatched: allUnmatched,
-    summary: `Matched ${validMatches.length} of ${completedRows.length} completed installations across ${batches.length} batch(es). ${skippedRows.length} rows skipped (cancelled/pending/other status).`,
+    summary: `Matched ${validMatches.length} of ${matchableRows.length} records across ${batches.length} batch(es). ${skippedRows.length} rows skipped (unrecognized status).`,
   };
 }
