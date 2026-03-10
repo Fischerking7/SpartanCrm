@@ -408,7 +408,7 @@ export const emailService = {
       <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
         <div style="display:flex;gap:12px;margin-bottom:24px;">
           <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:12px 16px;flex:1;">
-            <p style="margin:0;font-size:12px;color:#166534;">Installed (Approved)</p>
+            <p style="margin:0;font-size:12px;color:#166534;">Completed</p>
             <p style="margin:4px 0 0;font-size:20px;font-weight:bold;color:#166534;">${installed.length}</p>
           </div>
           <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 16px;flex:1;">
@@ -416,7 +416,7 @@ export const emailService = {
             <p style="margin:4px 0 0;font-size:20px;font-weight:bold;color:#991b1b;">${cancelled.length}</p>
           </div>
           <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:12px 16px;flex:1;">
-            <p style="margin:0;font-size:12px;color:#92400e;">Pending</p>
+            <p style="margin:0;font-size:12px;color:#92400e;">Not Completed</p>
             <p style="margin:4px 0 0;font-size:20px;font-weight:bold;color:#92400e;">${pending.length}</p>
           </div>
           <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px 16px;flex:1;">
@@ -425,7 +425,7 @@ export const emailService = {
           </div>
         </div>
 
-        <h3 style="margin:0 0 8px;font-size:15px;color:#166534;">Installed (Approved) - ${installed.length}</h3>
+        <h3 style="margin:0 0 8px;font-size:15px;color:#166534;">Completed - ${installed.length}</h3>
         <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
           <thead>${headerRow}</thead>
           <tbody>${buildTable(installed, "#166534")}</tbody>
@@ -437,7 +437,7 @@ export const emailService = {
           <tbody>${buildTable(cancelled, "#991b1b")}</tbody>
         </table>
 
-        <h3 style="margin:0 0 8px;font-size:15px;color:#92400e;">Pending - ${pending.length}</h3>
+        <h3 style="margin:0 0 8px;font-size:15px;color:#92400e;">Not Completed - ${pending.length}</h3>
         <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
           <thead>${headerRow}</thead>
           <tbody>${buildTable(pending, "#92400e")}</tbody>

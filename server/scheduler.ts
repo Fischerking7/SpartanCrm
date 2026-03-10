@@ -575,29 +575,10 @@ export const scheduler = {
       const et = getEasternDate();
       const reportDate = `${et.month}/${et.day}/${et.year}`;
 
-      const monthStart = `${et.year}-${String(et.month).padStart(2, "0")}-01`;
-      const lastDay = new Date(et.year, et.month, 0).getDate();
-      const monthEnd = `${et.year}-${String(et.month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-
-      const syncRuns = await storage.getInstallSyncRuns(200);
-      const orderWoStatusMap = new Map<string, string>();
-
-      for (const run of syncRuns) {
-        if (!run.matchDetails) continue;
-        try {
-          const details = JSON.parse(run.matchDetails);
-          if (details.matches && Array.isArray(details.matches)) {
-            for (const m of details.matches) {
-              if (m.orderId) {
-                const woStatus = (m.sheetData?.WO_STATUS || "").trim().toUpperCase();
-                if (woStatus) {
-                  orderWoStatusMap.set(m.orderId, woStatus);
-                }
-              }
-            }
-          }
-        } catch {}
-      }
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yEt = getEasternDate(yesterday);
+      const yesterdayStr = `${yEt.year}-${String(yEt.month).padStart(2, "0")}-${String(yEt.day).padStart(2, "0")}`;
 
       const allUsers = await storage.getUsers();
       const userMap = new Map(allUsers.map(u => [u.repId, u.name]));
@@ -606,24 +587,17 @@ export const scheduler = {
       const allServices = await storage.getServices();
       const serviceMap = new Map(allServices.map(s => [s.id, s.name]));
 
-      const allOrders = orderWoStatusMap.size > 0 ? await storage.getOrders({}) : [];
-      const syncedOrders = allOrders.filter(o =>
-        orderWoStatusMap.has(o.id) &&
-        o.dateSold >= monthStart &&
-        o.dateSold <= monthEnd
-      );
+      const allOrders = await storage.getOrders({});
+      const yesterdayOrders = allOrders.filter(o => o.installDate === yesterdayStr);
 
-      const installRows = syncedOrders.map(o => {
-        const woStatus = orderWoStatusMap.get(o.id) || "";
+      const installRows = yesterdayOrders.map(o => {
         let statusLabel: string;
-        if (woStatus === "CP") {
-          statusLabel = "INSTALLED";
-        } else if (woStatus === "CN") {
+        if (o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED") {
+          statusLabel = "COMPLETED";
+        } else if (o.jobStatus === "CANCELED") {
           statusLabel = "CANCELLED";
-        } else if (woStatus === "OP" || woStatus === "ND") {
-          statusLabel = "PENDING";
         } else {
-          statusLabel = "PENDING";
+          statusLabel = "NOT COMPLETED";
         }
 
         return {
@@ -641,9 +615,9 @@ export const scheduler = {
         };
       });
 
-      const installed = installRows.filter(r => r.jobStatus === "INSTALLED");
+      const installed = installRows.filter(r => r.jobStatus === "COMPLETED");
       const cancelled = installRows.filter(r => r.jobStatus === "CANCELLED");
-      const pending = installRows.filter(r => r.jobStatus === "PENDING");
+      const pending = installRows.filter(r => r.jobStatus === "NOT COMPLETED");
 
       const FIXED_OPS_EMAIL = "ironcrestoperations@ironcrest.ai";
       const emailResult = await emailService.sendDailyInstallReport(
