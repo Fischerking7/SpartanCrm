@@ -10802,6 +10802,24 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/trigger-report", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { scheduler } = await import("./scheduler");
+      const { type } = req.body;
+      if (type === "DAILY_SALES_REPORT") {
+        await scheduler.generateDailySalesReport();
+        res.json({ success: true, message: "Daily sales report triggered" });
+      } else if (type === "DAILY_INSTALL_REPORT") {
+        await scheduler.generateDailyInstallReport();
+        res.json({ success: true, message: "Daily install report triggered" });
+      } else {
+        res.status(400).json({ message: "Invalid type. Use DAILY_SALES_REPORT or DAILY_INSTALL_REPORT" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // =====================================================
   // NOTIFICATION ENDPOINTS
   // =====================================================
