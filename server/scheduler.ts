@@ -33,7 +33,7 @@ export const scheduler = {
   midnightTimeout: null as NodeJS.Timeout | null,
   isRunning: false,
 
-  dailyReportTimeout: null as NodeJS.Timeout | null,
+  dailyReportTimeouts: [] as NodeJS.Timeout[],
   installReportTimeout: null as NodeJS.Timeout | null,
 
   start() {
@@ -78,10 +78,10 @@ export const scheduler = {
       clearTimeout(this.midnightTimeout);
       this.midnightTimeout = null;
     }
-    if (this.dailyReportTimeout) {
-      clearTimeout(this.dailyReportTimeout);
-      this.dailyReportTimeout = null;
+    for (const t of this.dailyReportTimeouts) {
+      clearTimeout(t);
     }
+    this.dailyReportTimeouts = [];
     if (this.installReportTimeout) {
       clearTimeout(this.installReportTimeout);
       this.installReportTimeout = null;
@@ -438,14 +438,22 @@ export const scheduler = {
   },
 
   scheduleDailySalesReport() {
-    const msUntil = msUntilEasternTime(22);
+    const reportHours = [15, 17, 20, 22];
+    const labels = ["3:00 PM", "5:00 PM", "8:00 PM", "10:00 PM"];
 
-    console.log(`[Scheduler] Daily sales report scheduled in ${Math.round(msUntil / 60000)} minutes (10:00 PM ET)`);
+    for (let i = 0; i < reportHours.length; i++) {
+      const msUntil = msUntilEasternTime(reportHours[i]);
+      console.log(`[Scheduler] Daily sales report scheduled in ${Math.round(msUntil / 60000)} minutes (${labels[i]} ET)`);
 
-    this.dailyReportTimeout = setTimeout(() => {
-      this.generateDailySalesReport();
-      this.scheduleDailySalesReport();
-    }, msUntil);
+      const timeout = setTimeout(() => {
+        this.generateDailySalesReport();
+        if (i === reportHours.length - 1) {
+          this.dailyReportTimeouts = [];
+          this.scheduleDailySalesReport();
+        }
+      }, msUntil);
+      this.dailyReportTimeouts.push(timeout);
+    }
   },
 
   async generateDailySalesReport() {
