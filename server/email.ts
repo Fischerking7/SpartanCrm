@@ -355,7 +355,7 @@ export const emailService = {
   async sendDailyInstallReport(
     recipients: string[],
     reportDate: string,
-    installed: { repId: string; repName: string; provider: string; service: string; customerName: string; accountNumber: string; jobStatus: string; dateSold: string; installDate: string; installTime: string; installType: string }[],
+    installed: { repId: string; repName: string; accountNumber: string; invoiceNumber: string; customerName: string; provider: string; service: string; jobStatus: string; dateSold: string; installDate: string; orderType: string }[],
     cancelled: typeof installed,
     pending: typeof installed
   ): Promise<{ sent: number; failed: number }> {
@@ -369,31 +369,31 @@ export const emailService = {
         <tr>
           <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.repId}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.repName}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.accountNumber}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.invoiceNumber}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.customerName}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.provider}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.service}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.customerName}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.accountNumber}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;color:${statusColor};font-weight:600;">${r.jobStatus}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.dateSold}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.installDate}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.installTime}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.installType}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${r.orderType}</td>
         </tr>`).join("");
     };
 
     const headerRow = `
       <tr style="background:#f8fafc;">
         <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Rep ID</th>
-        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Name</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Rep Name</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Account #</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Invoice #</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Customer Name</th>
         <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Provider</th>
         <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Service</th>
-        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Customer Name</th>
-        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Account #</th>
-        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Job Status</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Status</th>
         <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Sold Date</th>
         <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Install Date</th>
-        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Install Time</th>
-        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Install Type</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e5e7eb;color:#475569;font-size:11px;">Order Type</th>
       </tr>`;
 
     const total = installed.length + cancelled.length + pending.length;
@@ -416,7 +416,7 @@ export const emailService = {
             <p style="margin:4px 0 0;font-size:20px;font-weight:bold;color:#991b1b;">${cancelled.length}</p>
           </div>
           <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:12px 16px;flex:1;">
-            <p style="margin:0;font-size:12px;color:#92400e;">Not Completed</p>
+            <p style="margin:0;font-size:12px;color:#92400e;">Pending</p>
             <p style="margin:4px 0 0;font-size:20px;font-weight:bold;color:#92400e;">${pending.length}</p>
           </div>
           <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px 16px;flex:1;">
@@ -437,7 +437,7 @@ export const emailService = {
           <tbody>${buildTable(cancelled, "#991b1b")}</tbody>
         </table>
 
-        <h3 style="margin:0 0 8px;font-size:15px;color:#92400e;">Not Completed - ${pending.length}</h3>
+        <h3 style="margin:0 0 8px;font-size:15px;color:#92400e;">Pending - ${pending.length}</h3>
         <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
           <thead>${headerRow}</thead>
           <tbody>${buildTable(pending, "#92400e")}</tbody>

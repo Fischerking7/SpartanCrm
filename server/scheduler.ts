@@ -575,10 +575,9 @@ export const scheduler = {
       const et = getEasternDate();
       const reportDate = `${et.month}/${et.day}/${et.year}`;
 
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yEt = getEasternDate(yesterday);
-      const yesterdayStr = `${yEt.year}-${String(yEt.month).padStart(2, "0")}-${String(yEt.day).padStart(2, "0")}`;
+      const monthStart = `${et.year}-${String(et.month).padStart(2, "0")}-01`;
+      const lastDay = new Date(et.year, et.month, 0).getDate();
+      const monthEnd = `${et.year}-${String(et.month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
       const allUsers = await storage.getUsers();
       const userMap = new Map(allUsers.map(u => [u.repId, u.name]));
@@ -588,36 +587,46 @@ export const scheduler = {
       const serviceMap = new Map(allServices.map(s => [s.id, s.name]));
 
       const allOrders = await storage.getOrders({});
-      const yesterdayOrders = allOrders.filter(o => o.installDate === yesterdayStr);
+      const monthOrders = allOrders.filter(o =>
+        o.installDate && o.installDate >= monthStart && o.installDate <= monthEnd
+      );
 
-      const installRows = yesterdayOrders.map(o => {
+      const orderHasMobile = new Set<string>();
+      for (const o of monthOrders) {
+        const mobileLines = await storage.getMobileLineItemsByOrderId(o.id);
+        if (mobileLines.length > 0) {
+          orderHasMobile.add(o.id);
+        }
+      }
+
+      const installRows = monthOrders.map(o => {
         let statusLabel: string;
         if (o.jobStatus === "COMPLETED" && o.approvalStatus === "APPROVED") {
           statusLabel = "COMPLETED";
         } else if (o.jobStatus === "CANCELED") {
           statusLabel = "CANCELLED";
         } else {
-          statusLabel = "NOT COMPLETED";
+          statusLabel = "PENDING";
         }
 
         return {
           repId: o.repId || "",
           repName: userMap.get(o.repId || "") || o.repId || "Unknown",
+          accountNumber: o.accountNumber || "",
+          invoiceNumber: o.invoiceNumber || "",
+          customerName: o.customerName || "",
           provider: providerMap.get(o.providerId) || "Unknown",
           service: serviceMap.get(o.serviceId) || "Unknown",
-          customerName: o.customerName || "",
-          accountNumber: o.accountNumber || "",
           jobStatus: statusLabel,
           dateSold: o.dateSold || "",
           installDate: o.installDate || "",
-          installTime: o.installTime || "",
-          installType: o.installType || "",
+          orderType: orderHasMobile.has(o.id) ? "Mobile" : "Normal",
         };
       });
 
       const installed = installRows.filter(r => r.jobStatus === "COMPLETED");
       const cancelled = installRows.filter(r => r.jobStatus === "CANCELLED");
-      const pending = installRows.filter(r => r.jobStatus === "NOT COMPLETED");
+      const pending = installRows.filter(r => r.jobStatus === "PENDING");
 
       const FIXED_OPS_EMAIL = "ironcrestoperations@ironcrest.ai";
       const emailResult = await emailService.sendDailyInstallReport(
