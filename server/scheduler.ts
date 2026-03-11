@@ -504,7 +504,7 @@ export const scheduler = {
         }))
         .sort((a, b) => b.count - a.count);
 
-      const FIXED_OPS_EMAIL = "ironcrestoperations@ironcrest.ai";
+      const FIXED_OPS_EMAIL = "ironcrestoperations@ironcrestai.com";
       const recipients = allUsers
         .filter(u =>
           ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(u.role) &&
@@ -628,7 +628,7 @@ export const scheduler = {
       const cancelled = installRows.filter(r => r.jobStatus === "CANCELLED");
       const pending = installRows.filter(r => r.jobStatus === "PENDING");
 
-      const FIXED_OPS_EMAIL = "ironcrestoperations@ironcrest.ai";
+      const FIXED_OPS_EMAIL = "ironcrestoperations@ironcrestai.com";
       const emailResult = await emailService.sendDailyInstallReport(
         [FIXED_OPS_EMAIL],
         reportDate,
