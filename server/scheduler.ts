@@ -620,7 +620,7 @@ export const scheduler = {
           jobStatus: statusLabel,
           dateSold: o.dateSold || "",
           installDate: o.installDate || "",
-          orderType: orderHasMobile.has(o.id) ? "Mobile" : "Normal",
+          orderType: orderHasMobile.has(o.id) ? "Mobile" : "Data",
         };
       });
 
