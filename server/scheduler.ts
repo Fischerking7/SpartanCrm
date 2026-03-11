@@ -543,6 +543,7 @@ export const scheduler = {
       });
 
       console.log(`[Scheduler] Daily sales report: ${salesRows.length} orders, $${totalGross.toFixed(2)} gross, sent to ${emailResults.sent} recipients`);
+      return { sent: emailResults.sent, failed: emailResults.failed, orders: salesRows.length, gross: totalGross.toFixed(2) };
     } catch (error: any) {
       await storage.updateBackgroundJob(job.id, {
         status: "FAILED",
@@ -550,6 +551,7 @@ export const scheduler = {
         errorMessage: error.message,
       });
       console.error("[Scheduler] Daily sales report failed:", error);
+      return { sent: 0, failed: 1, error: error.message };
     }
   },
 
@@ -652,6 +654,7 @@ export const scheduler = {
       });
 
       console.log(`[Scheduler] Daily install report: ${installed.length} installed, ${cancelled.length} cancelled, ${pending.length} pending, sent to ${emailResult.sent} recipients`);
+      return { sent: emailResult.sent, failed: emailResult.failed, installed: installed.length, cancelled: cancelled.length, pending: pending.length };
     } catch (error: any) {
       await storage.updateBackgroundJob(job.id, {
         status: "FAILED",
@@ -659,6 +662,7 @@ export const scheduler = {
         errorMessage: error.message,
       });
       console.error("[Scheduler] Daily install report failed:", error);
+      return { sent: 0, failed: 1, error: error.message };
     }
   },
 

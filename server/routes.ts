@@ -10807,11 +10807,11 @@ export async function registerRoutes(
       const { scheduler } = await import("./scheduler");
       const { type } = req.body;
       if (type === "DAILY_SALES_REPORT") {
-        await scheduler.generateDailySalesReport();
-        res.json({ success: true, message: "Daily sales report triggered" });
+        const result = await scheduler.generateDailySalesReport();
+        res.json({ success: true, message: "Daily sales report triggered", result });
       } else if (type === "DAILY_INSTALL_REPORT") {
-        await scheduler.generateDailyInstallReport();
-        res.json({ success: true, message: "Daily install report triggered" });
+        const result = await scheduler.generateDailyInstallReport();
+        res.json({ success: true, message: "Daily install report triggered", result });
       } else {
         res.status(400).json({ message: "Invalid type. Use DAILY_SALES_REPORT or DAILY_INSTALL_REPORT" });
       }

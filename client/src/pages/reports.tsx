@@ -40,6 +40,9 @@ import {
   Target,
   BarChart3,
   Layers,
+  Mail,
+  Send,
+  Loader2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -742,6 +745,9 @@ export default function Reports() {
             <TabsTrigger value="user-activity" data-testid="tab-user-activity">User Activity</TabsTrigger>
             {["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(summary?.scopeInfo?.role || "") && (
               <TabsTrigger value="sales-tracker" data-testid="tab-sales-tracker">Sales Tracker</TabsTrigger>
+            )}
+            {["ADMIN", "OPERATIONS"].includes(summary?.scopeInfo?.role || "") && (
+              <TabsTrigger value="email-reports" data-testid="tab-email-reports">Email Reports</TabsTrigger>
             )}
           </TabsList>
           <div className="flex items-center gap-3 flex-wrap">
@@ -2052,7 +2058,118 @@ export default function Reports() {
             </>
           )}
         </TabsContent>
+
+        <TabsContent value="email-reports">
+          <EmailReportsPanel />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function EmailReportsPanel() {
+  const { toast } = useToast();
+  const [sendingSales, setSendingSales] = useState(false);
+  const [sendingInstall, setSendingInstall] = useState(false);
+
+  const sendReport = async (type: "DAILY_SALES_REPORT" | "DAILY_INSTALL_REPORT") => {
+    const setter = type === "DAILY_SALES_REPORT" ? setSendingSales : setSendingInstall;
+    setter(true);
+    try {
+      const res = await fetch("/api/admin/trigger-report", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ type }),
+      });
+      const data = await res.json();
+      if (res.ok && data.result) {
+        if (data.result.error) {
+          toast({ title: "Email Failed", description: data.result.error, variant: "destructive" });
+        } else if (data.result.sent > 0) {
+          const desc = type === "DAILY_SALES_REPORT"
+            ? `Sent to ${data.result.sent} recipient(s). ${data.result.orders} orders, $${data.result.gross} gross.`
+            : `Sent to ${data.result.sent} recipient(s). ${data.result.installed} installed, ${data.result.cancelled} cancelled, ${data.result.pending} pending.`;
+          toast({ title: "Report Sent Successfully", description: desc });
+        } else {
+          toast({ title: "Email Not Sent", description: "Report generated but email delivery failed. Check SMTP settings.", variant: "destructive" });
+        }
+      } else if (res.ok) {
+        toast({ title: "Report Triggered", description: data.message });
+      } else {
+        toast({ title: "Error", description: data.message || "Failed to send report.", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Network error. Please try again.", variant: "destructive" });
+    } finally {
+      setter(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-6 md:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            Daily Sales Report
+          </CardTitle>
+          <CardDescription>
+            Sends today's sales summary including rep sales, gross commissions, and provider mix breakdown to all ADMIN, OPERATIONS, EXECUTIVE, and MANAGER users.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">
+              <p>Automatically scheduled at: 3 PM, 5 PM, 8 PM, 10 PM ET</p>
+              <p className="mt-1">Recipient: ironcrestoperations@ironcrestai.com + all eligible users</p>
+            </div>
+            <Button
+              onClick={() => sendReport("DAILY_SALES_REPORT")}
+              disabled={sendingSales}
+              className="w-full"
+              data-testid="btn-send-sales-report"
+            >
+              {sendingSales ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...</>
+              ) : (
+                <><Send className="h-4 w-4 mr-2" /> Send Sales Report Now</>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            Daily Install Report
+          </CardTitle>
+          <CardDescription>
+            Sends the current month's installation summary grouped by status (Completed, Cancelled, Pending) with rep details, provider, service, and order type.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">
+              <p>Automatically scheduled at: 3 PM ET daily</p>
+              <p className="mt-1">Recipient: ironcrestoperations@ironcrestai.com</p>
+            </div>
+            <Button
+              onClick={() => sendReport("DAILY_INSTALL_REPORT")}
+              disabled={sendingInstall}
+              className="w-full"
+              data-testid="btn-send-install-report"
+            >
+              {sendingInstall ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...</>
+              ) : (
+                <><Send className="h-4 w-4 mr-2" /> Send Install Report Now</>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
