@@ -1819,6 +1819,25 @@ export async function registerRoutes(
       
       await storage.createAuditLog({ action: "recalculate_commission", tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(updatedOrder), userId: user.id });
       
+      // Cascade commission changes to AR expectation if one exists
+      try {
+        const arExpectation = await storage.getArExpectationByOrderId(order.id);
+        if (arExpectation) {
+          const newBase = parseFloat(updatedOrder.baseCommissionEarned || "0");
+          const newIncentive = parseFloat(updatedOrder.incentiveEarned || "0");
+          const newOverride = parseFloat(updatedOrder.overrideDeduction || "0");
+          const newExpectedCents = Math.round((newBase + newIncentive + newOverride) * 100);
+          const newVarianceCents = arExpectation.actualAmountCents - newExpectedCents;
+          await storage.updateArExpectation(arExpectation.id, {
+            expectedAmountCents: newExpectedCents,
+            varianceAmountCents: newVarianceCents,
+            hasVariance: newVarianceCents !== 0,
+          });
+        }
+      } catch (arErr) {
+        console.error("[Recalculate] Failed to cascade commission change to AR:", arErr);
+      }
+
       res.json(updatedOrder);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to recalculate commission" });
@@ -4069,13 +4088,32 @@ export async function registerRoutes(
             baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
           }
           
-          await storage.updateOrder(order.id, {
+          const updatedOrder = await storage.updateOrder(order.id, {
             baseCommissionEarned: baseCommission,
             appliedRateCardId,
             calcAt: new Date(),
             overrideDeduction: totalDeductions.toFixed(2),
           });
           
+          // Cascade to AR expectation
+          try {
+            const arExp = await storage.getArExpectationByOrderId(order.id);
+            if (arExp) {
+              const nb = parseFloat(updatedOrder.baseCommissionEarned || "0");
+              const ni = parseFloat(updatedOrder.incentiveEarned || "0");
+              const no = parseFloat(updatedOrder.overrideDeduction || "0");
+              const expCents = Math.round((nb + ni + no) * 100);
+              const varCents = arExp.actualAmountCents - expCents;
+              await storage.updateArExpectation(arExp.id, {
+                expectedAmountCents: expCents,
+                varianceAmountCents: varCents,
+                hasVariance: varCents !== 0,
+              });
+            }
+          } catch (arErr) {
+            console.error("[BulkRecalc] AR cascade error for order", order.id, arErr);
+          }
+
           recalculated++;
         } catch (err: any) {
           errors++;
