@@ -436,6 +436,57 @@ export default function PayRuns() {
     }
   };
 
+  const linkAllOrders = async (payRunId: string) => {
+    try {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/link-all-orders`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast({ title: "Orders Linked", description: data.message || `Linked ${data.linked} orders` });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      } else {
+        toast({ title: "Error", description: data.message, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to link orders", variant: "destructive" });
+    }
+  };
+
+  const autoLinkAndGenerate = async (payRunId: string) => {
+    try {
+      // Step 1: Link all eligible orders
+      const linkRes = await fetch(`/api/admin/payruns/${payRunId}/link-all-orders`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      const linkData = await linkRes.json();
+      if (!linkRes.ok) {
+        toast({ title: "Error", description: linkData.message, variant: "destructive" });
+        return;
+      }
+
+      // Step 2: Generate pay statements
+      const genRes = await fetch(`/api/admin/payroll/payruns/${payRunId}/generate-statements`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      const genData = await genRes.json();
+      if (genRes.ok) {
+        toast({ 
+          title: "Pay Run Ready", 
+          description: `Linked ${linkData.linked} orders and generated ${genData.generated} pay statements` 
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      } else {
+        toast({ title: "Error generating statements", description: genData.message, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Auto-generate failed", variant: "destructive" });
+    }
+  };
+
   const openLinkDialog = (payRun: PayRun) => {
     setSelectedPayRun(payRun as PayRunDetails);
     setSelectedOrderIds([]);
@@ -541,12 +592,31 @@ export default function PayRuns() {
           {row.status === "DRAFT" && (
             <>
               <Button
+                size="sm"
+                variant="outline"
+                onClick={() => linkAllOrders(row.id)}
+                data-testid={`button-link-all-${row.id}`}
+              >
+                <Link className="h-4 w-4 mr-1" />
+                Link All
+              </Button>
+              <Button
                 size="icon"
                 variant="ghost"
                 onClick={() => openLinkDialog(row)}
                 data-testid={`button-link-orders-${row.id}`}
+                title="Select specific orders to link"
               >
                 <Link className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => autoLinkAndGenerate(row.id)}
+                data-testid={`button-auto-generate-${row.id}`}
+              >
+                <FileText className="h-4 w-4 mr-1" />
+                Auto-Generate
               </Button>
               <Button
                 size="icon"

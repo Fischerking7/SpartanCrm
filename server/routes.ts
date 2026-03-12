@@ -3488,6 +3488,53 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
   
+  app.post("/api/admin/payruns/:id/link-all-orders", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (payRun.status === "FINALIZED") return res.status(400).json({ message: "Cannot link to finalized pay runs" });
+
+      const allOrders = await storage.getOrders();
+      let eligible = allOrders.filter(o => 
+        o.jobStatus === "COMPLETED" && 
+        o.approvalStatus === "APPROVED" &&
+        o.paymentStatus === "UNPAID" && 
+        !o.payRunId
+      );
+
+      if (payRun.weekEndingDate) {
+        const weekEnd = new Date(payRun.weekEndingDate);
+        weekEnd.setHours(23, 59, 59, 999);
+        const weekStart = new Date(payRun.weekEndingDate);
+        weekStart.setDate(weekStart.getDate() - 6);
+        weekStart.setHours(0, 0, 0, 0);
+        
+        eligible = eligible.filter(o => {
+          if (!o.approvedAt) return false;
+          const approvedAt = new Date(o.approvedAt);
+          return approvedAt >= weekStart && approvedAt <= weekEnd;
+        });
+      }
+
+      if (eligible.length === 0) {
+        return res.json({ linked: 0, message: "No eligible orders found for this pay period" });
+      }
+
+      const orderIds = eligible.map(o => o.id);
+      const orders = await storage.linkOrdersToPayRun(orderIds, req.params.id);
+      await storage.updateOverrideEarningsPayRunId(orderIds, req.params.id);
+
+      await storage.createAuditLog({ 
+        action: "link_all_orders_to_payrun", 
+        tableName: "pay_runs", 
+        recordId: req.params.id, 
+        afterJson: JSON.stringify({ count: orders.length }), 
+        userId: req.user!.id 
+      });
+      res.json({ linked: orders.length, message: `Linked ${orders.length} orders to pay run` });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
   app.post("/api/admin/payruns/:id/unlink-orders", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const { orderIds } = req.body;
@@ -3523,6 +3570,7 @@ export async function registerRoutes(
       
       let unlinked = orders.filter(o => 
         o.jobStatus === "COMPLETED" && 
+        o.approvalStatus === "APPROVED" &&
         o.paymentStatus === "UNPAID" && 
         !o.payRunId
       );
@@ -8472,6 +8520,15 @@ export async function registerRoutes(
       const payRun = await storage.getPayRunById(req.params.payRunId);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
       
+      // Delete existing statements for this pay run (allows regeneration)
+      const existingStatements = await storage.getPayStatements(req.params.payRunId);
+      for (const stmt of existingStatements) {
+        if (stmt.status === "PAID" || stmt.status === "ISSUED") continue;
+        await storage.deletePayStatementLineItems(stmt.id);
+        await storage.deletePayStatementDeductions(stmt.id);
+        await storage.deletePayStatement(stmt.id);
+      }
+
       // Get all orders in this pay run grouped by repId
       const orders = await storage.getOrdersByPayRunId(req.params.payRunId);
       const chargebacks = await storage.getChargebacksByPayRun(req.params.payRunId);
@@ -8549,11 +8606,17 @@ export async function registerRoutes(
         const grossTotal = grossCommission + incentivesTotal + overrideEarningsTotal;
         const netPay = grossTotal - chargebacksTotal - deductionsTotal - advancesApplied;
         
+        // Calculate pay period start (7 days before week ending)
+        const weekEnd = new Date(payRun.weekEndingDate + "T00:00:00");
+        const weekStart = new Date(weekEnd);
+        weekStart.setDate(weekStart.getDate() - 6);
+        const periodStartStr = weekStart.toISOString().split("T")[0];
+
         // Create pay statement
         const statement = await storage.createPayStatement({
           payRunId: req.params.payRunId,
           userId: user.id,
-          periodStart: payRun.weekEndingDate,
+          periodStart: periodStartStr,
           periodEnd: payRun.weekEndingDate,
           grossCommission: grossCommission.toFixed(2),
           overrideEarningsTotal: overrideEarningsTotal.toFixed(2),
@@ -8574,11 +8637,23 @@ export async function registerRoutes(
           await storage.createPayStatementLineItem({
             payStatementId: statement.id,
             category: "Commission",
-            description: `Order ${order.invoiceNumber || order.id}`,
+            description: `Order ${order.invoiceNumber || order.id} - ${order.customerName || ""}`.trim(),
             sourceType: "sales_order",
             sourceId: order.id,
             amount: order.baseCommissionEarned,
           });
+          
+          const incentiveAmt = parseFloat(order.incentiveEarned || "0");
+          if (incentiveAmt > 0) {
+            await storage.createPayStatementLineItem({
+              payStatementId: statement.id,
+              category: "Incentive",
+              description: `Incentive - Order ${order.invoiceNumber || order.id}`,
+              sourceType: "sales_order",
+              sourceId: order.id,
+              amount: order.incentiveEarned,
+            });
+          }
         }
         
         // Create line items for chargebacks
