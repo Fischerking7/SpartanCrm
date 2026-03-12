@@ -1955,6 +1955,33 @@ export async function registerRoutes(
         afterJson: JSON.stringify(updated), 
         userId: user.id 
       });
+
+      // Cascade commission changes to AR expectation if one exists
+      const commissionChanged = 
+        (updateData.baseCommissionEarned !== undefined && updateData.baseCommissionEarned !== order.baseCommissionEarned) ||
+        (updateData.incentiveEarned !== undefined && updateData.incentiveEarned !== order.incentiveEarned) ||
+        (updateData.overrideDeduction !== undefined && updateData.overrideDeduction !== order.overrideDeduction);
+      
+      if (commissionChanged) {
+        try {
+          const arExpectation = await storage.getArExpectationByOrderId(id);
+          if (arExpectation) {
+            const newBase = parseFloat(updated.baseCommissionEarned || "0");
+            const newIncentive = parseFloat(updated.incentiveEarned || "0");
+            const newOverride = parseFloat(updated.overrideDeduction || "0");
+            const newExpectedCents = Math.round((newBase + newIncentive + newOverride) * 100);
+            const newVarianceCents = arExpectation.actualAmountCents - newExpectedCents;
+            await storage.updateArExpectation(arExpectation.id, {
+              expectedAmountCents: newExpectedCents,
+              varianceAmountCents: newVarianceCents,
+              hasVariance: newVarianceCents !== 0,
+            });
+          }
+        } catch (arErr) {
+          console.error("[Orders] Failed to cascade commission change to AR:", arErr);
+        }
+      }
+
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to update order" });
@@ -13058,6 +13085,28 @@ export async function registerRoutes(
             }
           })
         });
+
+        // Cascade commission changes to AR expectation
+        if (commissionChanged) {
+          try {
+            const arExpectation = await storage.getArExpectationByOrderId(orderId);
+            if (arExpectation) {
+              const updatedOrder = await storage.getOrderById(orderId);
+              const newBase = parseFloat(updatedOrder?.baseCommissionEarned || "0");
+              const newIncentive = parseFloat(updatedOrder?.incentiveEarned || "0");
+              const newOverride = parseFloat(updatedOrder?.overrideDeduction || "0");
+              const newExpectedCents = Math.round((newBase + newIncentive + newOverride) * 100);
+              const newVarianceCents = arExpectation.actualAmountCents - newExpectedCents;
+              await storage.updateArExpectation(arExpectation.id, {
+                expectedAmountCents: newExpectedCents,
+                varianceAmountCents: newVarianceCents,
+                hasVariance: newVarianceCents !== 0,
+              });
+            }
+          } catch (arErr) {
+            console.error("[Reconcile] Failed to cascade commission change to AR:", arErr);
+          }
+        }
       }
 
       res.json({ success: true, updatedOrder: await storage.getOrderById(orderId) });
