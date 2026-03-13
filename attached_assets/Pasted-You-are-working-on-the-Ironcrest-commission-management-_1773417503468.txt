@@ -1,0 +1,47 @@
+You are working on the Ironcrest commission management platform. 
+Building on prior improvements, address the following additional issues:
+
+---
+
+6. FIX REFERENCEERROR IN /api/admin/reports/summary
+The variable `approvedOrders` is used in the res.json() response but is never declared.
+Replace it with `completedOrders` which is the correctly-scoped variable.
+
+---
+
+7. FIX N+1 QUERY IN /api/commissions
+Replace the per-order loop calling getCommissionLineItemsByOrderId(o.id) with a single
+batch query that fetches all commission line items for all relevant order IDs at once.
+Key them by orderId in a Map for O(1) lookup in the map() call that follows.
+
+---
+
+8. ADD STATUS GUARD TO unlink-orders ENDPOINT
+In POST /api/admin/payruns/:id/unlink-orders, add a check that the pay run status
+is "DRAFT" before allowing unlinking. Currently it only blocks "FINALIZED" — this
+means orders can be unlinked from pay runs that are mid-approval (PENDING_REVIEW,
+PENDING_APPROVAL), silently corrupting the approval workflow.
+
+---
+
+9. FIX LEAD SCOPING INCONSISTENCY IN GET /api/leads
+In the __all_team__ branch, the filter uses `u.managerId === callerId` to check if a 
+user is a direct report of a LEAD. Verify whether the schema uses `managerId` or 
+`assignedSupervisorId` for this relationship. Normalize to whichever field is correct 
+across all lead endpoints (GET /api/leads, /api/leads/counts, and the bulk-assign/
+bulk-delete hierarchy checks) so the same field is used consistently.
+
+---
+
+10. MOVE LEAD BULK-DELETE EXPORT TO BACKGROUND
+In DELETE /api/admin/leads/all and DELETE /api/admin/leads/by-date, the XLSX export
+and object storage write are blocking the HTTP response. Refactor to:
+  a. Immediately respond with { message, count } after the delete completes
+  b. Run the generateLeadExportBuffer() and saveLeadExportToStorage() calls in a
+     detached async block using setImmediate(() => { ... }) so they don't block
+  c. Log any export failures to console without surfacing them to the client
+
+---
+
+Make changes one item at a time. Do not refactor unrelated code.
+Preserve all existing API contracts and response shapes.

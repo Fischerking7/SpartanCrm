@@ -727,6 +727,12 @@ export const storage = {
       where: eq(commissionLineItems.salesOrderId, orderId),
     });
   },
+  async getCommissionLineItemsByOrderIds(orderIds: string[]) {
+    if (orderIds.length === 0) return [];
+    return db.query.commissionLineItems.findMany({
+      where: inArray(commissionLineItems.salesOrderId, orderIds),
+    });
+  },
   async createCommissionLineItem(data: InsertCommissionLineItem) {
     const [item] = await db.insert(commissionLineItems).values(data).returning();
     return item;

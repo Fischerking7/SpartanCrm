@@ -3482,7 +3482,7 @@ export async function registerRoutes(
       
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
-      if (payRun.status === "FINALIZED") return res.status(400).json({ message: "Cannot unlink from finalized pay runs" });
+      if (payRun.status !== "DRAFT") return res.status(400).json({ message: "Can only unlink orders from DRAFT pay runs" });
       
       // Unlink specified orders using storage method
       await storage.unlinkSpecificOrders(orderIds);
@@ -4217,9 +4217,8 @@ export async function registerRoutes(
       res.json({
         summary: {
           totalOrders,
-          approvedOrders,
-          pendingOrders,
           completedOrders,
+          pendingOrders,
           totalEarned,
           totalPaid,
           outstandingBalance: totalEarned - totalPaid,
@@ -4385,7 +4384,7 @@ export async function registerRoutes(
           
           if (req.user!.role === "LEAD") {
             // LEAD sees self and direct reports
-            if (u.id === callerId || u.managerId === callerId) {
+            if (u.id === callerId || u.assignedSupervisorId === callerId) {
               visibleRepIds.push(u.repId);
             }
           } else {
@@ -4410,7 +4409,7 @@ export async function registerRoutes(
           
           // For LEAD role: can only view direct reports or self
           if (req.user!.role === "LEAD") {
-            const isDirectReport = targetUser.managerId === req.user!.id;
+            const isDirectReport = targetUser.assignedSupervisorId === req.user!.id;
             const isSelf = targetUser.id === req.user!.id;
             if (isSelf || isDirectReport) {
               targetRepId = viewRepId;
@@ -4464,7 +4463,8 @@ export async function registerRoutes(
         const u = users.find(x => x.id === userId);
         if (!u) return false;
         if (u.id === callerId) return true;
-        if (u.managerId) return isInOrgTree(u.managerId, visited);
+        if (u.assignedSupervisorId) return isInOrgTree(u.assignedSupervisorId, visited);
+        if (u.assignedManagerId) return isInOrgTree(u.assignedManagerId, visited);
         return false;
       };
       
@@ -4476,7 +4476,7 @@ export async function registerRoutes(
         
         // For LEAD role: show self and direct reports only
         if (req.user!.role === "LEAD") {
-          const isDirectReport = user.managerId === callerId;
+          const isDirectReport = user.assignedSupervisorId === callerId;
           const isSelf = user.id === callerId;
           if (!isSelf && !isDirectReport) continue;
         } else {
@@ -5420,19 +5420,6 @@ export async function registerRoutes(
         return t >= from && t <= to;
       });
 
-      if (leadsToDelete.length > 0) {
-        const exportBuffer = await generateLeadExportBuffer(leadsToDelete);
-        const filename = `deleted-leads-by-date-${dateFrom}-to-${dateTo}-${Date.now()}.xlsx`;
-        const storagePath = await saveLeadExportToStorage(exportBuffer, filename);
-        await storage.createAuditLog({
-          action: "lead_export_before_delete",
-          tableName: "leads",
-          recordId: "bulk",
-          userId: req.user!.id,
-          afterJson: JSON.stringify({ mode: "by-date", dateFrom, dateTo, leadsExported: leadsToDelete.length, storagePath: storagePath || "local-only" }),
-        });
-      }
-
       const count = await storage.deleteLeadsByDateRange(dateFrom as string, dateTo as string);
       await storage.createAuditLog({ 
         action: "bulk_delete_leads", 
@@ -5441,6 +5428,26 @@ export async function registerRoutes(
         userId: req.user!.id 
       });
       res.json({ message: `Deleted ${count} leads`, count });
+
+      if (leadsToDelete.length > 0) {
+        const userId = req.user!.id;
+        setImmediate(async () => {
+          try {
+            const exportBuffer = await generateLeadExportBuffer(leadsToDelete);
+            const filename = `deleted-leads-by-date-${dateFrom}-to-${dateTo}-${Date.now()}.xlsx`;
+            const storagePath = await saveLeadExportToStorage(exportBuffer, filename);
+            await storage.createAuditLog({
+              action: "lead_export_before_delete",
+              tableName: "leads",
+              recordId: "bulk",
+              userId,
+              afterJson: JSON.stringify({ mode: "by-date", dateFrom, dateTo, leadsExported: leadsToDelete.length, storagePath: storagePath || "local-only" }),
+            });
+          } catch (err) {
+            console.error("Background lead export failed (by-date):", err);
+          }
+        });
+      }
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to delete leads" });
     }
@@ -5451,19 +5458,6 @@ export async function registerRoutes(
     try {
       const allLeads = await storage.getAllLeadsForAdmin();
 
-      if (allLeads.length > 0) {
-        const exportBuffer = await generateLeadExportBuffer(allLeads);
-        const filename = `deleted-leads-all-${Date.now()}.xlsx`;
-        const storagePath = await saveLeadExportToStorage(exportBuffer, filename);
-        await storage.createAuditLog({
-          action: "lead_export_before_delete",
-          tableName: "leads",
-          recordId: "bulk",
-          userId: req.user!.id,
-          afterJson: JSON.stringify({ mode: "all", leadsExported: allLeads.length, storagePath: storagePath || "local-only" }),
-        });
-      }
-
       const count = await storage.deleteAllLeads();
       await storage.createAuditLog({ 
         action: "delete_all_leads", 
@@ -5472,6 +5466,26 @@ export async function registerRoutes(
         userId: req.user!.id 
       });
       res.json({ message: `Deleted ${count} leads`, count });
+
+      if (allLeads.length > 0) {
+        const userId = req.user!.id;
+        setImmediate(async () => {
+          try {
+            const exportBuffer = await generateLeadExportBuffer(allLeads);
+            const filename = `deleted-leads-all-${Date.now()}.xlsx`;
+            const storagePath = await saveLeadExportToStorage(exportBuffer, filename);
+            await storage.createAuditLog({
+              action: "lead_export_before_delete",
+              tableName: "leads",
+              recordId: "bulk",
+              userId,
+              afterJson: JSON.stringify({ mode: "all", leadsExported: allLeads.length, storagePath: storagePath || "local-only" }),
+            });
+          } catch (err) {
+            console.error("Background lead export failed (all):", err);
+          }
+        });
+      }
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to delete leads" });
     }
@@ -5569,7 +5583,7 @@ export async function registerRoutes(
         const owner = users.find(u => u.repId === s.repId);
         if (!owner) return true;
         if (req.user!.role === "LEAD") {
-          return owner.id === req.user!.id || owner.managerId === req.user!.id;
+          return owner.id === req.user!.id || owner.assignedSupervisorId === req.user!.id;
         }
         const ownerLevel = ROLE_HIERARCHY[owner.role] || 0;
         return ownerLevel <= callerLevel;
@@ -5608,7 +5622,7 @@ export async function registerRoutes(
       if (targetUser) {
         const targetLevel = ROLE_HIERARCHY[targetUser.role] || 0;
         if (req.user!.role === "LEAD") {
-          const isDirectReport = targetUser.managerId === req.user!.id;
+          const isDirectReport = targetUser.assignedSupervisorId === req.user!.id;
           const isSelf = targetUser.id === req.user!.id;
           if (!isSelf && !isDirectReport) {
             return res.status(403).json({ message: "Not authorized to delete these leads" });
@@ -5653,11 +5667,18 @@ export async function registerRoutes(
         const leadOwner = usersByRepId[lead.repId];
         const ownerLevel = leadOwner ? (ROLE_HIERARCHY[leadOwner.role] || 0) : 0;
         
-        if (ownerLevel > callerLevel) {
+        if (req.user!.role === "LEAD") {
+          const isSelf = leadOwner?.id === req.user!.id;
+          const isDirectReport = leadOwner?.assignedSupervisorId === req.user!.id;
+          if (!isSelf && !isDirectReport) {
+            deniedIds.push(leadId);
+            continue;
+          }
+        } else if (ownerLevel > callerLevel) {
           deniedIds.push(leadId);
-        } else {
-          allowedIds.push(leadId);
+          continue;
         }
+        allowedIds.push(leadId);
       }
       
       if (allowedIds.length === 0) {
@@ -5760,11 +5781,18 @@ export async function registerRoutes(
         const leadOwner = usersByRepId[lead.repId];
         const ownerLevel = leadOwner ? (ROLE_HIERARCHY[leadOwner.role] || 0) : 0;
         
-        if (ownerLevel > callerLevel) {
+        if (req.user!.role === "LEAD") {
+          const isSelf = leadOwner?.id === req.user!.id;
+          const isDirectReport = leadOwner?.assignedSupervisorId === req.user!.id;
+          if (!isSelf && !isDirectReport) {
+            deniedIds.push(leadId);
+            continue;
+          }
+        } else if (ownerLevel > callerLevel) {
           deniedIds.push(leadId);
-        } else {
-          allowedIds.push(leadId);
+          continue;
         }
+        allowedIds.push(leadId);
       }
       
       if (allowedIds.length === 0) {
@@ -6144,18 +6172,12 @@ export async function registerRoutes(
         ? allOrders.filter((o: SalesOrder) => o.jobStatus === "COMPLETED")
         : allOrders.filter((o: SalesOrder) => o.repId === user.repId && o.jobStatus === "COMPLETED");
       
-      // Get commission line items for service breakdown
-      const allLineItems = await Promise.all(
-        myOrders.map(async (o: SalesOrder) => {
-          const lineItems = await storage.getCommissionLineItemsByOrderId(o.id);
-          return { orderId: o.id, lineItems };
-        })
-      );
-      
-      // Map line items by order for quick lookup
+      // Batch fetch all commission line items in a single query
+      const allLineItems = await storage.getCommissionLineItemsByOrderIds(myOrders.map(o => o.id));
       const lineItemsByOrder: Record<string, any[]> = {};
-      for (const { orderId, lineItems } of allLineItems) {
-        lineItemsByOrder[orderId] = lineItems;
+      for (const item of allLineItems) {
+        if (!lineItemsByOrder[item.salesOrderId]) lineItemsByOrder[item.salesOrderId] = [];
+        lineItemsByOrder[item.salesOrderId].push(item);
       }
       
       const ownSoldCommissions = myOrders.map((o: SalesOrder) => {
