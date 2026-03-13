@@ -716,12 +716,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid input" });
       }
       const { repId, password } = parsed.data;
+      console.log(`[Login] Attempt for repId: '${repId}'`);
       const user = await storage.getUserByRepId(repId);
       if (!user || user.status !== "ACTIVE") {
+        console.log(`[Login] User not found or inactive for repId: '${repId}', found: ${!!user}, status: ${user?.status}`);
         return res.status(401).json({ message: "Invalid credentials" });
       }
       const valid = await comparePassword(password, user.passwordHash);
       if (!valid) {
+        console.log(`[Login] Password mismatch for repId: '${repId}'`);
         return res.status(401).json({ message: "Invalid credentials" });
       }
       
