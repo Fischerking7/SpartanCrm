@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { z } from "zod";
-import { storage } from "./storage";
+import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or } from "drizzle-orm";
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments } from "@shared/schema";
@@ -93,101 +93,101 @@ interface CreateOrderParams {
 async function createOrderWithCommission(params: CreateOrderParams) {
   const { orderData, mobileLineData, dateSold, assignedRepId, userId, auditAction = "create_order" } = params;
   
-  const data = { 
-    ...orderData,
-    repId: assignedRepId,
-    jobStatus: "PENDING" as const,
-    baseCommissionEarned: "0",
-    appliedRateCardId: null,
-    commissionSource: "CALCULATED" as const,
-    calcAt: null,
-    incentiveEarned: "0",
-    commissionPaid: "0",
-    paymentStatus: "UNPAID" as const,
-    exportedToAccounting: false,
-  };
-  
-  const order = await storage.createOrder(data as any);
-  
-  // Create mobile line items if this is a mobile order
-  if (mobileLineData && mobileLineData.length > 0) {
-    for (let i = 0; i < mobileLineData.length; i++) {
-      const line = mobileLineData[i];
-      await storage.createMobileLineItem({
-        salesOrderId: order.id,
-        lineNumber: i + 1,
-        mobileProductType: line.mobileProductType || "OTHER",
-        mobilePortedStatus: line.mobilePortedStatus || "NON_PORTED",
-      });
-    }
-  }
-  
-  // Calculate commission
-  let baseCommission = "0";
-  let appliedRateCardId: string | null = null;
-  let totalDeductions = 0;
-  
-  const rateCard = await storage.findMatchingRateCard(order, dateSold);
-  if (rateCard) {
-    const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
-    await storage.createCommissionLineItems(order.id, lineItems);
+  return db.transaction(async (tx) => {
+    const txDb = tx as unknown as TxDb;
     
-    const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
-    appliedRateCardId = rateCard.id;
+    const data = { 
+      ...orderData,
+      repId: assignedRepId,
+      jobStatus: "PENDING" as const,
+      baseCommissionEarned: "0",
+      appliedRateCardId: null,
+      commissionSource: "CALCULATED" as const,
+      calcAt: null,
+      incentiveEarned: "0",
+      commissionPaid: "0",
+      paymentStatus: "UNPAID" as const,
+      exportedToAccounting: false,
+    };
     
-    const salesRepUser = await storage.getUserByRepId(assignedRepId);
-    // Look up role-based override for this user's role
-    const userRole = salesRepUser?.role || "REP";
-    const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
+    const order = await storage.createOrder(data as any, txDb);
     
-    const isMobileOnlyOrder = (order as any).isMobileOrder === true;
-    
-    if (roleOverride) {
-      const overrideAmounts = {
-        base: parseFloat(roleOverride.overrideDeduction || "0"),
-        tv: parseFloat(roleOverride.tvOverrideDeduction || "0"),
-        mobile: parseFloat(roleOverride.mobileOverrideDeduction || "0"),
-      };
-      
-      if (!isMobileOnlyOrder) {
-        totalDeductions += overrideAmounts.base;
-        if (order.tvSold) {
-          totalDeductions += overrideAmounts.tv;
-        }
-      }
-      if (order.mobileSold) {
-        totalDeductions += overrideAmounts.mobile;
-      }
-    } else {
-      // Fall back to rate card default overrides if no role-specific override exists
-      const overrideAmounts = {
-        base: parseFloat(rateCard.overrideDeduction || "0"),
-        tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
-        mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
-      };
-      
-      if (!isMobileOnlyOrder) {
-        totalDeductions += overrideAmounts.base;
-        if (order.tvSold) {
-          totalDeductions += overrideAmounts.tv;
-        }
-      }
-      if (order.mobileSold) {
-        totalDeductions += overrideAmounts.mobile;
+    if (mobileLineData && mobileLineData.length > 0) {
+      for (let i = 0; i < mobileLineData.length; i++) {
+        const line = mobileLineData[i];
+        await storage.createMobileLineItem({
+          salesOrderId: order.id,
+          lineNumber: i + 1,
+          mobileProductType: line.mobileProductType || "OTHER",
+          mobilePortedStatus: line.mobilePortedStatus || "NON_PORTED",
+        }, txDb);
       }
     }
-    baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
-  }
-  
-  const updatedOrder = await storage.updateOrder(order.id, {
-    baseCommissionEarned: baseCommission,
-    appliedRateCardId,
-    calcAt: rateCard ? new Date() : null,
-    overrideDeduction: totalDeductions.toFixed(2),
+    
+    let baseCommission = "0";
+    let appliedRateCardId: string | null = null;
+    let totalDeductions = 0;
+    
+    const rateCard = await storage.findMatchingRateCard(order, dateSold);
+    if (rateCard) {
+      const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, order);
+      await storage.createCommissionLineItems(order.id, lineItems, txDb);
+      
+      const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
+      appliedRateCardId = rateCard.id;
+      
+      const salesRepUser = await storage.getUserByRepId(assignedRepId);
+      const userRole = salesRepUser?.role || "REP";
+      const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
+      
+      const isMobileOnlyOrder = (order as any).isMobileOrder === true;
+      
+      if (roleOverride) {
+        const overrideAmounts = {
+          base: parseFloat(roleOverride.overrideDeduction || "0"),
+          tv: parseFloat(roleOverride.tvOverrideDeduction || "0"),
+          mobile: parseFloat(roleOverride.mobileOverrideDeduction || "0"),
+        };
+        
+        if (!isMobileOnlyOrder) {
+          totalDeductions += overrideAmounts.base;
+          if (order.tvSold) {
+            totalDeductions += overrideAmounts.tv;
+          }
+        }
+        if (order.mobileSold) {
+          totalDeductions += overrideAmounts.mobile;
+        }
+      } else {
+        const overrideAmounts = {
+          base: parseFloat(rateCard.overrideDeduction || "0"),
+          tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
+          mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
+        };
+        
+        if (!isMobileOnlyOrder) {
+          totalDeductions += overrideAmounts.base;
+          if (order.tvSold) {
+            totalDeductions += overrideAmounts.tv;
+          }
+        }
+        if (order.mobileSold) {
+          totalDeductions += overrideAmounts.mobile;
+        }
+      }
+      baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
+    }
+    
+    const updatedOrder = await storage.updateOrder(order.id, {
+      baseCommissionEarned: baseCommission,
+      appliedRateCardId,
+      calcAt: rateCard ? new Date() : null,
+      overrideDeduction: totalDeductions.toFixed(2),
+    }, txDb);
+    
+    await storage.createAuditLog({ action: auditAction, tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(updatedOrder), userId }, txDb);
+    return updatedOrder;
   });
-  
-  await storage.createAuditLog({ action: auditAction, tableName: "sales_orders", recordId: order.id, afterJson: JSON.stringify(updatedOrder), userId });
-  return updatedOrder;
 }
 
 // Field allowlists for update operations (prevents privilege escalation)
@@ -265,177 +265,159 @@ async function checkPasswordAuthority(actor: User, target: User): Promise<boolea
 }
 
 async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder: SalesOrder): Promise<OverrideEarning[]> {
-  // Check if override earnings already exist for this order to prevent duplicates
-  const existingEarnings = await storage.getOverrideEarningsByOrder(approvedOrder.id);
-  if (existingEarnings.length > 0) {
-    return existingEarnings; // Already generated, return existing
-  }
-  
-  // Executives do not have overrides applied to their sales
   const salesRep = await storage.getUserByRepId(approvedOrder.repId);
   if (salesRep?.role === "EXECUTIVE") {
-    return []; // No overrides for executive sales
+    return [];
   }
   
-  const earnings: OverrideEarning[] = [];
-  
-  // --- RATE CARD OVERRIDE DEDUCTIONS (BASE/INTERNET & TV) ---
-  // Pool override deductions from rate cards (distributed later during export)
-  // Check if pool entries already exist for this order to prevent duplicates
-  const existingPoolEntries = await storage.getOverrideDeductionPoolByOrderId(approvedOrder.id);
-  const existingPoolKeys = new Set(existingPoolEntries.map(e => `${e.rateCardId}-${e.deductionType}`));
-  
-  const commissionLineItems = await storage.getCommissionLineItemsByOrderId(approvedOrder.id);
-  const usedRateCardIds = new Set<string>();
-  
-  for (const lineItem of commissionLineItems) {
-    if (lineItem.appliedRateCardId && !usedRateCardIds.has(lineItem.appliedRateCardId)) {
-      const rateCard = await storage.getRateCardById(lineItem.appliedRateCardId);
-      if (rateCard) {
-        // Pool base/internet override deduction (always applies)
-        const baseDeduction = parseFloat(rateCard.overrideDeduction || "0");
-        const baseKey = `${rateCard.id}-BASE`;
-        if (baseDeduction > 0 && !existingPoolKeys.has(baseKey)) {
-          await storage.createOverrideDeductionPoolEntry({
-            salesOrderId: approvedOrder.id,
-            rateCardId: rateCard.id,
-            amount: baseDeduction.toFixed(2),
-            deductionType: "BASE",
-            status: "PENDING",
-          });
-        }
-        
-        // Pool TV override deduction (only if tvSold is true)
-        const tvDeduction = parseFloat(rateCard.tvOverrideDeduction || "0");
-        const tvKey = `${rateCard.id}-TV`;
-        if (tvDeduction > 0 && approvedOrder.tvSold && !existingPoolKeys.has(tvKey)) {
-          await storage.createOverrideDeductionPoolEntry({
-            salesOrderId: approvedOrder.id,
-            rateCardId: rateCard.id,
-            amount: tvDeduction.toFixed(2),
-            deductionType: "TV",
-            status: "PENDING",
-          });
-        }
-        
-        // Pool mobile override deduction (only if mobileSold is true)
-        const mobileDeduction = parseFloat((rateCard as any).mobileOverrideDeduction || "0");
-        const mobileKey = `${rateCard.id}-MOBILE`;
-        if (mobileDeduction > 0 && approvedOrder.mobileSold && !existingPoolKeys.has(mobileKey)) {
-          await storage.createOverrideDeductionPoolEntry({
-            salesOrderId: approvedOrder.id,
-            rateCardId: rateCard.id,
-            amount: mobileDeduction.toFixed(2),
-            deductionType: "MOBILE",
-            status: "PENDING",
-          });
-        }
-        
-        usedRateCardIds.add(lineItem.appliedRateCardId);
-      }
-    }
-  }
-  
-  // Get hierarchy for the rep who made the sale
-  const hierarchy = await storage.getRepHierarchy(approvedOrder.repId);
-  
-  // --- OVERRIDE AGREEMENTS (legacy/additional) ---
-  // Fetch mobile line items for per-line override calculation
-  const mobileLines = await storage.getMobileLineItemsByOrderId(approvedOrder.id);
-  
-  // Base order filter
-  const baseOrderFilter = { 
-    providerId: approvedOrder.providerId, 
-    clientId: approvedOrder.clientId, 
-    serviceId: approvedOrder.serviceId,
-    tvSold: approvedOrder.tvSold,
-  };
-  
-  // Get mobile product types from order
-  const mobileProductTypes = mobileLines.length > 0 
-    ? Array.from(new Set(mobileLines.map(l => l.mobileProductType))) 
-    : (approvedOrder.mobileProductType ? [approvedOrder.mobileProductType] : []);
-  
-  // Helper: Process agreements for a recipient based on hierarchy
-  const processAgreements = async (recipientUserId: string, recipientRole: string) => {
-    // Process non-mobile agreements first
-    const nonMobileAgreements = await storage.getActiveOverrideAgreements(
-      recipientUserId, 
-      approvedOrder.dateSold, 
-      { ...baseOrderFilter, mobileProductType: null }
-    );
+  return db.transaction(async (tx) => {
+    const txDb = tx as unknown as TxDb;
     
-    for (const agreement of nonMobileAgreements) {
-      const earning = await storage.createOverrideEarning({
-        salesOrderId: approvedOrder.id,
-        recipientUserId,
-        sourceRepId: approvedOrder.repId,
-        sourceLevelUsed: recipientRole as any,
-        amount: agreement.amountFlat,
-        overrideAgreementId: agreement.id,
-      });
-      earnings.push(earning);
+    const existingEarnings = await storage.getOverrideEarningsByOrder(approvedOrder.id);
+    if (existingEarnings.length > 0) {
+      return existingEarnings;
     }
     
-    // Process mobile-specific agreements for each product type and ported status combination
-    const portedStatuses = mobileLines.length > 0 
-      ? Array.from(new Set(mobileLines.map(l => l.mobilePortedStatus)))
-      : (approvedOrder.mobilePortedStatus ? [approvedOrder.mobilePortedStatus] : [null]);
+    const earnings: OverrideEarning[] = [];
     
-    for (const mobileType of mobileProductTypes) {
-      for (const portedStatus of portedStatuses) {
-        const mobileAgreements = await storage.getActiveOverrideAgreements(
-          recipientUserId, 
-          approvedOrder.dateSold, 
-          { ...baseOrderFilter, mobileProductType: mobileType, mobilePortedStatus: portedStatus }
-        );
-        
-        for (const agreement of mobileAgreements) {
-          // Count matching lines for this product type and ported status
-          const matchingLines = mobileLines.filter(l => 
-            l.mobileProductType === mobileType && 
-            (!agreement.mobilePortedFilter || l.mobilePortedStatus === agreement.mobilePortedFilter)
-          );
-          const lineCount = matchingLines.length || 1;
-          const totalAmount = (parseFloat(agreement.amountFlat) * lineCount).toFixed(2);
+    const existingPoolEntries = await storage.getOverrideDeductionPoolByOrderId(approvedOrder.id);
+    const existingPoolKeys = new Set(existingPoolEntries.map(e => `${e.rateCardId}-${e.deductionType}`));
+    
+    const commissionLineItemsList = await storage.getCommissionLineItemsByOrderId(approvedOrder.id);
+    const usedRateCardIds = new Set<string>();
+    
+    for (const lineItem of commissionLineItemsList) {
+      if (lineItem.appliedRateCardId && !usedRateCardIds.has(lineItem.appliedRateCardId)) {
+        const rateCard = await storage.getRateCardById(lineItem.appliedRateCardId);
+        if (rateCard) {
+          const baseDeduction = parseFloat(rateCard.overrideDeduction || "0");
+          const baseKey = `${rateCard.id}-BASE`;
+          if (baseDeduction > 0 && !existingPoolKeys.has(baseKey)) {
+            await storage.createOverrideDeductionPoolEntry({
+              salesOrderId: approvedOrder.id,
+              rateCardId: rateCard.id,
+              amount: baseDeduction.toFixed(2),
+              deductionType: "BASE",
+              status: "PENDING",
+            }, txDb);
+          }
           
-          const earning = await storage.createOverrideEarning({
-            salesOrderId: approvedOrder.id,
-            recipientUserId,
-            sourceRepId: approvedOrder.repId,
-            sourceLevelUsed: recipientRole as any,
-            amount: totalAmount,
-            overrideAgreementId: agreement.id,
-          });
-          earnings.push(earning);
+          const tvDeduction = parseFloat(rateCard.tvOverrideDeduction || "0");
+          const tvKey = `${rateCard.id}-TV`;
+          if (tvDeduction > 0 && approvedOrder.tvSold && !existingPoolKeys.has(tvKey)) {
+            await storage.createOverrideDeductionPoolEntry({
+              salesOrderId: approvedOrder.id,
+              rateCardId: rateCard.id,
+              amount: tvDeduction.toFixed(2),
+              deductionType: "TV",
+              status: "PENDING",
+            }, txDb);
+          }
+          
+          const mobileDeduction = parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+          const mobileKey = `${rateCard.id}-MOBILE`;
+          if (mobileDeduction > 0 && approvedOrder.mobileSold && !existingPoolKeys.has(mobileKey)) {
+            await storage.createOverrideDeductionPoolEntry({
+              salesOrderId: approvedOrder.id,
+              rateCardId: rateCard.id,
+              amount: mobileDeduction.toFixed(2),
+              deductionType: "MOBILE",
+              status: "PENDING",
+            }, txDb);
+          }
+          
+          usedRateCardIds.add(lineItem.appliedRateCardId);
         }
       }
     }
-  };
-  
-  // Supervisor gets override on their assigned reps' sales
-  if (hierarchy.supervisor) {
-    await processAgreements(hierarchy.supervisor.id, "LEAD");
-  }
-  
-  // Manager gets override on their supervised reps and supervisors' sales
-  if (hierarchy.manager) {
-    await processAgreements(hierarchy.manager.id, "MANAGER");
-  }
-  
-  // Executive gets override on everyone in their division
-  if (hierarchy.executive) {
-    await processAgreements(hierarchy.executive.id, "EXECUTIVE");
-  }
-  
-  // ADMIN gets override on all sales company-wide
-  const admins = await storage.getUsers();
-  const activeAdmins = admins.filter(u => u.role === "ADMIN" && u.status === "ACTIVE" && !u.deletedAt);
-  for (const admin of activeAdmins) {
-    await processAgreements(admin.id, "ADMIN");
-  }
+    
+    const hierarchy = await storage.getRepHierarchy(approvedOrder.repId);
+    const mobileLines = await storage.getMobileLineItemsByOrderId(approvedOrder.id);
+    
+    const baseOrderFilter = { 
+      providerId: approvedOrder.providerId, 
+      clientId: approvedOrder.clientId, 
+      serviceId: approvedOrder.serviceId,
+      tvSold: approvedOrder.tvSold,
+    };
+    
+    const mobileProductTypes = mobileLines.length > 0 
+      ? Array.from(new Set(mobileLines.map(l => l.mobileProductType))) 
+      : (approvedOrder.mobileProductType ? [approvedOrder.mobileProductType] : []);
+    
+    const processAgreements = async (recipientUserId: string, recipientRole: string) => {
+      const nonMobileAgreements = await storage.getActiveOverrideAgreements(
+        recipientUserId, 
+        approvedOrder.dateSold, 
+        { ...baseOrderFilter, mobileProductType: null }
+      );
+      
+      for (const agreement of nonMobileAgreements) {
+        const earning = await storage.createOverrideEarning({
+          salesOrderId: approvedOrder.id,
+          recipientUserId,
+          sourceRepId: approvedOrder.repId,
+          sourceLevelUsed: recipientRole as any,
+          amount: agreement.amountFlat,
+          overrideAgreementId: agreement.id,
+        }, txDb);
+        earnings.push(earning);
+      }
+      
+      const portedStatuses = mobileLines.length > 0 
+        ? Array.from(new Set(mobileLines.map(l => l.mobilePortedStatus)))
+        : (approvedOrder.mobilePortedStatus ? [approvedOrder.mobilePortedStatus] : [null]);
+      
+      for (const mobileType of mobileProductTypes) {
+        for (const portedStatus of portedStatuses) {
+          const mobileAgreements = await storage.getActiveOverrideAgreements(
+            recipientUserId, 
+            approvedOrder.dateSold, 
+            { ...baseOrderFilter, mobileProductType: mobileType, mobilePortedStatus: portedStatus }
+          );
+          
+          for (const agreement of mobileAgreements) {
+            const matchingLines = mobileLines.filter(l => 
+              l.mobileProductType === mobileType && 
+              (!agreement.mobilePortedFilter || l.mobilePortedStatus === agreement.mobilePortedFilter)
+            );
+            const lineCount = matchingLines.length || 1;
+            const totalAmount = (parseFloat(agreement.amountFlat) * lineCount).toFixed(2);
+            
+            const earning = await storage.createOverrideEarning({
+              salesOrderId: approvedOrder.id,
+              recipientUserId,
+              sourceRepId: approvedOrder.repId,
+              sourceLevelUsed: recipientRole as any,
+              amount: totalAmount,
+              overrideAgreementId: agreement.id,
+            }, txDb);
+            earnings.push(earning);
+          }
+        }
+      }
+    };
+    
+    if (hierarchy.supervisor) {
+      await processAgreements(hierarchy.supervisor.id, "LEAD");
+    }
+    
+    if (hierarchy.manager) {
+      await processAgreements(hierarchy.manager.id, "MANAGER");
+    }
+    
+    if (hierarchy.executive) {
+      await processAgreements(hierarchy.executive.id, "EXECUTIVE");
+    }
+    
+    const admins = await storage.getUsers();
+    const activeAdmins = admins.filter(u => u.role === "ADMIN" && u.status === "ACTIVE" && !u.deletedAt);
+    for (const admin of activeAdmins) {
+      await processAgreements(admin.id, "ADMIN");
+    }
 
-  return earnings;
+    return earnings;
+  });
 }
 
 // Bootstrap OPERATIONS user on first run
@@ -609,54 +591,59 @@ export async function registerRoutes(
       const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
       const ua = req.headers["user-agent"] || "";
       const deviceType = /Mobile|Android|iPhone|iPad/i.test(ua) ? "Mobile" : "Desktop";
-      let geoCity: string | null = null;
-      let geoRegion: string | null = null;
-      let geoCountry: string | null = null;
-      try {
-        const geoRes = await fetch(`https://ipapi.co/${ip}/json/`, { signal: AbortSignal.timeout(3000) });
-        if (geoRes.ok) {
-          const geo = await geoRes.json();
-          if (!geo.error) {
-            geoCity = geo.city || null;
-            geoRegion = geo.region || null;
-            geoCountry = geo.country_name || null;
-          }
-        }
-      } catch {}
-      if (!geoCity && !geoRegion) {
+
+      setImmediate(async () => {
+        let geoCity: string | null = null;
+        let geoRegion: string | null = null;
+        let geoCountry: string | null = null;
         try {
-          const geoRes2 = await fetch(`http://ip-api.com/json/${ip}?fields=city,regionName,country`, { signal: AbortSignal.timeout(3000) });
-          if (geoRes2.ok) {
-            const geo2 = await geoRes2.json();
-            geoCity = geo2.city || null;
-            geoRegion = geo2.regionName || null;
-            geoCountry = geo2.country || null;
+          const geoRes = await fetch(`https://ipapi.co/${ip}/json/`, { signal: AbortSignal.timeout(3000) });
+          if (geoRes.ok) {
+            const geo = await geoRes.json();
+            if (!geo.error) {
+              geoCity = geo.city || null;
+              geoRegion = geo.region || null;
+              geoCountry = geo.country_name || null;
+            }
           }
         } catch {}
-      }
-      const locationStr = [geoCity, geoRegion, geoCountry].filter(Boolean).join(", ") || null;
-      try {
-        await storage.createUserActivityLog({
-          userId: user.id,
-          eventType: "LOGIN",
-          ipAddress: ip,
-          city: geoCity,
-          region: geoRegion,
-          country: geoCountry,
-          userAgent: ua,
-          deviceType,
-        });
-        await storage.updateUserLastLogin(user.id, ip, locationStr);
-      } catch {
-        await storage.createUserActivityLog({
-          userId: user.id,
-          eventType: "LOGIN",
-          ipAddress: ip,
-          userAgent: ua,
-          deviceType,
-        });
-        await storage.updateUserLastLogin(user.id, ip, null);
-      }
+        if (!geoCity && !geoRegion) {
+          try {
+            const geoRes2 = await fetch(`http://ip-api.com/json/${ip}?fields=city,regionName,country`, { signal: AbortSignal.timeout(3000) });
+            if (geoRes2.ok) {
+              const geo2 = await geoRes2.json();
+              geoCity = geo2.city || null;
+              geoRegion = geo2.regionName || null;
+              geoCountry = geo2.country || null;
+            }
+          } catch {}
+        }
+        const locationStr = [geoCity, geoRegion, geoCountry].filter(Boolean).join(", ") || null;
+        try {
+          await storage.createUserActivityLog({
+            userId: user.id,
+            eventType: "LOGIN",
+            ipAddress: ip,
+            city: geoCity,
+            region: geoRegion,
+            country: geoCountry,
+            userAgent: ua,
+            deviceType,
+          });
+          await storage.updateUserLastLogin(user.id, ip, locationStr);
+        } catch {
+          try {
+            await storage.createUserActivityLog({
+              userId: user.id,
+              eventType: "LOGIN",
+              ipAddress: ip,
+              userAgent: ua,
+              deviceType,
+            });
+            await storage.updateUserLastLogin(user.id, ip, null);
+          } catch {}
+        }
+      });
 
       res.json({ 
         token, 
@@ -800,24 +787,8 @@ export async function registerRoutes(
   // Dashboard stats
   app.get("/api/dashboard/stats", auth, async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
-      const orders = await storage.getOrders({ repId: user.repId });
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const weekStart = new Date(now);
-      const dow = now.getDay();
-      weekStart.setDate(now.getDate() + (dow === 0 ? -6 : 1 - dow)); // Monday start
-
-      const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
-      const earnedMTD = monthOrders.filter(o => o.paymentStatus === "PAID").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
-      const paidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
-      const weekOrders = orders.filter(o => o.paidDate && new Date(o.paidDate) >= weekStart);
-      const paidWeek = weekOrders.reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
-      const pendingInstall = orders.filter(o => o.jobStatus === "PENDING").length;
-      const todayInstalls = orders.filter(o => o.installDate === now.toISOString().split("T")[0]).length;
-      const outstanding = earnedMTD - paidMTD;
-
-      res.json({ earnedMTD, paidMTD, paidWeek, chargebacksMTD: 0, outstanding, pendingInstall, todayInstalls });
+      const stats = await storage.getDashboardStatsSQL(req.user!.repId);
+      res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to get stats" });
     }
@@ -830,16 +801,8 @@ export async function registerRoutes(
       const teamRepIds = teamMembers.map(m => m.repId);
       if (user.role !== "ADMIN") teamRepIds.push(user.repId);
       
-      const orders = await storage.getOrders({ teamRepIds });
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
-      
-      const teamEarnedMTD = monthOrders.filter(o => o.paymentStatus === "PAID").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
-      const teamPaidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
-      const pendingInstalls = orders.filter(o => o.jobStatus === "PENDING").length;
-
-      res.json({ teamEarnedMTD, teamPaidMTD, pendingInstalls, teamSize: teamMembers.length });
+      const stats = await storage.getManagerStatsSQL(teamRepIds);
+      res.json({ ...stats, teamSize: teamMembers.length });
     } catch (error) {
       res.status(500).json({ message: "Failed to get stats" });
     }
@@ -847,24 +810,17 @@ export async function registerRoutes(
 
   app.get("/api/dashboard/admin-stats", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
-      const orders = await storage.getOrders({});
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const monthOrders = orders.filter(o => new Date(o.createdAt) >= monthStart);
+      const stats = await storage.getAdminStatsSQL();
       
-      const totalEarnedMTD = monthOrders.filter(o => o.paymentStatus === "PAID").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
-      const totalPaidMTD = monthOrders.filter(o => o.paidDate && new Date(o.paidDate) >= monthStart).reduce((sum, o) => sum + parseFloat(o.commissionPaid), 0);
-      const pendingInstalls = orders.filter(o => o.jobStatus === "PENDING").length;
-      
-      const users = await storage.getUsers();
-      const activeReps = users.filter(u => u.role === "REP" && u.status === "ACTIVE").length;
+      const allUsers = await storage.getUsers();
+      const activeReps = allUsers.filter(u => u.role === "REP" && u.status === "ACTIVE").length;
       
       const unmatchedPayments = (await storage.getUnmatchedPayments()).filter(p => !p.resolvedAt).length;
       const unmatchedChargebacks = (await storage.getUnmatchedChargebacks()).filter(c => !c.resolvedAt).length;
       const rateIssues = (await storage.getRateIssues()).filter(r => !r.resolvedAt).length;
       const pendingAdjustments = (await storage.getAdjustments()).filter(a => a.approvalStatus === "UNAPPROVED").length;
 
-      res.json({ totalEarnedMTD, totalPaidMTD, pendingInstalls, activeReps, unmatchedPayments, unmatchedChargebacks, rateIssues, pendingAdjustments });
+      res.json({ ...stats, activeReps, unmatchedPayments, unmatchedChargebacks, rateIssues, pendingAdjustments });
     } catch (error) {
       res.status(500).json({ message: "Failed to get stats" });
     }
@@ -1177,69 +1133,54 @@ export async function registerRoutes(
         visibleRepIds = activeUsers.map(u => u.repId);
       }
       
-      // Get orders in the period
-      const allOrders = await storage.getOrders({});
-      const periodOrders = allOrders.filter(order => {
-        const orderDate = new Date(order.dateSold);
-        return orderDate >= startDate && orderDate <= endDate;
-      });
+      const leaderboardData = await storage.getLeaderboardSQL(visibleRepIds, formatDate(startDate), formatDate(endDate));
       
-      // Calculate rankings
-      const rankings = activeUsers
-        .filter(u => visibleRepIds.includes(u.repId))
-        .map(u => {
-          const userOrders = periodOrders.filter(o => o.repId === u.repId);
-          const soldCount = userOrders.length;
-          const connectsCount = userOrders.filter(o => o.jobStatus === "COMPLETED").length;
-          const paidOrders = userOrders.filter(o => o.paymentStatus === "PAID");
-          const earnedDollars = paidOrders.reduce((sum, o) => 
-            sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0
-          );
-          
+      const userMap = new Map(activeUsers.map(u => [u.repId, u]));
+      
+      const rankings = leaderboardData
+        .map(d => {
+          const u = userMap.get(d.repId);
+          if (!u) return null;
           return {
             userId: u.id,
-            repId: u.repId,
+            repId: d.repId,
             name: u.name,
             role: u.role,
-            soldCount,
-            connectsCount,
-            earnedDollars,
+            soldCount: d.soldCount,
+            connectsCount: d.connectsCount,
+            earnedDollars: d.earnedDollars,
             isCurrentUser: u.id === user.id,
           };
         })
-        .filter(r => r.soldCount > 0 || r.connectsCount > 0 || r.earnedDollars > 0)
+        .filter((r): r is NonNullable<typeof r> => r !== null && (r.soldCount > 0 || r.connectsCount > 0 || r.earnedDollars > 0))
         .sort((a, b) => b.soldCount - a.soldCount);
       
-      // Add ranking position
       const rankedResults = rankings.map((r, index) => ({
         ...r,
         rank: index + 1,
       }));
       
-      // Find current user's rank (even if they're not in top results)
       const currentUserRank = rankedResults.find(r => r.isCurrentUser);
-      const currentUserStats = activeUsers.find(u => u.id === user.id);
       let myRanking = currentUserRank;
       
-      if (!currentUserRank && currentUserStats) {
-        const myOrders = periodOrders.filter(o => o.repId === currentUserStats.repId);
-        const mySoldCount = myOrders.length;
-        const myConnects = myOrders.filter(o => o.jobStatus === "COMPLETED").length;
-        const myEarned = myOrders.filter(o => o.paymentStatus === "PAID")
-          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
-        
-        const myRank = rankings.filter(r => r.soldCount > mySoldCount).length + 1;
-        myRanking = {
-          userId: user.id,
-          repId: currentUserStats.repId,
-          name: currentUserStats.name,
-          role: currentUserStats.role,
-          soldCount: mySoldCount,
-          connectsCount: myConnects,
-          earnedDollars: myEarned,
-          isCurrentUser: true,
-          rank: myRank,
-        };
+      if (!currentUserRank) {
+        const currentUserStats = activeUsers.find(u => u.id === user.id);
+        if (currentUserStats) {
+          const myData = leaderboardData.find(d => d.repId === currentUserStats.repId);
+          const mySoldCount = myData?.soldCount || 0;
+          const myRank = rankings.filter(r => r.soldCount > mySoldCount).length + 1;
+          myRanking = {
+            userId: user.id,
+            repId: currentUserStats.repId,
+            name: currentUserStats.name,
+            role: currentUserStats.role,
+            soldCount: mySoldCount,
+            connectsCount: myData?.connectsCount || 0,
+            earnedDollars: myData?.earnedDollars || 0,
+            isCurrentUser: true,
+            rank: myRank,
+          };
+        }
       }
       
       res.json({
@@ -2223,12 +2164,8 @@ export async function registerRoutes(
       
       const updatedOrder = await storage.updateOrder(id, updates);
       
-      // Generate override earnings upon approval
       if (updatedOrder) {
-        const overrideEarnings = await generateOverrideEarnings(order, updatedOrder);
-        for (const earning of overrideEarnings) {
-          await storage.createOverrideEarning(earning);
-        }
+        await generateOverrideEarnings(order, updatedOrder);
       }
       
       await storage.createAuditLog({
@@ -2325,10 +2262,7 @@ export async function registerRoutes(
         const updatedOrder = await storage.updateOrder(id, updates);
         
         if (updatedOrder) {
-          const overrideEarnings = await generateOverrideEarnings(order, updatedOrder);
-          for (const earning of overrideEarnings) {
-            await storage.createOverrideEarning(earning);
-          }
+          await generateOverrideEarnings(order, updatedOrder);
         }
         
         await storage.createAuditLog({
@@ -2506,9 +2440,11 @@ export async function registerRoutes(
           const mobileSoldVal = getColumnValue(row, 'mobileSold', 'mobile_sold', 'Mobile Sold', 'Mobile', 'mobile');
           const mobileLinesVal = getColumnValue(row, 'mobileLinesQty', 'mobile_lines_qty', 'Mobile Lines', 'mobileLines', 'mobile_lines');
 
-          // Build order data (dates as ISO strings)
+          const tvSold = tvSoldVal === true || tvSoldVal === "true" || tvSoldVal === 1 || tvSoldVal === "1" || tvSoldVal?.toString().toLowerCase() === "yes";
+          const mobileSold = mobileSoldVal === true || mobileSoldVal === "true" || mobileSoldVal === 1 || mobileSoldVal === "1" || mobileSoldVal?.toString().toLowerCase() === "yes";
+          const mobileLinesQty = parseInt(mobileLinesVal) || 0;
+
           const orderData = {
-            repId,
             customerName,
             customerAddress,
             houseNumber,
@@ -2523,16 +2459,28 @@ export async function registerRoutes(
             clientId: clientId || defaultClientId,
             serviceId: serviceId || defaultServiceId,
             invoiceNumber,
-            tvSold: tvSoldVal === true || tvSoldVal === "true" || tvSoldVal === 1 || tvSoldVal === "1" || tvSoldVal?.toString().toLowerCase() === "yes",
-            mobileSold: mobileSoldVal === true || mobileSoldVal === "true" || mobileSoldVal === 1 || mobileSoldVal === "1" || mobileSoldVal?.toString().toLowerCase() === "yes",
-            mobileLinesQty: parseInt(mobileLinesVal) || 0,
-            jobStatus: "PENDING" as const,
-            paymentStatus: "UNPAID" as const,
-            baseCommissionEarned: "0",
-            incentiveEarned: "0",
+            tvSold,
+            mobileSold,
+            mobileLinesQty,
           };
 
-          await storage.createOrder(orderData);
+          const assignedRepId = repId || user?.repId || "UNASSIGNED";
+          
+          const mobileLineData: Array<{ mobileProductType: string; mobilePortedStatus: string }> = [];
+          if (mobileSold && mobileLinesQty > 0) {
+            for (let ml = 0; ml < mobileLinesQty; ml++) {
+              mobileLineData.push({ mobileProductType: "OTHER", mobilePortedStatus: "NON_PORTED" });
+            }
+          }
+
+          await createOrderWithCommission({
+            orderData,
+            mobileLineData: mobileLineData.length > 0 ? mobileLineData : undefined,
+            dateSold: dateSold.toISOString(),
+            assignedRepId,
+            userId: req.user!.id,
+            auditAction: "import_order",
+          });
           success++;
         } catch (err: any) {
           errors.push(`Row ${rowNum}: ${err.message || "Unknown error"}`);
@@ -3313,123 +3261,115 @@ export async function registerRoutes(
         }
       }
       
-      // ========== DISTRIBUTE OVERRIDE POOL DEDUCTIONS (Manual Distribution) ==========
-      const orderIds = orders.map(o => o.id);
-      const pendingPoolEntries = await storage.getOverrideDeductionPoolByOrderIds(orderIds);
-      
-      // Get manual distributions configured for this pay run
-      const manualDistributions = await storage.getOverrideDistributionsByPayRun(req.params.id);
-      
-      // Check if all pool entries have distributions configured
-      const distributedPoolIds = new Set(manualDistributions.map(d => d.poolEntryId));
-      const undistributedEntries = pendingPoolEntries.filter(e => !distributedPoolIds.has(e.id));
-      
-      // If there are undistributed pool entries, warn but allow finalization
-      // (Pool amounts without distributions will remain in pool for next pay run)
-      
-      const distributionResults: { recipientId: string; amount: number; orderId: string }[] = [];
-      
-      // Process manual distributions
-      for (const dist of manualDistributions) {
-        const poolEntry = pendingPoolEntries.find(e => e.id === dist.poolEntryId);
-        if (!poolEntry) continue;
+      const result = await db.transaction(async (tx) => {
+        const txDb = tx as unknown as TxDb;
         
-        const order = orders.find(o => o.id === poolEntry.salesOrderId);
-        if (!order) continue;
+        const orderIds = orders.map(o => o.id);
+        const pendingPoolEntries = await storage.getOverrideDeductionPoolByOrderIds(orderIds);
+        const manualDistributions = await storage.getOverrideDistributionsByPayRun(req.params.id);
+        const distributedPoolIds = new Set(manualDistributions.map(d => d.poolEntryId));
         
-        // Create override earning for this distribution
-        const recipient = await storage.getUserById(dist.recipientUserId);
-        const earning = await storage.createOverrideEarning({
-          salesOrderId: order.id,
-          recipientUserId: dist.recipientUserId,
-          sourceRepId: order.repId,
-          sourceLevelUsed: recipient?.role as any || "LEAD",
-          amount: dist.calculatedAmount,
-          payRunId: req.params.id,
-        });
+        const distributionResults: { recipientId: string; amount: number; orderId: string }[] = [];
         
-        distributionResults.push({
-          recipientId: dist.recipientUserId,
-          amount: parseFloat(dist.calculatedAmount),
-          orderId: order.id,
-        });
-        
-        await storage.createAuditLog({
-          action: "apply_override_distribution",
-          tableName: "override_earnings",
-          recordId: earning.id,
-          afterJson: JSON.stringify({ ...earning, distributionId: dist.id, poolEntryId: dist.poolEntryId }),
-          userId: req.user!.id,
-        });
-      }
-      
-      // Mark distributions as applied
-      if (manualDistributions.length > 0) {
-        await storage.applyOverrideDistributions(req.params.id);
-      }
-      
-      // Mark distributed pool entries as DISTRIBUTED
-      const distributedPoolEntryIds = Array.from(distributedPoolIds);
-      if (distributedPoolEntryIds.length > 0) {
-        await storage.markPoolEntriesDistributedByIds(distributedPoolEntryIds, req.params.id);
-      }
-      
-      // Update or create pay statements for recipients of override earnings
-      const recipientTotals: Record<string, number> = {};
-      for (const dist of distributionResults) {
-        recipientTotals[dist.recipientId] = (recipientTotals[dist.recipientId] || 0) + dist.amount;
-      }
-      
-      for (const [recipientId, addedOverride] of Object.entries(recipientTotals)) {
-        const existingStatement = statements.find(s => s.userId === recipientId);
-        if (existingStatement) {
-          const currentOverride = parseFloat(existingStatement.overrideEarningsTotal);
-          const newOverrideTotal = currentOverride + addedOverride;
-          const grossBase = parseFloat(existingStatement.grossCommission) + parseFloat(existingStatement.incentivesTotal);
-          const adjustments = parseFloat(existingStatement.adjustmentsTotal || "0");
-          const newNetPay = grossBase + newOverrideTotal + adjustments - parseFloat(existingStatement.chargebacksTotal) - parseFloat(existingStatement.deductionsTotal) - parseFloat(existingStatement.advancesApplied);
+        for (const dist of manualDistributions) {
+          const poolEntry = pendingPoolEntries.find(e => e.id === dist.poolEntryId);
+          if (!poolEntry) continue;
           
-          await storage.updatePayStatement(existingStatement.id, {
-            overrideEarningsTotal: newOverrideTotal.toFixed(2),
-            netPay: newNetPay.toFixed(2),
-          });
-        } else {
-          const currentYear = new Date().getFullYear();
-          const ytd = await storage.getYTDTotalsForUser(recipientId, currentYear);
+          const order = orders.find(o => o.id === poolEntry.salesOrderId);
+          if (!order) continue;
           
-          await storage.createPayStatement({
+          const recipient = await storage.getUserById(dist.recipientUserId);
+          const earning = await storage.createOverrideEarning({
+            salesOrderId: order.id,
+            recipientUserId: dist.recipientUserId,
+            sourceRepId: order.repId,
+            sourceLevelUsed: recipient?.role as any || "LEAD",
+            amount: dist.calculatedAmount,
             payRunId: req.params.id,
-            userId: recipientId,
-            periodStart: payRun.weekEndingDate,
-            periodEnd: payRun.weekEndingDate,
-            grossCommission: "0.00",
-            overrideEarningsTotal: addedOverride.toFixed(2),
-            incentivesTotal: "0.00",
-            chargebacksTotal: "0.00",
-            adjustmentsTotal: "0.00",
-            deductionsTotal: "0.00",
-            advancesApplied: "0.00",
-            taxWithheld: "0.00",
-            netPay: addedOverride.toFixed(2),
-            ytdGross: (parseFloat(ytd.totalGross) + addedOverride).toFixed(2),
-            ytdDeductions: ytd.totalDeductions,
-            ytdNetPay: (parseFloat(ytd.totalNetPay) + addedOverride).toFixed(2),
+          }, txDb);
+          
+          distributionResults.push({
+            recipientId: dist.recipientUserId,
+            amount: parseFloat(dist.calculatedAmount),
+            orderId: order.id,
           });
+          
+          await storage.createAuditLog({
+            action: "apply_override_distribution",
+            tableName: "override_earnings",
+            recordId: earning.id,
+            afterJson: JSON.stringify({ ...earning, distributionId: dist.id, poolEntryId: dist.poolEntryId }),
+            userId: req.user!.id,
+          }, txDb);
         }
-      }
-      // ========== END DISTRIBUTE OVERRIDE POOL ==========
-      
-      const beforeJson = JSON.stringify({ status: payRun.status });
-      const updated = await storage.updatePayRun(req.params.id, { status: "FINALIZED", finalizedAt: new Date() });
-      await storage.createAuditLog({ 
-        action: "finalize_payrun", 
-        tableName: "pay_runs", 
-        recordId: req.params.id, 
-        beforeJson, 
-        afterJson: JSON.stringify({ ...updated, overrideDistributions: distributionResults.length }), 
-        userId: req.user!.id 
+        
+        if (manualDistributions.length > 0) {
+          await storage.applyOverrideDistributions(req.params.id, txDb);
+        }
+        
+        const distributedPoolEntryIds = Array.from(distributedPoolIds);
+        if (distributedPoolEntryIds.length > 0) {
+          await storage.markPoolEntriesDistributedByIds(distributedPoolEntryIds, req.params.id, txDb);
+        }
+        
+        const recipientTotals: Record<string, number> = {};
+        for (const dist of distributionResults) {
+          recipientTotals[dist.recipientId] = (recipientTotals[dist.recipientId] || 0) + dist.amount;
+        }
+        
+        for (const [recipientId, addedOverride] of Object.entries(recipientTotals)) {
+          const existingStatement = statements.find(s => s.userId === recipientId);
+          if (existingStatement) {
+            const currentOverride = parseFloat(existingStatement.overrideEarningsTotal);
+            const newOverrideTotal = currentOverride + addedOverride;
+            const grossBase = parseFloat(existingStatement.grossCommission) + parseFloat(existingStatement.incentivesTotal);
+            const adjustments = parseFloat(existingStatement.adjustmentsTotal || "0");
+            const newNetPay = grossBase + newOverrideTotal + adjustments - parseFloat(existingStatement.chargebacksTotal) - parseFloat(existingStatement.deductionsTotal) - parseFloat(existingStatement.advancesApplied);
+            
+            await storage.updatePayStatement(existingStatement.id, {
+              overrideEarningsTotal: newOverrideTotal.toFixed(2),
+              netPay: newNetPay.toFixed(2),
+            }, txDb);
+          } else {
+            const currentYear = new Date().getFullYear();
+            const ytd = await storage.getYTDTotalsForUser(recipientId, currentYear);
+            
+            await storage.createPayStatement({
+              payRunId: req.params.id,
+              userId: recipientId,
+              periodStart: payRun.weekEndingDate,
+              periodEnd: payRun.weekEndingDate,
+              grossCommission: "0.00",
+              overrideEarningsTotal: addedOverride.toFixed(2),
+              incentivesTotal: "0.00",
+              chargebacksTotal: "0.00",
+              adjustmentsTotal: "0.00",
+              deductionsTotal: "0.00",
+              advancesApplied: "0.00",
+              taxWithheld: "0.00",
+              netPay: addedOverride.toFixed(2),
+              ytdGross: (parseFloat(ytd.totalGross) + addedOverride).toFixed(2),
+              ytdDeductions: ytd.totalDeductions,
+              ytdNetPay: (parseFloat(ytd.totalNetPay) + addedOverride).toFixed(2),
+            }, txDb);
+          }
+        }
+        
+        const beforeJson = JSON.stringify({ status: payRun.status });
+        const updated = await storage.updatePayRun(req.params.id, { status: "FINALIZED", finalizedAt: new Date() }, txDb);
+        await storage.createAuditLog({ 
+          action: "finalize_payrun", 
+          tableName: "pay_runs", 
+          recordId: req.params.id, 
+          beforeJson, 
+          afterJson: JSON.stringify({ ...updated, overrideDistributions: distributionResults.length }), 
+          userId: req.user!.id 
+        }, txDb);
+        
+        return { ...updated, overrideDistributions: distributionResults.length };
       });
-      res.json({ ...updated, overrideDistributions: distributionResults.length });
+      
+      res.json(result);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
@@ -3498,3 +3438,63 @@ export async function registerRoutes(
       let eligible = allOrders.filter(o => 
         o.jobStatus === "COMPLETED" && 
         o.approvalStatus === "APPROVED" &&
+        o.paymentStatus === "UNPAID" && 
+        !o.payRunId
+      );
+
+      if (payRun.weekEndingDate) {
+        const weekEnd = new Date(payRun.weekEndingDate);
+        weekEnd.setHours(23, 59, 59, 999);
+        const weekStart = new Date(payRun.weekEndingDate);
+        weekStart.setDate(weekStart.getDate() - 6);
+        weekStart.setHours(0, 0, 0, 0);
+        
+        eligible = eligible.filter(o => {
+          if (!o.approvedAt) return false;
+          const approvedAt = new Date(o.approvedAt);
+          return approvedAt >= weekStart && approvedAt <= weekEnd;
+        });
+      }
+
+      if (eligible.length === 0) {
+        return res.json({ linked: 0, message: "No eligible orders found for this pay period" });
+      }
+
+      const orderIds = eligible.map(o => o.id);
+      const orders = await storage.linkOrdersToPayRun(orderIds, req.params.id);
+      await storage.updateOverrideEarningsPayRunId(orderIds, req.params.id);
+
+      await storage.createAuditLog({ 
+        action: "link_all_orders_to_payrun", 
+        tableName: "pay_runs", 
+        recordId: req.params.id, 
+        afterJson: JSON.stringify({ count: orders.length }), 
+        userId: req.user!.id 
+      });
+      res.json({ linked: orders.length, message: `Linked ${orders.length} orders to pay run` });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  app.post("/api/admin/payruns/:id/unlink-orders", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { orderIds } = req.body;
+      if (!orderIds?.length) return res.status(400).json({ message: "No orders to unlink" });
+      
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (payRun.status === "FINALIZED") return res.status(400).json({ message: "Cannot unlink from finalized pay runs" });
+      
+      // Unlink specified orders using storage method
+      await storage.unlinkSpecificOrders(orderIds);
+      
+      // Also unlink override earnings for these orders
+      await storage.updateOverrideEarningsPayRunId(orderIds, null);
+      
+      await storage.createAuditLog({ 
+        action: "unlink_orders_from_payrun", 
+        tableName: "pay_runs", 
+        recordId: req.params.id, 
+        afterJson: JSON.stringify({ orderIds }), 
+        userId: req.user!.id 
+      });
+      res.json({ unlinked: orderIds.length });

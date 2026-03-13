@@ -1,5 +1,7 @@
 import { db } from "./db";
 import { eq, and, desc, sql, lte, gte, or, isNull, ilike, inArray, notInArray, ne, asc } from "drizzle-orm";
+
+export type TxDb = typeof db;
 import {
   users, providers, clients, services, rateCards, rateCardLeadOverrides, rateCardRoleOverrides, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
@@ -763,10 +765,11 @@ export const storage = {
     }
     return map;
   },
-  async createCommissionLineItems(orderId: string, items: Omit<InsertCommissionLineItem, "salesOrderId">[]) {
+  async createCommissionLineItems(orderId: string, items: Omit<InsertCommissionLineItem, "salesOrderId">[], txDb?: TxDb) {
+    const d = txDb ?? db;
     if (items.length === 0) return [];
     const itemsWithOrderId = items.map(item => ({ ...item, salesOrderId: orderId }));
-    return db.insert(commissionLineItems).values(itemsWithOrderId).returning();
+    return d.insert(commissionLineItems).values(itemsWithOrderId).returning();
   },
 
   // Mobile Line Items CRUD
@@ -776,8 +779,9 @@ export const storage = {
       orderBy: [mobileLineItems.lineNumber],
     });
   },
-  async createMobileLineItem(data: InsertMobileLineItem) {
-    const [item] = await db.insert(mobileLineItems).values(data).returning();
+  async createMobileLineItem(data: InsertMobileLineItem, txDb?: TxDb) {
+    const d = txDb ?? db;
+    const [item] = await d.insert(mobileLineItems).values(data).returning();
     return item;
   },
   async deleteMobileLineItemsByOrderId(orderId: string) {
@@ -817,8 +821,9 @@ export const storage = {
       where: eq(overrideDeductionPool.salesOrderId, orderId),
     });
   },
-  async createOverrideDeductionPoolEntry(data: InsertOverrideDeductionPool) {
-    const [entry] = await db.insert(overrideDeductionPool).values(data).returning();
+  async createOverrideDeductionPoolEntry(data: InsertOverrideDeductionPool, txDb?: TxDb) {
+    const d = txDb ?? db;
+    const [entry] = await d.insert(overrideDeductionPool).values(data).returning();
     return entry;
   },
   async markPoolEntriesDistributed(ids: string[], exportBatchId: string) {
@@ -893,14 +898,16 @@ export const storage = {
   async getOrderByInvoiceNumber(invoiceNumber: string) {
     return db.query.salesOrders.findFirst({ where: eq(salesOrders.invoiceNumber, invoiceNumber) });
   },
-  async createOrder(data: InsertSalesOrder) {
+  async createOrder(data: InsertSalesOrder, txDb?: TxDb) {
+    const d = txDb ?? db;
     const isMobile = data.isMobileOrder === true || data.mobileSold === true;
-    const invoiceNumber = await this.generateInvoiceNumber(isMobile);
-    const [order] = await db.insert(salesOrders).values({ ...data, invoiceNumber }).returning();
+    const invoiceNumber = await this.generateInvoiceNumber(isMobile, txDb);
+    const [order] = await d.insert(salesOrders).values({ ...data, invoiceNumber }).returning();
     return order;
   },
-  async updateOrder(id: string, data: Partial<SalesOrder>) {
-    const [order] = await db.update(salesOrders).set({ ...data, updatedAt: new Date() }).where(eq(salesOrders.id, id)).returning();
+  async updateOrder(id: string, data: Partial<SalesOrder>, txDb?: TxDb) {
+    const d = txDb ?? db;
+    const [order] = await d.update(salesOrders).set({ ...data, updatedAt: new Date() }).where(eq(salesOrders.id, id)).returning();
     return order;
   },
   async hardDeleteOrder(id: string) {
@@ -957,18 +964,19 @@ export const storage = {
   },
 
   // Invoice Numbering
-  async generateInvoiceNumber(isMobile: boolean = false): Promise<string> {
+  async generateInvoiceNumber(isMobile: boolean = false, txDb?: TxDb): Promise<string> {
+    const d = txDb ?? db;
     const key = "invoice_number";
     const year = new Date().getFullYear().toString().slice(-2);
     const month = (new Date().getMonth() + 1).toString().padStart(2, "0");
     
-    const existing = await db.query.counters.findFirst({ where: eq(counters.key, key) });
+    const existing = await d.query.counters.findFirst({ where: eq(counters.key, key) });
     let nextValue = 1;
     if (existing) {
       nextValue = existing.value + 1;
-      await db.update(counters).set({ value: nextValue }).where(eq(counters.key, key));
+      await d.update(counters).set({ value: nextValue }).where(eq(counters.key, key));
     } else {
-      await db.insert(counters).values({ key, value: nextValue });
+      await d.insert(counters).values({ key, value: nextValue });
     }
     const prefix = isMobile ? "MINV" : "INV";
     return `${prefix}-${month}${year}-${nextValue.toString().padStart(5, "0")}`;
@@ -1046,8 +1054,9 @@ export const storage = {
     const [payRun] = await db.insert(payRuns).values(data).returning();
     return payRun;
   },
-  async updatePayRun(id: string, data: Partial<PayRun>) {
-    const [payRun] = await db.update(payRuns).set(data).where(eq(payRuns.id, id)).returning();
+  async updatePayRun(id: string, data: Partial<PayRun>, txDb?: TxDb) {
+    const d = txDb ?? db;
+    const [payRun] = await d.update(payRuns).set(data).where(eq(payRuns.id, id)).returning();
     return payRun;
   },
   async linkOrdersToPayRun(orderIds: string[], payRunId: string) {
@@ -1140,8 +1149,9 @@ export const storage = {
   async getAuditLogs() {
     return db.query.auditLogs.findMany({ orderBy: [desc(auditLogs.createdAt)], limit: 500 });
   },
-  async createAuditLog(data: InsertAuditLog) {
-    const [log] = await db.insert(auditLogs).values(data).returning();
+  async createAuditLog(data: InsertAuditLog, txDb?: TxDb) {
+    const d = txDb ?? db;
+    const [log] = await d.insert(auditLogs).values(data).returning();
     return log;
   },
   async getAuditLogsByAction(action: string) {
@@ -1276,8 +1286,9 @@ export const storage = {
       orderBy: [desc(overrideEarnings.createdAt)] 
     });
   },
-  async createOverrideEarning(data: InsertOverrideEarning) {
-    const [earning] = await db.insert(overrideEarnings).values(data).returning();
+  async createOverrideEarning(data: InsertOverrideEarning, txDb?: TxDb) {
+    const d = txDb ?? db;
+    const [earning] = await d.insert(overrideEarnings).values(data).returning();
     return earning;
   },
   async updateOverrideEarningsPayRunId(orderIds: string[], payRunId: string | null) {
@@ -1310,9 +1321,10 @@ export const storage = {
       ))
       .returning();
   },
-  async markPoolEntriesDistributedByIds(poolEntryIds: string[], payRunId: string) {
+  async markPoolEntriesDistributedByIds(poolEntryIds: string[], payRunId: string, txDb?: TxDb) {
+    const d = txDb ?? db;
     if (poolEntryIds.length === 0) return [];
-    return db.update(overrideDeductionPool)
+    return d.update(overrideDeductionPool)
       .set({ 
         status: "DISTRIBUTED", 
         payRunId, 
@@ -1355,14 +1367,113 @@ export const storage = {
   async deleteOverrideDistributionsByPayRun(payRunId: string) {
     return db.delete(overrideDistributions).where(eq(overrideDistributions.payRunId, payRunId));
   },
-  async applyOverrideDistributions(payRunId: string) {
-    return db.update(overrideDistributions)
+  async applyOverrideDistributions(payRunId: string, txDb?: TxDb) {
+    const d = txDb ?? db;
+    return d.update(overrideDistributions)
       .set({ status: "APPLIED", appliedAt: new Date() })
       .where(and(
         eq(overrideDistributions.payRunId, payRunId),
         eq(overrideDistributions.status, "PENDING")
       ))
       .returning();
+  },
+
+  // Dashboard SQL Aggregations
+  async getDashboardStatsSQL(repId: string) {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+    const dow = now.getDay();
+    const weekStartDate = new Date(now);
+    weekStartDate.setDate(now.getDate() + (dow === 0 ? -6 : 1 - dow));
+    const weekStart = weekStartDate.toISOString().split("T")[0];
+    const today = now.toISOString().split("T")[0];
+
+    const [result] = await db.select({
+      earnedMTD: sql<string>`COALESCE(SUM(CASE WHEN ${salesOrders.paymentStatus} = 'PAID' AND ${salesOrders.createdAt} >= ${monthStart}::date THEN (${salesOrders.baseCommissionEarned}::numeric + ${salesOrders.incentiveEarned}::numeric) ELSE 0 END), 0)`,
+      paidMTD: sql<string>`COALESCE(SUM(CASE WHEN ${salesOrders.paidDate} >= ${monthStart} THEN ${salesOrders.commissionPaid}::numeric ELSE 0 END), 0)`,
+      paidWeek: sql<string>`COALESCE(SUM(CASE WHEN ${salesOrders.paidDate} >= ${weekStart} THEN ${salesOrders.commissionPaid}::numeric ELSE 0 END), 0)`,
+      pendingInstall: sql<number>`COUNT(CASE WHEN ${salesOrders.jobStatus} = 'PENDING' THEN 1 END)::int`,
+      todayInstalls: sql<number>`COUNT(CASE WHEN ${salesOrders.installDate} = ${today} THEN 1 END)::int`,
+    })
+    .from(salesOrders)
+    .where(eq(salesOrders.repId, repId));
+
+    const earned = parseFloat(result.earnedMTD);
+    const paid = parseFloat(result.paidMTD);
+    return {
+      earnedMTD: earned,
+      paidMTD: paid,
+      paidWeek: parseFloat(result.paidWeek),
+      chargebacksMTD: 0,
+      outstanding: earned - paid,
+      pendingInstall: result.pendingInstall,
+      todayInstalls: result.todayInstalls,
+    };
+  },
+
+  async getManagerStatsSQL(teamRepIds: string[]) {
+    if (teamRepIds.length === 0) return { teamEarnedMTD: 0, teamPaidMTD: 0, pendingInstalls: 0 };
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+
+    const [result] = await db.select({
+      teamEarnedMTD: sql<string>`COALESCE(SUM(CASE WHEN ${salesOrders.paymentStatus} = 'PAID' AND ${salesOrders.createdAt} >= ${monthStart}::date THEN (${salesOrders.baseCommissionEarned}::numeric + ${salesOrders.incentiveEarned}::numeric) ELSE 0 END), 0)`,
+      teamPaidMTD: sql<string>`COALESCE(SUM(CASE WHEN ${salesOrders.paidDate} >= ${monthStart} THEN ${salesOrders.commissionPaid}::numeric ELSE 0 END), 0)`,
+      pendingInstalls: sql<number>`COUNT(CASE WHEN ${salesOrders.jobStatus} = 'PENDING' THEN 1 END)::int`,
+    })
+    .from(salesOrders)
+    .where(inArray(salesOrders.repId, teamRepIds));
+
+    return {
+      teamEarnedMTD: parseFloat(result.teamEarnedMTD),
+      teamPaidMTD: parseFloat(result.teamPaidMTD),
+      pendingInstalls: result.pendingInstalls,
+    };
+  },
+
+  async getAdminStatsSQL() {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+
+    const [result] = await db.select({
+      totalEarnedMTD: sql<string>`COALESCE(SUM(CASE WHEN ${salesOrders.paymentStatus} = 'PAID' AND ${salesOrders.createdAt} >= ${monthStart}::date THEN (${salesOrders.baseCommissionEarned}::numeric + ${salesOrders.incentiveEarned}::numeric) ELSE 0 END), 0)`,
+      totalPaidMTD: sql<string>`COALESCE(SUM(CASE WHEN ${salesOrders.paidDate} >= ${monthStart} THEN ${salesOrders.commissionPaid}::numeric ELSE 0 END), 0)`,
+      pendingInstalls: sql<number>`COUNT(CASE WHEN ${salesOrders.jobStatus} = 'PENDING' THEN 1 END)::int`,
+    })
+    .from(salesOrders);
+
+    return {
+      totalEarnedMTD: parseFloat(result.totalEarnedMTD),
+      totalPaidMTD: parseFloat(result.totalPaidMTD),
+      pendingInstalls: result.pendingInstalls,
+    };
+  },
+
+  async getLeaderboardSQL(repIds: string[], startDate: string, endDate: string) {
+    const nextDay = new Date(endDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+    const endDateExclusive = nextDay.toISOString().split("T")[0];
+    
+    const results = await db.select({
+      repId: salesOrders.repId,
+      soldCount: sql<number>`COUNT(*)::int`,
+      connectsCount: sql<number>`COUNT(CASE WHEN ${salesOrders.jobStatus} = 'COMPLETED' THEN 1 END)::int`,
+      earnedDollars: sql<string>`COALESCE(SUM(CASE WHEN ${salesOrders.paymentStatus} = 'PAID' THEN (${salesOrders.baseCommissionEarned}::numeric + ${salesOrders.incentiveEarned}::numeric) ELSE 0 END), 0)`,
+    })
+    .from(salesOrders)
+    .where(and(
+      inArray(salesOrders.repId, repIds),
+      gte(salesOrders.dateSold, startDate),
+      sql`${salesOrders.dateSold} < ${endDateExclusive}`
+    ))
+    .groupBy(salesOrders.repId);
+
+    return results.map(r => ({
+      repId: r.repId,
+      soldCount: r.soldCount,
+      connectsCount: r.connectsCount,
+      earnedDollars: parseFloat(r.earnedDollars),
+    }));
   },
 
   // Hierarchy helpers
@@ -2914,12 +3025,14 @@ export const storage = {
     const results = await db.select().from(payStatements).where(eq(payStatements.id, id));
     return results[0] || null;
   },
-  async createPayStatement(data: InsertPayStatement) {
-    const [statement] = await db.insert(payStatements).values(data).returning();
+  async createPayStatement(data: InsertPayStatement, txDb?: TxDb) {
+    const d = txDb ?? db;
+    const [statement] = await d.insert(payStatements).values(data).returning();
     return statement;
   },
-  async updatePayStatement(id: string, data: Partial<PayStatement>) {
-    const [statement] = await db.update(payStatements)
+  async updatePayStatement(id: string, data: Partial<PayStatement>, txDb?: TxDb) {
+    const d = txDb ?? db;
+    const [statement] = await d.update(payStatements)
       .set({ ...data, updatedAt: new Date() })
       .where(eq(payStatements.id, id))
       .returning();
@@ -3016,7 +3129,8 @@ export const storage = {
       lte(payStatements.periodEnd, endOfYear),
       inArray(payStatements.status, ["ISSUED", "PAID"])
     ));
-    return results[0] || { ytdGross: 0, ytdDeductions: 0, ytdNet: 0, statementsCount: 0 };
+    const r = results[0] || { ytdGross: 0, ytdDeductions: 0, ytdNet: 0, statementsCount: 0 };
+    return { totalGross: String(r.ytdGross), totalDeductions: String(r.ytdDeductions), totalNetPay: String(r.ytdNet), statementsCount: r.statementsCount };
   },
 
   // ========== NEW PAYROLL FEATURES ==========

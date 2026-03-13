@@ -1,63 +1,3 @@
-        const teamMembers = await storage.getTeamMembers(manager.id);
-        const teamRepIds = [manager.repId, ...teamMembers.map(m => m.repId)];
-        const teamOrders = monthOrders.filter(o => teamRepIds.includes(o.repId));
-        
-        return {
-          managerId: manager.id,
-          managerName: manager.name,
-          teamSize: teamMembers.length,
-          totalSales: teamOrders.length,
-          connectedSales: teamOrders.filter(o => o.jobStatus === "COMPLETED").length,
-          pendingSales: teamOrders.filter(o => o.jobStatus === "PENDING").length,
-          pendingCommissions: teamOrders
-            .filter(o => o.jobStatus === "PENDING")
-            .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
-          connectedCommissions: teamOrders
-            .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
-            .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
-        };
-      }));
-
-      res.json({
-        period: { start: monthStartStr, end: now.toISOString().split('T')[0] },
-        companyTotals: {
-          totalSales,
-          connectedSales,
-          pendingSales,
-          pendingCommissions,
-          connectedCommissions,
-        },
-        serviceBreakdown: Object.entries(serviceBreakdown).map(([category, data]) => ({
-          category,
-          ...data,
-        })),
-        providerBreakdown: Object.values(providerBreakdown),
-        teamBreakdown,
-      });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Executive Reports - Rep Listing
-  app.get("/api/executive/rep-listing", auth, async (req: AuthRequest, res) => {
-    try {
-      const user = req.user!;
-      if (!["EXECUTIVE", "ADMIN", "OPERATIONS", "MANAGER"].includes(user.role)) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-      const allUsers = await storage.getUsers();
-      const allServices = await storage.getServices();
-      const allProviders = await storage.getProviders();
-
-      // Role-based order and rep scoping
-      let allOrders: any[] = [];
-      let scopedRepIds: string[] = [];
-      
       if (user.role === "ADMIN" || user.role === "OPERATIONS") {
         allOrders = await storage.getOrders({});
         scopedRepIds = allUsers.filter(u => ["REP", "LEAD"].includes(u.role) && u.status === "ACTIVE").map(u => u.repId);
@@ -3605,10 +3545,7 @@
             const updatedOrder = await storage.updateOrder(match.orderId, updates);
 
             if (updatedOrder && updates.approvalStatus === "APPROVED") {
-              const overrideEarnings = await generateOverrideEarnings(order, updatedOrder);
-              for (const earning of overrideEarnings) {
-                await storage.createOverrideEarning(earning);
-              }
+              await generateOverrideEarnings(order, updatedOrder);
               approvedOrders.push(updatedOrder);
               approvedCount++;
             } else if (updatedOrder) {

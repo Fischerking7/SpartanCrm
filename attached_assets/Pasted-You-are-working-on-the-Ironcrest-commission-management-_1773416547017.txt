@@ -1,0 +1,47 @@
+You are working on the Ironcrest commission management platform (Express.js + Drizzle ORM + PostgreSQL). 
+
+Please address the following issues in routes.ts and related files, in priority order:
+
+---
+
+1. WRAP MULTI-STEP DB OPERATIONS IN TRANSACTIONS
+In `createOrderWithCommission`, `generateOverrideEarnings`, and the pay run finalize endpoint, 
+wrap all related DB writes in a Drizzle transaction using `db.transaction(async (tx) => { ... })`. 
+Pass `tx` down to storage calls so a mid-operation failure rolls back cleanly instead of leaving 
+partial data.
+
+---
+
+2. FIX ORDER IMPORT TO CALCULATE COMMISSIONS
+In `POST /api/admin/orders/import`, replace the direct `storage.createOrder()` call with the 
+`createOrderWithCommission()` helper so imported orders get rate card matching and commission 
+calculation applied, consistent with manually entered orders.
+
+---
+
+3. MOVE DASHBOARD AGGREGATIONS TO THE DATABASE
+In the leaderboard endpoint and dashboard stats endpoints, replace the pattern of 
+`storage.getOrders({})` followed by in-memory `.filter()` and `.reduce()` with proper 
+server-side SQL aggregation queries using Drizzle's `sql`, `count()`, `sum()`, `gte`, and `lte`. 
+Filter by date range at the query level, not in application code.
+
+---
+
+4. DECOUPLE GEOLOCATION FROM LOGIN RESPONSE
+In `POST /api/auth/login`, move the GeoIP lookup (the two sequential `fetch()` calls to 
+ipapi.co and ip-api.com) into a fire-and-forget background function using 
+`setImmediate(() => { ... })` or a detached async call. The login response should return 
+immediately after the JWT is issued. Log any geo enrichment failures silently.
+
+---
+
+5. FIX DOUBLE-INSERT RISK IN generateOverrideEarnings
+After the early-return deduplication check, the approval route calls 
+`storage.createOverrideEarning(earning)` on returned values that may already be persisted records. 
+Refactor so `generateOverrideEarnings` only returns *newly created* earnings (created inside the 
+function), or change the approval route to not re-insert what the function already saved.
+
+---
+
+Make changes one section at a time. Do not refactor unrelated code. Preserve all existing 
+API contracts and response shapes.

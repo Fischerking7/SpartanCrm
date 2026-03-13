@@ -1,63 +1,3 @@
-        o.paymentStatus === "UNPAID" && 
-        !o.payRunId
-      );
-
-      if (payRun.weekEndingDate) {
-        const weekEnd = new Date(payRun.weekEndingDate);
-        weekEnd.setHours(23, 59, 59, 999);
-        const weekStart = new Date(payRun.weekEndingDate);
-        weekStart.setDate(weekStart.getDate() - 6);
-        weekStart.setHours(0, 0, 0, 0);
-        
-        eligible = eligible.filter(o => {
-          if (!o.approvedAt) return false;
-          const approvedAt = new Date(o.approvedAt);
-          return approvedAt >= weekStart && approvedAt <= weekEnd;
-        });
-      }
-
-      if (eligible.length === 0) {
-        return res.json({ linked: 0, message: "No eligible orders found for this pay period" });
-      }
-
-      const orderIds = eligible.map(o => o.id);
-      const orders = await storage.linkOrdersToPayRun(orderIds, req.params.id);
-      await storage.updateOverrideEarningsPayRunId(orderIds, req.params.id);
-
-      await storage.createAuditLog({ 
-        action: "link_all_orders_to_payrun", 
-        tableName: "pay_runs", 
-        recordId: req.params.id, 
-        afterJson: JSON.stringify({ count: orders.length }), 
-        userId: req.user!.id 
-      });
-      res.json({ linked: orders.length, message: `Linked ${orders.length} orders to pay run` });
-    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
-  });
-
-  app.post("/api/admin/payruns/:id/unlink-orders", auth, adminOnly, async (req: AuthRequest, res) => {
-    try {
-      const { orderIds } = req.body;
-      if (!orderIds?.length) return res.status(400).json({ message: "No orders to unlink" });
-      
-      const payRun = await storage.getPayRunById(req.params.id);
-      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
-      if (payRun.status === "FINALIZED") return res.status(400).json({ message: "Cannot unlink from finalized pay runs" });
-      
-      // Unlink specified orders using storage method
-      await storage.unlinkSpecificOrders(orderIds);
-      
-      // Also unlink override earnings for these orders
-      await storage.updateOverrideEarningsPayRunId(orderIds, null);
-      
-      await storage.createAuditLog({ 
-        action: "unlink_orders_from_payrun", 
-        tableName: "pay_runs", 
-        recordId: req.params.id, 
-        afterJson: JSON.stringify({ orderIds }), 
-        userId: req.user!.id 
-      });
-      res.json({ unlinked: orderIds.length });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
@@ -3498,3 +3438,63 @@
         const sold = teamOrders.length;
         const connected = teamOrders.filter(o => o.jobStatus === "COMPLETED").length;
         const mobileLines = teamOrders.reduce((sum, o) => sum + (o.mobileLinesQty || 0), 0);
+        
+        const pendingDollars = teamOrders
+          .filter(o => o.jobStatus === "PENDING")
+          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        
+        const connectedDollars = teamOrders
+          .filter(o => o.jobStatus === "COMPLETED")
+          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        
+        teamData.push({
+          leaderId: leader.id,
+          leaderName: leader.name,
+          leaderRepId: leader.repId,
+          role: leader.role,
+          sold,
+          connected,
+          mobileLines,
+          pendingDollars,
+          connectedDollars,
+          teamSize: teamRepIds.length,
+        });
+      }
+      
+      // Sort by role hierarchy then by sold
+      const roleOrder = { EXECUTIVE: 0, MANAGER: 1, LEAD: 2 };
+      teamData.sort((a, b) => {
+        const roleCompare = (roleOrder[a.role as keyof typeof roleOrder] || 3) - (roleOrder[b.role as keyof typeof roleOrder] || 3);
+        if (roleCompare !== 0) return roleCompare;
+        return b.sold - a.sold;
+      });
+      
+      const totals = teamData.reduce((acc, team) => ({
+        totalSold: acc.totalSold + team.sold,
+        totalConnected: acc.totalConnected + team.connected,
+        totalMobileLines: acc.totalMobileLines + team.mobileLines,
+        totalPendingDollars: acc.totalPendingDollars + team.pendingDollars,
+        totalConnectedDollars: acc.totalConnectedDollars + team.connectedDollars,
+      }), { totalSold: 0, totalConnected: 0, totalMobileLines: 0, totalPendingDollars: 0, totalConnectedDollars: 0 });
+      
+      res.json({ data: teamData, totals });
+    } catch (error) {
+      console.error("Team production error:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Detailed Rep Leaderboard - All users can view (company-wide visibility)
+  app.get("/api/reports/rep-leaderboard", auth, async (req: AuthRequest, res) => {
+    try {
+      const { period = "this_month", startDate, endDate } = req.query;
+      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
+      const user = req.user!;
+      
+      const allOrders = await storage.getOrders({});
+      const allUsers = await storage.getUsers();
+      
+      // Show all reps to all authenticated users
+      const scopedRepIds = allUsers
+        .filter(u => !u.deletedAt && ["REP", "LEAD", "MANAGER", "EXECUTIVE"].includes(u.role))
+        .map(u => u.repId);

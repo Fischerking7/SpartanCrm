@@ -1,63 +1,3 @@
-        
-        const pendingDollars = teamOrders
-          .filter(o => o.jobStatus === "PENDING")
-          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
-        
-        const connectedDollars = teamOrders
-          .filter(o => o.jobStatus === "COMPLETED")
-          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
-        
-        teamData.push({
-          leaderId: leader.id,
-          leaderName: leader.name,
-          leaderRepId: leader.repId,
-          role: leader.role,
-          sold,
-          connected,
-          mobileLines,
-          pendingDollars,
-          connectedDollars,
-          teamSize: teamRepIds.length,
-        });
-      }
-      
-      // Sort by role hierarchy then by sold
-      const roleOrder = { EXECUTIVE: 0, MANAGER: 1, LEAD: 2 };
-      teamData.sort((a, b) => {
-        const roleCompare = (roleOrder[a.role as keyof typeof roleOrder] || 3) - (roleOrder[b.role as keyof typeof roleOrder] || 3);
-        if (roleCompare !== 0) return roleCompare;
-        return b.sold - a.sold;
-      });
-      
-      const totals = teamData.reduce((acc, team) => ({
-        totalSold: acc.totalSold + team.sold,
-        totalConnected: acc.totalConnected + team.connected,
-        totalMobileLines: acc.totalMobileLines + team.mobileLines,
-        totalPendingDollars: acc.totalPendingDollars + team.pendingDollars,
-        totalConnectedDollars: acc.totalConnectedDollars + team.connectedDollars,
-      }), { totalSold: 0, totalConnected: 0, totalMobileLines: 0, totalPendingDollars: 0, totalConnectedDollars: 0 });
-      
-      res.json({ data: teamData, totals });
-    } catch (error) {
-      console.error("Team production error:", error);
-      res.status(500).json({ message: "Failed to generate report" });
-    }
-  });
-
-  // Detailed Rep Leaderboard - All users can view (company-wide visibility)
-  app.get("/api/reports/rep-leaderboard", auth, async (req: AuthRequest, res) => {
-    try {
-      const { period = "this_month", startDate, endDate } = req.query;
-      const { start, end } = getDateRange(period as string, startDate as string, endDate as string);
-      const user = req.user!;
-      
-      const allOrders = await storage.getOrders({});
-      const allUsers = await storage.getUsers();
-      
-      // Show all reps to all authenticated users
-      const scopedRepIds = allUsers
-        .filter(u => !u.deletedAt && ["REP", "LEAD", "MANAGER", "EXECUTIVE"].includes(u.role))
-        .map(u => u.repId);
       const scopeDescription = "All Reps";
       
       // Filter orders by date range AND scope
@@ -3498,3 +3438,63 @@
       const managers = allUsers.filter(u => u.role === "MANAGER" && u.status === "ACTIVE");
       
       const teamBreakdown = await Promise.all(managers.map(async (manager) => {
+        const teamMembers = await storage.getTeamMembers(manager.id);
+        const teamRepIds = [manager.repId, ...teamMembers.map(m => m.repId)];
+        const teamOrders = monthOrders.filter(o => teamRepIds.includes(o.repId));
+        
+        return {
+          managerId: manager.id,
+          managerName: manager.name,
+          teamSize: teamMembers.length,
+          totalSales: teamOrders.length,
+          connectedSales: teamOrders.filter(o => o.jobStatus === "COMPLETED").length,
+          pendingSales: teamOrders.filter(o => o.jobStatus === "PENDING").length,
+          pendingCommissions: teamOrders
+            .filter(o => o.jobStatus === "PENDING")
+            .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
+          connectedCommissions: teamOrders
+            .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
+            .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
+        };
+      }));
+
+      res.json({
+        period: { start: monthStartStr, end: now.toISOString().split('T')[0] },
+        companyTotals: {
+          totalSales,
+          connectedSales,
+          pendingSales,
+          pendingCommissions,
+          connectedCommissions,
+        },
+        serviceBreakdown: Object.entries(serviceBreakdown).map(([category, data]) => ({
+          category,
+          ...data,
+        })),
+        providerBreakdown: Object.values(providerBreakdown),
+        teamBreakdown,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Executive Reports - Rep Listing
+  app.get("/api/executive/rep-listing", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["EXECUTIVE", "ADMIN", "OPERATIONS", "MANAGER"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const allUsers = await storage.getUsers();
+      const allServices = await storage.getServices();
+      const allProviders = await storage.getProviders();
+
+      // Role-based order and rep scoping
+      let allOrders: any[] = [];
+      let scopedRepIds: string[] = [];
+      
