@@ -21,22 +21,23 @@ Preferred communication style: Simple, everyday language.
 The application uses a monorepo structure with `client/` for the React frontend, `server/` for the Express backend API, `shared/` for common TypeScript types and Drizzle schema, and `migrations/` for database migration files.
 
 ### Core Architectural Decisions
-- **Role-Based Access Control**: Implements seven distinct user roles (REP, MDU, LEAD, MANAGER, EXECUTIVE, ADMIN, OPERATIONS) with granular permissions and data isolation. An EXECUTIVE view mode toggle allows different data visibility levels (My Sales, My Team, Global).
+- **Role-Based Access Control**: Implements eight distinct user roles (REP, MDU, LEAD, MANAGER, EXECUTIVE, ADMIN, OPERATIONS, ACCOUNTING) with granular permissions and data isolation. An EXECUTIVE view mode toggle allows different data visibility levels (My Sales, My Team, Global).
 - **Commission Management**:
   - Distinguishes between Earned and Paid Commissions, and handles Chargebacks as separate negative entries.
   - Enforces immutability for approved order fields, with formal Adjustments required for changes.
   - Supports role-based override amounts via `rate_card_role_overrides` for flexible net commission calculations.
-- **Iron Crest Commission Extension**: Full compensation plan with role-tiered payouts and dynamic profit tracking:
-  - **Rate Card Fields**: `ironCrestRackRateCents` (carrier pay/rack rate), `ironCrestProfitBaseCents` (profit when REP sells), `directorOverrideCents` (EXECUTIVE upline override), `adminOverrideCents` (OPERATIONS/ADMIN upline override)
-  - **Sales Order Fields**: `repRoleAtSale` (role captured at approval time), `ironCrestRackRateCents`, `ironCrestProfitCents` (dynamic, computed as rackRate - repPayout - directorOverride - adminOverride), `directorOverrideCents`, `adminOverrideCents`
-  - **Accounting Identity**: Iron Crest Rack Rate = Rep Payout + Director Override + Admin Override + Iron Crest Profit
+- **Iron Crest Commission Extension**: Full compensation plan with role-tiered payouts, four override tiers, and dynamic profit tracking:
+  - **Rate Card Fields**: `ironCrestRackRateCents` (carrier pay/rack rate), `ironCrestProfitBaseCents` (profit when REP sells), `directorOverrideCents` (EXECUTIVE upline override), `adminOverrideCents` (OPERATIONS/ADMIN upline override), `accountingOverrideCents` (ACCOUNTING role override)
+  - **Sales Order Fields**: `repRoleAtSale` (role captured at approval time), `ironCrestRackRateCents`, `ironCrestProfitCents` (dynamic), `directorOverrideCents`, `adminOverrideCents`, `accountingOverrideCents`
+  - **Accounting Identity**: Iron Crest Rack Rate = Rep Payout + Director Override + Admin Override + Accounting Override + Iron Crest Profit
   - **Dynamic Profit**: Profit varies by who sold the order (REP/LEAD/MANAGER get different payouts from role-tiered rate cards)
   - **Profit Flooring**: If computed profit goes negative, logs a CONFLICT_RATE rate issue and floors at $0
-  - **Override Earnings**: Director overrides (AUTO_APPROVED) and Admin overrides (PENDING_APPROVAL with self-approval guard). $0 overrides skip record creation.
-  - **Override Approval Workflow**: `approvalStatus` (AUTO_APPROVED, PENDING_APPROVAL, APPROVED, REJECTED) with audit trail. Only APPROVED/AUTO_APPROVED earnings link to pay runs.
-  - **Commission Breakdown API**: `GET /api/orders/:id/commission-breakdown` returns repRole, repPayout, directorOverride, adminOverride, rackRate, ironCrestProfit, profitMarginPercent, bundleComponents
-  - **Profit Report**: `GET /api/admin/reports/iron-crest-profit` with date range filtering
-  - **Seed Endpoint**: `POST /api/admin/seed-iron-crest-rate-cards` for idempotent rate card seeding
+  - **Override Earnings**: Three Iron Crest override types — DIRECTOR_OVERRIDE (to hierarchy executive), ADMIN_OVERRIDE (to OPERATIONS/ADMIN user), ACCOUNTING_OVERRIDE (split evenly among all active ACCOUNTING users). All start as PENDING_APPROVAL. $0 overrides skip record creation. Missing ACCOUNTING recipients log MISSING_ACCOUNTING_RECIPIENT rate issue.
+  - **Override Approval Workflow**: `approvalStatus` (PENDING_APPROVAL, APPROVED, REJECTED, VOIDED) with audit trail. Only APPROVED earnings link to pay runs. Role-specific approval: EXECUTIVE approves DIRECTOR_OVERRIDE and ACCOUNTING_OVERRIDE; OPERATIONS approves ADMIN_OVERRIDE and ACCOUNTING_OVERRIDE. Self-approval guard prevents approving own overrides. In-app notifications on creation (to approvers) and on approve/reject (to recipient).
+  - **Override Approval Endpoints**: `GET /api/admin/override-earnings/pending` (enriched with order data, filterable by overrideType/recipientUserId/orderId), `GET /api/admin/override-earnings/pending/count`, `POST .../approve`, `POST .../reject`, `POST .../bulk-approve`, `POST .../bulk-reject` — all restricted to EXECUTIVE and OPERATIONS roles.
+  - **Commission Breakdown API**: `GET /api/orders/:id/commission-breakdown` returns repRole, repPayout, directorOverride, adminOverride, accountingOverride, rackRate, ironCrestProfit, profitMarginPercent, bundleComponents
+  - **Profit Report**: `GET /api/admin/reports/iron-crest-profit` with date range filtering, includes totalAccountingOverride
+  - **Seed Endpoint**: `POST /api/admin/seed-iron-crest-rate-cards` for idempotent rate card seeding (supports accountingOverrideCents)
 - **Payroll System**: Comprehensive system managing pay statements, deductions, advances, year-to-date tracking, and a multi-stage pay run approval workflow (DRAFT, PENDING_REVIEW, PENDING_APPROVAL, APPROVED, FINALIZED).
 - **Manual Override Distribution System**: Allows flexible distribution of override-eligible amounts from a central pool.
 - **Knowledge Database**: Central repository for categorized reference documents with role-based permissions.

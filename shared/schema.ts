@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums
-export const userRoleEnum = pgEnum("user_role", ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"]);
+export const userRoleEnum = pgEnum("user_role", ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS", "ACCOUNTING"]);
 export const userStatusEnum = pgEnum("user_status", ["ACTIVE", "DEACTIVATED"]);
 export const jobStatusEnum = pgEnum("job_status", ["PENDING", "COMPLETED", "CANCELED"]);
 export const approvalStatusEnum = pgEnum("approval_status", ["UNAPPROVED", "APPROVED", "REJECTED"]);
@@ -19,7 +19,7 @@ export const chargebackReasonEnum = pgEnum("chargeback_reason", ["CANCELLATION",
 export const adjustmentTypeEnum = pgEnum("adjustment_type", ["BONUS", "CORRECTION", "PENALTY", "ADVANCE", "CLAWBACK", "OTHER"]);
 export const payeeTypeEnum = pgEnum("payee_type", ["REP", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN"]);
 export const payRunStatusEnum = pgEnum("payrun_status", ["DRAFT", "PENDING_REVIEW", "PENDING_APPROVAL", "APPROVED", "FINALIZED"]);
-export const rateIssueTypeEnum = pgEnum("rate_issue_type", ["MISSING_RATE", "CONFLICT_RATE"]);
+export const rateIssueTypeEnum = pgEnum("rate_issue_type", ["MISSING_RATE", "CONFLICT_RATE", "MISSING_ACCOUNTING_RECIPIENT"]);
 export const sourceLevelEnum = pgEnum("source_level", ["REP", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "ACCOUNTING"]);
 export const mobileProductTypeEnum = pgEnum("mobile_product_type", ["UNLIMITED", "3_GIG", "1_GIG", "BYOD", "OTHER"]);
 export const mobilePortedStatusEnum = pgEnum("mobile_ported_status", ["PORTED", "NON_PORTED"]);
@@ -126,6 +126,7 @@ export const rateCards = pgTable("rate_cards", {
   ironCrestProfitBaseCents: integer("iron_crest_profit_base_cents"),
   directorOverrideCents: integer("director_override_cents"),
   adminOverrideCents: integer("admin_override_cents"),
+  accountingOverrideCents: integer("accounting_override_cents"),
   effectiveStart: date("effective_start").notNull(),
   effectiveEnd: date("effective_end"),
   active: boolean("active").notNull().default(true),
@@ -272,6 +273,7 @@ export const salesOrders = pgTable("sales_orders", {
   ironCrestProfitCents: integer("iron_crest_profit_cents"),
   directorOverrideCents: integer("director_override_cents"),
   adminOverrideCents: integer("admin_override_cents"),
+  accountingOverrideCents: integer("accounting_override_cents"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -420,7 +422,7 @@ export const overrideEarnings = pgTable("override_earnings", {
   overrideAgreementId: varchar("override_agreement_id").references(() => overrideAgreements.id),
   payRunId: varchar("pay_run_id").references(() => payRuns.id),
   overrideType: text("override_type").default("STANDARD"),
-  approvalStatus: text("approval_status").default("AUTO_APPROVED"),
+  approvalStatus: text("approval_status").default("PENDING_APPROVAL"),
   approvedByUserId: varchar("approved_by_user_id").references(() => users.id),
   approvedAt: timestamp("approved_at"),
   rejectedByUserId: varchar("rejected_by_user_id").references(() => users.id),
@@ -1593,7 +1595,10 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "PENDING_APPROVAL_ALERT",
   "LOW_PERFORMANCE_WARNING",
   "MDU_ORDER_SUBMITTED",
-  "GENERAL"
+  "GENERAL",
+  "OVERRIDE_PENDING_APPROVAL",
+  "OVERRIDE_APPROVED",
+  "OVERRIDE_REJECTED"
 ]);
 
 export const notificationStatusEnum = pgEnum("notification_status", [

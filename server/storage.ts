@@ -1303,7 +1303,7 @@ export const storage = {
       .set({ payRunId })
       .where(and(
         inArray(overrideEarnings.salesOrderId, orderIds),
-        inArray(overrideEarnings.approvalStatus, ["AUTO_APPROVED", "APPROVED"])
+        eq(overrideEarnings.approvalStatus, "APPROVED")
       ))
       .returning();
   },
@@ -1316,9 +1316,13 @@ export const storage = {
       ),
     });
   },
-  async getPendingOverrideEarnings() {
+  async getPendingOverrideEarnings(filters?: { overrideType?: string; recipientUserId?: string; orderId?: string }) {
+    const conditions = [eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL")];
+    if (filters?.overrideType) conditions.push(eq(overrideEarnings.overrideType, filters.overrideType));
+    if (filters?.recipientUserId) conditions.push(eq(overrideEarnings.recipientUserId, filters.recipientUserId));
+    if (filters?.orderId) conditions.push(eq(overrideEarnings.salesOrderId, filters.orderId));
     return db.query.overrideEarnings.findMany({
-      where: eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL"),
+      where: and(...conditions),
       orderBy: [desc(overrideEarnings.createdAt)],
     });
   },

@@ -1,0 +1,822 @@
+Using the existing payroll, AR, finance import, commission, and override 
+infrastructure, implement a complete end-to-end automated payroll and 
+accounting system for Iron Crest. The goal is a single coherent flow:
+
+  Carrier pays Iron Crest (AR)
+    → AR satisfies order
+      → Order becomes payroll-ready
+        → Pay run collects payroll-ready orders
+          → Pay stubs generated per rep
+            → Pay stubs finalized and locked
+              → ACH/payment export generated
+                → Accounting reconciliation confirmed
+
+Do not rebuild existing infrastructure. Bridge the gaps between 
+existing systems and automate the handoffs between each stage.
+
+===================================================================
+SECTION 1 — PAYROLL READINESS GATE
+===================================================================
+
+### CONCEPT
+An order is "payroll-ready" when Iron Crest has confirmed it has 
+received payment from the carrier for that order. This is determined 
+by the AR system. Currently AR satisfaction updates order paymentStatus 
+but does not formally signal payroll readiness.
+
+### TASK 1A — Add payrollReadyAt field to salesOrders
+
+Add to salesOrders table (Drizzle migration):
+  - payrollReadyAt: timestamp nullable
+  - payrollReadyTriggeredBy: varchar(20) nullable
+    Values: 'AR_SATISFIED' | 'MANUAL_OVERRIDE' | 'AUTO_IMPORT'
+  - payrollHoldReason: text nullable
+    (populated when an order should be excluded from payroll 
+    despite being approved — e.g. disputed, under review)
+  - isPayrollHeld: boolean default false
+
+### TASK 1B — Trigger payrollReadyAt automatically
+
+In the following locations, when an order transitions to a state 
+where Iron Crest has confirmed carrier payment, set payrollReadyAt:
+
+LOCATION 1: AR payment recording (POST /api/finance/ar/:id/payments)
+  When newStatus becomes 'SATISFIED':
+    await storage.updateOrder(ar.orderId, {
+      payrollReadyAt: new Date(),
+      payrollReadyTriggeredBy: 'AR_SATISFIED',
+    });
+
+LOCATION 2: Finance import posting (POST /api/finance/imports/:id/post)
+  When arStatus is set to 'SATISFIED' during the post operation:
+    include payrollReadyAt: new Date() and 
+    payrollReadyTriggeredBy: 'AUTO_IMPORT' in the order update
+
+LOCATION 3: Manual override endpoint (new)
+  POST /api/admin/orders/:id/payroll-ready
+  Access: ADMIN and OPERATIONS only
+  Body: { reason: string }
+  Sets payrollReadyAt, payrollReadyTriggeredBy = 'MANUAL_OVERRIDE',
+  creates audit log entry: 'ORDER_PAYROLL_READY_MANUAL'
+  Use case: carrier confirmed payment outside the AR system
+
+LOCATION 4: Payroll hold endpoint (new)
+  POST /api/admin/orders/:id/payroll-hold
+  Access: ADMIN and OPERATIONS only
+  Body: { reason: string }
+  Sets isPayrollHeld = true, payrollHoldReason = reason
+  Creates audit log: 'ORDER_PAYROLL_HELD'
+
+  POST /api/admin/orders/:id/payroll-release
+  Access: ADMIN and OPERATIONS only
+  Clears isPayrollHeld, clears payrollHoldReason
+  Creates audit log: 'ORDER_PAYROLL_RELEASED'
+
+### TASK 1C — Payroll readiness query
+
+Add storage method:
+  async getPayrollReadyOrders(filters?: {
+    repId?: string,
+    teamRepIds?: string[],
+    serviceId?: string,
+    providerId?: string,
+    readyAfter?: string,
+    readyBefore?: string,
+    excludePayRunId?: string,
+  }): Promise<SalesOrder[]>
+
+  Returns orders where:
+    payrollReadyAt IS NOT NULL
+    AND isPayrollHeld = false
+    AND approvalStatus = 'APPROVED'
+    AND jobStatus = 'COMPLETED'
+    AND paymentStatus != 'PAID'
+    AND payRunId IS NULL (not already in a pay run)
+
+This method becomes the SINGLE source of truth for what enters 
+a pay run. Replace any existing pay run order collection logic 
+with calls to this method.
+
+===================================================================
+SECTION 2 — AUTOMATED PAY RUN BUILDER
+===================================================================
+
+### TASK 2A — Pay run auto-builder endpoint
+
+POST /api/admin/pay-runs/auto-build
+Access: ADMIN and OPERATIONS only
+
+Request body:
+  {
+    name: string,
+    periodStart: string,        // YYYY-MM-DD
+    periodEnd: string,          // YYYY-MM-DD
+    repIds?: string[],          // optional — limit to specific reps
+    includeOverrides: boolean,  // default true
+    dryRun: boolean,            // if true, return preview without saving
+  }
+
+Actions:
+  1. Call getPayrollReadyOrders with the provided filters
+  2. Group orders by repId
+  3. For each rep, calculate:
+     a. All payroll-ready orders in the period
+     b. All APPROVED override earnings with payRunId IS NULL
+        for orders owned by this rep's upline recipients
+        Wait — overrides go to RECIPIENTS not the rep who sold.
+        Collect override earnings WHERE recipientUserId = upline user
+        AND approvalStatus = 'APPROVED' AND payRunId IS NULL
+     c. All active approved advances for the rep (for repayment)
+     d. All active user deductions for the rep
+     e. All approved bonuses/SPIFFs for the rep with payRunId IS NULL
+  4. For each rep, compute pay statement totals:
+     grossCommission: sum of baseCommissionEarned for their orders
+     incentivesTotal: sum of incentiveEarned
+     overrideEarningsTotal: sum of override earnings where 
+                            recipientUserId = this rep's userId
+     bonusesTotal: sum of approved bonuses
+     chargebacksTotal: sum of active chargebacks
+     deductionsTotal: sum of active user deductions
+     advancesApplied: advance repayment amount due this period
+     taxWithheld: calculated from userTaxProfile if exists
+     netPay: grossCommission + incentivesTotal + overrideEarningsTotal 
+             + bonusesTotal - chargebacksTotal - deductionsTotal 
+             - advancesApplied - taxWithheld
+
+  5. If dryRun = true: return preview without writing to DB
+  6. If dryRun = false:
+     a. Create a PayRun record
+     b. Link all qualifying orders to the pay run
+     c. Generate pay statements (see Section 3)
+     d. Link override earnings to the pay run
+     e. Return the created pay run with summary
+
+### TASK 2B — Pay run preview endpoint
+
+GET /api/admin/pay-runs/preview
+Access: ADMIN and OPERATIONS only
+
+Query params: periodStart, periodEnd, repIds (comma-separated)
+
+Returns the same structure as auto-build dryRun=true without 
+requiring a POST. Used for the accounting team to review before 
+committing. Include:
+  {
+    periodStart, periodEnd,
+    totalReps: number,
+    totalOrders: number,
+    totalGrossCommission: number,
+    totalOverridePayouts: number,
+    totalDeductions: number,
+    totalNetPay: number,
+    totalIronCrestProfit: number,
+    byRep: Array<RepPayPreview>
+  }
+
+### TASK 2C — Scheduled pay run automation
+
+Extend the existing scheduledPayRuns and scheduler infrastructure.
+When a scheduled pay run triggers (existing scheduler.checkScheduledPayRuns):
+
+  Instead of just creating an empty pay run, call the auto-build 
+  logic with:
+    - periodStart/periodEnd from the schedule
+    - includeOverrides: true
+    - dryRun: false
+    - All active reps in scope
+
+  After auto-build:
+    1. Send notification to all ADMIN and OPERATIONS users:
+       "Scheduled pay run '{name}' has been auto-built with 
+       {repCount} reps and ${totalNetPay} total net pay. 
+       Please review and finalize."
+    2. Set pay run status to 'DRAFT' (not FINALIZED — requires 
+       human review before locking)
+
+===================================================================
+SECTION 3 — PAY STUB GENERATION
+===================================================================
+
+### TASK 3A — Pay stub data structure
+
+The existing payStatements and payStatementLineItems tables are 
+the foundation. Extend them:
+
+Add to payStatements table (Drizzle migration):
+  - repName: varchar nullable (denormalized for stub rendering)
+  - repId: varchar nullable (the repId string like 'NJS001')
+  - repRole: varchar nullable
+  - repEmail: varchar nullable
+  - repAddress: text nullable
+  - companyName: varchar default 'Iron Crest'
+  - companyAddress: text nullable
+  - stubNumber: varchar nullable (formatted: STUB-YYYYMM-{repId}-{seq})
+  - totalOrders: integer default 0
+  - totalConnects: integer default 0
+  - totalMobileLines: integer default 0
+  - paymentMethod: varchar nullable
+  - checkNumber: varchar nullable
+  - isViewableByRep: boolean default false
+    (false until finalized — reps cannot see draft stubs)
+
+Add to payStatementLineItems table (Drizzle migration):
+  - salesOrderId: varchar nullable references salesOrders(id)
+  - invoiceNumber: varchar nullable (denormalized for stub display)
+  - customerName: varchar nullable (denormalized)
+  - dateSold: varchar nullable (denormalized)
+  - serviceDescription: varchar nullable (denormalized)
+  - providerName: varchar nullable (denormalized)
+  - installDate: varchar nullable (denormalized)
+  - repRoleAtSale: varchar nullable
+
+### TASK 3B — Pay stub generator service
+
+Create a new file: server/payStubGenerator.ts
+
+Export a single function:
+  async function generatePayStub(
+    payRunId: string,
+    userId: string,
+    txDb?: TxDb
+  ): Promise<PayStatement>
+
+This function:
+
+STEP 1 — Load all data for this rep in this pay run:
+  const rep = await storage.getUserById(userId)
+  const orders = await storage.getOrdersByPayRunId(payRunId) 
+    filtered to orders where repId = rep.repId
+  const overrideEarnings = await storage.getOverrideEarningsByPayRun(
+    payRunId, userId)  // where recipientUserId = userId
+  const chargebacks = await storage.getChargebacksByPayRun(payRunId)
+    filtered to this rep
+  const deductions = await storage.getActiveUserDeductions(userId)
+  const advances = await storage.getActiveAdvancesForUser(userId)
+  const taxProfile = await storage.getUserTaxProfile(userId)
+  const bonuses = await storage.getPendingBonusesForPayRun(periodEnd)
+    filtered to this rep
+  const payRun = await storage.getPayRunById(payRunId)
+
+STEP 2 — Generate stub number:
+  const stubSeq = await storage.getNextStubSequence(payRunId)
+  const stubNumber = `STUB-${periodYYYYMM}-${rep.repId}-${stubSeq.toString().padStart(3,'0')}`
+
+STEP 3 — Calculate totals:
+  Group orders by service type for the breakdown section.
+  For each order, capture: invoiceNumber, customerName, dateSold,
+  serviceDescription, providerName, installDate, baseCommissionEarned,
+  incentiveEarned, overrideDeduction, repRoleAtSale
+
+  grossCommission = sum of baseCommissionEarned across all rep's orders
+  incentivesTotal = sum of incentiveEarned
+  overrideEarningsTotal = sum of override earning amounts
+  bonusesTotal = sum of bonus amounts
+  chargebacksTotal = sum of chargeback amounts (stored as positive, 
+                     subtracted in netPay calc)
+  deductionsTotal = sum of deduction amounts
+  
+  advancesApplied = calculate repayment amount:
+    For each active advance in REPAYING status:
+      repaymentAmount = min(advance.remainingBalance, 
+                           advance.repaymentAmountPerPeriod)
+    advancesApplied = sum of all repaymentAmounts
+  
+  taxWithheld = 0 (default — calculate if taxProfile.withholding exists)
+  
+  netPay = grossCommission + incentivesTotal + overrideEarningsTotal 
+           + bonusesTotal - chargebacksTotal - deductionsTotal 
+           - advancesApplied - taxWithheld
+
+STEP 4 — Create the PayStatement record:
+  await storage.createPayStatement({
+    payRunId,
+    userId,
+    repName: rep.name,
+    repId: rep.repId,
+    repRole: rep.role,
+    repEmail: rep.email,
+    stubNumber,
+    periodStart: payRun.periodStart,
+    periodEnd: payRun.periodEnd,
+    grossCommission: grossCommission.toFixed(2),
+    incentivesTotal: incentivesTotal.toFixed(2),
+    overrideEarningsTotal: overrideEarningsTotal.toFixed(2),
+    bonusesTotal: bonusesTotal.toFixed(2),
+    chargebacksTotal: chargebacksTotal.toFixed(2),
+    deductionsTotal: deductionsTotal.toFixed(2),
+    advancesApplied: advancesApplied.toFixed(2),
+    taxWithheld: taxWithheld.toFixed(2),
+    netPay: netPay.toFixed(2),
+    totalOrders: orders.length,
+    totalConnects: orders.filter(o => o.jobStatus === 'COMPLETED').length,
+    totalMobileLines: orders.reduce((s,o) => s + (o.mobileLinesQty||0), 0),
+    status: 'DRAFT',
+    isViewableByRep: false,
+    companyName: 'Iron Crest',
+  }, txDb)
+
+STEP 5 — Create line items (one per order):
+  For each order in rep's orders:
+    await storage.createPayStatementLineItem({
+      payStatementId: statement.id,
+      category: 'Commission',
+      description: `${serviceDescription} - ${customerName}`,
+      sourceType: 'sales_order',
+      sourceId: order.id,
+      salesOrderId: order.id,
+      invoiceNumber: order.invoiceNumber,
+      customerName: order.customerName,
+      dateSold: order.dateSold,
+      serviceDescription: serviceName,
+      providerName: providerName,
+      installDate: order.installDate,
+      repRoleAtSale: order.repRoleAtSale,
+      quantity: 1,
+      rate: order.baseCommissionEarned,
+      amount: order.baseCommissionEarned,
+    })
+
+  For each override earning:
+    await storage.createPayStatementLineItem({
+      payStatementId: statement.id,
+      category: 'Override',
+      description: `${overrideEarning.overrideType} - ${orderInvoiceNumber}`,
+      sourceType: 'override_earning',
+      sourceId: overrideEarning.id,
+      salesOrderId: overrideEarning.salesOrderId,
+      invoiceNumber: linkedOrder.invoiceNumber,
+      customerName: linkedOrder.customerName,
+      dateSold: linkedOrder.dateSold,
+      amount: overrideEarning.amount,
+    })
+
+  For each chargeback:
+    Create line item with category: 'Chargeback', 
+    amount: negative value
+
+  For each deduction:
+    Create line item with category: 'Deduction',
+    amount: negative value
+
+  For each bonus:
+    Create line item with category: 'Bonus',
+    link bonus to pay run via storage.linkBonusToPayRun()
+
+  For each advance repayment:
+    Create line item with category: 'Advance Repayment',
+    amount: negative repaymentAmount
+    Call storage.createAdvanceRepayment() to record it
+
+STEP 6 — Return the complete statement
+
+### TASK 3C — Batch pay stub generation endpoint
+
+POST /api/admin/pay-runs/:id/generate-stubs
+Access: ADMIN and OPERATIONS only
+
+Actions:
+  1. Verify pay run exists and status is 'DRAFT' or 'OPEN'
+  2. Get all unique repIds from orders linked to this pay run
+  3. Get all unique recipientUserIds from override earnings 
+     linked to this pay run
+  4. Combine into unique set of userIds
+  5. For each userId, call generatePayStub() in a transaction
+  6. Return:
+     {
+       generated: number,
+       failed: number,
+       failedUserIds: string[],
+       totalNetPay: number,
+       statements: Array<{ userId, repName, stubNumber, netPay }>
+     }
+
+### TASK 3D — Pay stub finalization
+
+POST /api/admin/pay-runs/:id/finalize
+Access: ADMIN only
+
+Actions:
+  1. Verify all pay statements for this run are in DRAFT status
+  2. Verify no pay statements have netPay < 0 (flag but don't block)
+  3. Update all pay statements: status = 'ISSUED', isViewableByRep = true
+  4. Update pay run: status = 'FINALIZED', finalizedAt = now()
+  5. Mark all linked orders: paymentStatus = 'PAID', paidDate = today
+  6. Process all advance repayments recorded during stub generation
+  7. Send notification to each rep:
+     "Your pay stub for {periodStart} - {periodEnd} is ready. 
+     Net pay: ${netPay}"
+  8. Create audit log: 'PAY_RUN_FINALIZED'
+  9. Return pay run summary
+
+===================================================================
+SECTION 4 — PAY STUB PDF GENERATION
+===================================================================
+
+### TASK 4A — Install PDF generation dependency
+
+Use the existing pdf skill if available at /mnt/skills/public/pdf/SKILL.md.
+Otherwise use pdfkit (npm install pdfkit @types/pdfkit).
+
+### TASK 4B — PDF template for pay stubs
+
+Create server/payStubPdf.ts
+
+Export:
+  async function generatePayStubPdf(
+    statementId: string
+  ): Promise<Buffer>
+
+The PDF must include these sections in order:
+
+HEADER SECTION:
+  - Iron Crest logo placeholder (or company name in large bold text)
+  - "EARNINGS STATEMENT" title
+  - Stub Number: {stubNumber}
+  - Pay Period: {periodStart} to {periodEnd}
+  - Issue Date: {issuedAt}
+
+REP INFORMATION SECTION:
+  - Name: {repName}
+  - Rep ID: {repId}
+  - Role: {repRole}
+  - Email: {repEmail}
+
+EARNINGS DETAIL TABLE:
+  Columns: Invoice # | Customer Name | Date Sold | Service | 
+           Provider | Install Date | Role at Sale | Amount
+  
+  One row per Commission line item (each order)
+  Subtotal row for commissions
+  
+  Then separate rows for:
+  - Override earnings (labeled by type)
+  - Bonuses/SPIFFs
+  Subtotal for earnings additions
+
+DEDUCTIONS TABLE:
+  Columns: Type | Description | Amount
+  Rows for: Chargebacks, Deductions, Advance Repayments, Tax Withheld
+  Subtotal for deductions
+
+SUMMARY BOX (right-aligned):
+  Gross Commission:        $X,XXX.XX
+  Incentives:              $X,XXX.XX
+  Override Earnings:       $X,XXX.XX
+  Bonuses:                 $X,XXX.XX
+  ─────────────────────────────────
+  Total Earnings:          $X,XXX.XX
+  Chargebacks:            ($X,XXX.XX)
+  Deductions:             ($X,XXX.XX)
+  Advance Repayments:     ($X,XXX.XX)
+  Tax Withheld:           ($X,XXX.XX)
+  ─────────────────────────────────
+  NET PAY:                 $X,XXX.XX
+
+PERFORMANCE SUMMARY BOX:
+  Orders Sold:    {totalOrders}
+  Connects:       {totalConnects}
+  Mobile Lines:   {totalMobileLines}
+  Connect Rate:   {connectRate}%
+
+FOOTER:
+  "This is an official earnings statement from Iron Crest."
+  "Questions? Contact accounting@ironcrest.com"
+
+### TASK 4C — Pay stub PDF endpoints
+
+GET /api/pay-stubs/:id/pdf
+Access: 
+  - ADMIN, OPERATIONS, ACCOUNTING can access any stub
+  - REP, LEAD, MANAGER can only access their own stubs
+  - Stub must have isViewableByRep = true for reps to access
+
+Actions:
+  1. Verify access permissions
+  2. Load pay statement by id
+  3. Call generatePayStubPdf(statementId)
+  4. Return as PDF:
+     res.setHeader('Content-Type', 'application/pdf')
+     res.setHeader('Content-Disposition', 
+       `attachment; filename="paystub-${stubNumber}.pdf"`)
+     res.send(pdfBuffer)
+
+GET /api/admin/pay-runs/:id/stubs/export-all
+Access: ADMIN and OPERATIONS only
+
+Generates a ZIP file containing individual PDFs for every 
+pay statement in the run. Use the 'archiver' npm package.
+Filename format per stub: {repId}-{stubNumber}.pdf
+
+===================================================================
+SECTION 5 — ACCOUNTING RECONCILIATION DASHBOARD DATA
+===================================================================
+
+### TASK 5A — Accounting summary endpoint
+
+GET /api/admin/accounting/summary
+Access: ADMIN, OPERATIONS, ACCOUNTING
+
+Query params:
+  - periodStart: YYYY-MM-DD
+  - periodEnd: YYYY-MM-DD
+
+Response:
+  {
+    period: { start, end },
+    
+    arSummary: {
+      totalExpectedCents: number,
+      totalReceivedCents: number,
+      totalOutstandingCents: number,
+      satisfiedCount: number,
+      openCount: number,
+      partialCount: number,
+      writtenOffCents: number,
+    },
+    
+    payrollSummary: {
+      totalRepCommissions: number,
+      totalOverridePayouts: number,
+      totalBonuses: number,
+      totalDeductions: number,
+      totalAdvanceRepayments: number,
+      totalNetPay: number,
+      repCount: number,
+      orderCount: number,
+    },
+    
+    profitSummary: {
+      totalRackRate: number,
+      totalRepPayouts: number,
+      totalDirectorOverrides: number,
+      totalAdminOverrides: number,
+      totalAccountingOverrides: number,
+      totalOverrides: number,
+      totalIronCrestProfit: number,
+      profitMarginPercent: number,
+    },
+    
+    pendingActions: {
+      ordersAwaitingPayrollReady: number,
+      overridesAwaitingApproval: number,
+      advancesAwaitingApproval: number,
+      disputesOpen: number,
+      arExpectationsOpen: number,
+      payRunsDraft: number,
+    },
+    
+    cashFlow: {
+      receivedFromCarriers: number,    // AR payments received in period
+      paidToReps: number,              // finalized pay run net pays
+      netCashPosition: number,         // received - paid
+    }
+  }
+
+### TASK 5B — AR to Payroll reconciliation endpoint
+
+GET /api/admin/accounting/ar-payroll-reconciliation
+Access: ADMIN, OPERATIONS, ACCOUNTING
+
+Query params:
+  - clientId?: string
+  - startDate: YYYY-MM-DD
+  - endDate: YYYY-MM-DD
+
+For each order in the period, return a reconciliation record:
+  {
+    orderId: string,
+    invoiceNumber: string,
+    customerName: string,
+    repName: string,
+    repRole: string,
+    dateSold: string,
+    serviceName: string,
+    
+    arStatus: {
+      expectationExists: boolean,
+      status: string,               // OPEN | PARTIAL | SATISFIED | WRITTEN_OFF
+      expectedCents: number,
+      receivedCents: number,
+      varianceCents: number,
+      lastPaymentDate: string | null,
+    },
+    
+    payrollStatus: {
+      payrollReadyAt: string | null,
+      payrollReadyTriggeredBy: string | null,
+      isPayrollHeld: boolean,
+      payRunId: string | null,
+      payRunName: string | null,
+      paymentStatus: string,
+      stubNumber: string | null,
+    },
+    
+    commissionDetail: {
+      rackRateCents: number,
+      repPayoutCents: number,
+      directorOverrideCents: number,
+      adminOverrideCents: number,
+      accountingOverrideCents: number,
+      ironCrestProfitCents: number,
+    },
+    
+    flags: string[],  
+    // Populated with any of:
+    // 'AR_UNSATISFIED_BUT_PAYROLL_READY' — paid out before AR confirmed
+    // 'AR_SATISFIED_BUT_NOT_PAYROLL_READY' — AR cleared but not triggered
+    // 'PAYROLL_HELD' — manually held
+    // 'VARIANCE_EXISTS' — AR received != expected
+    // 'DISPUTE_OPEN' — active commission dispute
+    // 'OVERRIDE_PENDING' — unapproved override earnings exist
+  }
+
+This endpoint is the core accounting tool — it shows every order 
+and whether the AR and payroll sides are in sync.
+
+### TASK 5C — Variance report endpoint
+
+GET /api/admin/accounting/variance-report
+Access: ADMIN, OPERATIONS, ACCOUNTING
+
+Returns all orders where:
+  - AR variance exists (varianceAmountCents != 0)
+  - OR repPayout does not match expected rate card amount
+  - OR ironCrestProfitCents is negative
+
+Response groups results by:
+  - 'AR_VARIANCE': carrier paid different than expected
+  - 'COMMISSION_VARIANCE': rep payout differs from rate card
+  - 'NEGATIVE_MARGIN': Iron Crest profit is negative
+
+### TASK 5D — Add ACCOUNTING role to existing auth middleware
+
+The ACCOUNTING role must be added to the following existing 
+middleware and role checks throughout the codebase:
+
+  - executiveOrAdmin: extend to also allow ACCOUNTING role for 
+    read-only financial endpoints (AR, finance imports, reports)
+  - All /api/finance/* endpoints: allow ACCOUNTING read access
+  - All /api/admin/accounting/* endpoints: allow ACCOUNTING access
+  - Pay stub PDF endpoint: allow ACCOUNTING access to all stubs
+  - Do NOT give ACCOUNTING write access to orders, pay runs, 
+    or user management
+
+===================================================================
+SECTION 6 — AUTOMATION AND SIMPLIFICATION
+===================================================================
+
+### TASK 6A — Single-click pay cycle endpoint
+
+POST /api/admin/pay-runs/full-cycle
+Access: ADMIN only
+Body:
+  {
+    name: string,
+    periodStart: string,
+    periodEnd: string,
+    dryRun: boolean,
+  }
+
+This endpoint chains the entire payroll workflow in sequence:
+  1. Call auto-build (Task 2A) with dryRun=false
+  2. Call generate-stubs on the created pay run (Task 3C)
+  3. Return a preview summary and status
+  4. Do NOT auto-finalize — require a separate human confirmation step
+
+If dryRun=true, run steps 1 and 2 in simulation mode and return 
+a full preview including estimated PDF stub count and total net pay.
+
+### TASK 6B — AR auto-trigger for payroll readiness
+
+In the finance import post operation (existing POST /api/finance/imports/:id/post),
+after setting AR status to SATISFIED for an order, immediately call 
+the payrollReadyAt trigger if all conditions are met:
+
+  if (arStatus === 'SATISFIED' 
+      && order.approvalStatus === 'APPROVED'
+      && order.jobStatus === 'COMPLETED'
+      && !order.isPayrollHeld) {
+    await storage.updateOrder(orderId, {
+      payrollReadyAt: new Date(),
+      payrollReadyTriggeredBy: 'AUTO_IMPORT',
+    });
+  }
+
+This means a finance import post can trigger payroll readiness 
+for dozens of orders at once automatically.
+
+### TASK 6C — Payroll readiness webhook/notification
+
+When any order transitions to payrollReadyAt IS NOT NULL, create 
+an in-app notification for ADMIN and OPERATIONS users:
+
+  If 1 order: "Order {invoiceNumber} for {repName} is now 
+               payroll-ready ($X commission)"
+  If batch (from finance import): "Finance import posted: 
+               {count} orders are now payroll-ready 
+               (total $X in commissions)"
+
+Group batch notifications so a single import post creates ONE 
+notification, not one per order.
+
+### TASK 6D — Stale AR alert
+
+Add a scheduled job (extend existing scheduler) that runs daily:
+
+  Check for orders where:
+    approvalStatus = 'APPROVED'
+    AND jobStatus = 'COMPLETED'
+    AND payrollReadyAt IS NULL
+    AND createdAt < NOW() - INTERVAL '30 days'
+
+  For each such order, check if an AR expectation exists:
+    - If no AR expectation: create a notification for ACCOUNTING
+      "Order {invoiceNumber} approved 30+ days ago with no AR 
+       expectation on file. Please review."
+    - If AR expectation exists but status = 'OPEN':
+      "Order {invoiceNumber} AR expectation has been open for 
+       30+ days. Carrier payment may be overdue."
+
+Run this check once daily. Store results in backgroundJobs table.
+
+===================================================================
+SECTION 7 — SCHEMA ADDITIONS SUMMARY
+===================================================================
+
+Create a single consolidated Drizzle migration for all new fields:
+
+salesOrders additions:
+  - payrollReadyAt: timestamp nullable
+  - payrollReadyTriggeredBy: varchar(20) nullable
+  - payrollHoldReason: text nullable
+  - isPayrollHeld: boolean not null default false
+  - repRoleAtSale: varchar(20) nullable
+  - ironCrestRackRateCents: integer nullable
+  - ironCrestProfitCents: integer nullable
+  - directorOverrideCents: integer nullable
+  - adminOverrideCents: integer nullable
+  - accountingOverrideCents: integer nullable
+
+payStatements additions:
+  - repName: varchar nullable
+  - repId: varchar nullable
+  - repRole: varchar nullable
+  - repEmail: varchar nullable
+  - stubNumber: varchar nullable
+  - totalOrders: integer default 0
+  - totalConnects: integer default 0
+  - totalMobileLines: integer default 0
+  - isViewableByRep: boolean not null default false
+  - bonusesTotal: varchar default '0'
+
+payStatementLineItems additions:
+  - salesOrderId: varchar nullable references salesOrders(id)
+  - invoiceNumber: varchar nullable
+  - customerName: varchar nullable
+  - dateSold: varchar nullable
+  - serviceDescription: varchar nullable
+  - providerName: varchar nullable
+  - installDate: varchar nullable
+  - repRoleAtSale: varchar nullable
+
+overrideEarnings additions:
+  - approvalStatus: varchar(20) not null default 'PENDING_APPROVAL'
+  - approvedByUserId: varchar nullable
+  - approvedAt: timestamp nullable
+  - rejectedByUserId: varchar nullable
+  - rejectedAt: timestamp nullable
+  - rejectionReason: text nullable
+  - approvalNote: text nullable
+
+rateCards additions:
+  - ironCrestRackRateCents: integer nullable
+  - ironCrestProfitBaseCents: integer nullable
+  - accountingOverrideCents: integer nullable
+
+New table: stub_sequences
+  - id: uuid primary key
+  - payRunId: varchar references payRuns(id)
+  - sequence: integer not null default 0
+  Used by getNextStubSequence to generate sequential stub numbers 
+  per pay run atomically.
+
+===================================================================
+GENERAL CONSTRAINTS
+===================================================================
+
+- Create ONE consolidated Drizzle migration for all schema changes
+- Do not modify any existing API response shapes — only ADD fields
+- Do not touch the frontend
+- All monetary values stored as INTEGER cents, displayed as DECIMAL dollars
+- Every new storage method must have JSDoc citing which business rule 
+  it enforces
+- All new endpoints must use existing auth middleware patterns
+- Scheduler additions must use the existing scheduler infrastructure
+- The full-cycle endpoint must be fully transactional — if stub 
+  generation fails for any rep, roll back the entire pay run creation
+- PDF generation failures must not block pay run finalization — 
+  log the failure to backgroundJobs and continue
+- Self-approval prohibition from the override approval system 
+  must be enforced in all new approval flows
+- Add the ACCOUNTING role to the existing role type enum if it 
+  does not already exist in the schema

@@ -460,7 +460,10 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
 
     let totalDirectorOverrideCents = 0;
     let totalAdminOverrideCents = 0;
+    let totalAccountingOverrideCents = 0;
     let totalRackRateCents = 0;
+
+    const accountingUsers = admins.filter(u => u.role === "ACCOUNTING" && u.status === "ACTIVE" && !u.deletedAt);
 
     for (const rateCardId of usedRateCardIds) {
       const rateCard = await storage.getRateCardById(rateCardId);
@@ -479,9 +482,26 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
             sourceLevelUsed: "EXECUTIVE",
             amount: (directorCents / 100).toFixed(2),
             overrideType: "DIRECTOR_OVERRIDE",
-            approvalStatus: "AUTO_APPROVED",
+            approvalStatus: "PENDING_APPROVAL",
           }, txDb);
           earnings.push(earning);
+
+          const executiveUsers = admins.filter(u => u.role === "EXECUTIVE" && u.status === "ACTIVE" && !u.deletedAt);
+          for (const execUser of executiveUsers) {
+            if (execUser.id !== hierarchy.executive.id) {
+              try {
+                await storage.createEmailNotification({
+                  userId: execUser.id,
+                  notificationType: "OVERRIDE_PENDING_APPROVAL",
+                  subject: "Override Earning Pending Approval",
+                  body: `A DIRECTOR_OVERRIDE override of $${(directorCents / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
+                  recipientEmail: "",
+                  status: "PENDING",
+                  isRead: false,
+                });
+              } catch (e) {}
+            }
+          }
         }
       }
 
@@ -501,18 +521,80 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
             approvalStatus: "PENDING_APPROVAL",
           }, txDb);
           earnings.push(earning);
+
+          for (const opsUser of operationsUsers) {
+            try {
+              await storage.createEmailNotification({
+                userId: opsUser.id,
+                notificationType: "OVERRIDE_PENDING_APPROVAL",
+                subject: "Override Earning Pending Approval",
+                body: `An ADMIN_OVERRIDE override of $${(adminCents / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
+                recipientEmail: "",
+                status: "PENDING",
+                isRead: false,
+              });
+            } catch (e) {}
+          }
+        }
+      }
+
+      const accountingCents = (rateCard as any).accountingOverrideCents || 0;
+      if (accountingCents > 0) {
+        totalAccountingOverrideCents += accountingCents;
+        if (accountingUsers.length === 0) {
+          try {
+            await storage.createRateIssue({
+              salesOrderId: approvedOrder.id,
+              type: "MISSING_ACCOUNTING_RECIPIENT",
+              details: `No active ACCOUNTING users found to receive accounting override of ${accountingCents}c for rate card ${rateCardId}`,
+            });
+          } catch (e) {
+            console.error("[generateOverrideEarnings] Failed to create rate issue:", e);
+          }
+        } else {
+          const perUserAmount = (accountingCents / 100 / accountingUsers.length).toFixed(2);
+          for (const acctUser of accountingUsers) {
+            const earning = await storage.createOverrideEarning({
+              salesOrderId: approvedOrder.id,
+              recipientUserId: acctUser.id,
+              sourceRepId: approvedOrder.repId,
+              sourceLevelUsed: "ACCOUNTING",
+              amount: perUserAmount,
+              overrideType: "ACCOUNTING_OVERRIDE",
+              approvalStatus: "PENDING_APPROVAL",
+            }, txDb);
+            earnings.push(earning);
+          }
+
+          const executiveUsers = admins.filter(u => u.role === "EXECUTIVE" && u.status === "ACTIVE" && !u.deletedAt);
+          const operationsUsers = admins.filter(u => u.role === "OPERATIONS" && u.status === "ACTIVE" && !u.deletedAt);
+          const notifyUsers = [...executiveUsers, ...operationsUsers];
+          for (const notifyUser of notifyUsers) {
+            try {
+              await storage.createEmailNotification({
+                userId: notifyUser.id,
+                notificationType: "OVERRIDE_PENDING_APPROVAL",
+                subject: "Override Earning Pending Approval",
+                body: `An ACCOUNTING_OVERRIDE override of $${(accountingCents / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
+                recipientEmail: "",
+                status: "PENDING",
+                isRead: false,
+              });
+            } catch (e) {}
+          }
         }
       }
     }
 
     const repPayoutCents = Math.round(parseFloat(approvedOrder.baseCommissionEarned || "0") * 100);
-    const totalOverridePaidCents = totalDirectorOverrideCents + totalAdminOverrideCents;
+    const totalOverridePaidCents = totalDirectorOverrideCents + totalAdminOverrideCents + totalAccountingOverrideCents;
     const dynamicProfitCents = totalRackRateCents - repPayoutCents - totalOverridePaidCents;
 
     const orderUpdates: Record<string, any> = {};
     if (totalRackRateCents > 0) orderUpdates.ironCrestRackRateCents = totalRackRateCents;
     orderUpdates.directorOverrideCents = totalDirectorOverrideCents;
     orderUpdates.adminOverrideCents = totalAdminOverrideCents;
+    orderUpdates.accountingOverrideCents = totalAccountingOverrideCents;
 
     if (dynamicProfitCents < 0 && totalRackRateCents > 0) {
       orderUpdates.ironCrestProfitCents = 0;
@@ -520,7 +602,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
         await storage.createRateIssue({
           salesOrderId: approvedOrder.id,
           type: "CONFLICT_RATE",
-          details: `Negative margin detected: rackRate=${totalRackRateCents}c, repPayout=${repPayoutCents}c, directorOverride=${totalDirectorOverrideCents}c, adminOverride=${totalAdminOverrideCents}c, computedProfit=${dynamicProfitCents}c`,
+          details: `Negative margin detected: rackRate=${totalRackRateCents}c, repPayout=${repPayoutCents}c, directorOverride=${totalDirectorOverrideCents}c, adminOverride=${totalAdminOverrideCents}c, accountingOverride=${totalAccountingOverrideCents}c, computedProfit=${dynamicProfitCents}c`,
         });
       } catch (e) {
         console.error("[generateOverrideEarnings] Failed to create rate issue:", e);
@@ -1892,6 +1974,9 @@ export async function registerRoutes(
       const adminOverride = overrideEarnings
         .filter(e => e.overrideType === "ADMIN_OVERRIDE")
         .reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
+      const accountingOverride = overrideEarnings
+        .filter(e => e.overrideType === "ACCOUNTING_OVERRIDE")
+        .reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
 
       const rackRate = (order.ironCrestRackRateCents || 0) / 100;
       const repPayout = parseFloat(order.baseCommissionEarned || "0");
@@ -1910,6 +1995,7 @@ export async function registerRoutes(
           repPayout,
           directorOverride,
           adminOverride,
+          accountingOverride,
           rackRate,
           ironCrestProfit,
           profitMarginPercent: rackRate > 0 ? parseFloat(((ironCrestProfit / rackRate) * 100).toFixed(1)) : 0,
@@ -14457,7 +14543,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/seed-iron-crest-rate-cards", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const { rateCardIds, ironCrestRackRateCents, ironCrestProfitBaseCents, directorOverrideCents, adminOverrideCents } = req.body;
+      const { rateCardIds, ironCrestRackRateCents, ironCrestProfitBaseCents, directorOverrideCents, adminOverrideCents, accountingOverrideCents } = req.body;
       if (!rateCardIds || !Array.isArray(rateCardIds) || rateCardIds.length === 0) {
         return res.status(400).json({ message: "rateCardIds array is required" });
       }
@@ -14470,6 +14556,7 @@ export async function registerRoutes(
             ...(ironCrestProfitBaseCents !== undefined && { ironCrestProfitBaseCents }),
             ...(directorOverrideCents !== undefined && { directorOverrideCents }),
             ...(adminOverrideCents !== undefined && { adminOverrideCents }),
+            ...(accountingOverrideCents !== undefined && { accountingOverrideCents }),
           } as any);
           updated.push(rcId);
         }
@@ -14479,7 +14566,7 @@ export async function registerRoutes(
         action: "SEED_IRON_CREST_RATE_CARDS",
         tableName: "rate_cards",
         recordId: updated.join(","),
-        afterJson: JSON.stringify({ ironCrestRackRateCents, ironCrestProfitBaseCents, directorOverrideCents, adminOverrideCents, count: updated.length }),
+        afterJson: JSON.stringify({ ironCrestRackRateCents, ironCrestProfitBaseCents, directorOverrideCents, adminOverrideCents, accountingOverrideCents, count: updated.length }),
       });
       res.json({ message: `Updated ${updated.length} rate cards`, updatedIds: updated });
     } catch (error: any) {
@@ -14503,6 +14590,7 @@ export async function registerRoutes(
       let totalRepPayout = 0;
       let totalDirectorOverride = 0;
       let totalAdminOverride = 0;
+      let totalAccountingOverride = 0;
       let totalRackRate = 0;
       let totalIronCrestProfit = 0;
       let orderCount = 0;
@@ -14511,12 +14599,14 @@ export async function registerRoutes(
         const repPayout = parseFloat(order.baseCommissionEarned || "0");
         const directorOvr = (order.directorOverrideCents || 0) / 100;
         const adminOvr = (order.adminOverrideCents || 0) / 100;
+        const accountingOvr = (order.accountingOverrideCents || 0) / 100;
         const rackRate = (order.ironCrestRackRateCents || 0) / 100;
         const profit = (order.ironCrestProfitCents || 0) / 100;
 
         totalRepPayout += repPayout;
         totalDirectorOverride += directorOvr;
         totalAdminOverride += adminOvr;
+        totalAccountingOverride += accountingOvr;
         totalRackRate += rackRate;
         totalIronCrestProfit += profit;
         orderCount++;
@@ -14530,6 +14620,7 @@ export async function registerRoutes(
         totalRepPayout: totalRepPayout.toFixed(2),
         totalDirectorOverride: totalDirectorOverride.toFixed(2),
         totalAdminOverride: totalAdminOverride.toFixed(2),
+        totalAccountingOverride: totalAccountingOverride.toFixed(2),
         totalIronCrestProfit: totalIronCrestProfit.toFixed(2),
         profitMarginPercent: totalRackRate > 0 ? ((totalIronCrestProfit / totalRackRate) * 100).toFixed(1) : "0.0",
       });
@@ -14539,16 +14630,57 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/override-earnings/pending", auth, adminOnly, async (req: AuthRequest, res) => {
+  const overrideApprovalAccess = requireRoles("EXECUTIVE", "OPERATIONS");
+
+  function canApproveOverrideType(userRole: string, overrideType: string): boolean {
+    if (userRole === "EXECUTIVE") return ["DIRECTOR_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
+    if (userRole === "OPERATIONS") return ["ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
+    return false;
+  }
+
+  app.get("/api/admin/override-earnings/pending", auth, overrideApprovalAccess, async (req: AuthRequest, res) => {
     try {
-      const pending = await storage.getPendingOverrideEarnings();
+      const { overrideType, recipientUserId, orderId } = req.query;
+      const filters: { overrideType?: string; recipientUserId?: string; orderId?: string } = {};
+      if (overrideType) filters.overrideType = overrideType as string;
+      if (recipientUserId) filters.recipientUserId = recipientUserId as string;
+      if (orderId) filters.orderId = orderId as string;
+
+      const pending = await storage.getPendingOverrideEarnings(filters);
       const users = await storage.getUsers();
       const userMap = new Map(users.map(u => [u.id, u]));
+      const allServices = await storage.getServices();
+      const serviceMap = new Map(allServices.map(s => [s.id, s.name]));
+      const allClients = await storage.getClients();
+      const clientMap = new Map(allClients.map(c => [c.id, c.name]));
 
-      const enriched = pending.map(e => ({
-        ...e,
-        recipientName: userMap.get(e.recipientUserId)?.fullName || "Unknown",
-        recipientRepId: userMap.get(e.recipientUserId)?.repId || "N/A",
+      const enriched = await Promise.all(pending.map(async (e) => {
+        const order = await storage.getOrderById(e.salesOrderId);
+        const recipient = userMap.get(e.recipientUserId);
+        const rep = order ? userMap.get(Array.from(userMap.values()).find(u => u.repId === order.repId)?.id || "") : null;
+        return {
+          id: e.id,
+          salesOrderId: e.salesOrderId,
+          orderInvoiceNumber: order?.invoiceNumber || "",
+          orderCustomerName: order?.customerName || "",
+          orderDateSold: order?.dateSold || "",
+          recipientUserId: e.recipientUserId,
+          recipientName: recipient?.fullName || recipient?.name || "Unknown",
+          recipientRole: recipient?.role || "Unknown",
+          overrideType: e.overrideType || "STANDARD",
+          amount: e.amount,
+          approvalStatus: e.approvalStatus || "PENDING_APPROVAL",
+          createdAt: e.createdAt,
+          order: order ? {
+            repId: order.repId,
+            repName: rep?.fullName || rep?.name || order.repId,
+            repRole: order.repRoleAtSale || rep?.role || "REP",
+            serviceName: order.serviceId ? (serviceMap.get(order.serviceId) || "") : "",
+            providerName: order.clientId ? (clientMap.get(order.clientId) || "") : "",
+            jobStatus: order.jobStatus,
+            approvalStatus: order.approvalStatus,
+          } : null,
+        };
       }));
       res.json(enriched);
     } catch (error: any) {
@@ -14557,7 +14689,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/override-earnings/pending/count", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/override-earnings/pending/count", auth, overrideApprovalAccess, async (req: AuthRequest, res) => {
     try {
       const count = await storage.getPendingOverrideEarningsCount();
       res.json({ count });
@@ -14566,7 +14698,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/override-earnings/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/override-earnings/:id/approve", auth, overrideApprovalAccess, async (req: AuthRequest, res) => {
     try {
       const earning = await storage.getOverrideEarningById(req.params.id);
       if (!earning) {
@@ -14578,15 +14710,34 @@ export async function registerRoutes(
       if (earning.recipientUserId === req.user!.id) {
         return res.status(403).json({ message: "Cannot approve your own override earning (self-approval not allowed)" });
       }
-      const { approvalNote } = req.body || {};
-      const updated = await storage.approveOverrideEarning(req.params.id, req.user!.id, approvalNote);
+      if (!canApproveOverrideType(req.user!.role, earning.overrideType || "STANDARD")) {
+        return res.status(403).json({ message: `Your role (${req.user!.role}) cannot approve ${earning.overrideType} overrides` });
+      }
+      const { note } = req.body || {};
+      const updated = await storage.approveOverrideEarning(req.params.id, req.user!.id, note);
+      const users = await storage.getUsers();
+      const recipientUser = users.find(u => u.id === earning.recipientUserId);
+      const order = await storage.getOrderById(earning.salesOrderId);
       await storage.createAuditLog({
         userId: req.user!.id,
-        action: "APPROVE_OVERRIDE_EARNING",
+        action: "OVERRIDE_EARNING_APPROVED",
         tableName: "override_earnings",
         recordId: req.params.id,
-        afterJson: JSON.stringify({ approvalNote }),
+        afterJson: JSON.stringify({ approvedBy: req.user!.name, overrideType: earning.overrideType, amount: earning.amount, recipientName: recipientUser?.fullName || recipientUser?.name }),
       });
+      if (recipientUser) {
+        try {
+          await storage.createEmailNotification({
+            userId: recipientUser.id,
+            notificationType: "OVERRIDE_APPROVED",
+            subject: "Override Earning Approved",
+            body: `Your ${earning.overrideType} override of $${earning.amount} for order ${order?.invoiceNumber || earning.salesOrderId} has been approved and will be included in your next pay run.`,
+            recipientEmail: "",
+            status: "PENDING",
+            isRead: false,
+          });
+        } catch (e) {}
+      }
       res.json(updated);
     } catch (error: any) {
       console.error("Approve override earning error:", error);
@@ -14594,7 +14745,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/override-earnings/:id/reject", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/override-earnings/:id/reject", auth, overrideApprovalAccess, async (req: AuthRequest, res) => {
     try {
       const earning = await storage.getOverrideEarningById(req.params.id);
       if (!earning) {
@@ -14603,18 +14754,40 @@ export async function registerRoutes(
       if (earning.approvalStatus !== "PENDING_APPROVAL") {
         return res.status(400).json({ message: `Cannot reject: status is ${earning.approvalStatus}` });
       }
-      const { rejectionReason } = req.body || {};
-      if (!rejectionReason) {
-        return res.status(400).json({ message: "rejectionReason is required" });
+      if (earning.recipientUserId === req.user!.id) {
+        return res.status(403).json({ message: "Cannot reject your own override earning" });
       }
-      const updated = await storage.rejectOverrideEarning(req.params.id, req.user!.id, rejectionReason);
+      if (!canApproveOverrideType(req.user!.role, earning.overrideType || "STANDARD")) {
+        return res.status(403).json({ message: `Your role (${req.user!.role}) cannot reject ${earning.overrideType} overrides` });
+      }
+      const { reason } = req.body || {};
+      if (!reason) {
+        return res.status(400).json({ message: "reason is required" });
+      }
+      const updated = await storage.rejectOverrideEarning(req.params.id, req.user!.id, reason);
+      const users = await storage.getUsers();
+      const recipientUser = users.find(u => u.id === earning.recipientUserId);
+      const order = await storage.getOrderById(earning.salesOrderId);
       await storage.createAuditLog({
         userId: req.user!.id,
-        action: "REJECT_OVERRIDE_EARNING",
+        action: "OVERRIDE_EARNING_REJECTED",
         tableName: "override_earnings",
         recordId: req.params.id,
-        afterJson: JSON.stringify({ rejectionReason }),
+        afterJson: JSON.stringify({ rejectedBy: req.user!.name, reason, overrideType: earning.overrideType, amount: earning.amount, recipientName: recipientUser?.fullName || recipientUser?.name }),
       });
+      if (recipientUser) {
+        try {
+          await storage.createEmailNotification({
+            userId: recipientUser.id,
+            notificationType: "OVERRIDE_REJECTED",
+            subject: "Override Earning Rejected",
+            body: `Your ${earning.overrideType} override of $${earning.amount} for order ${order?.invoiceNumber || earning.salesOrderId} was rejected. Reason: ${reason}`,
+            recipientEmail: "",
+            status: "PENDING",
+            isRead: false,
+          });
+        } catch (e) {}
+      }
       res.json(updated);
     } catch (error: any) {
       console.error("Reject override earning error:", error);
@@ -14622,64 +14795,128 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/override-earnings/bulk-approve", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/override-earnings/bulk-approve", auth, overrideApprovalAccess, async (req: AuthRequest, res) => {
     try {
-      const { ids, approvalNote } = req.body;
+      const { ids, note } = req.body;
       if (!ids || !Array.isArray(ids) || ids.length === 0) {
         return res.status(400).json({ message: "ids array is required" });
       }
       const pendingEarnings = await storage.getPendingOverrideEarnings();
-      const selfOwnedIds = pendingEarnings
-        .filter(e => ids.includes(e.id) && e.recipientUserId === req.user!.id)
-        .map(e => e.id);
-      if (selfOwnedIds.length > 0) {
-        const safeIds = ids.filter((id: string) => !selfOwnedIds.includes(id));
-        if (safeIds.length === 0) {
-          return res.status(403).json({ message: "Cannot approve your own override earnings (self-approval not allowed)" });
+      const userRole = req.user!.role;
+      const userId = req.user!.id;
+
+      const skippedIds: string[] = [];
+      const skippedReasons: Record<string, string> = {};
+      const approvableIds: string[] = [];
+
+      for (const id of ids) {
+        const earning = pendingEarnings.find(e => e.id === id);
+        if (!earning) {
+          skippedIds.push(id);
+          skippedReasons[id] = "Not found or not pending";
+          continue;
         }
-        const updated = await storage.bulkApproveOverrideEarnings(safeIds, req.user!.id, approvalNote);
-        await storage.createAuditLog({
-          userId: req.user!.id,
-          action: "BULK_APPROVE_OVERRIDE_EARNINGS",
-          tableName: "override_earnings",
-          recordId: safeIds.join(","),
-          afterJson: JSON.stringify({ count: updated.length, skippedSelfApproval: selfOwnedIds.length }),
-        });
-        return res.json({ approved: updated, skippedSelfApproval: selfOwnedIds });
+        if (earning.recipientUserId === userId) {
+          skippedIds.push(id);
+          skippedReasons[id] = "Self-approval not allowed";
+          continue;
+        }
+        if (!canApproveOverrideType(userRole, earning.overrideType || "STANDARD")) {
+          skippedIds.push(id);
+          skippedReasons[id] = `Role ${userRole} cannot approve ${earning.overrideType}`;
+          continue;
+        }
+        approvableIds.push(id);
       }
-      const updated = await storage.bulkApproveOverrideEarnings(ids, req.user!.id, approvalNote);
+
+      if (approvableIds.length === 0) {
+        return res.json({ approved: 0, skipped: skippedIds.length, skippedIds, skippedReasons });
+      }
+
+      const updated = await storage.bulkApproveOverrideEarnings(approvableIds, userId, note);
       await storage.createAuditLog({
-        userId: req.user!.id,
+        userId,
         action: "BULK_APPROVE_OVERRIDE_EARNINGS",
         tableName: "override_earnings",
-        recordId: ids.join(","),
-        afterJson: JSON.stringify({ count: updated.length }),
+        recordId: approvableIds.join(","),
+        afterJson: JSON.stringify({ count: updated.length, skipped: skippedIds.length }),
       });
-      res.json({ approved: updated });
+
+      for (const earning of updated) {
+        try {
+          const order = await storage.getOrderById(earning.salesOrderId);
+          await storage.createEmailNotification({
+            userId: earning.recipientUserId,
+            notificationType: "OVERRIDE_APPROVED",
+            subject: "Override Earning Approved",
+            body: `Your ${earning.overrideType} override of $${earning.amount} for order ${order?.invoiceNumber || earning.salesOrderId} has been approved and will be included in your next pay run.`,
+            recipientEmail: "",
+            status: "PENDING",
+            isRead: false,
+          });
+        } catch (e) {}
+      }
+
+      res.json({ approved: updated.length, skipped: skippedIds.length, skippedIds, skippedReasons });
     } catch (error: any) {
       console.error("Bulk approve override earnings error:", error);
       res.status(500).json({ message: "Failed to bulk approve" });
     }
   });
 
-  app.post("/api/admin/override-earnings/bulk-reject", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/override-earnings/bulk-reject", auth, overrideApprovalAccess, async (req: AuthRequest, res) => {
     try {
-      const { ids, rejectionReason } = req.body;
+      const { ids, reason } = req.body;
       if (!ids || !Array.isArray(ids) || ids.length === 0) {
         return res.status(400).json({ message: "ids array is required" });
       }
-      if (!rejectionReason) {
-        return res.status(400).json({ message: "rejectionReason is required" });
+      if (!reason) {
+        return res.status(400).json({ message: "reason is required" });
       }
-      const updated = await storage.bulkRejectOverrideEarnings(ids, req.user!.id, rejectionReason);
+      const pendingEarnings = await storage.getPendingOverrideEarnings();
+      const userRole = req.user!.role;
+      const userId = req.user!.id;
+
+      const rejectableIds: string[] = [];
+      const skippedIds: string[] = [];
+
+      for (const id of ids) {
+        const earning = pendingEarnings.find(e => e.id === id);
+        if (!earning) { skippedIds.push(id); continue; }
+        if (earning.recipientUserId === userId) { skippedIds.push(id); continue; }
+        if (!canApproveOverrideType(userRole, earning.overrideType || "STANDARD")) { skippedIds.push(id); continue; }
+        rejectableIds.push(id);
+      }
+
+      if (rejectableIds.length === 0) {
+        return res.json({ rejected: 0, skipped: skippedIds.length });
+      }
+
+      const updated = await storage.bulkRejectOverrideEarnings(rejectableIds, userId, reason);
       await storage.createAuditLog({
-        userId: req.user!.id,
+        userId,
         action: "BULK_REJECT_OVERRIDE_EARNINGS",
         tableName: "override_earnings",
-        recordId: ids.join(","),
-        afterJson: JSON.stringify({ count: updated.length, rejectionReason }),
+        recordId: rejectableIds.join(","),
+        afterJson: JSON.stringify({ count: updated.length, reason }),
       });
-      res.json({ rejected: updated });
+
+      for (const earning of updated) {
+        try {
+          const order = await storage.getOrderById(earning.salesOrderId);
+          await storage.createEmailNotification({
+            userId: earning.recipientUserId,
+            notificationType: "OVERRIDE_REJECTED",
+            subject: "Override Earning Rejected",
+            body: `Your ${earning.overrideType} override of $${earning.amount} for order ${order?.invoiceNumber || earning.salesOrderId} was rejected. Reason: ${reason}`,
+            recipientEmail: "",
+            status: "PENDING",
+            isRead: false,
+          });
+        } catch (e) {}
+      }
+
+      res.json({ rejected: updated.length, skipped: skippedIds.length });
     } catch (error: any) {
       console.error("Bulk reject override earnings error:", error);
       res.status(500).json({ message: "Failed to bulk reject" });
