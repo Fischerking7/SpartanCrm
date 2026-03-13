@@ -19,6 +19,9 @@ import { fetchGoogleSheet, parseUploadedCsv } from "./google-sheets";
 import { matchInstallationsToOrders, type OrderSummary } from "./claude-matching";
 import { emailService } from "./email";
 
+// Placeholder until actual MRC data is tracked
+const REVENUE_MULTIPLIER = parseFloat(process.env.REVENUE_MULTIPLIER || "5");
+
 // Rate limiter for auth endpoints (10 attempts per 15 minutes per IP)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -7059,6 +7062,17 @@ export async function registerRoutes(
         repCount: scopedRepIds.length,
       };
       
+      // Bulk fetch all leads for the period across all reps
+      const allLeads = await storage.getAllLeadsForReporting({
+        dateFrom: start.toISOString().split("T")[0],
+        dateTo: end.toISOString().split("T")[0],
+      });
+      const leadsByRepId = new Map<string, typeof allLeads>();
+      for (const lead of allLeads) {
+        if (!leadsByRepId.has(lead.repId)) leadsByRepId.set(lead.repId, []);
+        leadsByRepId.get(lead.repId)!.push(lead);
+      }
+      
       for (const repId of scopedRepIds) {
         const repUser = allUsers.find(u => u.repId === repId && !u.deletedAt);
         if (!repUser) continue;
@@ -7070,7 +7084,7 @@ export async function registerRoutes(
         const ordersApproved = repOrders.filter(o => o.jobStatus === "COMPLETED").length;
         
         const earned = repOrders
-          .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
+          .filter(o => o.jobStatus === "COMPLETED")
           .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
         
         const paid = repOrders
@@ -7079,18 +7093,13 @@ export async function registerRoutes(
         
         const mobileLines = repOrders.reduce((sum, o) => sum + (o.mobileLinesQty || 0), 0);
         const tvSold = repOrders.filter(o => o.tvSold).length;
-        const internetSold = repOrders.length - tvSold; // Orders without TV as proxy for internet
+        const internetSold = repOrders.length - tvSold;
         
         const avgOrderValue = ordersSold > 0 ? earned / ordersConnected || 0 : 0;
         const approvalRate = ordersSold > 0 ? (ordersApproved / ordersSold) * 100 : 0;
         const connectionRate = ordersSold > 0 ? (ordersConnected / ordersSold) * 100 : 0;
         
-        // Get leads for this rep in period
-        const repLeads = await storage.getLeadsByRepId(repId, {
-          dateFrom: start.toISOString().split("T")[0],
-          dateTo: end.toISOString().split("T")[0],
-          includeDisposed: true,
-        });
+        const repLeads = leadsByRepId.get(repId) || [];
         const leadsConverted = repLeads.filter(l => l.disposition === "SOLD").length;
         const leadsTotal = repLeads.length;
         const conversionRate = leadsTotal > 0 ? (leadsConverted / leadsTotal) * 100 : 0;
@@ -7304,8 +7313,8 @@ export async function registerRoutes(
         const overrideDeduction = parseFloat(order.overrideDeduction || "0") || 0;
         const totalCommissionCost = baseEarned + incentiveEarned;
         
-        // Calculate estimated revenue (estimate as 5x commission since MRC is not tracked)
-        const estimatedRevenue = totalCommissionCost * 5;
+        // Placeholder until actual MRC data is tracked
+        const estimatedRevenue = totalCommissionCost * REVENUE_MULTIPLIER;
         
         entityStats[entityId].orders++;
         entityStats[entityId].revenue += estimatedRevenue;
@@ -8513,6 +8522,10 @@ export async function registerRoutes(
       const statements: any[] = [];
       const currentYear = new Date().getFullYear();
       
+      // Pre-fetch all deduction types once
+      const allDeductionTypes = await storage.getDeductionTypes();
+      const deductionTypeMap = new Map(allDeductionTypes.map(dt => [dt.id, dt]));
+      
       for (const repId of Array.from(allRepIds)) {
         const user = await storage.getUserByRepId(repId);
         if (!user) continue;
@@ -8547,7 +8560,7 @@ export async function registerRoutes(
         const deductionDetails: { userDeductionId?: string; deductionTypeName: string; amount: string }[] = [];
         
         for (const ud of userDeductions) {
-          const deductionType = await storage.getDeductionTypeById(ud.deductionTypeId);
+          const deductionType = deductionTypeMap.get(ud.deductionTypeId);
           const deductionAmount = parseFloat(ud.amount || "0");
           deductionsTotal += deductionAmount;
           deductionDetails.push({
@@ -8710,6 +8723,18 @@ export async function registerRoutes(
       const statements: any[] = [];
       const currentYear = new Date().getFullYear();
       
+      // Fetch chargebacks filtered by date range at SQL level, then group by repId
+      const periodChargebacks = await storage.getChargebacksByDateRange(periodStart, periodEnd);
+      const chargebacksByRepMap = new Map<string, typeof periodChargebacks>();
+      for (const cb of periodChargebacks) {
+        if (!chargebacksByRepMap.has(cb.repId)) chargebacksByRepMap.set(cb.repId, []);
+        chargebacksByRepMap.get(cb.repId)!.push(cb);
+      }
+      
+      // Pre-fetch all deduction types once
+      const allDeductionTypesForStubs = await storage.getDeductionTypes();
+      const deductionTypeMapForStubs = new Map(allDeductionTypesForStubs.map(dt => [dt.id, dt]));
+      
       for (const [repId, repOrders] of Object.entries(ordersByRep)) {
         const user = await storage.getUserByRepId(repId);
         if (!user) continue;
@@ -8722,15 +8747,11 @@ export async function registerRoutes(
           incentivesTotal += parseFloat(order.incentiveEarned || "0");
         }
         
-        // Get chargebacks in this period for this rep
-        const allChargebacks = await storage.getChargebacks();
+        // Get chargebacks in this period for this rep from pre-fetched map
+        const repChargebacksForStub = chargebacksByRepMap.get(repId) || [];
         let chargebacksTotal = 0;
-        for (const cb of allChargebacks) {
-          if (cb.repId !== repId) continue;
-          const cbDate = cb.chargebackDate ? new Date(cb.chargebackDate) : null;
-          if (cbDate && cbDate >= startDate && cbDate <= endDate) {
-            chargebacksTotal += parseFloat(cb.amount || "0");
-          }
+        for (const cb of repChargebacksForStub) {
+          chargebacksTotal += parseFloat(cb.amount || "0");
         }
         
         // Weekly pay stubs exclude override earnings - they are handled separately
@@ -8741,7 +8762,7 @@ export async function registerRoutes(
         let deductionsTotal = 0;
         const deductionDetails: { userDeductionId?: string; deductionTypeName: string; amount: string }[] = [];
         for (const ud of userDeductions) {
-          const deductionType = await storage.getDeductionTypeById(ud.deductionTypeId);
+          const deductionType = deductionTypeMapForStubs.get(ud.deductionTypeId);
           const deductionAmount = parseFloat(ud.amount || "0");
           deductionsTotal += deductionAmount;
           deductionDetails.push({
@@ -9433,11 +9454,11 @@ export async function registerRoutes(
   });
 
   // Bulk sync approved orders to QuickBooks
+  // In-memory progress tracker for bulk sync jobs
+  const bulkSyncJobs = new Map<string, { total: number; synced: number; failed: number; errors: string[]; status: "running" | "completed" }>();
+
   app.post("/api/admin/quickbooks/bulk-sync-invoices", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const qb = await import("./quickbooks");
-      
-      // Get all approved orders without QB invoice ID
       const ordersToSync = await db.query.salesOrders.findMany({
         where: and(
           eq(salesOrders.jobStatus, "COMPLETED"),
@@ -9445,27 +9466,43 @@ export async function registerRoutes(
         ),
       });
       
-      const results = {
-        total: ordersToSync.length,
-        synced: 0,
-        failed: 0,
-        errors: [] as string[],
-      };
+      const jobId = crypto.randomUUID();
+      bulkSyncJobs.set(jobId, { total: ordersToSync.length, synced: 0, failed: 0, errors: [], status: "running" });
       
-      for (const order of ordersToSync) {
-        const result = await qb.syncInvoiceToQuickBooks(order.id, req.user!.id);
-        if (result.success) {
-          results.synced++;
-        } else {
-          results.failed++;
-          results.errors.push(`Order ${order.invoiceNumber}: ${result.error}`);
+      res.json({ jobId, total: ordersToSync.length, message: "Sync started" });
+      
+      const userId = req.user!.id;
+      setImmediate(async () => {
+        try {
+          const qb = await import("./quickbooks");
+          const job = bulkSyncJobs.get(jobId)!;
+          
+          for (const order of ordersToSync) {
+            const result = await qb.syncInvoiceToQuickBooks(order.id, userId);
+            if (result.success) {
+              job.synced++;
+            } else {
+              job.failed++;
+              job.errors.push(`Order ${order.invoiceNumber}: ${result.error}`);
+            }
+          }
+          
+          job.status = "completed";
+        } catch (err) {
+          console.error("Bulk sync background job error:", err);
+          const job = bulkSyncJobs.get(jobId);
+          if (job) job.status = "completed";
         }
-      }
-      
-      res.json(results);
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
+  });
+
+  app.get("/api/admin/quickbooks/bulk-sync-status/:jobId", auth, adminOnly, async (req: AuthRequest, res) => {
+    const job = bulkSyncJobs.get(req.params.jobId);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    res.json(job);
   });
 
   // Get exception queue (failed syncs with enriched details)
@@ -10420,7 +10457,7 @@ export async function registerRoutes(
         .filter(o => o.jobStatus === "PENDING")
         .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0);
       const connectedCommissions = monthOrders
-        .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
+        .filter(o => o.jobStatus === "COMPLETED")
         .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0);
 
       // Get services and providers for breakdown

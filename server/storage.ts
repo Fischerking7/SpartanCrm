@@ -1005,6 +1005,14 @@ export const storage = {
   async getChargebacks() {
     return db.query.chargebacks.findMany({ orderBy: [desc(chargebacks.createdAt)] });
   },
+  async getChargebacksByDateRange(startDate: string, endDate: string) {
+    return db.select().from(chargebacks)
+      .where(and(
+        gte(chargebacks.chargebackDate, startDate),
+        lte(chargebacks.chargebackDate, endDate)
+      ))
+      .orderBy(desc(chargebacks.createdAt));
+  },
   async getChargebacksByPayRun(payRunId: string) {
     return db.query.chargebacks.findMany({ 
       where: eq(chargebacks.payRunId, payRunId),

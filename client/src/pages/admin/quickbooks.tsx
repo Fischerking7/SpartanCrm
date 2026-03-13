@@ -277,11 +277,35 @@ export default function AdminQuickBooks() {
     mutationFn: () => apiRequest("POST", "/api/admin/quickbooks/bulk-sync-invoices"),
     onSuccess: async (response) => {
       const result = await response.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/quickbooks/sync-logs"] });
-      toast({ 
-        title: "Bulk Sync Complete", 
-        description: `Synced ${result.synced} of ${result.total} orders. ${result.failed} failed.`
-      });
+      if (result.jobId) {
+        toast({ title: "Bulk Sync Started", description: `Processing ${result.total} orders...` });
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`/api/admin/quickbooks/bulk-sync-status/${result.jobId}`, {
+              headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+            });
+            if (statusRes.ok) {
+              const status = await statusRes.json();
+              if (status.status === "completed") {
+                clearInterval(pollInterval);
+                queryClient.invalidateQueries({ queryKey: ["/api/admin/quickbooks/sync-logs"] });
+                toast({
+                  title: "Bulk Sync Complete",
+                  description: `Synced ${status.synced} of ${status.total} orders. ${status.failed} failed.`,
+                });
+              }
+            }
+          } catch {
+            clearInterval(pollInterval);
+          }
+        }, 3000);
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/quickbooks/sync-logs"] });
+        toast({ 
+          title: "Bulk Sync Complete", 
+          description: `Synced ${result.synced} of ${result.total} orders. ${result.failed} failed.`
+        });
+      }
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });

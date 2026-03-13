@@ -1,0 +1,58 @@
+Continuing Ironcrest optimization work. Address the following issues:
+
+---
+
+11. FIX REDUNDANT DOUBLE-CONDITION BUGS
+In two places, filters use o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED"
+Fix both:
+  a. /api/reports/rep-leaderboard — earned calculation
+  b. /api/executive/sales-overview — connectedCommissions calculation
+Remove the redundant second condition in each.
+
+---
+
+12. ELIMINATE N+1 IN rep-leaderboard LEAD QUERIES
+Replace the per-rep loop calling storage.getLeadsByRepId(repId, {...}) with a single
+bulk call that fetches all leads for all visible repIds at once. Build a Map<repId, Lead[]>
+for O(1) lookup in the metrics calculation loop.
+
+---
+
+13. ELIMINATE N+1 IN generate-statements DEDUCTION TYPE LOOKUPS
+In POST /api/admin/payroll/payruns/:payRunId/generate-statements, the inner loop calls
+storage.getDeductionTypeById(ud.deductionTypeId) for each user deduction.
+Pre-fetch all deduction types once before the rep loop using storage.getDeductionTypes(),
+build a Map<id, DeductionType>, then do direct map lookups instead of per-deduction queries.
+
+---
+
+14. FIX CHARGEBACK FULL-TABLE LOAD IN generate-weekly-stubs
+In POST /api/admin/payroll/generate-weekly-stubs, the chargebacks lookup calls
+storage.getChargebacks() inside the rep loop and filters in JS.
+Move this to a single call before the loop. Filter by repId and date range at the
+storage/SQL level, not in application code. Build a Map<repId, Chargeback[]>
+for O(1) lookup in the loop.
+
+---
+
+15. REPLACE HARDCODED REVENUE MULTIPLIER IN profitability report
+The line `const estimatedRevenue = totalCommissionCost * 5` is a magic number.
+Replace with a configurable constant at the top of the file:
+  const REVENUE_MULTIPLIER = parseFloat(process.env.REVENUE_MULTIPLIER || "5");
+Add a comment noting this is a placeholder until actual MRC data is tracked.
+
+---
+
+16. ADD BACKGROUND JOB PATTERN TO QB BULK SYNC
+In POST /api/admin/quickbooks/bulk-sync-invoices, the sequential for loop over orders
+will time out on large datasets. Refactor to:
+  a. Immediately respond with { jobId, total, message: "Sync started" }
+  b. Run the sync loop in a detached setImmediate block
+  c. Track progress in a simple in-memory Map<jobId, { total, synced, failed, errors }>
+  d. Add GET /api/admin/quickbooks/bulk-sync-status/:jobId to poll progress
+This pattern is already established by the lead export endpoints.
+
+---
+
+Make changes one at a time. Do not alter API response shapes.
+Do not refactor unrelated code. Verify Drizzle query syntax before submitting.
