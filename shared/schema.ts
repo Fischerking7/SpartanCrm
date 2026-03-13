@@ -20,7 +20,7 @@ export const adjustmentTypeEnum = pgEnum("adjustment_type", ["BONUS", "CORRECTIO
 export const payeeTypeEnum = pgEnum("payee_type", ["REP", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN"]);
 export const payRunStatusEnum = pgEnum("payrun_status", ["DRAFT", "PENDING_REVIEW", "PENDING_APPROVAL", "APPROVED", "FINALIZED"]);
 export const rateIssueTypeEnum = pgEnum("rate_issue_type", ["MISSING_RATE", "CONFLICT_RATE"]);
-export const sourceLevelEnum = pgEnum("source_level", ["REP", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN"]);
+export const sourceLevelEnum = pgEnum("source_level", ["REP", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "ACCOUNTING"]);
 export const mobileProductTypeEnum = pgEnum("mobile_product_type", ["UNLIMITED", "3_GIG", "1_GIG", "BYOD", "OTHER"]);
 export const mobilePortedStatusEnum = pgEnum("mobile_ported_status", ["PORTED", "NON_PORTED"]);
 export const serviceCategoryEnum = pgEnum("service_category", ["INTERNET", "MOBILE", "VIDEO"]);
@@ -122,6 +122,9 @@ export const rateCards = pgTable("rate_cards", {
   overrideDeduction: decimal("override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
   tvOverrideDeduction: decimal("tv_override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
   mobileOverrideDeduction: decimal("mobile_override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
+  ironCrestExecutivePayCents: integer("iron_crest_executive_pay_cents"),
+  ironCrestProfitCents: integer("iron_crest_profit_cents"),
+  accountingOverrideCents: integer("accounting_override_cents"),
   effectiveStart: date("effective_start").notNull(),
   effectiveEnd: date("effective_end"),
   active: boolean("active").notNull().default(true),
@@ -167,6 +170,7 @@ export const rateCardRoleOverrides = pgTable("rate_card_role_overrides", {
   overrideDeduction: decimal("override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
   tvOverrideDeduction: decimal("tv_override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
   mobileOverrideDeduction: decimal("mobile_override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
+  isAdditive: boolean("is_additive").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
@@ -262,6 +266,8 @@ export const salesOrders = pgTable("sales_orders", {
   expectedAmountCents: integer("expected_amount_cents"),
   // Applied override deduction amount (from rate card or Lead-specific override)
   overrideDeduction: decimal("override_deduction", { precision: 10, scale: 2 }).notNull().default("0"),
+  accountingOverrideEarned: decimal("accounting_override_earned", { precision: 10, scale: 2 }).default("0"),
+  ironCrestProfitCents: integer("iron_crest_profit_cents"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -409,6 +415,14 @@ export const overrideEarnings = pgTable("override_earnings", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   overrideAgreementId: varchar("override_agreement_id").references(() => overrideAgreements.id),
   payRunId: varchar("pay_run_id").references(() => payRuns.id),
+  overrideType: text("override_type").default("STANDARD"),
+  approvalStatus: text("approval_status").default("AUTO_APPROVED"),
+  approvedByUserId: varchar("approved_by_user_id").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  rejectedByUserId: varchar("rejected_by_user_id").references(() => users.id),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  approvalNote: text("approval_note"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -661,7 +675,7 @@ export const insertRateCardSchema = createInsertSchema(rateCards).omit({ id: tru
 export const insertSalesOrderSchema = createInsertSchema(salesOrders).omit({ id: true, createdAt: true, updatedAt: true, invoiceNumber: true, approvedAt: true, approvedByUserId: true, exportedAt: true, exportBatchId: true, exportedToAccounting: true });
 export const insertIncentiveSchema = createInsertSchema(incentives).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertOverrideAgreementSchema = createInsertSchema(overrideAgreements).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertOverrideEarningSchema = createInsertSchema(overrideEarnings).omit({ id: true, createdAt: true });
+export const insertOverrideEarningSchema = createInsertSchema(overrideEarnings).omit({ id: true, createdAt: true, approvedAt: true, rejectedAt: true });
 export const insertChargebackSchema = createInsertSchema(chargebacks).omit({ id: true, createdAt: true });
 export const insertAdjustmentSchema = createInsertSchema(adjustments).omit({ id: true, createdAt: true, approvedAt: true, approvedByUserId: true });
 export const insertPayRunSchema = createInsertSchema(payRuns).omit({ id: true, createdAt: true, finalizedAt: true });

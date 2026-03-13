@@ -335,14 +335,13 @@ export const storage = {
   async deleteAllRoleOverridesForRateCard(rateCardId: string) {
     await db.delete(rateCardRoleOverrides).where(eq(rateCardRoleOverrides.rateCardId, rateCardId));
   },
-  async saveRateCardRoleOverrides(rateCardId: string, roleOverrides: Array<{ role: string; overrideDeduction: string; tvOverrideDeduction: string; mobileOverrideDeduction: string }>) {
-    // Delete all existing overrides for this rate card
+  async saveRateCardRoleOverrides(rateCardId: string, roleOverrides: Array<{ role: string; overrideDeduction: string; tvOverrideDeduction: string; mobileOverrideDeduction: string; isAdditive?: boolean }>) {
     await this.deleteAllRoleOverridesForRateCard(rateCardId);
-    // Insert new overrides (only those with non-zero values)
     const toInsert = roleOverrides.filter(ro => 
       parseFloat(ro.overrideDeduction) > 0 || 
       parseFloat(ro.tvOverrideDeduction) > 0 || 
-      parseFloat(ro.mobileOverrideDeduction) > 0
+      parseFloat(ro.mobileOverrideDeduction) > 0 ||
+      ro.isAdditive === true
     );
     if (toInsert.length > 0) {
       await db.insert(rateCardRoleOverrides).values(toInsert.map(ro => ({
@@ -351,6 +350,7 @@ export const storage = {
         overrideDeduction: ro.overrideDeduction,
         tvOverrideDeduction: ro.tvOverrideDeduction,
         mobileOverrideDeduction: ro.mobileOverrideDeduction,
+        isAdditive: ro.isAdditive || false,
       })));
     }
   },
@@ -1301,7 +1301,10 @@ export const storage = {
     if (orderIds.length === 0) return [];
     return db.update(overrideEarnings)
       .set({ payRunId })
-      .where(inArray(overrideEarnings.salesOrderId, orderIds))
+      .where(and(
+        inArray(overrideEarnings.salesOrderId, orderIds),
+        inArray(overrideEarnings.approvalStatus, ["AUTO_APPROVED", "APPROVED"])
+      ))
       .returning();
   },
   async getOverrideDeductionPoolByOrderIds(orderIds: string[]) {
@@ -1312,6 +1315,81 @@ export const storage = {
         eq(overrideDeductionPool.status, "PENDING")
       ),
     });
+  },
+  async getPendingOverrideEarnings() {
+    return db.query.overrideEarnings.findMany({
+      where: eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL"),
+      orderBy: [desc(overrideEarnings.createdAt)],
+    });
+  },
+  async getPendingOverrideEarningsCount() {
+    const result = await db.select({ count: sql<number>`count(*)::int` })
+      .from(overrideEarnings)
+      .where(eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL"));
+    return result[0]?.count ?? 0;
+  },
+  async approveOverrideEarning(id: string, approvedByUserId: string, approvalNote?: string) {
+    const [updated] = await db.update(overrideEarnings)
+      .set({
+        approvalStatus: "APPROVED",
+        approvedByUserId,
+        approvedAt: new Date(),
+        approvalNote: approvalNote || null,
+      })
+      .where(and(
+        eq(overrideEarnings.id, id),
+        eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL")
+      ))
+      .returning();
+    return updated;
+  },
+  async rejectOverrideEarning(id: string, rejectedByUserId: string, rejectionReason: string) {
+    const [updated] = await db.update(overrideEarnings)
+      .set({
+        approvalStatus: "REJECTED",
+        rejectedByUserId,
+        rejectedAt: new Date(),
+        rejectionReason,
+      })
+      .where(and(
+        eq(overrideEarnings.id, id),
+        eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL")
+      ))
+      .returning();
+    return updated;
+  },
+  async bulkApproveOverrideEarnings(ids: string[], approvedByUserId: string, approvalNote?: string) {
+    if (ids.length === 0) return [];
+    return db.update(overrideEarnings)
+      .set({
+        approvalStatus: "APPROVED",
+        approvedByUserId,
+        approvedAt: new Date(),
+        approvalNote: approvalNote || null,
+      })
+      .where(and(
+        inArray(overrideEarnings.id, ids),
+        eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL")
+      ))
+      .returning();
+  },
+  async bulkRejectOverrideEarnings(ids: string[], rejectedByUserId: string, rejectionReason: string) {
+    if (ids.length === 0) return [];
+    return db.update(overrideEarnings)
+      .set({
+        approvalStatus: "REJECTED",
+        rejectedByUserId,
+        rejectedAt: new Date(),
+        rejectionReason,
+      })
+      .where(and(
+        inArray(overrideEarnings.id, ids),
+        eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL")
+      ))
+      .returning();
+  },
+  async getOverrideEarningById(id: string) {
+    return db.query.overrideEarnings.findFirst({ where: eq(overrideEarnings.id, id) });
   },
   async markPoolEntriesDistributedByOrderIds(orderIds: string[], payRunId: string) {
     if (orderIds.length === 0) return [];

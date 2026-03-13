@@ -458,6 +458,43 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       await processAgreements(admin.id, "ADMIN");
     }
 
+    for (const rateCardId of usedRateCardIds) {
+      const rateCard = await storage.getRateCardById(rateCardId);
+      if (rateCard && rateCard.accountingOverrideCents && rateCard.accountingOverrideCents > 0) {
+        const accountingAmount = (rateCard.accountingOverrideCents / 100).toFixed(2);
+        const operationsUsers = admins.filter(u => u.role === "OPERATIONS" && u.status === "ACTIVE" && !u.deletedAt);
+        const recipientId = operationsUsers[0]?.id || activeAdmins[0]?.id;
+        if (recipientId) {
+          const earning = await storage.createOverrideEarning({
+            salesOrderId: approvedOrder.id,
+            recipientUserId: recipientId,
+            sourceRepId: approvedOrder.repId,
+            sourceLevelUsed: "ACCOUNTING",
+            amount: accountingAmount,
+            overrideType: "ACCOUNTING_OVERRIDE",
+            approvalStatus: "PENDING_APPROVAL",
+          }, txDb);
+          earnings.push(earning);
+        }
+      }
+    }
+
+    if (usedRateCardIds.size > 0) {
+      let totalProfitCents = 0;
+      let totalAccountingCents = 0;
+      for (const rcId of usedRateCardIds) {
+        const rc = await storage.getRateCardById(rcId);
+        if (rc?.ironCrestProfitCents) totalProfitCents += rc.ironCrestProfitCents;
+        if (rc?.accountingOverrideCents) totalAccountingCents += rc.accountingOverrideCents;
+      }
+      const orderUpdates: Record<string, any> = {};
+      if (totalProfitCents > 0) orderUpdates.ironCrestProfitCents = totalProfitCents;
+      if (totalAccountingCents > 0) orderUpdates.accountingOverrideEarned = (totalAccountingCents / 100).toFixed(2);
+      if (Object.keys(orderUpdates).length > 0) {
+        await storage.updateOrder(approvedOrder.id, orderUpdates as any, txDb);
+      }
+    }
+
     return earnings;
   });
 }
@@ -3174,6 +3211,7 @@ export async function registerRoutes(
         overrideDeduction: String(ro.overrideDeduction || "0"),
         tvOverrideDeduction: String(ro.tvOverrideDeduction || "0"),
         mobileOverrideDeduction: String(ro.mobileOverrideDeduction || "0"),
+        isAdditive: ro.isAdditive === true,
       }));
       await storage.saveRateCardRoleOverrides(req.params.id, validatedOverrides);
       await storage.createAuditLog({ action: "update_role_overrides", tableName: "rate_card_role_overrides", recordId: req.params.id, userId: req.user!.id, afterJson: JSON.stringify(validatedOverrides) });
@@ -14298,6 +14336,235 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("[Install Sync] Error:", error.message);
       res.status(500).json({ message: error.message || "Install sync failed" });
+    }
+  });
+
+  // ===== Iron Crest Commission Extension Endpoints =====
+
+  app.post("/api/admin/seed-iron-crest-rate-cards", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { rateCardIds, ironCrestExecutivePayCents, ironCrestProfitCents, accountingOverrideCents } = req.body;
+      if (!rateCardIds || !Array.isArray(rateCardIds) || rateCardIds.length === 0) {
+        return res.status(400).json({ message: "rateCardIds array is required" });
+      }
+      const updated: string[] = [];
+      for (const rcId of rateCardIds) {
+        const rc = await storage.getRateCardById(rcId);
+        if (rc) {
+          await storage.updateRateCard(rcId, {
+            ...(ironCrestExecutivePayCents !== undefined && { ironCrestExecutivePayCents }),
+            ...(ironCrestProfitCents !== undefined && { ironCrestProfitCents }),
+            ...(accountingOverrideCents !== undefined && { accountingOverrideCents }),
+          } as any);
+          updated.push(rcId);
+        }
+      }
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "SEED_IRON_CREST_RATE_CARDS",
+        tableName: "rate_cards",
+        recordId: updated.join(","),
+        afterJson: JSON.stringify({ ironCrestExecutivePayCents, ironCrestProfitCents, accountingOverrideCents, count: updated.length }),
+      });
+      res.json({ message: `Updated ${updated.length} rate cards`, updatedIds: updated });
+    } catch (error: any) {
+      console.error("Seed Iron Crest rate cards error:", error);
+      res.status(500).json({ message: "Failed to seed rate cards" });
+    }
+  });
+
+  app.get("/api/admin/reports/iron-crest-profit", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(new Date().getDate() - 90));
+      const end = endDate ? new Date(endDate as string) : new Date();
+
+      const allOrders = await storage.getSalesOrders();
+      const filtered = allOrders.filter(o => {
+        const sold = new Date(o.dateSold);
+        return sold >= start && sold <= end && o.approvalStatus === "APPROVED";
+      });
+
+      let totalGrossCommission = 0;
+      let totalOverrideDeduction = 0;
+      let totalAccountingOverride = 0;
+      let totalIronCrestProfit = 0;
+      let orderCount = 0;
+
+      for (const order of filtered) {
+        const base = parseFloat(order.baseCommissionEarned || "0");
+        const incentive = parseFloat(order.incentiveEarned || "0");
+        const override = parseFloat(order.overrideDeduction || "0");
+        const accounting = parseFloat(order.accountingOverrideEarned || "0");
+        const profit = order.ironCrestProfitCents ? order.ironCrestProfitCents / 100 : 0;
+
+        totalGrossCommission += base + incentive;
+        totalOverrideDeduction += override;
+        totalAccountingOverride += accounting;
+        totalIronCrestProfit += profit;
+        orderCount++;
+      }
+
+      res.json({
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+        orderCount,
+        totalGrossCommission: totalGrossCommission.toFixed(2),
+        totalOverrideDeduction: totalOverrideDeduction.toFixed(2),
+        totalAccountingOverride: totalAccountingOverride.toFixed(2),
+        totalIronCrestProfit: totalIronCrestProfit.toFixed(2),
+        netAfterOverrides: (totalGrossCommission - totalOverrideDeduction - totalAccountingOverride).toFixed(2),
+      });
+    } catch (error: any) {
+      console.error("Iron Crest profit report error:", error);
+      res.status(500).json({ message: "Failed to generate profit report" });
+    }
+  });
+
+  app.get("/api/admin/override-earnings/pending", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const pending = await storage.getPendingOverrideEarnings();
+      const users = await storage.getUsers();
+      const userMap = new Map(users.map(u => [u.id, u]));
+
+      const enriched = pending.map(e => ({
+        ...e,
+        recipientName: userMap.get(e.recipientUserId)?.fullName || "Unknown",
+        recipientRepId: userMap.get(e.recipientUserId)?.repId || "N/A",
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Get pending override earnings error:", error);
+      res.status(500).json({ message: "Failed to get pending override earnings" });
+    }
+  });
+
+  app.get("/api/admin/override-earnings/pending/count", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const count = await storage.getPendingOverrideEarningsCount();
+      res.json({ count });
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to get pending count" });
+    }
+  });
+
+  app.post("/api/admin/override-earnings/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const earning = await storage.getOverrideEarningById(req.params.id);
+      if (!earning) {
+        return res.status(404).json({ message: "Override earning not found" });
+      }
+      if (earning.approvalStatus !== "PENDING_APPROVAL") {
+        return res.status(400).json({ message: `Cannot approve: status is ${earning.approvalStatus}` });
+      }
+      if (earning.recipientUserId === req.user!.id) {
+        return res.status(403).json({ message: "Cannot approve your own override earning (self-approval not allowed)" });
+      }
+      const { approvalNote } = req.body || {};
+      const updated = await storage.approveOverrideEarning(req.params.id, req.user!.id, approvalNote);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "APPROVE_OVERRIDE_EARNING",
+        tableName: "override_earnings",
+        recordId: req.params.id,
+        afterJson: JSON.stringify({ approvalNote }),
+      });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Approve override earning error:", error);
+      res.status(500).json({ message: "Failed to approve override earning" });
+    }
+  });
+
+  app.post("/api/admin/override-earnings/:id/reject", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const earning = await storage.getOverrideEarningById(req.params.id);
+      if (!earning) {
+        return res.status(404).json({ message: "Override earning not found" });
+      }
+      if (earning.approvalStatus !== "PENDING_APPROVAL") {
+        return res.status(400).json({ message: `Cannot reject: status is ${earning.approvalStatus}` });
+      }
+      const { rejectionReason } = req.body || {};
+      if (!rejectionReason) {
+        return res.status(400).json({ message: "rejectionReason is required" });
+      }
+      const updated = await storage.rejectOverrideEarning(req.params.id, req.user!.id, rejectionReason);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "REJECT_OVERRIDE_EARNING",
+        tableName: "override_earnings",
+        recordId: req.params.id,
+        afterJson: JSON.stringify({ rejectionReason }),
+      });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Reject override earning error:", error);
+      res.status(500).json({ message: "Failed to reject override earning" });
+    }
+  });
+
+  app.post("/api/admin/override-earnings/bulk-approve", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { ids, approvalNote } = req.body;
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "ids array is required" });
+      }
+      const pendingEarnings = await storage.getPendingOverrideEarnings();
+      const selfOwnedIds = pendingEarnings
+        .filter(e => ids.includes(e.id) && e.recipientUserId === req.user!.id)
+        .map(e => e.id);
+      if (selfOwnedIds.length > 0) {
+        const safeIds = ids.filter((id: string) => !selfOwnedIds.includes(id));
+        if (safeIds.length === 0) {
+          return res.status(403).json({ message: "Cannot approve your own override earnings (self-approval not allowed)" });
+        }
+        const updated = await storage.bulkApproveOverrideEarnings(safeIds, req.user!.id, approvalNote);
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: "BULK_APPROVE_OVERRIDE_EARNINGS",
+          tableName: "override_earnings",
+          recordId: safeIds.join(","),
+          afterJson: JSON.stringify({ count: updated.length, skippedSelfApproval: selfOwnedIds.length }),
+        });
+        return res.json({ approved: updated, skippedSelfApproval: selfOwnedIds });
+      }
+      const updated = await storage.bulkApproveOverrideEarnings(ids, req.user!.id, approvalNote);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "BULK_APPROVE_OVERRIDE_EARNINGS",
+        tableName: "override_earnings",
+        recordId: ids.join(","),
+        afterJson: JSON.stringify({ count: updated.length }),
+      });
+      res.json({ approved: updated });
+    } catch (error: any) {
+      console.error("Bulk approve override earnings error:", error);
+      res.status(500).json({ message: "Failed to bulk approve" });
+    }
+  });
+
+  app.post("/api/admin/override-earnings/bulk-reject", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { ids, rejectionReason } = req.body;
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "ids array is required" });
+      }
+      if (!rejectionReason) {
+        return res.status(400).json({ message: "rejectionReason is required" });
+      }
+      const updated = await storage.bulkRejectOverrideEarnings(ids, req.user!.id, rejectionReason);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "BULK_REJECT_OVERRIDE_EARNINGS",
+        tableName: "override_earnings",
+        recordId: ids.join(","),
+        afterJson: JSON.stringify({ count: updated.length, rejectionReason }),
+      });
+      res.json({ rejected: updated });
+    } catch (error: any) {
+      console.error("Bulk reject override earnings error:", error);
+      res.status(500).json({ message: "Failed to bulk reject" });
     }
   });
 

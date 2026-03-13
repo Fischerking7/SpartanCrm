@@ -1,0 +1,202 @@
+Using the existing rate card, override agreement, and commission calculation 
+infrastructure already in the codebase, implement the Iron Crest commission 
+structure according to the following business rules. Do not break any existing 
+functionality — extend it.
+
+---
+
+### BUSINESS RULES
+
+The commission structure has two distinct layers:
+
+LAYER 1 — REP PAYOUTS (base commission earned by the selling rep)
+These map to the rateCards table fields: baseAmount, tvAddonAmount, mobilePerLineAmount
+
+  Speed         | REP     | LEAD    | MANAGER
+  50 Mbps       | $25     | $25     | $25
+  150 Mbps      | $60     | $60     | $60
+  300 Mbps      | $125    | $130    | $135
+  600 Mbps      | $135    | $145    | $155
+  1 Gig         | $200    | $210    | $220
+  1 Gig+        | $225    | $235    | $245
+  Unlim. Mobile | $40     | $45     | $45
+  TV            | $40     | $50     | $50
+
+LAYER 2 — OVERRIDE PAYOUTS (earned by upline, not the rep)
+These map to the overrideAgreements table. There are three override tiers:
+  - Director override (column 5 in the image, unlabeled)
+  - Admin override (column 6 in the image, unlabeled)
+  - Accounting/Iron Crest internal (column 7: Iron Crest Executive Pay)
+
+  Speed         | Director | Admin | Iron Crest Exec Pay | Iron Crest Profit
+  50 Mbps       | $0       | $0    | $95                 | $70
+  150 Mbps      | $0       | $10   | $190                | $115
+  300 Mbps      | $25      | $10   | $255                | $80
+  600 Mbps      | $30      | $10   | $285                | $85
+  1 Gig         | $30      | $10   | $350                | $85
+  1 Gig+        | $35      | $10   | $380                | $85
+  Unlim. Mobile | $0       | $0    | $60                 | $15
+  TV            | $0       | $0    | $80                 | $30
+
+The "Iron Crest Profit" column represents the company margin after all 
+payouts. This should be stored and reportable but does not flow through 
+commissions — it is calculated as:
+  Iron Crest Profit = Iron Crest Executive Pay - REP payout - all override payouts
+
+---
+
+### TASK 1 — Seed or upsert the rate cards
+
+Create a database seed function or admin API endpoint at 
+POST /api/admin/seed-iron-crest-rate-cards that upserts the following 
+rate cards for the Optimum/Altice provider. Use the existing rateCards 
+table schema with these field mappings:
+
+  - name: descriptive name e.g. "Optimum 300 Mbps - Standard"
+  - providerId: the Optimum/Altice provider ID (look it up from the providers table)
+  - baseAmount: REP payout for that speed tier
+  - active: true
+  - effectiveStart: today's date
+
+Create one rate card per speed tier. For role-based payout differences 
+(REP vs LEAD vs MANAGER), use the existing rateCardRoleOverrides table 
+which already has overrideDeduction fields. However, in this case the 
+LEAD and MANAGER amounts are HIGHER than REP — so instead of storing 
+a deduction, store the DELTA as a bonus additive. 
+
+IMPORTANT: Check whether the rateCardRoleOverrides schema supports additive 
+bonuses or only deductions. If it only supports deductions, add a boolean 
+column "isAdditive" (boolean, default false) to the rateCardRoleOverrides 
+table and migration, and update the calculateCommission and 
+calculateCommissionLineItems methods in storage.ts to apply the override 
+as an addition when isAdditive = true.
+
+For the mobile rate card:
+  - mobilePerLineAmount: $40 (REP), with LEAD and MANAGER getting $45
+  - This is per line, so mobileLinesQty multiplier still applies
+
+For the TV addon:
+  - tvAddonAmount: $40 (REP), with LEAD and MANAGER getting $50
+
+---
+
+### TASK 2 — Seed override agreements
+
+Create override agreements for Director and Admin tiers using the 
+existing overrideAgreements table. For each speed tier that has a 
+non-zero Director or Admin override, upsert an override agreement.
+
+Director overrides (these go to users with role EXECUTIVE):
+  300 Mbps → $25
+  600 Mbps → $30
+  1 Gig    → $30
+  1 Gig+   → $35
+
+Admin overrides (these go to users with role OPERATIONS or ADMIN):
+  150 Mbps → $10
+  300 Mbps → $10
+  600 Mbps → $10
+  1 Gig    → $10
+  1 Gig+   → $10
+
+These should be stored as override amounts tied to the service/speed tier, 
+not to individual users. When a rep sells a service, the system should 
+automatically calculate and record override earnings for all qualifying 
+upline recipients using the existing generateOverrideEarnings flow.
+
+---
+
+### TASK 3 — Add Iron Crest Profit tracking
+
+Add a new column to the salesOrders table:
+  ironCrestProfitCents INTEGER (nullable)
+
+Add a new column to the rateCards table:
+  ironCrestExecutivePayCents INTEGER (nullable, stores the "Iron Crest Executive Pay" column)
+  ironCrestProfitCents INTEGER (nullable, stores the "Iron Crest Profit" column)
+
+After calculating commission on order approval, calculate and store:
+  ironCrestProfitCents = ironCrestExecutivePayCents 
+                         - (repCommission * 100) 
+                         - sum(all override payouts * 100)
+
+Update the existing generateOverrideEarnings function (or wherever 
+commission calculation is finalized after order approval) to also 
+compute and write this value to the order record.
+
+Create a Drizzle migration for these schema changes.
+
+---
+
+### TASK 4 — Admin reporting endpoint for Iron Crest Profit
+
+Add a new endpoint:
+  GET /api/admin/reports/iron-crest-profit
+
+Protected by adminOnly middleware.
+
+Query parameters:
+  - startDate (YYYY-MM-DD)
+  - endDate (YYYY-MM-DD)
+  - groupBy: "service" | "rep" | "day" (default: "service")
+
+Response shape:
+  {
+    period: { start, end },
+    totalRepPayouts: number,        // sum of all baseCommissionEarned
+    totalOverridePayouts: number,   // sum of all override earnings in period
+    totalExecutivePay: number,      // sum of ironCrestExecutivePayCents / 100
+    totalProfit: number,            // sum of ironCrestProfitCents / 100
+    profitMarginPercent: number,    // totalProfit / totalExecutivePay * 100
+    breakdown: Array<{
+      label: string,                // service name, rep name, or date
+      repPayouts: number,
+      overridePayouts: number,
+      executivePay: number,
+      profit: number,
+      orderCount: number,
+    }>
+  }
+
+Only include orders where approvalStatus = 'APPROVED' and 
+jobStatus = 'COMPLETED' in all calculations.
+
+---
+
+### TASK 5 — Update commission calculation to respect role-based rate
+
+When calculating commission for an order, the rep's role (REP, LEAD, MANAGER) 
+should determine which payout tier they receive. 
+
+In the findMatchingRateCard or calculateCommission flow in storage.ts, 
+after finding the matching rate card:
+
+1. Look up the rep's role using their repId
+2. If the rep's role is LEAD and a rateCardRoleOverride exists with 
+   isAdditive = true for role LEAD, add the override delta to the base amount
+3. If the rep's role is MANAGER and a rateCardRoleOverride exists with 
+   isAdditive = true for role MANAGER, add the override delta to the base amount
+4. REPs receive the base rate card amount with no adjustment
+
+The delta values to store in rateCardRoleOverrides (isAdditive = true):
+  Speed         | LEAD delta | MANAGER delta
+  50 Mbps       | $0         | $0
+  150 Mbps      | $0         | $0
+  300 Mbps      | $5         | $10
+  600 Mbps      | $10        | $20
+  1 Gig         | $10        | $20
+  1 Gig+        | $10        | $20
+  Mobile        | $5         | $5
+  TV            | $10        | $10
+
+---
+
+### General constraints:
+- Do not remove or rename any existing API endpoints
+- Do not change existing response shapes for any existing endpoints
+- Create a Drizzle migration for all schema changes (do not use raw SQL)
+- Preserve all existing TypeScript types
+- The seed endpoint should be idempotent — safe to run multiple times 
+  without creating duplicates
+- Add the ironCrestProfitCents calculation to the existing audit log 
+  entries for order approval so it is traceable

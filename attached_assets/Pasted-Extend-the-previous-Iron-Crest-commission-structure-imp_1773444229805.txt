@@ -1,0 +1,220 @@
+Extend the previous Iron Crest commission structure implementation with 
+the following complete business rules derived from the Iron Crest rate 
+table. These rules govern how the entire compensation plan works from 
+rep payout through company profit margin.
+
+---
+
+### BUSINESS RULE INTERPRETATION FROM THE RATE TABLE
+
+The table has 8 columns with the following meaning:
+
+  Col 1: Speed/Product tier (the service being sold)
+  Col 2: REP base payout
+  Col 3: LEAD (Supervisor) payout — same or higher than REP
+  Col 4: MANAGER payout — same or higher than LEAD
+  Col 5: Director override — paid to EXECUTIVE role upline
+  Col 6: Admin override — paid to OPERATIONS/ADMIN role upline
+  Col 7: Iron Crest Executive Pay — total gross revenue Iron Crest 
+         collects from the carrier per sale (the "rack rate")
+  Col 8: Iron Crest Profit — company margin after all payouts
+
+The fundamental accounting identity for every sale is:
+  Iron Crest Executive Pay = Rep Payout + Director Override 
+                             + Admin Override + Iron Crest Profit
+
+Verify this for each tier:
+  50 Mbps:  $95  = $25 + $0  + $0  + $70  ✓
+  150 Mbps: $190 = $60 + $0  + $10 + $115 (missing $5 — confirm 
+            with stakeholder whether Admin override is $15 not $10)
+  300 Mbps: $255 = $125 + $25 + $10 + $80  ✓  (REP rate used as base)
+  600 Mbps: $285 = $135 + $30 + $10 + $85  ✓  (missing $25 — confirm)
+  1 Gig:    $350 = $200 + $30 + $10 + $85  ✓  (missing $25 — confirm)
+  1 Gig+:   $380 = $225 + $35 + $10 + $85  ✓  (missing $25 — confirm)
+  Mobile:   $60  = $40 + $0  + $0  + $15  ✓  (missing $5 — confirm)
+  TV:       $80  = $40 + $0  + $0  + $30  ✓  (missing $10 — confirm)
+
+NOTE: The accounting identity does not perfectly balance on several rows
+using the REP rate as base. This is because the LEAD and MANAGER rates 
+are higher — the Iron Crest Profit column shrinks when a LEAD or MANAGER 
+sells because their payout is higher. Implement the system such that:
+
+  Iron Crest Profit (actual) = Iron Crest Executive Pay 
+                               - actualRepPayout (role-adjusted)
+                               - Director Override
+                               - Admin Override
+
+This means Iron Crest Profit is DYNAMIC per sale based on who sold it,
+not a fixed value. Store both:
+  - ironCrestRackRateCents: the fixed carrier pay (col 7) on the rate card
+  - ironCrestProfitCents: the computed actual margin on the sales order
+
+---
+
+### COMP PLAN RULES TO ENCODE
+
+RULE 1 — Role-tiered rep payout
+  Every rep is paid according to their role at time of sale:
+  - REP role → receives Col 2 amount
+  - LEAD role → receives Col 3 amount  
+  - MANAGER role → receives Col 4 amount
+  
+  The role is captured at time of order creation/approval and stored 
+  on the order. Do not use the rep's current role — use the role they 
+  held when the order was approved. Add a column to salesOrders:
+    repRoleAtSale VARCHAR (nullable)
+  
+  Populate this field during order approval using the rep's current role.
+  Use this stored value (not a live lookup) for all commission calculations
+  and reporting.
+
+RULE 2 — Override payouts are role-independent (upline receives fixed amounts)
+  Director and Admin overrides do not change based on who sold the order.
+  They are fixed per service tier and paid to the qualifying upline.
+  A Director (EXECUTIVE role) in the rep's hierarchy receives the Col 5 
+  amount regardless of whether a REP, LEAD, or MANAGER made the sale.
+  An Admin (OPERATIONS or ADMIN role) receives the Col 6 amount.
+
+RULE 3 — Zero-override tiers are explicit, not missing
+  Where Col 5 or Col 6 shows $0, no override earning record should be 
+  created for that tier. This is intentional — 50 Mbps, Mobile, and TV 
+  generate no Director or Admin override. Enforce this in 
+  generateOverrideEarnings: skip creation of override earning records 
+  where the override amount would be $0.
+
+RULE 4 — Mobile is per-line, TV is per-order (not per-line)
+  Mobile payout (Unlim. Mobile row) is multiplied by mobileLinesQty.
+  TV payout is a flat add-on regardless of how many TVs are sold.
+  This should already be true in the existing calculateCommissionLineItems 
+  logic — verify it is and add a comment confirming the rule.
+
+RULE 5 — Iron Crest Profit flooring
+  Iron Crest Profit must never go negative. If a combination of role 
+  payouts and overrides would exceed ironCrestRackRateCents, log a 
+  rateIssue record with type "RATE_CONFLICT" and details explaining 
+  which tier caused the negative margin. Still process the commission 
+  — do not block the sale — but flag it for admin review.
+
+RULE 6 — Bundles: TV and Mobile add on top of internet payout
+  When a rep sells internet + TV, the rep earns:
+    Internet payout (role-adjusted) + TV add-on (role-adjusted)
+  When a rep sells internet + Mobile, the rep earns:
+    Internet payout (role-adjusted) + (Mobile per-line × lines)
+  When all three are sold:
+    Internet + TV + (Mobile per-line × lines)
+  
+  The Iron Crest Rack Rate for a bundle is the SUM of each component's 
+  rack rate. Store this as the total ironCrestRackRateCents on the order.
+  Override payouts for bundles are the SUM of each component's override
+  amounts (where applicable — TV and Mobile have $0 overrides currently).
+
+RULE 7 — Commission is earned at approval, not at sale
+  The payout amounts from the rate table represent EARNED commission, 
+  which becomes payable when:
+    jobStatus = 'COMPLETED' AND approvalStatus = 'APPROVED'
+  
+  Until both conditions are true, the amounts are pending. The existing 
+  paymentStatus field on salesOrders should reflect:
+    'UNPAID'  → approved but not yet in a pay run
+    'PENDING' → not yet approved
+    'PAID'    → included in a finalized pay run
+  
+  Verify the existing approval flow sets these correctly and correct 
+  any discrepancies.
+
+RULE 8 — Chargeback claws back the full earned amount
+  If an order is charged back, the full payout amount (not just base, 
+  the full role-adjusted amount including any additive override) is 
+  reversed. Override earnings for that order are also reversed.
+  
+  In the existing chargeback processing logic, confirm that:
+  a) The rep's commission is reversed using the stored baseCommissionEarned 
+     field (which should already contain the role-adjusted amount)
+  b) Any overrideEarnings records tied to that salesOrderId are also 
+     reversed or flagged
+  c) The ironCrestProfitCents on the order is recalculated to reflect 
+     the reversal
+
+RULE 9 — Pay run inclusion for overrides
+  Director and Admin override earnings (stored in overrideEarnings table) 
+  must be included in the pay run for the RECIPIENT of the override, not 
+  the rep who sold the order. When building a pay run for an EXECUTIVE 
+  user, include all overrideEarnings records where:
+    recipientUserId = executive.id
+    AND the linked salesOrder.approvalStatus = 'APPROVED'
+    AND overrideEarning.payRunId IS NULL
+  
+  Same logic applies for OPERATIONS/ADMIN override recipients.
+  Confirm this is already handled in the pay run builder and fix if not.
+
+RULE 10 — Reporting: comp plan transparency
+  Add a field to the order detail API response 
+  (GET /api/orders/:id and GET /api/admin/orders/:id):
+  
+    commissionBreakdown: {
+      repRole: string,
+      repPayout: number,
+      directorOverride: number,
+      adminOverride: number,
+      rackRate: number,
+      ironCrestProfit: number,
+      profitMarginPercent: number,
+      bundleComponents: Array<{
+        type: 'INTERNET' | 'TV' | 'MOBILE',
+        lines: number,
+        unitPayout: number,
+        totalPayout: number,
+      }>
+    }
+
+  This should be computed from stored values (not recalculated live) 
+  using the fields added in the previous task plus existing 
+  commissionLineItems records.
+
+---
+
+### SCHEMA CHANGES REQUIRED
+
+Add to salesOrders table (create Drizzle migration):
+  - repRoleAtSale: varchar(20) nullable
+  - ironCrestRackRateCents: integer nullable  
+  - ironCrestProfitCents: integer nullable
+  - directorOverrideCents: integer nullable
+  - adminOverrideCents: integer nullable
+
+Add to rateCards table (create Drizzle migration):
+  - ironCrestRackRateCents: integer nullable
+  - ironCrestProfitBaseCents: integer nullable 
+    (profit when a REP sells — LEAD/MANAGER reduce this)
+
+---
+
+### SEED DATA CORRECTIONS
+
+Using the accounting identity, the correct values per tier are:
+
+  Speed     | Rack | REP | LEAD | MGR | Director | Admin | Profit(REP) | Profit(LEAD) | Profit(MGR)
+  50 Mbps   | $95  | $25 | $25  | $25 | $0       | $0    | $70         | $70          | $70
+  150 Mbps  | $190 | $60 | $60  | $60 | $0       | $10   | $120        | $120         | $120
+  300 Mbps  | $255 | $125| $130 | $135| $25      | $10   | $95         | $90          | $85
+  600 Mbps  | $285 | $135| $145 | $155| $30      | $10   | $110        | $100         | $90
+  1 Gig     | $350 | $200| $210 | $220| $30      | $10   | $110        | $100         | $90
+  1 Gig+    | $380 | $225| $235 | $245| $35      | $10   | $110        | $100         | $90
+  Mobile    | $60  | $40 | $45  | $45 | $0       | $0    | $20         | $15          | $15
+  TV        | $80  | $40 | $50  | $50 | $0       | $0    | $40         | $30          | $30
+
+Store ironCrestProfitBaseCents using the REP profit column.
+Compute LEAD and MANAGER profit dynamically at sale time using Rule 1.
+
+---
+
+### General constraints:
+- Create Drizzle migrations for all schema changes
+- Do not change existing API response shapes — only ADD fields
+- The commissionBreakdown field is additive to existing order responses
+- All seed operations must be idempotent
+- Do not touch the frontend — backend and database only
+- Preserve all existing TypeScript types
+- Add JSDoc comments to any new storage methods explaining 
+  which business rule they enforce
+- All monetary values stored as INTEGER cents, displayed as DECIMAL dollars
