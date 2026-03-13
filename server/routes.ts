@@ -458,10 +458,36 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       await processAgreements(admin.id, "ADMIN");
     }
 
+    let totalDirectorOverrideCents = 0;
+    let totalAdminOverrideCents = 0;
+    let totalRackRateCents = 0;
+
     for (const rateCardId of usedRateCardIds) {
       const rateCard = await storage.getRateCardById(rateCardId);
-      if (rateCard && rateCard.accountingOverrideCents && rateCard.accountingOverrideCents > 0) {
-        const accountingAmount = (rateCard.accountingOverrideCents / 100).toFixed(2);
+      if (!rateCard) continue;
+
+      if (rateCard.ironCrestRackRateCents) totalRackRateCents += rateCard.ironCrestRackRateCents;
+
+      const directorCents = rateCard.directorOverrideCents || 0;
+      if (directorCents > 0) {
+        totalDirectorOverrideCents += directorCents;
+        if (hierarchy.executive) {
+          const earning = await storage.createOverrideEarning({
+            salesOrderId: approvedOrder.id,
+            recipientUserId: hierarchy.executive.id,
+            sourceRepId: approvedOrder.repId,
+            sourceLevelUsed: "EXECUTIVE",
+            amount: (directorCents / 100).toFixed(2),
+            overrideType: "DIRECTOR_OVERRIDE",
+            approvalStatus: "AUTO_APPROVED",
+          }, txDb);
+          earnings.push(earning);
+        }
+      }
+
+      const adminCents = rateCard.adminOverrideCents || 0;
+      if (adminCents > 0) {
+        totalAdminOverrideCents += adminCents;
         const operationsUsers = admins.filter(u => u.role === "OPERATIONS" && u.status === "ACTIVE" && !u.deletedAt);
         const recipientId = operationsUsers[0]?.id || activeAdmins[0]?.id;
         if (recipientId) {
@@ -469,9 +495,9 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
             salesOrderId: approvedOrder.id,
             recipientUserId: recipientId,
             sourceRepId: approvedOrder.repId,
-            sourceLevelUsed: "ACCOUNTING",
-            amount: accountingAmount,
-            overrideType: "ACCOUNTING_OVERRIDE",
+            sourceLevelUsed: "ADMIN",
+            amount: (adminCents / 100).toFixed(2),
+            overrideType: "ADMIN_OVERRIDE",
             approvalStatus: "PENDING_APPROVAL",
           }, txDb);
           earnings.push(earning);
@@ -479,20 +505,32 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       }
     }
 
-    if (usedRateCardIds.size > 0) {
-      let totalProfitCents = 0;
-      let totalAccountingCents = 0;
-      for (const rcId of usedRateCardIds) {
-        const rc = await storage.getRateCardById(rcId);
-        if (rc?.ironCrestProfitCents) totalProfitCents += rc.ironCrestProfitCents;
-        if (rc?.accountingOverrideCents) totalAccountingCents += rc.accountingOverrideCents;
+    const repPayoutCents = Math.round(parseFloat(approvedOrder.baseCommissionEarned || "0") * 100);
+    const totalOverridePaidCents = totalDirectorOverrideCents + totalAdminOverrideCents;
+    const dynamicProfitCents = totalRackRateCents - repPayoutCents - totalOverridePaidCents;
+
+    const orderUpdates: Record<string, any> = {};
+    if (totalRackRateCents > 0) orderUpdates.ironCrestRackRateCents = totalRackRateCents;
+    orderUpdates.directorOverrideCents = totalDirectorOverrideCents;
+    orderUpdates.adminOverrideCents = totalAdminOverrideCents;
+
+    if (dynamicProfitCents < 0 && totalRackRateCents > 0) {
+      orderUpdates.ironCrestProfitCents = 0;
+      try {
+        await storage.createRateIssue({
+          salesOrderId: approvedOrder.id,
+          type: "CONFLICT_RATE",
+          details: `Negative margin detected: rackRate=${totalRackRateCents}c, repPayout=${repPayoutCents}c, directorOverride=${totalDirectorOverrideCents}c, adminOverride=${totalAdminOverrideCents}c, computedProfit=${dynamicProfitCents}c`,
+        });
+      } catch (e) {
+        console.error("[generateOverrideEarnings] Failed to create rate issue:", e);
       }
-      const orderUpdates: Record<string, any> = {};
-      if (totalProfitCents > 0) orderUpdates.ironCrestProfitCents = totalProfitCents;
-      if (totalAccountingCents > 0) orderUpdates.accountingOverrideEarned = (totalAccountingCents / 100).toFixed(2);
-      if (Object.keys(orderUpdates).length > 0) {
-        await storage.updateOrder(approvedOrder.id, orderUpdates as any, txDb);
-      }
+    } else {
+      orderUpdates.ironCrestProfitCents = Math.max(0, dynamicProfitCents);
+    }
+
+    if (Object.keys(orderUpdates).length > 0) {
+      await storage.updateOrder(approvedOrder.id, orderUpdates as any, txDb);
     }
 
     return earnings;
@@ -1814,6 +1852,76 @@ export async function registerRoutes(
   });
 
   // Get commission line items for an order
+  app.get("/api/orders/:id/commission-breakdown", auth, async (req: AuthRequest, res) => {
+    try {
+      const order = await storage.getOrderById(req.params.id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+
+      const user = req.user!;
+      if (["REP", "MDU"].includes(user.role) && order.repId !== user.repId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      if (user.role === "LEAD") {
+        const supervisedReps = await storage.getSupervisedReps(user.id);
+        const allowedRepIds = [user.repId, ...supervisedReps.map(r => r.repId)];
+        if (!allowedRepIds.includes(order.repId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        const allowedRepIds = [user.repId, ...scope.allRepRepIds];
+        if (!allowedRepIds.includes(order.repId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      if (user.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(user.id);
+        const allowedRepIds = [user.repId, ...scope.allRepRepIds];
+        if (!allowedRepIds.includes(order.repId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const lineItems = await storage.getCommissionLineItemsByOrderId(order.id);
+      const overrideEarnings = await storage.getOverrideEarningsByOrder(order.id);
+
+      const directorOverride = overrideEarnings
+        .filter(e => e.overrideType === "DIRECTOR_OVERRIDE")
+        .reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
+      const adminOverride = overrideEarnings
+        .filter(e => e.overrideType === "ADMIN_OVERRIDE")
+        .reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
+
+      const rackRate = (order.ironCrestRackRateCents || 0) / 100;
+      const repPayout = parseFloat(order.baseCommissionEarned || "0");
+      const ironCrestProfit = (order.ironCrestProfitCents || 0) / 100;
+
+      const bundleComponents = lineItems.map(li => ({
+        type: li.serviceCategory as "INTERNET" | "VIDEO" | "MOBILE",
+        lines: li.quantity || 1,
+        unitPayout: parseFloat(li.unitAmount || "0"),
+        totalPayout: parseFloat(li.totalAmount || "0"),
+      }));
+
+      res.json({
+        commissionBreakdown: {
+          repRole: order.repRoleAtSale || "REP",
+          repPayout,
+          directorOverride,
+          adminOverride,
+          rackRate,
+          ironCrestProfit,
+          profitMarginPercent: rackRate > 0 ? parseFloat(((ironCrestProfit / rackRate) * 100).toFixed(1)) : 0,
+          bundleComponents,
+        },
+      });
+    } catch (error: any) {
+      console.error("Commission breakdown error:", error);
+      res.status(500).json({ message: "Failed to get commission breakdown" });
+    }
+  });
+
   app.get("/api/orders/:id/commission-lines", auth, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
@@ -2338,14 +2446,15 @@ export async function registerRoutes(
       const beforeJson = JSON.stringify(order);
       const now = new Date();
       
-      // When approving, also set jobStatus to COMPLETED if not already
+      const salesRep = await storage.getUserByRepId(order.repId);
+      
       const updates: Record<string, any> = {
         approvalStatus: "APPROVED",
         approvedByUserId: user.id,
         approvedAt: now,
+        repRoleAtSale: salesRep?.role || "REP",
       };
       
-      // Set job status to COMPLETED upon approval if still pending
       if (order.jobStatus === "PENDING") {
         updates.jobStatus = "COMPLETED";
       }
@@ -2437,10 +2546,13 @@ export async function registerRoutes(
           continue;
         }
         
+        const salesRep = await storage.getUserByRepId(order.repId);
+        
         const updates: Record<string, any> = {
           approvalStatus: "APPROVED",
           approvedByUserId: user.id,
           approvedAt: now,
+          repRoleAtSale: salesRep?.role || "REP",
         };
         
         if (order.jobStatus === "PENDING") {
@@ -14153,6 +14265,8 @@ export async function registerRoutes(
                 updates.approvalStatus = "APPROVED";
                 updates.approvedByUserId = user.id;
                 updates.approvedAt = now;
+                const salesRep = await storage.getUserByRepId(order.repId);
+                updates.repRoleAtSale = salesRep?.role || "REP";
               }
             } else if (woStatus === "CN") {
               if (order.jobStatus !== "CANCELED") {
@@ -14343,7 +14457,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/seed-iron-crest-rate-cards", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
-      const { rateCardIds, ironCrestExecutivePayCents, ironCrestProfitCents, accountingOverrideCents } = req.body;
+      const { rateCardIds, ironCrestRackRateCents, ironCrestProfitBaseCents, directorOverrideCents, adminOverrideCents } = req.body;
       if (!rateCardIds || !Array.isArray(rateCardIds) || rateCardIds.length === 0) {
         return res.status(400).json({ message: "rateCardIds array is required" });
       }
@@ -14352,9 +14466,10 @@ export async function registerRoutes(
         const rc = await storage.getRateCardById(rcId);
         if (rc) {
           await storage.updateRateCard(rcId, {
-            ...(ironCrestExecutivePayCents !== undefined && { ironCrestExecutivePayCents }),
-            ...(ironCrestProfitCents !== undefined && { ironCrestProfitCents }),
-            ...(accountingOverrideCents !== undefined && { accountingOverrideCents }),
+            ...(ironCrestRackRateCents !== undefined && { ironCrestRackRateCents }),
+            ...(ironCrestProfitBaseCents !== undefined && { ironCrestProfitBaseCents }),
+            ...(directorOverrideCents !== undefined && { directorOverrideCents }),
+            ...(adminOverrideCents !== undefined && { adminOverrideCents }),
           } as any);
           updated.push(rcId);
         }
@@ -14364,7 +14479,7 @@ export async function registerRoutes(
         action: "SEED_IRON_CREST_RATE_CARDS",
         tableName: "rate_cards",
         recordId: updated.join(","),
-        afterJson: JSON.stringify({ ironCrestExecutivePayCents, ironCrestProfitCents, accountingOverrideCents, count: updated.length }),
+        afterJson: JSON.stringify({ ironCrestRackRateCents, ironCrestProfitBaseCents, directorOverrideCents, adminOverrideCents, count: updated.length }),
       });
       res.json({ message: `Updated ${updated.length} rate cards`, updatedIds: updated });
     } catch (error: any) {
@@ -14385,22 +14500,24 @@ export async function registerRoutes(
         return sold >= start && sold <= end && o.approvalStatus === "APPROVED";
       });
 
-      let totalGrossCommission = 0;
-      let totalOverrideDeduction = 0;
-      let totalAccountingOverride = 0;
+      let totalRepPayout = 0;
+      let totalDirectorOverride = 0;
+      let totalAdminOverride = 0;
+      let totalRackRate = 0;
       let totalIronCrestProfit = 0;
       let orderCount = 0;
 
       for (const order of filtered) {
-        const base = parseFloat(order.baseCommissionEarned || "0");
-        const incentive = parseFloat(order.incentiveEarned || "0");
-        const override = parseFloat(order.overrideDeduction || "0");
-        const accounting = parseFloat(order.accountingOverrideEarned || "0");
-        const profit = order.ironCrestProfitCents ? order.ironCrestProfitCents / 100 : 0;
+        const repPayout = parseFloat(order.baseCommissionEarned || "0");
+        const directorOvr = (order.directorOverrideCents || 0) / 100;
+        const adminOvr = (order.adminOverrideCents || 0) / 100;
+        const rackRate = (order.ironCrestRackRateCents || 0) / 100;
+        const profit = (order.ironCrestProfitCents || 0) / 100;
 
-        totalGrossCommission += base + incentive;
-        totalOverrideDeduction += override;
-        totalAccountingOverride += accounting;
+        totalRepPayout += repPayout;
+        totalDirectorOverride += directorOvr;
+        totalAdminOverride += adminOvr;
+        totalRackRate += rackRate;
         totalIronCrestProfit += profit;
         orderCount++;
       }
@@ -14409,11 +14526,12 @@ export async function registerRoutes(
         startDate: start.toISOString(),
         endDate: end.toISOString(),
         orderCount,
-        totalGrossCommission: totalGrossCommission.toFixed(2),
-        totalOverrideDeduction: totalOverrideDeduction.toFixed(2),
-        totalAccountingOverride: totalAccountingOverride.toFixed(2),
+        totalRackRate: totalRackRate.toFixed(2),
+        totalRepPayout: totalRepPayout.toFixed(2),
+        totalDirectorOverride: totalDirectorOverride.toFixed(2),
+        totalAdminOverride: totalAdminOverride.toFixed(2),
         totalIronCrestProfit: totalIronCrestProfit.toFixed(2),
-        netAfterOverrides: (totalGrossCommission - totalOverrideDeduction - totalAccountingOverride).toFixed(2),
+        profitMarginPercent: totalRackRate > 0 ? ((totalIronCrestProfit / totalRackRate) * 100).toFixed(1) : "0.0",
       });
     } catch (error: any) {
       console.error("Iron Crest profit report error:", error);
