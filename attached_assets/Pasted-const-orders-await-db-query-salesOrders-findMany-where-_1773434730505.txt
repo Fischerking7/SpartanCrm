@@ -1,0 +1,129 @@
+const orders = await db.query.salesOrders.findMany({
+  where: sql`${salesOrders.repId} IN (...)`
+  // No date filter in the query
+});
+// Then filtered in JS:
+.filter(o => o.dateSold >= startStr && o.dateSold <= endStr)
+```
+This fetches the entire order history for a set of reps and discards most of it in application memory. The `WHERE` clause should include `dateSold BETWEEN startStr AND endStr`.
+
+---
+
+## Replit Prompt for Storage Fixes
+```
+Please refactor server/storage.ts with the following targeted fixes.
+Do not change any method signatures, return types, or business logic —
+only fix the implementation internals listed below.
+
+---
+
+### FIX 1 — Replace sql.raw() with inArray() throughout
+Every occurrence of this pattern is a SQL injection risk and must be replaced:
+
+  sql`${salesOrders.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
+
+Replace with Drizzle's safe operator:
+
+  inArray(salesOrders.repId, repIds)
+
+Apply this replacement in ALL methods where sql.raw() is used to build
+an IN clause: getProductionAggregation, getFilteredProductionAggregation,
+getProductionMetrics, getDailyProductionSeries, getTeamBreakdownByRep,
+getTeamBreakdownByManager, getRepIdsForScope, and any other methods
+that use this pattern. Guard each with `if (repIds.length === 0) return`
+before the query to avoid empty inArray calls.
+
+---
+
+### FIX 2 — Fix N+1 in linkOrdersToPayRun and unlinkSpecificOrders
+Replace the loop-per-order pattern:
+
+  for (const orderId of orderIds) {
+    await db.update(salesOrders).set({ payRunId }).where(eq(salesOrders.id, orderId))
+  }
+
+With a single bulk update:
+
+  await db.update(salesOrders)
+    .set({ payRunId })
+    .where(inArray(salesOrders.id, orderIds))
+
+Apply to both linkOrdersToPayRun and unlinkSpecificOrders.
+
+---
+
+### FIX 3 — Fix N+1 in saveRateCardRoleOverrides
+Replace the loop of individual inserts:
+
+  for (const ro of toInsert) {
+    await db.insert(rateCardRoleOverrides).values({...})
+  }
+
+With a single bulk insert:
+
+  if (toInsert.length > 0) {
+    await db.insert(rateCardRoleOverrides).values(toInsert.map(ro => ({
+      rateCardId,
+      role: ro.role as any,
+      overrideDeduction: ro.overrideDeduction,
+      tvOverrideDeduction: ro.tvOverrideDeduction,
+      mobileOverrideDeduction: ro.mobileOverrideDeduction,
+    })));
+  }
+
+---
+
+### FIX 4 — Add date range filter to production query methods
+In getProductionMetrics, getDailyProductionSeries, getTeamBreakdownByRep,
+getProductionAggregation, and getFilteredProductionAggregation, the current
+queries fetch all orders for a set of reps with no date filter, then filter
+in JavaScript. Add a WHERE clause to each query that filters dateSold to a
+reasonable window (use the startDate and endDate parameters already available
+in each method). Use a 90-day lookback buffer for methods that also check
+completionDate or approvedAt — the query should be:
+
+  where: and(
+    inArray(salesOrders.repId, repIds),
+    gte(salesOrders.dateSold, bufferStartDate),
+    lte(salesOrders.dateSold, endDate)
+  )
+
+where bufferStartDate is startDate minus 90 days. Keep all
+in-memory JS filtering logic exactly as-is after the query —
+only add the DB-level date pre-filter to reduce the result set.
+
+---
+
+### FIX 5 — Fix N+1 in getTeamBreakdownByManager
+Currently fetches orders inside a per-manager loop:
+
+  for (const manager of managers) {
+    const orders = await db.query.salesOrders... // DB call per manager
+  }
+
+Refactor to:
+1. Collect all repId sets for all managers in one pass (in memory)
+2. Fetch all relevant orders in one query using inArray with all repIds
+3. Partition the results in the loop by manager using .filter()
+
+---
+
+### FIX 6 — Fix getRepHierarchy sequential lookups
+Replace the sequential findFirst calls with a batched approach:
+
+1. Load the base rep once
+2. Collect all IDs needed: [supervisorId, managerId, executiveId].filter(Boolean)
+3. Fetch them all in one query: db.query.users.findMany({ where: inArray(users.id, ids) })
+4. Map results to supervisor/manager/executive by role or by matching the stored ID
+
+Keep the fallback logic (e.g., supervisor's manager) exactly as-is,
+just use the pre-fetched map instead of additional DB calls.
+
+---
+
+### General constraints:
+- Do not rename any methods or change their parameter signatures
+- Do not change return value shapes
+- Do not add new dependencies
+- Preserve all TypeScript types — do not widen to `any` unless already `any`
+- Preserve all existing error handling

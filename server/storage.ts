@@ -344,14 +344,14 @@ export const storage = {
       parseFloat(ro.tvOverrideDeduction) > 0 || 
       parseFloat(ro.mobileOverrideDeduction) > 0
     );
-    for (const ro of toInsert) {
-      await db.insert(rateCardRoleOverrides).values({
+    if (toInsert.length > 0) {
+      await db.insert(rateCardRoleOverrides).values(toInsert.map(ro => ({
         rateCardId,
         role: ro.role as any,
         overrideDeduction: ro.overrideDeduction,
         tvOverrideDeduction: ro.tvOverrideDeduction,
         mobileOverrideDeduction: ro.mobileOverrideDeduction,
-      });
+      })));
     }
   },
   
@@ -1074,23 +1074,15 @@ export const storage = {
     return payRun;
   },
   async linkOrdersToPayRun(orderIds: string[], payRunId: string) {
-    const results = [];
-    for (const orderId of orderIds) {
-      const [order] = await db.update(salesOrders).set({ payRunId }).where(eq(salesOrders.id, orderId)).returning();
-      results.push(order);
-    }
-    return results;
+    if (orderIds.length === 0) return [];
+    return db.update(salesOrders).set({ payRunId }).where(inArray(salesOrders.id, orderIds)).returning();
   },
   async unlinkOrdersFromPayRun(payRunId: string) {
     return db.update(salesOrders).set({ payRunId: null }).where(eq(salesOrders.payRunId, payRunId)).returning();
   },
   async unlinkSpecificOrders(orderIds: string[]) {
-    const results = [];
-    for (const orderId of orderIds) {
-      const [order] = await db.update(salesOrders).set({ payRunId: null }).where(eq(salesOrders.id, orderId)).returning();
-      results.push(order);
-    }
-    return results;
+    if (orderIds.length === 0) return [];
+    return db.update(salesOrders).set({ payRunId: null }).where(inArray(salesOrders.id, orderIds)).returning();
   },
 
   // Exception Queues
@@ -1497,22 +1489,42 @@ export const storage = {
   async getRepHierarchy(repId: string): Promise<{ supervisor?: User; manager?: User; executive?: User }> {
     const rep = await db.query.users.findFirst({ where: eq(users.repId, repId) });
     if (!rep) return {};
+
+    const idsToFetch = [rep.assignedSupervisorId, rep.assignedManagerId, rep.assignedExecutiveId].filter(Boolean) as string[];
+    const fetchedUsers = idsToFetch.length > 0
+      ? await db.query.users.findMany({ where: inArray(users.id, idsToFetch) })
+      : [];
+    const userMap = new Map(fetchedUsers.map(u => [u.id, u]));
+
     const result: { supervisor?: User; manager?: User; executive?: User } = {};
+
     if (rep.assignedSupervisorId) {
-      result.supervisor = await db.query.users.findFirst({ where: eq(users.id, rep.assignedSupervisorId) }) || undefined;
+      result.supervisor = userMap.get(rep.assignedSupervisorId) || undefined;
     }
+
     if (rep.assignedManagerId) {
-      result.manager = await db.query.users.findFirst({ where: eq(users.id, rep.assignedManagerId) }) || undefined;
+      result.manager = userMap.get(rep.assignedManagerId) || undefined;
     } else if (result.supervisor?.assignedManagerId) {
-      result.manager = await db.query.users.findFirst({ where: eq(users.id, result.supervisor.assignedManagerId) }) || undefined;
+      result.manager = userMap.get(result.supervisor.assignedManagerId) || undefined;
+      if (!result.manager && result.supervisor.assignedManagerId) {
+        result.manager = await db.query.users.findFirst({ where: eq(users.id, result.supervisor.assignedManagerId) }) || undefined;
+      }
     }
+
     if (rep.assignedExecutiveId) {
-      result.executive = await db.query.users.findFirst({ where: eq(users.id, rep.assignedExecutiveId) }) || undefined;
+      result.executive = userMap.get(rep.assignedExecutiveId) || undefined;
     } else if (result.manager?.assignedExecutiveId) {
-      result.executive = await db.query.users.findFirst({ where: eq(users.id, result.manager.assignedExecutiveId) }) || undefined;
+      result.executive = userMap.get(result.manager.assignedExecutiveId) || undefined;
+      if (!result.executive && result.manager.assignedExecutiveId) {
+        result.executive = await db.query.users.findFirst({ where: eq(users.id, result.manager.assignedExecutiveId) }) || undefined;
+      }
     } else if (result.supervisor?.assignedExecutiveId) {
-      result.executive = await db.query.users.findFirst({ where: eq(users.id, result.supervisor.assignedExecutiveId) }) || undefined;
+      result.executive = userMap.get(result.supervisor.assignedExecutiveId) || undefined;
+      if (!result.executive && result.supervisor.assignedExecutiveId) {
+        result.executive = await db.query.users.findFirst({ where: eq(users.id, result.supervisor.assignedExecutiveId) }) || undefined;
+      }
     }
+
     return result;
   },
   async getSupervisedReps(supervisorId: string) {
@@ -1732,9 +1744,16 @@ export const storage = {
       };
     }
     
-    // Get all relevant orders in scope
+    // Get all relevant orders in scope with date pre-filter (90-day buffer for completionDate/approvedAt)
+    const bufferStart = new Date(startDate);
+    bufferStart.setDate(bufferStart.getDate() - 90);
+    const bufferStartStr = this.formatDateForSql(bufferStart);
     const orders = await db.select().from(salesOrders).where(
-      sql`${salesOrders.repId} IN (${sql.raw(repRepIds.map(r => `'${r}'`).join(','))})`
+      and(
+        inArray(salesOrders.repId, repRepIds),
+        gte(salesOrders.dateSold, bufferStartStr),
+        lte(salesOrders.dateSold, endStr)
+      )
     );
     
     // Calculate summary metrics
@@ -1760,7 +1779,7 @@ export const storage = {
     if (groupByField === "rep") {
       // Group by rep for LEAD and MANAGER
       const allUsers = await db.query.users.findMany({
-        where: sql`${users.repId} IN (${sql.raw(repRepIds.map(r => `'${r}'`).join(','))})`
+        where: inArray(users.repId, repRepIds)
       });
       
       for (const u of allUsers) {
@@ -1794,9 +1813,9 @@ export const storage = {
     } else {
       // Group by manager for EXECUTIVE
       const scope = await this.getExecutiveScope(userId);
-      const managers = await db.query.users.findMany({
-        where: sql`${users.id} IN (${sql.raw(scope.managerIds.map(id => `'${id}'`).join(',') || "''")})`
-      });
+      const managers = scope.managerIds.length > 0
+        ? await db.query.users.findMany({ where: inArray(users.id, scope.managerIds) })
+        : [];
       
       for (const manager of managers) {
         const managerScope = await this.getManagerScope(manager.id);
@@ -1880,16 +1899,19 @@ export const storage = {
       };
     }
     
-    // Get orders with optional provider filter
-    let ordersQuery = db.select().from(salesOrders).where(
-      sql`${salesOrders.repId} IN (${sql.raw(repRepIds.map(r => `'${r}'`).join(','))})`
-    );
-    
-    let orders = await ordersQuery;
-    
+    // Get orders with date pre-filter (90-day buffer for completionDate/approvedAt)
+    const fBufferStart = new Date(startDate);
+    fBufferStart.setDate(fBufferStart.getDate() - 90);
+    const fBufferStartStr = this.formatDateForSql(fBufferStart);
+    const queryConditions = [
+      inArray(salesOrders.repId, repRepIds),
+      gte(salesOrders.dateSold, fBufferStartStr),
+      lte(salesOrders.dateSold, endStr),
+    ];
     if (filters.providerId) {
-      orders = orders.filter(o => o.providerId === filters.providerId);
+      queryConditions.push(eq(salesOrders.providerId, filters.providerId));
     }
+    const orders = await db.select().from(salesOrders).where(and(...queryConditions));
     
     // Calculate summary metrics
     const sold = orders.filter(o => o.dateSold >= startStr && o.dateSold <= endStr).length;
@@ -1910,7 +1932,7 @@ export const storage = {
     
     // Group by rep
     const allUsers = await db.query.users.findMany({
-      where: sql`${users.repId} IN (${sql.raw(repRepIds.map(r => `'${r}'`).join(','))})`
+      where: inArray(users.repId, repRepIds)
     });
     
     const breakdown: Array<{ id: string; name: string; repId?: string; sold: number; connected: number; approved: number; conversionPercent: number }> = [];
@@ -1963,8 +1985,15 @@ export const storage = {
       return { soldCount: 0, connectedCount: 0, earnedDollars: 0 };
     }
 
+    const bufferStart = new Date(startDate);
+    bufferStart.setDate(bufferStart.getDate() - 90);
+    const bufferStartStr = this.formatDateForSql(bufferStart);
     const orders = await db.query.salesOrders.findMany({
-      where: sql`${salesOrders.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
+      where: and(
+        inArray(salesOrders.repId, repIds),
+        gte(salesOrders.dateSold, bufferStartStr),
+        lte(salesOrders.dateSold, endDate)
+      )
     });
 
     // Sales: dateSold within window
@@ -2003,8 +2032,15 @@ export const storage = {
       return [];
     }
 
+    const bufferStart = new Date(startDate);
+    bufferStart.setDate(bufferStart.getDate() - 90);
+    const bufferStartStr = this.formatDateForSql(bufferStart);
     const orders = await db.query.salesOrders.findMany({
-      where: sql`${salesOrders.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
+      where: and(
+        inArray(salesOrders.repId, repIds),
+        gte(salesOrders.dateSold, bufferStartStr),
+        lte(salesOrders.dateSold, endDate)
+      )
     });
 
     const series: Array<{ date: string; soldCount: number; connectedCount: number; earnedDollars: number }> = [];
@@ -2121,11 +2157,18 @@ export const storage = {
     if (repIds.length === 0) return [];
 
     const usersList = await db.query.users.findMany({
-      where: sql`${users.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
+      where: inArray(users.repId, repIds)
     });
 
+    const tbrBufferStart = new Date(startDate);
+    tbrBufferStart.setDate(tbrBufferStart.getDate() - 90);
+    const tbrBufferStartStr = this.formatDateForSql(tbrBufferStart);
     const orders = await db.query.salesOrders.findMany({
-      where: sql`${salesOrders.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
+      where: and(
+        inArray(salesOrders.repId, repIds),
+        gte(salesOrders.dateSold, tbrBufferStartStr),
+        lte(salesOrders.dateSold, endDate)
+      )
     });
 
     const breakdown = usersList.map(u => {
@@ -2175,25 +2218,37 @@ export const storage = {
       where: and(eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"))
     });
 
-    const breakdown = [];
-
+    const managerScopes: Map<string, string[]> = new Map();
+    const allRepIdsSet = new Set<string>();
     for (const manager of managers) {
       const repIds = await this.getRepIdsForScope(manager.id, "MANAGER", "team");
+      managerScopes.set(manager.id, repIds);
+      repIds.forEach(r => allRepIdsSet.add(r));
+    }
+
+    const allRepIds = Array.from(allRepIdsSet);
+    let allOrders: any[] = [];
+    if (allRepIds.length > 0) {
+      const tbmBufferStart = new Date(startDate);
+      tbmBufferStart.setDate(tbmBufferStart.getDate() - 90);
+      const tbmBufferStartStr = this.formatDateForSql(tbmBufferStart);
+      allOrders = await db.query.salesOrders.findMany({
+        where: and(
+          inArray(salesOrders.repId, allRepIds),
+          gte(salesOrders.dateSold, tbmBufferStartStr),
+          lte(salesOrders.dateSold, endDate)
+        )
+      });
+    }
+
+    const breakdown = managers.map(manager => {
+      const repIds = managerScopes.get(manager.id) || [];
       if (repIds.length === 0) {
-        breakdown.push({
-          id: manager.id,
-          name: manager.name,
-          soldCount: 0,
-          connectedCount: 0,
-          approvedCount: 0,
-          earnedDollars: 0,
-        });
-        continue;
+        return { id: manager.id, name: manager.name, soldCount: 0, connectedCount: 0, approvedCount: 0, earnedDollars: 0 };
       }
 
-      const orders = await db.query.salesOrders.findMany({
-        where: sql`${salesOrders.repId} IN (${sql.raw(repIds.map(r => `'${r}'`).join(','))})`
-      });
+      const repIdSet = new Set(repIds);
+      const orders = allOrders.filter(o => repIdSet.has(o.repId));
 
       const soldCount = orders.filter(o => o.dateSold >= startDate && o.dateSold <= endDate).length;
       
@@ -2215,15 +2270,8 @@ export const storage = {
       const approvedCount = approvedOrders.length;
       const earnedDollars = approvedOrders.reduce((sum, o) => sum + Number(o.baseCommissionEarned) + Number(o.incentiveEarned), 0);
 
-      breakdown.push({
-        id: manager.id,
-        name: manager.name,
-        soldCount,
-        connectedCount,
-        approvedCount,
-        earnedDollars,
-      });
-    }
+      return { id: manager.id, name: manager.name, soldCount, connectedCount, approvedCount, earnedDollars };
+    });
 
     breakdown.sort((a, b) => b.earnedDollars - a.earnedDollars);
     return breakdown;
