@@ -1,0 +1,400 @@
+Extend the Iron Crest commission structure with two additions:
+(1) a new Accounting override tier, and (2) an approval workflow 
+for all override earnings before they become payable.
+
+---
+
+### PART 1 — ACCOUNTING OVERRIDE TIER
+
+The rate table has a previously unassigned $5 override column that 
+belongs to the ACCOUNTING role. Reconcile the accounting identity 
+with this correction:
+
+  Iron Crest Executive Pay = Rep Payout + Director Override 
+                             + Admin Override + Accounting Override 
+                             + Iron Crest Profit
+
+Corrected override structure per tier:
+
+  Speed       | Director | Admin | Accounting | Rack  | Profit(REP)
+  50 Mbps     | $0       | $0    | $0         | $95   | $70
+  150 Mbps    | $0       | $10   | $5         | $190  | $115
+  300 Mbps    | $25      | $10   | $5         | $255  | $90
+  600 Mbps    | $30      | $10   | $5         | $285  | $105
+  1 Gig       | $30      | $10   | $5         | $350  | $105
+  1 Gig+      | $35      | $10   | $5         | $380  | $105
+  Mobile      | $0       | $0    | $0         | $60   | $20
+  TV          | $0       | $0    | $0         | $80   | $40
+
+The accounting identity now balances on all tiers using REP base rate.
+Verify this before proceeding:
+  150 Mbps: $190 = $60 + $0 + $10 + $5 + $115  ✓
+  300 Mbps: $255 = $125 + $25 + $10 + $5 + $90  ✓
+  600 Mbps: $285 = $135 + $30 + $10 + $5 + $105 ✓
+  1 Gig:    $350 = $200 + $30 + $10 + $5 + $105 ✓
+  1 Gig+:   $380 = $225 + $35 + $10 + $5 + $105 ✓
+
+--- 
+
+### TASK 1A — Add Accounting override to schema and seed data
+
+Add a new column to salesOrders table (Drizzle migration):
+  - accountingOverrideCents: integer nullable
+
+Add a new column to rateCards table (Drizzle migration):
+  - accountingOverrideCents: integer nullable
+
+Update the rate card seed function from the previous task to include 
+accountingOverrideCents per tier as defined in the corrected table above.
+
+Update the ironCrestProfitCents calculation on every order to use 
+the corrected formula:
+
+  ironCrestProfitCents = ironCrestRackRateCents
+                         - actualRepPayoutCents
+                         - directorOverrideCents
+                         - adminOverrideCents
+                         - accountingOverrideCents
+
+Update the commissionBreakdown field on order detail API responses 
+to include:
+  accountingOverride: number  (dollars)
+
+And recalculate profitMarginPercent using the updated formula.
+
+---
+
+### TASK 1B — Add ACCOUNTING to override recipient logic
+
+In the generateOverrideEarnings function (called after order approval),
+add a third override recipient lookup for ACCOUNTING role users:
+
+Current flow handles:
+  1. EXECUTIVE recipients (Director override)
+  2. OPERATIONS/ADMIN recipients (Admin override)
+
+Add:
+  3. ACCOUNTING recipients — users with role 'ACCOUNTING' who are 
+     in the rep's org hierarchy or company-wide (ACCOUNTING is a 
+     back-office role, not a field hierarchy role, so all active 
+     ACCOUNTING users receive the override when accountingOverrideCents > 0)
+
+Logic to add in generateOverrideEarnings:
+
+  const accountingOverrideAmount = rateCard.accountingOverrideCents 
+                                    ? rateCard.accountingOverrideCents / 100 
+                                    : 0;
+
+  if (accountingOverrideAmount > 0) {
+    const accountingUsers = await storage.getUsersByRole("ACCOUNTING");
+    for (const accountingUser of accountingUsers) {
+      await storage.createOverrideEarning({
+        salesOrderId: order.id,
+        recipientUserId: accountingUser.id,
+        recipientRole: "ACCOUNTING",
+        overrideType: "ACCOUNTING_OVERRIDE",
+        amount: (accountingOverrideAmount / accountingUsers.length).toFixed(2),
+        // Split evenly among all active ACCOUNTING users
+        // If only one ACCOUNTING user exists, they receive the full amount
+        status: "PENDING_APPROVAL",
+        payRunId: null,
+      });
+    }
+  }
+
+NOTE: If your business has exactly one ACCOUNTING user, the split 
+logic still works correctly — they receive 100%. If the number of 
+ACCOUNTING users is 0, skip creation and log a rateIssue with 
+type "MISSING_ACCOUNTING_RECIPIENT".
+
+Update the overrideEarnings table to support the new overrideType 
+value "ACCOUNTING_OVERRIDE" if it uses an enum — add it to the 
+enum definition and create a Drizzle migration.
+
+---
+
+### PART 2 — OVERRIDE APPROVAL WORKFLOW
+
+Override earnings must go through an approval step before they 
+become payable and includable in a pay run. This applies to ALL 
+override types: Director, Admin, and Accounting.
+
+---
+
+### TASK 2A — Add approval status to overrideEarnings
+
+Add the following columns to the overrideEarnings table 
+(Drizzle migration):
+
+  - approvalStatus: varchar(20) not null default 'PENDING_APPROVAL'
+    Allowed values: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'VOIDED'
+  - approvedByUserId: varchar references users(id) nullable
+  - approvedAt: timestamp nullable
+  - rejectedByUserId: varchar references users(id) nullable  
+  - rejectedAt: timestamp nullable
+  - rejectionReason: text nullable
+  - approvalNote: text nullable
+
+All newly created overrideEarnings records must be created with 
+approvalStatus = 'PENDING_APPROVAL' regardless of override type.
+
+Update the existing createOverrideEarning storage method to default 
+approvalStatus to 'PENDING_APPROVAL' if not explicitly provided.
+
+---
+
+### TASK 2B — Override approval API endpoints
+
+Add the following endpoints, all protected by auth middleware:
+
+--- 
+
+GET /api/admin/override-earnings/pending
+  Access: EXECUTIVE and OPERATIONS roles only
+  
+  Returns all overrideEarnings records where:
+    approvalStatus = 'PENDING_APPROVAL'
+  
+  Enriched response per record:
+  {
+    id: string,
+    salesOrderId: string,
+    orderInvoiceNumber: string,
+    orderCustomerName: string,
+    orderDateSold: string,
+    recipientUserId: string,
+    recipientName: string,
+    recipientRole: string,
+    overrideType: string,
+    amount: string,
+    approvalStatus: string,
+    createdAt: string,
+    order: {
+      repId: string,
+      repName: string,
+      repRole: string,
+      serviceName: string,
+      providerName: string,
+      jobStatus: string,
+      approvalStatus: string,
+    }
+  }
+
+  Query parameters:
+    - overrideType: filter by 'DIRECTOR_OVERRIDE' | 'ADMIN_OVERRIDE' 
+                    | 'ACCOUNTING_OVERRIDE'
+    - recipientUserId: filter to a specific recipient
+    - orderId: filter to a specific order
+
+---
+
+GET /api/admin/override-earnings/pending/count
+  Access: EXECUTIVE and OPERATIONS roles only
+  Returns: { count: number }
+  Used for badge counts in the UI navigation.
+
+---
+
+POST /api/admin/override-earnings/:id/approve
+  Access: 
+    - EXECUTIVE role can approve DIRECTOR_OVERRIDE and ACCOUNTING_OVERRIDE
+    - OPERATIONS role can approve ADMIN_OVERRIDE and ACCOUNTING_OVERRIDE
+    - Neither role can approve their own override earnings 
+      (if the approver is also a recipient, reject with 403)
+  
+  Request body:
+    { note?: string }
+  
+  Actions:
+    1. Validate the user has permission to approve this override type
+    2. Validate the approver is not the recipient
+    3. Set approvalStatus = 'APPROVED'
+    4. Set approvedByUserId = req.user.id
+    5. Set approvedAt = now()
+    6. Create an audit log entry:
+       action: 'OVERRIDE_EARNING_APPROVED'
+       recordId: overrideEarning.id
+       afterJson: { approvedBy, overrideType, amount, recipientName }
+    7. If the linked order has a payRunId already assigned, 
+       do NOT auto-include — leave payRunId null and let the 
+       next pay run pick it up
+    8. Return the updated overrideEarning record
+
+---
+
+POST /api/admin/override-earnings/:id/reject
+  Access: Same role rules as approve endpoint
+  
+  Request body:
+    { reason: string }  (required — rejection must have a reason)
+  
+  Actions:
+    1. Validate permissions (same as approve)
+    2. Validate approver is not recipient
+    3. Validate reason is provided and non-empty
+    4. Set approvalStatus = 'REJECTED'
+    5. Set rejectedByUserId = req.user.id
+    6. Set rejectedAt = now()
+    7. Set rejectionReason = reason
+    8. Create audit log:
+       action: 'OVERRIDE_EARNING_REJECTED'
+       afterJson: { rejectedBy, reason, overrideType, amount, recipientName }
+    9. Return the updated overrideEarning record
+
+---
+
+POST /api/admin/override-earnings/bulk-approve
+  Access: EXECUTIVE and OPERATIONS roles only
+  
+  Request body:
+    { ids: string[], note?: string }
+  
+  Actions:
+    1. Filter the provided IDs to only those the requesting user 
+       has permission to approve (by overrideType and not self)
+    2. Bulk approve all qualifying records
+    3. Skip and collect IDs that cannot be approved (wrong type, 
+       self-approval, already approved)
+    4. Create a single audit log entry for the bulk action
+    5. Return:
+       {
+         approved: number,
+         skipped: number,
+         skippedIds: string[],
+         skippedReasons: Record<string, string>
+       }
+
+---
+
+### TASK 2C — Enforce approval gate in pay run builder
+
+In the pay run builder logic (wherever overrideEarnings are collected 
+for inclusion in a pay run), add a filter to ONLY include override 
+earnings where:
+
+  approvalStatus = 'APPROVED'
+
+Any override earning with approvalStatus = 'PENDING_APPROVAL' or 
+'REJECTED' must be excluded from pay runs entirely.
+
+Find every location in the codebase where overrideEarnings are 
+fetched for pay run inclusion (search for getOverrideEarningsByPayRun, 
+updateOverrideEarningsPayRunId, and related calls) and add this filter.
+
+---
+
+### TASK 2D — Notification triggers for override approval
+
+When a new overrideEarning record is created (status PENDING_APPROVAL),
+create an in-app notification for all users who can approve it:
+
+  - For DIRECTOR_OVERRIDE: notify all EXECUTIVE users
+  - For ADMIN_OVERRIDE: notify all OPERATIONS users  
+  - For ACCOUNTING_OVERRIDE: notify both EXECUTIVE and OPERATIONS users
+
+Notification content:
+  {
+    notificationType: "OVERRIDE_PENDING_APPROVAL",
+    subject: "Override Earning Pending Approval",
+    body: `A ${overrideType} override of $${amount} for order 
+           ${invoiceNumber} (${customerName}) is pending your approval.`,
+    userId: notifyUser.id,
+    status: "PENDING",
+    isRead: false,
+  }
+
+Use the existing storage.createEmailNotification method for this.
+
+When an override is approved or rejected, notify the RECIPIENT:
+  
+  Approved notification to recipient:
+    subject: "Override Earning Approved"
+    body: `Your ${overrideType} override of $${amount} for order 
+           ${invoiceNumber} has been approved and will be included 
+           in your next pay run.`
+
+  Rejected notification to recipient:
+    subject: "Override Earning Rejected"  
+    body: `Your ${overrideType} override of $${amount} for order 
+           ${invoiceNumber} was rejected. Reason: ${rejectionReason}`
+
+---
+
+### TASK 2E — Update existing override-related storage methods
+
+Update the following storage methods to respect the new 
+approvalStatus field:
+
+getOverrideEarningsByRecipient(recipientUserId):
+  Add optional parameter: approvalStatus?: string
+  If provided, filter by approvalStatus
+  Default behavior (no filter) remains unchanged for backward compatibility
+
+getOverrideEarningsByPayRun(payRunId, recipientUserId?):
+  No change needed — these are already assigned to a pay run
+
+Add new storage methods:
+
+  async getPendingOverrideEarnings(filters?: {
+    overrideType?: string,
+    recipientUserId?: string,
+    orderId?: string
+  }): Promise<OverrideEarning[]>
+  // Returns all records with approvalStatus = 'PENDING_APPROVAL'
+
+  async getPendingOverrideEarningsCount(): Promise<number>
+  // Returns count of PENDING_APPROVAL records for badge display
+
+  async approveOverrideEarning(
+    id: string, 
+    approvedByUserId: string, 
+    note?: string
+  ): Promise<OverrideEarning>
+
+  async rejectOverrideEarning(
+    id: string,
+    rejectedByUserId: string,
+    reason: string
+  ): Promise<OverrideEarning>
+
+  async bulkApproveOverrideEarnings(
+    ids: string[],
+    approvedByUserId: string,
+    note?: string
+  ): Promise<OverrideEarning[]>
+
+---
+
+### UPDATED CORRECTED SEED DATA
+
+Rate cards must now include all four monetary components:
+
+  Speed     | Rack  | REP  | Director | Admin | Accounting | Profit(REP)
+  50 Mbps   | $95   | $25  | $0       | $0    | $0         | $70
+  150 Mbps  | $190  | $60  | $0       | $10   | $5         | $115
+  300 Mbps  | $255  | $125 | $25      | $10   | $5         | $90
+  600 Mbps  | $285  | $135 | $30      | $10   | $5         | $105
+  1 Gig     | $350  | $200 | $30      | $10   | $5         | $105
+  1 Gig+    | $380  | $225 | $35      | $10   | $5         | $105
+  Mobile    | $60   | $40  | $0       | $0    | $0         | $20
+  TV        | $80   | $40  | $0       | $0    | $0         | $40
+
+Store all values as INTEGER cents in the database.
+The seed function must be idempotent — upsert by provider + service 
+name, do not create duplicates on re-run.
+
+---
+
+### General constraints:
+- Create Drizzle migrations for ALL schema changes
+- Do not modify existing endpoint response shapes — only ADD fields
+- Do not touch the frontend
+- All monetary storage in INTEGER cents
+- All new storage methods must include JSDoc comments citing 
+  which business rule they enforce
+- Preserve all existing TypeScript types
+- The self-approval restriction (approver cannot be recipient) 
+  must be enforced at the storage method level AND the route level
+- Add the approvalStatus filter to any existing leaderboard or 
+  reporting query that aggregates override earnings to ensure 
+  only APPROVED overrides appear in financial reports
