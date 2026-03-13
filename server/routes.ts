@@ -22,6 +22,45 @@ import { emailService } from "./email";
 // Placeholder until actual MRC data is tracked
 const REVENUE_MULTIPLIER = parseFloat(process.env.REVENUE_MULTIPLIER || "5");
 
+function calcGrossCommission(order: any): number {
+  return (
+    parseFloat(order.baseCommissionEarned || '0') +
+    parseFloat(order.incentiveEarned || '0') +
+    parseFloat(order.overrideDeduction || '0')
+  );
+}
+
+function getPeriodRange(period: string): { start: Date; end: Date } {
+  const now = new Date();
+  const end = now;
+  let start: Date;
+  switch (period) {
+    case 'WEEK':
+      start = new Date(now);
+      start.setDate(start.getDate() - 7);
+      break;
+    case 'QUARTER':
+      start = new Date(now);
+      start.setMonth(start.getMonth() - 3);
+      break;
+    case 'MONTH':
+    default:
+      start = new Date(now);
+      start.setMonth(start.getMonth() - 1);
+      break;
+  }
+  return { start, end };
+}
+
+function requireRoles(...roles: string[]) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!roles.includes(req.user?.role || '')) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    next();
+  };
+}
+
 // Rate limiter for auth endpoints (10 attempts per 15 minutes per IP)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -541,6 +580,112 @@ async function migrateDeletedUserRepIds(): Promise<void> {
   } catch (error) {
     console.error("Error migrating deleted user Rep IDs:", error);
   }
+}
+
+function normalizeCustomerName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function computeFileHash(buffer: Buffer): string {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+function computeRowFingerprint(clientId: string, customerNameNorm: string, saleDate: string, expectedAmountCents: number, serviceType: string): string {
+  const data = `${clientId}|${customerNameNorm}|${saleDate}|${expectedAmountCents}|${serviceType}`;
+  return crypto.createHash('sha256').update(data).digest('hex');
+}
+
+function tryAutoDetectColumnMapping(columns: string[], _clientId: string, _storage: any): { customerName: string; repName: string; saleDate: string; serviceType: string; utility: string; status: string; usage: string; rate: string; rejectionReason: string } | null {
+  const colLower = columns.map(c => c.toLowerCase().trim());
+  const findCol = (patterns: string[]): string => {
+    for (const pattern of patterns) {
+      const idx = colLower.findIndex(c => c === pattern || c.includes(pattern));
+      if (idx >= 0) return columns[idx];
+    }
+    return '';
+  };
+
+  const customerName = findCol(['customer name', 'customer_name', 'customername']);
+  const saleDate = findCol(['date sold', 'date_sold', 'datesold', 'sale date', 'sale_date', 'saledate', 'install date']);
+  const status = findCol(['status', 'client status', 'client_status']);
+
+  if (!customerName || !saleDate || !status) {
+    return null;
+  }
+
+  return {
+    customerName,
+    repName: findCol(['rep name', 'rep_name', 'repname', 'sales rep', 'representative']),
+    saleDate,
+    serviceType: findCol(['service type', 'service_type', 'servicetype', 'service', 'product']),
+    utility: findCol(['utility', 'provider', 'vendor']),
+    status,
+    usage: findCol(['usage', 'usage units', 'usage_units', 'units']),
+    rate: findCol(['rate', 'amount', 'commission', 'price', 'payment']),
+    rejectionReason: findCol(['rejection reason', 'rejection_reason', 'reason', 'reject reason']),
+  };
+}
+
+function extractRepNameFromSheet(rows: any[][]): string | null {
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const row = rows[i];
+    if (row && row[0] && typeof row[0] === 'string' && row[0].toLowerCase() === 'name') {
+      const val = row[2] || row[1];
+      if (val && typeof val === 'string') {
+        return val.replace(/^Iron Crest\s*-\s*/i, '').trim();
+      }
+    }
+  }
+  return null;
+}
+
+function extractRepCodeFromSheet(rows: any[][]): string | null {
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const row = rows[i];
+    if (row && row[0] && typeof row[0] === 'string' && row[0].toLowerCase() === 'repcode') {
+      const val = row[2] || row[1];
+      if (val !== undefined && val !== null) return String(val).split(',')[0].trim();
+    }
+  }
+  return null;
+}
+
+function findDataTableInSheet(rows: any[][]): { columns: string[]; rows: any[][] } {
+  const knownHeaders = ['customer name', 'service type', 'utility', 'client', 'date sold', 'status', 'usage', 'rate'];
+  const masterHeaders = ['repcode', 'account number', 'customer name', 'utility', 'service type', 'date sold', 'status', 'client', 'state', 'usage'];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length < 3) continue;
+
+    const cellValues = row.map((c: any) => (c != null ? String(c).toLowerCase().trim() : ''));
+
+    const matchesKnown = knownHeaders.filter(h => cellValues.includes(h)).length;
+    const matchesMaster = masterHeaders.filter(h => cellValues.includes(h)).length;
+
+    if (matchesKnown >= 4 || matchesMaster >= 4) {
+      const columns = row.map((c: any) => c != null ? String(c).trim() : `Column ${row.indexOf(c)}`);
+      const dataRows: any[][] = [];
+      for (let j = i + 1; j < rows.length; j++) {
+        const dRow = rows[j];
+        if (!dRow || dRow.length === 0 || dRow.every((c: any) => c == null || c === '')) break;
+        if (dRow[0] && typeof dRow[0] === 'string' && 
+            (dRow[0].toLowerCase().includes('chargeback') || dRow[0].toLowerCase().includes('meter chargeback'))) break;
+        dataRows.push(dRow);
+      }
+      return { columns, rows: dataRows };
+    }
+  }
+
+  if (rows.length > 1 && rows[0] && rows[0].length >= 2) {
+    const firstRowHasNums = rows[1]?.some((c: any) => typeof c === 'number');
+    if (firstRowHasNums) {
+      const columns = rows[0].map((c: any) => c != null ? String(c).trim() : 'Column');
+      return { columns, rows: rows.slice(1).filter(r => r && r.length > 0 && !r.every((c: any) => c == null)) };
+    }
+  }
+
+  return { columns: [], rows: [] };
 }
 
 export async function registerRoutes(
@@ -10512,7 +10657,7 @@ export async function registerRoutes(
             .filter(o => o.jobStatus === "PENDING")
             .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
           connectedCommissions: teamOrders
-            .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
+            .filter(o => o.jobStatus === "COMPLETED")
             .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
         };
       }));
@@ -10620,7 +10765,7 @@ export async function registerRoutes(
             .filter(o => o.jobStatus === "PENDING")
             .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
           connectedCommissions: repOrders
-            .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
+            .filter(o => o.jobStatus === "COMPLETED")
             .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned || "0"), 0),
           serviceBreakdown: Object.entries(serviceBreakdown).map(([category, data]) => ({
             category,
@@ -10661,25 +10806,7 @@ export async function registerRoutes(
         targetUserId = requestedUserId;
       }
       
-      const now = new Date();
-      let periodStart: Date;
-      let periodEnd: Date = now;
-      
-      switch (period) {
-        case "WEEK":
-          periodStart = new Date(now);
-          periodStart.setDate(periodStart.getDate() - 7);
-          break;
-        case "QUARTER":
-          periodStart = new Date(now);
-          periodStart.setMonth(periodStart.getMonth() - 3);
-          break;
-        case "MONTH":
-        default:
-          periodStart = new Date(now);
-          periodStart.setMonth(periodStart.getMonth() - 1);
-          break;
-      }
+      const { start: periodStart, end: periodEnd } = getPeriodRange(period);
       
       const forecast = await storage.calculateCommissionForecast(
         targetUserId,
@@ -10729,24 +10856,8 @@ export async function registerRoutes(
       const period = (req.query.period as string) || "MONTH";
       const repId = req.query.repId as string | undefined;
       
+      const { start: periodStart } = getPeriodRange(period);
       const now = new Date();
-      let periodStart: Date;
-      
-      switch (period) {
-        case "WEEK":
-          periodStart = new Date(now);
-          periodStart.setDate(periodStart.getDate() - 7);
-          break;
-        case "QUARTER":
-          periodStart = new Date(now);
-          periodStart.setMonth(periodStart.getMonth() - 3);
-          break;
-        case "MONTH":
-        default:
-          periodStart = new Date(now);
-          periodStart.setMonth(periodStart.getMonth() - 1);
-          break;
-      }
       
       // Get scoped users based on role
       let scopedUsers: any[] = [];
@@ -11453,13 +11564,8 @@ export async function registerRoutes(
   });
 
   // Admin/Executive: Get all employee credentials
-  app.get("/api/admin/employee-credentials", auth, async (req: AuthRequest, res) => {
+  app.get("/api/admin/employee-credentials", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
-      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-
       const credentials = await storage.getAllEmployeeCredentials();
       res.json(credentials);
     } catch (error: any) {
@@ -11468,13 +11574,8 @@ export async function registerRoutes(
   });
 
   // Admin/Executive: Get specific user's credentials (all entries)
-  app.get("/api/admin/employee-credentials/user/:userId", auth, async (req: AuthRequest, res) => {
+  app.get("/api/admin/employee-credentials/user/:userId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
-      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-
       const { userId } = req.params;
       const targetUser = await storage.getUserById(userId);
       if (!targetUser) {
@@ -11489,13 +11590,9 @@ export async function registerRoutes(
   });
 
   // Admin/Executive: Create new credential entry for any user
-  app.post("/api/admin/employee-credentials/user/:userId", auth, async (req: AuthRequest, res) => {
+  app.post("/api/admin/employee-credentials/user/:userId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-
       const { userId } = req.params;
       const targetUser = await storage.getUserById(userId);
       if (!targetUser) {
@@ -11540,13 +11637,9 @@ export async function registerRoutes(
   });
 
   // Admin/Executive: Update specific credential entry
-  app.patch("/api/admin/employee-credentials/:credentialId", auth, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/employee-credentials/:credentialId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-
       const { credentialId } = req.params;
       const existing = await storage.getEmployeeCredentialById(credentialId);
       if (!existing) {
@@ -11592,13 +11685,9 @@ export async function registerRoutes(
   });
 
   // Admin/Executive: Delete specific credential entry
-  app.delete("/api/admin/employee-credentials/:credentialId", auth, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/employee-credentials/:credentialId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-
       const { credentialId } = req.params;
       const existing = await storage.getEmployeeCredentialById(credentialId);
       if (!existing) {
@@ -11858,7 +11947,6 @@ export async function registerRoutes(
   app.get("/api/admin/mdu/:id/ssn", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      // Only ADMIN, OPERATIONS, EXECUTIVE can view full SSN
       if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
         return res.status(403).json({ message: "Not authorized to view SSN" });
       }
@@ -12125,115 +12213,6 @@ export async function registerRoutes(
 
   // ===================== FINANCE MODULE ROUTES =====================
 
-  // Helper function to normalize customer name for matching
-  function normalizeCustomerName(name: string): string {
-    return name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-  }
-
-  // Helper function to compute file hash
-  function computeFileHash(buffer: Buffer): string {
-    return crypto.createHash('sha256').update(buffer).digest('hex');
-  }
-
-  // Helper to compute row fingerprint
-  function computeRowFingerprint(clientId: string, customerNameNorm: string, saleDate: string, expectedAmountCents: number, serviceType: string): string {
-    const data = `${clientId}|${customerNameNorm}|${saleDate}|${expectedAmountCents}|${serviceType}`;
-    return crypto.createHash('sha256').update(data).digest('hex');
-  }
-
-  function tryAutoDetectColumnMapping(columns: string[], _clientId: string, _storage: any): { customerName: string; repName: string; saleDate: string; serviceType: string; utility: string; status: string; usage: string; rate: string; rejectionReason: string } | null {
-    const colLower = columns.map(c => c.toLowerCase().trim());
-    const findCol = (patterns: string[]): string => {
-      for (const pattern of patterns) {
-        const idx = colLower.findIndex(c => c === pattern || c.includes(pattern));
-        if (idx >= 0) return columns[idx];
-      }
-      return '';
-    };
-
-    const customerName = findCol(['customer name', 'customer_name', 'customername']);
-    const saleDate = findCol(['date sold', 'date_sold', 'datesold', 'sale date', 'sale_date', 'saledate', 'install date']);
-    const status = findCol(['status', 'client status', 'client_status']);
-
-    if (!customerName || !saleDate || !status) {
-      return null;
-    }
-
-    return {
-      customerName,
-      repName: findCol(['rep name', 'rep_name', 'repname', 'sales rep', 'representative']),
-      saleDate,
-      serviceType: findCol(['service type', 'service_type', 'servicetype', 'service', 'product']),
-      utility: findCol(['utility', 'provider', 'vendor']),
-      status,
-      usage: findCol(['usage', 'usage units', 'usage_units', 'units']),
-      rate: findCol(['rate', 'amount', 'commission', 'price', 'payment']),
-      rejectionReason: findCol(['rejection reason', 'rejection_reason', 'reason', 'reject reason']),
-    };
-  }
-
-  function extractRepNameFromSheet(rows: any[][]): string | null {
-    for (let i = 0; i < Math.min(10, rows.length); i++) {
-      const row = rows[i];
-      if (row && row[0] && typeof row[0] === 'string' && row[0].toLowerCase() === 'name') {
-        const val = row[2] || row[1];
-        if (val && typeof val === 'string') {
-          return val.replace(/^Iron Crest\s*-\s*/i, '').trim();
-        }
-      }
-    }
-    return null;
-  }
-
-  function extractRepCodeFromSheet(rows: any[][]): string | null {
-    for (let i = 0; i < Math.min(10, rows.length); i++) {
-      const row = rows[i];
-      if (row && row[0] && typeof row[0] === 'string' && row[0].toLowerCase() === 'repcode') {
-        const val = row[2] || row[1];
-        if (val !== undefined && val !== null) return String(val).split(',')[0].trim();
-      }
-    }
-    return null;
-  }
-
-  function findDataTableInSheet(rows: any[][]): { columns: string[]; rows: any[][] } {
-    const knownHeaders = ['customer name', 'service type', 'utility', 'client', 'date sold', 'status', 'usage', 'rate'];
-    const masterHeaders = ['repcode', 'account number', 'customer name', 'utility', 'service type', 'date sold', 'status', 'client', 'state', 'usage'];
-
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length < 3) continue;
-
-      const cellValues = row.map((c: any) => (c != null ? String(c).toLowerCase().trim() : ''));
-
-      const matchesKnown = knownHeaders.filter(h => cellValues.includes(h)).length;
-      const matchesMaster = masterHeaders.filter(h => cellValues.includes(h)).length;
-
-      if (matchesKnown >= 4 || matchesMaster >= 4) {
-        const columns = row.map((c: any) => c != null ? String(c).trim() : `Column ${row.indexOf(c)}`);
-        const dataRows: any[][] = [];
-        for (let j = i + 1; j < rows.length; j++) {
-          const dRow = rows[j];
-          if (!dRow || dRow.length === 0 || dRow.every((c: any) => c == null || c === '')) break;
-          if (dRow[0] && typeof dRow[0] === 'string' && 
-              (dRow[0].toLowerCase().includes('chargeback') || dRow[0].toLowerCase().includes('meter chargeback'))) break;
-          dataRows.push(dRow);
-        }
-        return { columns, rows: dataRows };
-      }
-    }
-
-    if (rows.length > 1 && rows[0] && rows[0].length >= 2) {
-      const firstRowHasNums = rows[1]?.some((c: any) => typeof c === 'number');
-      if (firstRowHasNums) {
-        const columns = rows[0].map((c: any) => c != null ? String(c).trim() : 'Column');
-        return { columns, rows: rows.slice(1).filter(r => r && r.length > 0 && !r.every((c: any) => c == null)) };
-      }
-    }
-
-    return { columns: [], rows: [] };
-  }
-
   // Get all finance imports
   app.get("/api/finance/imports", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
@@ -12377,6 +12356,16 @@ export async function registerRoutes(
         return res.status(409).json({ 
           message: "This file has already been imported for this client",
           existingImportId: existingImport.id
+        });
+      }
+
+      if (existingImport && forceReimport) {
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: "FINANCE_IMPORT_FORCE_REIMPORT",
+          tableName: "finance_imports",
+          recordId: existingImport.id,
+          afterJson: JSON.stringify({ fileName, clientId, reason: "forceReimport flag set by user" }),
         });
       }
 
@@ -12742,6 +12731,24 @@ export async function registerRoutes(
 
       console.log(`[AutoMatch] Starting auto-match for import ${req.params.id} with ${freshRows.length} processed rows`);
 
+      const matchableRows = freshRows.filter(row =>
+        row.matchStatus !== 'MATCHED' && row.matchStatus !== 'IGNORED' && !row.isDuplicate && row.saleDate && !isNaN(new Date(row.saleDate).getTime())
+      );
+      let allCandidates: any[] = [];
+      if (matchableRows.length > 0) {
+        const saleDates = matchableRows.map(r => new Date(r.saleDate!).getTime());
+        const minDate = new Date(Math.min(...saleDates));
+        minDate.setDate(minDate.getDate() - 30);
+        const maxDate = new Date(Math.max(...saleDates));
+        maxDate.setDate(maxDate.getDate() + 30);
+        allCandidates = await storage.findOrdersForMatching(
+          null,
+          minDate.toISOString().split('T')[0],
+          maxDate.toISOString().split('T')[0]
+        );
+        console.log(`[AutoMatch] Pre-fetched ${allCandidates.length} candidate orders for date range ${minDate.toISOString().split('T')[0]} to ${maxDate.toISOString().split('T')[0]}`);
+      }
+
       for (const row of freshRows) {
         if (row.matchStatus === 'MATCHED' || row.matchStatus === 'IGNORED' || row.isDuplicate) {
           continue;
@@ -12749,7 +12756,6 @@ export async function registerRoutes(
 
         if (!row.saleDate) continue;
 
-        // Find candidate orders within date range (±30 days for flexibility)
         const saleDate = new Date(row.saleDate);
         if (isNaN(saleDate.getTime())) continue;
         const startDate = new Date(saleDate);
@@ -12757,11 +12763,10 @@ export async function registerRoutes(
         const endDate = new Date(saleDate);
         endDate.setDate(endDate.getDate() + 30);
 
-        const candidates = await storage.findOrdersForMatching(
-          null,
-          startDate.toISOString().split('T')[0],
-          endDate.toISOString().split('T')[0]
-        );
+        const candidates = allCandidates.filter(o => {
+          const d = new Date(o.dateSold);
+          return d >= startDate && d <= endDate;
+        });
 
         console.log(`[AutoMatch] Row "${row.customerName}" (${row.saleDate}) -> ${candidates.length} candidate orders in range ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
 
@@ -12834,9 +12839,7 @@ export async function registerRoutes(
           // Rate/amount matching (max 15 pts)
           const rowAmount = row.paidAmountCents || row.expectedAmountCents || 0;
           if (rowAmount > 0) {
-            const orderGrossCents = Math.round(
-              (parseFloat(order.baseCommissionEarned || '0') + parseFloat(order.incentiveEarned || '0') + parseFloat(order.overrideDeduction || '0')) * 100
-            );
+            const orderGrossCents = Math.round(calcGrossCommission(order) * 100);
             if (order.expectedAmountCents && order.expectedAmountCents === rowAmount) {
               score += 15;
               reasons.push('exact_amount_match:+15');
@@ -12940,9 +12943,7 @@ export async function registerRoutes(
           } else {
             // Matched - set expectedAmountCents from matched order's gross commission
             const matchedOrder = scored[0].order;
-            const grossCommissionCents = Math.round(
-              (parseFloat(matchedOrder.baseCommissionEarned || '0') + parseFloat(matchedOrder.incentiveEarned || '0') + parseFloat(matchedOrder.overrideDeduction || '0')) * 100
-            );
+            const grossCommissionCents = Math.round(calcGrossCommission(matchedOrder) * 100);
             await storage.updateFinanceImportRow(row.id, {
               matchedOrderId: matchedOrder.id,
               matchStatus: 'MATCHED',
@@ -12987,9 +12988,7 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Order not found" });
       }
 
-      const grossCommissionCents = Math.round(
-        (parseFloat(order.baseCommissionEarned || '0') + parseFloat(order.incentiveEarned || '0') + parseFloat(order.overrideDeduction || '0')) * 100
-      );
+      const grossCommissionCents = Math.round(calcGrossCommission(order) * 100);
       await storage.updateFinanceImportRow(rowId, {
         matchedOrderId: orderId,
         matchStatus: 'MATCHED',
@@ -13471,14 +13470,12 @@ export async function registerRoutes(
       const status = req.query.status as string | undefined;
       const hasVariance = req.query.hasVariance === 'true' ? true : req.query.hasVariance === 'false' ? false : undefined;
       const expectations = await storage.getArExpectations(clientId, status, hasVariance);
-      const enriched = await Promise.all(expectations.map(async (ar: any) => {
-        let repName: string | null = null;
-        if (ar.order?.repId) {
-          const repUser = await storage.getUserByRepId(ar.order.repId);
-          repName = repUser?.name || ar.order.repId;
-        }
+      const allUsers = await storage.getUsers();
+      const repMap = new Map(allUsers.map(u => [u.repId, u.name]));
+      const enriched = expectations.map((ar: any) => {
+        const repName = ar.order?.repId ? (repMap.get(ar.order.repId) || ar.order.repId) : null;
         return { ...ar, order: ar.order ? { ...ar.order, repName } : ar.order };
-      }));
+      });
       res.json(enriched);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to get AR expectations" });
@@ -13544,11 +13541,7 @@ export async function registerRoutes(
     try {
       const ar = await storage.getArExpectationById(req.params.id);
       if (!ar) return res.status(404).json({ message: "AR expectation not found" });
-      let repName: string | null = null;
-      if (ar.order?.repId) {
-        const repUser = await storage.getUserByRepId(ar.order.repId);
-        repName = repUser?.name || ar.order.repId;
-      }
+      const repName = ar.order?.repId ? ((await storage.getUserByRepId(ar.order.repId))?.name || ar.order.repId) : null;
       res.json({ ...ar, order: ar.order ? { ...ar.order, repName } : ar.order });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to get AR expectation" });
@@ -14021,28 +14014,27 @@ export async function registerRoutes(
         const allProviders = await storage.getProviders();
         const providerMap = new Map(allProviders.map(p => [p.id, p.name]));
 
-        const orderSummaries: OrderSummary[] = await Promise.all(
-          pendingOrders.map(async (order) => {
-            const rep = await storage.getUserByRepId(order.repId);
-            const providerName = order.providerId ? (providerMap.get(order.providerId) || "") : "";
-            return {
-              id: order.id,
-              invoiceNumber: order.invoiceNumber || "",
-              customerName: order.customerName,
-              houseNumber: order.houseNumber || "",
-              streetName: order.streetName || "",
-              aptUnit: order.aptUnit || "",
-              city: order.city || "",
-              zipCode: order.zipCode || "",
-              serviceType: order.serviceType || "",
-              providerName,
-              repName: rep?.name || "",
-              dateSold: order.dateSold || "",
-              jobStatus: order.jobStatus,
-              approvalStatus: order.approvalStatus,
-            };
-          })
-        );
+        const syncUsers = await storage.getUsers();
+        const syncRepMap = new Map(syncUsers.map(u => [u.repId, u.name]));
+        const orderSummaries: OrderSummary[] = pendingOrders.map((order) => {
+          const providerName = order.providerId ? (providerMap.get(order.providerId) || "") : "";
+          return {
+            id: order.id,
+            invoiceNumber: order.invoiceNumber || "",
+            customerName: order.customerName,
+            houseNumber: order.houseNumber || "",
+            streetName: order.streetName || "",
+            aptUnit: order.aptUnit || "",
+            city: order.city || "",
+            zipCode: order.zipCode || "",
+            serviceType: order.serviceType || "",
+            providerName,
+            repName: syncRepMap.get(order.repId) || "",
+            dateSold: order.dateSold || "",
+            jobStatus: order.jobStatus,
+            approvalStatus: order.approvalStatus,
+          };
+        });
 
         const matchResult = await matchInstallationsToOrders(sheetData.rows, orderSummaries);
 
@@ -14143,14 +14135,16 @@ export async function registerRoutes(
             "Notes", "Created At",
           ];
 
-          const csvRows = await Promise.all(approvedOrders.map(async (o) => {
-            const rep = o.repId ? await storage.getUserByRepId(o.repId) : null;
+          const emailUsers = await storage.getUsers();
+          const emailRepMap = new Map(emailUsers.map(u => [u.repId, u.name]));
+          const csvRows = approvedOrders.map((o) => {
+            const repName = o.repId ? (emailRepMap.get(o.repId) || "") : "";
             const grossCommission = parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0");
             const netCommission = grossCommission - parseFloat(o.overrideDeduction || "0");
             return [
               o.invoiceNumber || "",
               o.repId || "",
-              rep?.name || "",
+              repName,
               o.customerName || "",
               o.customerAddress || "",
               o.houseNumber || "",
@@ -14185,7 +14179,7 @@ export async function registerRoutes(
               o.notes || "",
               o.createdAt ? new Date(o.createdAt).toLocaleString() : "",
             ];
-          }));
+          });
 
           const csvContent = [csvHeaders, ...csvRows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
           const d = new Date();

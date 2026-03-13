@@ -1,0 +1,169 @@
+Please refactor the backend route file (routes.ts or wherever the Express routes are defined) with the following targeted fixes. Do not change any business logic or API contracts — only fix the issues listed below.
+
+---
+
+### FIX 1 — Extract commission calculation utility
+Create a helper function near the top of the file (or in a shared utils module if one exists):
+
+  function calcGrossCommission(order: any): number {
+    return (
+      parseFloat(order.baseCommissionEarned || '0') +
+      parseFloat(order.incentiveEarned || '0') +
+      parseFloat(order.overrideDeduction || '0')
+    );
+  }
+
+Replace every inline instance of this pattern throughout the file with a call to calcGrossCommission(order).
+
+---
+
+### FIX 2 — Extract period range utility
+Create this helper:
+
+  function getPeriodRange(period: string): { start: Date; end: Date } {
+    const now = new Date();
+    const end = now;
+    let start: Date;
+    switch (period) {
+      case 'WEEK':
+        start = new Date(now);
+        start.setDate(start.getDate() - 7);
+        break;
+      case 'QUARTER':
+        start = new Date(now);
+        start.setMonth(start.getMonth() - 3);
+        break;
+      case 'MONTH':
+      default:
+        start = new Date(now);
+        start.setMonth(start.getMonth() - 1);
+        break;
+    }
+    return { start, end };
+  }
+
+Replace every copy of the WEEK/MONTH/QUARTER switch block in the commission forecast endpoints with a call to getPeriodRange(period).
+
+---
+
+### FIX 3 — Fix N+1 query in AR enrichment
+In the GET /api/finance/ar route, replace this pattern:
+
+  const enriched = await Promise.all(expectations.map(async (ar: any) => {
+    let repName: string | null = null;
+    if (ar.order?.repId) {
+      const repUser = await storage.getUserByRepId(ar.order.repId);   // DB call per row
+      repName = repUser?.name || ar.order.repId;
+    }
+    return { ...ar, order: ar.order ? { ...ar.order, repName } : ar.order };
+  }));
+
+With this pattern:
+
+  const allUsers = await storage.getActiveUsers();
+  const repMap = new Map(allUsers.map(u => [u.repId, u.name]));
+  const enriched = expectations.map((ar: any) => {
+    const repName = ar.order?.repId ? (repMap.get(ar.order.repId) || ar.order.repId) : null;
+    return { ...ar, order: ar.order ? { ...ar.order, repName } : ar.order };
+  });
+
+Apply the same pre-fetch pattern to the install sync email builder section, which also calls storage.getUserByRepId() inside a loop.
+
+---
+
+### FIX 4 — Fix auto-match N+1 query
+In the POST /api/finance/imports/:id/auto-match route, the current code calls storage.findOrdersForMatching() inside a per-row loop. Refactor it so that:
+
+1. Before the loop begins, calculate the overall date range across all rows:
+   - minDate = earliest saleDate in freshRows minus 30 days
+   - maxDate = latest saleDate in freshRows plus 30 days
+
+2. Fetch all candidates once before the loop:
+   const allCandidates = await storage.findOrdersForMatching(
+     null,
+     minDate.toISOString().split('T')[0],
+     maxDate.toISOString().split('T')[0]
+   );
+
+3. Inside the loop, filter allCandidates in memory instead of calling the DB:
+   const startDate = new Date(saleDate); startDate.setDate(startDate.getDate() - 30);
+   const endDate = new Date(saleDate); endDate.setDate(endDate.getDate() + 30);
+   const candidates = allCandidates.filter(o => {
+     const d = new Date(o.dateSold);
+     return d >= startDate && d <= endDate;
+   });
+
+Do not change any of the scoring logic inside the loop.
+
+---
+
+### FIX 5 — Fix duplicate condition bug
+In the rep listing section, find this line:
+
+  .filter(o => o.jobStatus === "COMPLETED" && o.jobStatus === "COMPLETED")
+
+Change the second condition to verify it matches the intended logic. Based on context, the correct line should be:
+
+  .filter(o => o.jobStatus === "COMPLETED")
+
+---
+
+### FIX 6 — Add forceReimport audit log
+In the POST /api/finance/import route, after the duplicate check block where forceReimport is true and execution continues, add an audit log entry:
+
+  if (existingImport && forceReimport) {
+    await storage.createAuditLog({
+      userId: req.user!.id,
+      action: "FINANCE_IMPORT_FORCE_REIMPORT",
+      tableName: "finance_imports",
+      recordId: existingImport.id,
+      afterJson: JSON.stringify({ fileName, clientId, reason: "forceReimport flag set by user" }),
+    });
+  }
+
+---
+
+### FIX 7 — Move pure utility functions outside the route registration function
+The following functions are currently defined inside the route registration function body. Move them to module scope (outside the function), keeping their implementations identical:
+
+  - normalizeCustomerName
+  - computeFileHash
+  - computeRowFingerprint
+  - tryAutoDetectColumnMapping
+  - extractRepNameFromSheet
+  - extractRepCodeFromSheet
+  - findDataTableInSheet
+
+---
+
+### FIX 8 — Centralize inline role checks
+Several routes use this inline pattern instead of the existing middleware:
+
+  if (!["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+
+Create a middleware factory if one does not exist:
+
+  function requireRoles(...roles: string[]) {
+    return (req: AuthRequest, res: Response, next: NextFunction) => {
+      if (!roles.includes(req.user?.role || '')) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      next();
+    };
+  }
+
+Replace the inline checks in the employee credentials routes and MDU routes with:
+  requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE")
+
+Do not change routes that already use named middleware like adminOnly or executiveOrAdmin.
+
+---
+
+General constraints:
+- Do not rename any API routes or change response shapes
+- Do not change any database schema or storage method signatures
+- Do not add new dependencies
+- TypeScript types should be preserved or improved, never loosened to `any` unless already `any`
+- All existing error handling (try/catch blocks) must be preserved
