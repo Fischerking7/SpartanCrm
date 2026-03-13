@@ -5138,7 +5138,61 @@ export async function registerRoutes(
       const workbook = validation.workbook;
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet, { blankrows: false }) as Record<string, any>[];
+
+      const knownLeadColumns = [
+        "bld no", "bld no.", "bldg no", "bldg no.", "building no", "building number",
+        "house number", "housenumber", "house #", "house no", "street no", "street number",
+        "addr1", "address 1", "address1", "address", "full address",
+        "street", "street name", "streetname",
+        "apt", "apt.", "apt #", "apartment", "unit", "unit #", "suite", "ste",
+        "addr2", "address 2", "address2",
+        "city", "state", "zip", "zipcode", "zip code",
+        "customer name", "customername", "name", "customer",
+        "account", "account number", "accountnumber", "account no", "account #", "acct",
+        "phone", "customer phone", "customerphone", "telephone",
+        "email", "customer email", "customeremail",
+        "status", "customer status", "customerstatus",
+        "rep", "repid", "rep_id", "rep id",
+        "disco reason", "discoreason",
+        "notes",
+      ];
+
+      let rows: Record<string, any>[];
+      let headerRowOffset = 0;
+
+      const hasEmptyColumns = (parsedRows: Record<string, any>[]): boolean => {
+        if (parsedRows.length === 0) return false;
+        const allKeys = new Set<string>();
+        for (const r of parsedRows) { for (const k of Object.keys(r)) { allKeys.add(k); } }
+        return Array.from(allKeys).some(k => k.startsWith("__EMPTY"));
+      };
+
+      const hasKnownColumns = (parsedRows: Record<string, any>[]): boolean => {
+        if (parsedRows.length === 0) return false;
+        const allKeys = new Set<string>();
+        for (const r of parsedRows) { for (const k of Object.keys(r)) { allKeys.add(k.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()); } }
+        return knownLeadColumns.some(kc => allKeys.has(kc));
+      };
+
+      rows = XLSX.utils.sheet_to_json(sheet, { blankrows: false }) as Record<string, any>[];
+
+      if (hasEmptyColumns(rows) || !hasKnownColumns(rows)) {
+        for (let skip = 1; skip <= 5; skip++) {
+          const retryRows = XLSX.utils.sheet_to_json(sheet, { blankrows: false, range: skip }) as Record<string, any>[];
+          if (retryRows.length > 0 && !hasEmptyColumns(retryRows) && hasKnownColumns(retryRows)) {
+            rows = retryRows;
+            headerRowOffset = skip;
+            console.log(`[Leads Import] Detected ${skip} title row(s) before header row, re-parsed starting at row ${skip + 1}`);
+            break;
+          }
+          if (retryRows.length > 0 && !hasEmptyColumns(retryRows)) {
+            rows = retryRows;
+            headerRowOffset = skip;
+            console.log(`[Leads Import] Skipped ${skip} title row(s), using row ${skip + 1} as header (no known columns matched but no __EMPTY columns)`);
+            break;
+          }
+        }
+      }
 
       if (rows.length === 0) {
         return res.status(400).json({ message: "Excel file is empty" });
@@ -5147,9 +5201,6 @@ export async function registerRoutes(
       // Validate row count
       if (!validateRowCount(rows, res)) return;
 
-      // Determine total column count from header row for complete-row validation
-      // xlsx sheet_to_json only includes keys for cells with data, so we need
-      // to know the total columns to detect rows with blank cells
       const allHeaderKeys = new Set<string>();
       for (const row of rows) {
         for (const key of Object.keys(row)) {
