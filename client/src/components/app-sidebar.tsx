@@ -101,7 +101,17 @@ const MENU = {
   opsOverrides: { title: "Overrides", url: "/ops/overrides", icon: Shield },
   opsAdvances: { title: "Advances", url: "/ops/advances", icon: DollarSign },
   opsReports: { title: "Ops Reports", url: "/ops/reports", icon: BarChart3 },
-  
+
+  // Accounting Center
+  acctHome: { title: "Dashboard", url: "/accounting", icon: LayoutDashboard },
+  acctPayRuns: { title: "Pay Runs", url: "/accounting/pay-runs", icon: Wallet },
+  acctPayStubs: { title: "Pay Stubs", url: "/accounting/pay-stubs", icon: FileText },
+  acctAR: { title: "AR Management", url: "/accounting/ar", icon: DollarSign },
+  acctOverrides: { title: "Overrides", url: "/accounting/overrides", icon: Shield },
+  acctAdvances: { title: "Advances", url: "/accounting/advances", icon: DollarSign },
+  acctReports: { title: "Reports", url: "/accounting/reports", icon: BarChart3 },
+  acct1099: { title: "1099 Preparation", url: "/accounting/1099", icon: FileSpreadsheet },
+
   // Accounting & Audit
   accounting: { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
   finance: { title: "Finance & AR", url: "/finance", icon: DollarSign },
@@ -379,22 +389,34 @@ export function AppSidebar() {
   const renderAdminSidebar = () => (
     <>
       <CollapsibleSection 
-        title="Operations" 
+        title="Ops Center" 
         icon={Briefcase} 
-        items={adminOpsItems} 
+        items={[MENU.opsHome, MENU.opsOrders, MENU.opsReps, MENU.opsPayRuns, MENU.opsPayStubs, MENU.opsAR, MENU.opsOverrides, MENU.opsAdvances, MENU.opsReports]} 
         location={location}
         defaultOpen={true}
       />
       <CollapsibleSection 
         title="Accounting" 
         icon={Wallet} 
-        items={adminAccountingItems} 
+        items={[MENU.acctHome, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acctReports, MENU.acct1099]} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="Insights" 
+        icon={TrendingUp} 
+        items={adminInsightsItems} 
         location={location}
       />
       <CollapsibleSection 
         title="Resources" 
         icon={BookOpen} 
         items={[MENU.knowledge]} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="System Settings" 
+        icon={Cog} 
+        items={adminSettingsItems} 
         location={location}
       />
     </>
@@ -435,21 +457,12 @@ export function AppSidebar() {
           location={location}
           defaultOpen={!isExec}
         />
-        {isExec ? (
-          <CollapsibleSection 
-            title="Accounting" 
-            icon={Wallet} 
-            items={[MENU.audit]} 
-            location={location}
-          />
-        ) : (
-          <CollapsibleSection 
-            title="Accounting" 
-            icon={Wallet} 
-            items={adminAccountingItems} 
-            location={location}
-          />
-        )}
+        <CollapsibleSection 
+          title="Accounting" 
+          icon={Wallet} 
+          items={[MENU.acctHome, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acctReports, MENU.acct1099]} 
+          location={location}
+        />
         <CollapsibleSection 
           title="Insights" 
           icon={TrendingUp} 
@@ -478,9 +491,34 @@ export function AppSidebar() {
     );
   };
 
+  const renderAccountingSidebar = () => (
+    <>
+      <CollapsibleSection 
+        title="Accounting" 
+        icon={Wallet} 
+        items={[MENU.acctHome, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acctReports, MENU.acct1099]} 
+        location={location}
+        defaultOpen={true}
+      />
+      <CollapsibleSection 
+        title="My Account" 
+        icon={User} 
+        items={[...personalItems, ...preferencesItems]} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="Resources" 
+        icon={BookOpen} 
+        items={[MENU.knowledge]} 
+        location={location}
+      />
+    </>
+  );
+
   const renderSidebar = () => {
     if (user.role === "EXECUTIVE" || user.role === "OPERATIONS") return renderExecutiveSidebar();
     if (user.role === "ADMIN") return renderAdminSidebar();
+    if (user.role === "ACCOUNTING") return renderAccountingSidebar();
     return renderNonAdminSidebar();
   };
 

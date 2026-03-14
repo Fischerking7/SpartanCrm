@@ -10,8 +10,8 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { OpsNav, OpsLayout } from "@/pages/ops/ops-layout";
-import { AcctNav } from "@/pages/accounting/acct-layout";
-import { DirNav } from "@/pages/director/dir-layout";
+import { AcctNav, AcctLayout } from "@/pages/accounting/acct-layout";
+import { DirNav, DirLayout } from "@/pages/director/dir-layout";
 import { ExecNav } from "@/pages/executive/exec-layout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActivityTracker } from "@/hooks/use-activity-tracker";
@@ -87,6 +87,7 @@ import AcctAR from "@/pages/accounting/acct-ar";
 import AcctOverrides from "@/pages/accounting/acct-overrides";
 import AcctAdvances from "@/pages/accounting/acct-advances";
 import AcctReports from "@/pages/accounting/acct-reports";
+import Acct1099 from "@/pages/accounting/acct-1099";
 import DirHome from "@/pages/director/dir-home";
 import DirProduction from "@/pages/director/dir-production";
 import DirAnalytics from "@/pages/director/dir-analytics";
@@ -207,6 +208,7 @@ const routeTitles: Record<string, string> = {
   "/accounting/overrides": "Override Approvals",
   "/accounting/advances": "Advances & Deductions",
   "/accounting/reports": "Financial Reports",
+  "/accounting/1099": "1099 Preparation",
   "/admin/integrations": "Integrations",
 };
 
@@ -225,8 +227,8 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const fieldRoles = ["REP", "MDU", "LEAD"];
   const showBottomNav = fieldRoles.includes(user.role);
   const showOpsNav = false;
-  const showAcctNav = ["ACCOUNTING", "ADMIN", "EXECUTIVE"].includes(user.role) && location.startsWith("/accounting");
-  const showDirNav = user.role === "EXECUTIVE" && location.startsWith("/director");
+  const showAcctNav = false;
+  const showDirNav = false;
   const showExecNav = user.role === "EXECUTIVE" && location.startsWith("/executive");
   const pageTitle = routeTitles[location] || routeTitles[location.split("/").slice(0, 2).join("/")] || "";
 
@@ -349,11 +351,11 @@ function Router() {
         
         {user.role === "EXECUTIVE" && (
           <>
-            <Route path="/director" component={DirHome} />
-            <Route path="/director/production" component={DirProduction} />
-            <Route path="/director/analytics" component={DirAnalytics} />
-            <Route path="/director/approvals" component={DirApprovals} />
-            <Route path="/director/resources" component={DirResources} />
+            <Route path="/director">{() => <DirLayout><DirHome /></DirLayout>}</Route>
+            <Route path="/director/production">{() => <DirLayout><DirProduction /></DirLayout>}</Route>
+            <Route path="/director/analytics">{() => <DirLayout><DirAnalytics /></DirLayout>}</Route>
+            <Route path="/director/approvals">{() => <DirLayout><DirApprovals /></DirLayout>}</Route>
+            <Route path="/director/resources">{() => <DirLayout><DirResources /></DirLayout>}</Route>
           </>
         )}
 
@@ -367,15 +369,16 @@ function Router() {
           </>
         )}
 
-        {(user.role === "ACCOUNTING" || user.role === "ADMIN" || user.role === "EXECUTIVE") && (
+        {(user.role === "ACCOUNTING" || user.role === "ADMIN" || user.role === "EXECUTIVE" || user.role === "OPERATIONS") && (
           <>
-            <Route path="/accounting" component={AcctHome} />
-            <Route path="/accounting/pay-runs" component={AcctPayRuns} />
-            <Route path="/accounting/pay-stubs" component={AcctPayStubs} />
-            <Route path="/accounting/ar" component={AcctAR} />
-            <Route path="/accounting/overrides" component={AcctOverrides} />
-            <Route path="/accounting/advances" component={AcctAdvances} />
-            <Route path="/accounting/reports" component={AcctReports} />
+            <Route path="/accounting">{() => <AcctLayout><AcctHome /></AcctLayout>}</Route>
+            <Route path="/accounting/pay-runs">{() => <AcctLayout><AcctPayRuns /></AcctLayout>}</Route>
+            <Route path="/accounting/pay-stubs">{() => <AcctLayout><AcctPayStubs /></AcctLayout>}</Route>
+            <Route path="/accounting/ar">{() => <AcctLayout><AcctAR /></AcctLayout>}</Route>
+            <Route path="/accounting/overrides">{() => <AcctLayout><AcctOverrides /></AcctLayout>}</Route>
+            <Route path="/accounting/advances">{() => <AcctLayout><AcctAdvances /></AcctLayout>}</Route>
+            <Route path="/accounting/reports">{() => <AcctLayout><AcctReports /></AcctLayout>}</Route>
+            <Route path="/accounting/1099">{() => <AcctLayout><Acct1099 /></AcctLayout>}</Route>
           </>
         )}
         
