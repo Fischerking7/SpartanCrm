@@ -45,6 +45,11 @@ export async function getOrCreateReserve(
 
   if (existing) return existing;
 
+  const [user] = await d.select({ role: users.role }).from(users).where(eq(users.id, userId));
+  if (!user || !isReserveEligibleRole(user.role)) {
+    throw new Error(`Role ${user?.role || 'unknown'} is not eligible for a rolling reserve. Only REP, LEAD, MANAGER roles qualify.`);
+  }
+
   const [created] = await d
     .insert(rollingReserves)
     .values({ userId })
@@ -269,6 +274,16 @@ export async function applyChargebackToReserve(
     .set({ reserveStatus: newStatus })
     .where(eq(users.id, userId));
 
+  if (fromReserve > 0) {
+    await d
+      .update(chargebacks)
+      .set({
+        reserveOffsetCents: fromReserve,
+        reserveOffsetApplied: true,
+      })
+      .where(eq(chargebacks.id, chargebackId));
+  }
+
   const [order] = await d
     .select({ dateSold: salesOrders.dateSold })
     .from(salesOrders)
@@ -403,7 +418,10 @@ export async function handleRepSeparation(
 
   const reserve = await getOrCreateReserve(userId, d);
 
-  const immatureOrders = await d
+  const [userRecord] = await d.select({ repId: users.repId }).from(users).where(eq(users.id, userId));
+  const userRepId = userRecord?.repId;
+
+  const immatureOrders = userRepId ? await d
     .select({
       dateSold: salesOrders.dateSold,
       maturityExpiresAt: salesOrders.maturityExpiresAt,
@@ -411,10 +429,10 @@ export async function handleRepSeparation(
     .from(salesOrders)
     .where(
       and(
-        eq(salesOrders.createdByUserId, userId),
-        eq(salesOrders.status, "APPROVED")
+        eq(salesOrders.repId, userRepId),
+        eq(salesOrders.approvalStatus, "APPROVED")
       )
-    );
+    ) : [];
 
   let earliestReleaseDate = new Date();
   earliestReleaseDate.setDate(earliestReleaseDate.getDate() + 180);
@@ -545,14 +563,18 @@ export async function checkAndReleaseMaturedReserves(): Promise<{
   let totalReleasedCents = 0;
 
   for (const reserve of heldReserves) {
+    const [userRec] = await db.select({ repId: users.repId }).from(users).where(eq(users.id, reserve.userId));
+    const rId = userRec?.repId;
+    if (!rId) continue;
+
     const pendingChargebacks = await db
       .select({ id: chargebacks.id })
       .from(chargebacks)
       .innerJoin(salesOrders, eq(chargebacks.salesOrderId, salesOrders.id))
       .where(
         and(
-          eq(salesOrders.createdByUserId, reserve.userId),
-          eq(chargebacks.status, "PENDING")
+          eq(salesOrders.repId, rId),
+          eq(chargebacks.reserveOffsetApplied, false)
         )
       )
       .limit(1);
@@ -564,8 +586,8 @@ export async function checkAndReleaseMaturedReserves(): Promise<{
       .from(salesOrders)
       .where(
         and(
-          eq(salesOrders.createdByUserId, reserve.userId),
-          eq(salesOrders.status, "APPROVED"),
+          eq(salesOrders.repId, rId),
+          eq(salesOrders.approvalStatus, "APPROVED"),
           sql`"maturity_expires_at" IS NOT NULL AND "maturity_expires_at" > NOW()`
         )
       )
