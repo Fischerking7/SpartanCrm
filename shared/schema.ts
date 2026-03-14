@@ -280,6 +280,8 @@ export const salesOrders = pgTable("sales_orders", {
   payrollReadyTriggeredBy: varchar("payroll_ready_triggered_by", { length: 20 }),
   payrollHoldReason: text("payroll_hold_reason"),
   isPayrollHeld: boolean("is_payroll_held").notNull().default(false),
+  chargebackRiskScore: integer("chargeback_risk_score"),
+  chargebackRiskFactors: text("chargeback_risk_factors"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

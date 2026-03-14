@@ -12,8 +12,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
-  CheckCircle2, XCircle, Search, Filter, Clock, AlertTriangle, ChevronLeft, ChevronRight
+  CheckCircle2, XCircle, Search, Filter, Clock, AlertTriangle, ChevronLeft, ChevronRight, ShieldAlert
 } from "lucide-react";
+
+function RiskBadge({ score }: { score: number | null | undefined }) {
+  if (!score && score !== 0) return null;
+  const cfg = score <= 25 ? { label: "Low", cls: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" }
+    : score <= 50 ? { label: "Med", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300" }
+    : score <= 75 ? { label: "High", cls: "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300" }
+    : { label: "Critical", cls: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" };
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${cfg.cls}`} data-testid="badge-risk-score">
+      <ShieldAlert className="h-3 w-3" />
+      {score} {cfg.label}
+    </span>
+  );
+}
 
 const roleColors: Record<string, string> = {
   REP: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
@@ -266,9 +280,12 @@ export default function OpsOrders() {
                         <td className="p-3 hidden lg:table-cell">{order.repId}</td>
                         <td className="p-3 hidden md:table-cell">{order.serviceName || "—"}</td>
                         <td className="p-3">
-                          <Badge variant="outline" className="text-xs">
-                            {order.status}
-                          </Badge>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Badge variant="outline" className="text-xs">
+                              {order.status}
+                            </Badge>
+                            <RiskBadge score={order.chargebackRiskScore} />
+                          </div>
                         </td>
                         <td className="p-3 text-right hidden sm:table-cell">
                           ${parseFloat(order.baseCommissionEarned || "0").toFixed(2)}
@@ -343,6 +360,33 @@ export default function OpsOrders() {
                   <p className="font-medium">{new Date(selectedOrder.createdAt).toLocaleDateString()}</p>
                 </div>
               </div>
+              {selectedOrder.chargebackRiskScore != null && (
+                <div className="p-3 rounded-lg bg-muted/50 border" data-testid="section-risk-detail">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium flex items-center gap-1.5">
+                      <ShieldAlert className="h-4 w-4" /> Chargeback Risk
+                    </p>
+                    <RiskBadge score={selectedOrder.chargebackRiskScore} />
+                  </div>
+                  {selectedOrder.chargebackRiskFactors && (() => {
+                    try {
+                      const factors = JSON.parse(selectedOrder.chargebackRiskFactors);
+                      const triggered = factors.filter((f: any) => f.triggered);
+                      if (triggered.length === 0) return <p className="text-xs text-muted-foreground">No risk factors triggered</p>;
+                      return (
+                        <ul className="space-y-1">
+                          {triggered.map((f: any, i: number) => (
+                            <li key={i} className="text-xs flex items-start gap-1.5">
+                              <AlertTriangle className="h-3 w-3 text-yellow-500 mt-0.5 flex-shrink-0" />
+                              <span>{f.factor} <span className="text-muted-foreground">(+{f.weight})</span>{f.detail ? ` — ${f.detail}` : ""}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      );
+                    } catch { return null; }
+                  })()}
+                </div>
+              )}
               {selectedOrder.customerAddress && (
                 <div className="text-sm">
                   <p className="text-muted-foreground">Address</p>

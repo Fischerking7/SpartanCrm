@@ -7,7 +7,21 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, Clock, ListChecks, History, Loader2, SkipForward } from "lucide-react";
+import { CheckCircle, Clock, ListChecks, History, Loader2, SkipForward, ShieldAlert } from "lucide-react";
+
+function RiskBadge({ score }: { score: number | null | undefined }) {
+  if (!score && score !== 0) return null;
+  const cfg = score <= 25 ? { label: "Low", cls: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" }
+    : score <= 50 ? { label: "Med", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300" }
+    : score <= 75 ? { label: "High", cls: "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300" }
+    : { label: "Critical", cls: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" };
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${cfg.cls}`} data-testid="badge-risk-score">
+      <ShieldAlert className="h-3 w-3" />
+      {score} {cfg.label}
+    </span>
+  );
+}
 
 export default function DirApprovals() {
   const { toast } = useToast();
@@ -112,13 +126,14 @@ export default function DirApprovals() {
                       <th className="text-left p-3">Customer</th>
                       <th className="text-left p-3">Service</th>
                       <th className="text-left p-3">Date Sold</th>
+                      <th className="text-center p-3">Risk</th>
                       <th className="text-center p-3">Days Waiting</th>
                       <th className="text-right p-3">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {queue.length === 0 && (
-                      <tr><td colSpan={7} className="text-center p-6 text-muted-foreground">No orders pending approval</td></tr>
+                      <tr><td colSpan={8} className="text-center p-6 text-muted-foreground">No orders pending approval</td></tr>
                     )}
                     {queue.map((o: any) => (
                       <tr key={o.id} className="border-b hover:bg-muted/30" data-testid={`row-approval-${o.id}`}>
@@ -135,6 +150,9 @@ export default function DirApprovals() {
                         <td className="p-3">{o.customerName}</td>
                         <td className="p-3">{o.serviceName}</td>
                         <td className="p-3 text-muted-foreground">{o.dateSold}</td>
+                        <td className="p-3 text-center">
+                          <RiskBadge score={o.chargebackRiskScore} />
+                        </td>
                         <td className="p-3 text-center">
                           <Badge variant={o.daysWaiting >= 3 ? "destructive" : "outline"} className="text-xs">
                             <Clock className="h-3 w-3 mr-0.5" />{o.daysWaiting}d

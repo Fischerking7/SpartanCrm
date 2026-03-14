@@ -34,6 +34,7 @@ export default function ExecHome() {
   const { revenue, profit, profitMargin, production, exceptions, cashFlow } = data;
 
   const criticalItems = [];
+  if (exceptions.critical.highRiskOrders > 0) criticalItems.push(`${exceptions.critical.highRiskOrders} orders flagged as high chargeback risk (score > 75)`);
   if (exceptions.critical.negativeMarginOrders > 0) criticalItems.push(`Negative margin detected on ${exceptions.critical.negativeMarginOrders} orders`);
   if (exceptions.critical.overduePayRuns > 0) criticalItems.push(`Pay run overdue for finalization`);
   if (exceptions.critical.largeArVariance > 0 && exceptions.critical.largeArClient) criticalItems.push(`Large AR variance: ${cents(exceptions.critical.largeArVariance)} outstanding from ${exceptions.critical.largeArClient}`);

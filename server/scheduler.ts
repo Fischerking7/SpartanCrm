@@ -1,6 +1,9 @@
 import { storage } from "./storage";
 import { emailService } from "./email";
 import { setForceLogoutTimestamp } from "./auth";
+import { db } from "./db";
+import { salesOrders, chargebacks, arExpectations, users, clients } from "@shared/schema";
+import { eq, sql, and, gte, lte, inArray, isNull } from "drizzle-orm";
 
 function getEasternDate(date = new Date()): { year: number; month: number; day: number; hours: number; minutes: number } {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -62,6 +65,9 @@ export const scheduler = {
     this.scheduleDailySalesReport();
     this.scheduleDailyInstallReport();
     this.scheduleStaleArAlert();
+    this.scheduleProfitAnomalyCheck();
+    this.scheduleArCollectionPrediction();
+    this.scheduleRepPerformancePrediction();
 
     setTimeout(() => {
       this.checkScheduledPayRuns();
@@ -803,6 +809,304 @@ export const scheduler = {
       console.log(`[Scheduler] Stale AR alert: ${staleOrders.length} orders, notified ${admins.length} admins`);
     } catch (error) {
       console.error("[Scheduler] Stale AR check failed:", error);
+    }
+  },
+
+  scheduleProfitAnomalyCheck() {
+    const ms = msUntilEasternTime(7, 0);
+    setTimeout(() => {
+      this.checkProfitAnomalies();
+      setInterval(() => this.checkProfitAnomalies(), 24 * 60 * 60 * 1000);
+    }, ms);
+    console.log(`[Scheduler] Profit anomaly check scheduled in ${Math.round(ms / 60000)} minutes`);
+  },
+
+  async checkProfitAnomalies() {
+    try {
+      const job = await storage.createBackgroundJob({
+        jobType: "PROFIT_ANOMALY_CHECK",
+        metadata: JSON.stringify({ triggeredAt: new Date().toISOString() }),
+      });
+
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const sevenDaysStr = sevenDaysAgo.toISOString().split("T")[0];
+
+      const recentOrders = await db.query.salesOrders.findMany({
+        where: and(
+          eq(salesOrders.approvalStatus, "APPROVED"),
+          gte(salesOrders.dateSold, sevenDaysStr)
+        ),
+      });
+
+      const avgByService = await db.select({
+        serviceId: salesOrders.serviceId,
+        avgProfit: sql<string>`AVG("iron_crest_profit_cents")`,
+      }).from(salesOrders)
+        .where(eq(salesOrders.approvalStatus, "APPROVED"))
+        .groupBy(salesOrders.serviceId);
+      const avgMap = new Map(avgByService.map(r => [r.serviceId, parseFloat(r.avgProfit || "0")]));
+
+      const anomalies: { orderId: string; type: string; detail: string }[] = [];
+
+      for (const order of recentOrders) {
+        const profit = order.ironCrestProfitCents || 0;
+        const expectedAvg = avgMap.get(order.serviceId) || 0;
+
+        if (profit < 0) {
+          anomalies.push({ orderId: order.id, type: "NEGATIVE_MARGIN", detail: `Profit: $${(profit / 100).toFixed(2)}` });
+        } else if (profit === 0 && expectedAvg > 0) {
+          anomalies.push({ orderId: order.id, type: "ZERO_MARGIN", detail: "Profit is $0.00 — possible calculation error" });
+        } else if (expectedAvg > 0 && profit < expectedAvg * 0.8) {
+          anomalies.push({ orderId: order.id, type: "PROFIT_BELOW_EXPECTED", detail: `Profit $${(profit / 100).toFixed(2)} is ${Math.round((1 - profit / expectedAvg) * 100)}% below avg $${(expectedAvg / 100).toFixed(2)}` });
+        }
+      }
+
+      if (anomalies.length > 0) {
+        const allUsers = await storage.getUsers();
+        const recipients = allUsers.filter(u => ["EXECUTIVE", "ACCOUNTING"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
+
+        const anomalyList = anomalies.slice(0, 15).map(a => `• ${a.type}: Order ${a.orderId.slice(0, 8)}... — ${a.detail}`).join("\n");
+        for (const user of recipients) {
+          emailService.queueEmail({
+            to: user.email,
+            subject: `[Alert] ${anomalies.length} Profit Anomalies Detected`,
+            text: `${anomalies.length} profit anomalies found in orders from the last 7 days:\n\n${anomalyList}`,
+            html: `<p><strong>${anomalies.length}</strong> profit anomalies detected:</p><ul>${anomalies.slice(0, 15).map(a => `<li><strong>${a.type}</strong>: ${a.orderId.slice(0, 8)}... — ${a.detail}</li>`).join("")}</ul>`,
+          });
+        }
+      }
+
+      await storage.updateBackgroundJob(job.id, {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        result: JSON.stringify({ anomaliesFound: anomalies.length }),
+      });
+      if (anomalies.length > 0) {
+        console.log(`[Scheduler] Profit anomaly check: ${anomalies.length} anomalies found`);
+      }
+    } catch (error: any) {
+      console.error("[Scheduler] Profit anomaly check failed:", error);
+    }
+  },
+
+  scheduleArCollectionPrediction() {
+    const ms = msUntilEasternTime(6, 30);
+    setTimeout(() => {
+      this.predictArCollections();
+      setInterval(() => this.predictArCollections(), 24 * 60 * 60 * 1000);
+    }, ms);
+    console.log(`[Scheduler] AR collection prediction scheduled in ${Math.round(ms / 60000)} minutes`);
+  },
+
+  async predictArCollections() {
+    try {
+      const job = await storage.createBackgroundJob({
+        jobType: "AR_COLLECTION_PREDICTION",
+        metadata: JSON.stringify({ triggeredAt: new Date().toISOString() }),
+      });
+
+      const openAr = await db.query.arExpectations.findMany({
+        where: sql`"status" IN ('OPEN', 'PARTIAL')`,
+      });
+
+      const historicalAvg = await db.select({
+        clientId: arExpectations.clientId,
+        avgDays: sql<string>`AVG(EXTRACT(EPOCH FROM ("satisfied_at" - "created_at")) / 86400)`,
+        satisfiedCount: sql<number>`count(*)`,
+      }).from(arExpectations)
+        .where(sql`"status" = 'SATISFIED' AND "satisfied_at" IS NOT NULL`)
+        .groupBy(arExpectations.clientId);
+      const clientAvgDays = new Map(historicalAvg.map(r => [r.clientId, { avgDays: parseFloat(r.avgDays || "30"), count: r.satisfiedCount || 0 }]));
+
+      let lowProbCount = 0;
+      let overdueCount = 0;
+
+      const allUsers = await storage.getUsers();
+      const acctUsers = allUsers.filter(u => ["ACCOUNTING", "ADMIN"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
+      const clientsList = await storage.getClients();
+      const clientMap = new Map(clientsList.map((c: any) => [c.id, c.name]));
+
+      for (const ar of openAr) {
+        const daysElapsed = (Date.now() - new Date(ar.createdAt).getTime()) / (24 * 60 * 60 * 1000);
+        const clientHistory = clientAvgDays.get(ar.clientId);
+        const expectedDays = clientHistory ? clientHistory.avgDays : 30;
+
+        let probability: number;
+        if (daysElapsed <= expectedDays * 0.5) probability = 95;
+        else if (daysElapsed <= expectedDays) probability = 80;
+        else if (daysElapsed <= expectedDays * 1.5) probability = 50;
+        else if (daysElapsed <= expectedDays * 2) probability = 25;
+        else probability = 10;
+
+        const expectedCollectionDate = new Date(ar.createdAt);
+        expectedCollectionDate.setDate(expectedCollectionDate.getDate() + Math.ceil(expectedDays));
+        const isOverdue = expectedCollectionDate < new Date();
+
+        if (probability < 50) lowProbCount++;
+        if (isOverdue) overdueCount++;
+
+        if (probability < 50 || isOverdue) {
+          const clientName = clientMap.get(ar.clientId) || "Unknown";
+          const outstanding = (ar.expectedAmountCents - ar.actualAmountCents) / 100;
+          for (const user of acctUsers) {
+            emailService.queueEmail({
+              to: user.email,
+              subject: `[AR Alert] Low collection probability: ${clientName}`,
+              text: `AR expectation for ${clientName} has ${probability}% collection probability. Outstanding: $${outstanding.toFixed(2)}. Days elapsed: ${Math.round(daysElapsed)}.`,
+              html: `<p>AR for <strong>${clientName}</strong>: <strong>${probability}%</strong> probability, $${outstanding.toFixed(2)} outstanding, ${Math.round(daysElapsed)} days elapsed.</p>`,
+            });
+          }
+        }
+      }
+
+      await storage.updateBackgroundJob(job.id, {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        result: JSON.stringify({ total: openAr.length, lowProbability: lowProbCount, overdue: overdueCount }),
+      });
+      if (lowProbCount > 0 || overdueCount > 0) {
+        console.log(`[Scheduler] AR prediction: ${lowProbCount} low probability, ${overdueCount} overdue`);
+      }
+    } catch (error: any) {
+      console.error("[Scheduler] AR collection prediction failed:", error);
+    }
+  },
+
+  scheduleRepPerformancePrediction() {
+    const weeklyMs = 7 * 24 * 60 * 60 * 1000;
+    const ms = msUntilEasternTime(9, 0);
+    setTimeout(() => {
+      this.predictRepPerformance();
+      setInterval(() => this.predictRepPerformance(), weeklyMs);
+    }, ms);
+    console.log(`[Scheduler] Rep performance prediction scheduled in ${Math.round(ms / 60000)} minutes`);
+  },
+
+  async predictRepPerformance() {
+    try {
+      const job = await storage.createBackgroundJob({
+        jobType: "REP_PERFORMANCE_PREDICTION",
+        metadata: JSON.stringify({ triggeredAt: new Date().toISOString() }),
+      });
+
+      const activeReps = await db.query.users.findMany({
+        where: and(
+          sql`"role" IN ('REP', 'LEAD')`,
+          eq(users.status, "ACTIVE"),
+          isNull(users.deletedAt)
+        ),
+      });
+
+      const now = new Date();
+      const formatDate = (d: Date) => d.toISOString().split("T")[0];
+      const ninetyDaysAgo = new Date(now);
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      const fourWeeksAgo = new Date(now);
+      fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+      const oneWeekAgo = new Date(now);
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const fiveDaysAgo = new Date(now);
+      fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+
+      const allUsers = await storage.getUsers();
+      const alerts: { repId: string; repName: string; managerId: string | null; executiveId: string | null; type: string; detail: string }[] = [];
+
+      for (const rep of activeReps) {
+        if (!rep.repId) continue;
+
+        const ninetyDayOrders = await db.select({ count: sql<number>`count(*)` })
+          .from(salesOrders)
+          .where(and(eq(salesOrders.repId, rep.repId), gte(salesOrders.dateSold, formatDate(ninetyDaysAgo))));
+        const totalNinety = ninetyDayOrders[0]?.count || 0;
+        const weeklyAvg = totalNinety / 13;
+
+        const thisWeekOrders = await db.select({ count: sql<number>`count(*)` })
+          .from(salesOrders)
+          .where(and(eq(salesOrders.repId, rep.repId), gte(salesOrders.dateSold, formatDate(oneWeekAgo))));
+        const thisWeek = thisWeekOrders[0]?.count || 0;
+
+        if (weeklyAvg > 0 && thisWeek < weeklyAvg * 0.7) {
+          alerts.push({
+            repId: rep.repId, repName: rep.name, managerId: rep.assignedManagerId, executiveId: rep.assignedExecutiveId,
+            type: "VELOCITY_DECLINING",
+            detail: `${thisWeek} sales this week vs ${weeklyAvg.toFixed(1)} avg/week (${Math.round((1 - thisWeek / weeklyAvg) * 100)}% below)`,
+          });
+        }
+
+        const fourWeekConnects = await db.select({
+          total: sql<number>`count(*)`,
+          completed: sql<number>`count(*) FILTER (WHERE "job_status" = 'COMPLETED')`,
+        }).from(salesOrders)
+          .where(and(eq(salesOrders.repId, rep.repId), gte(salesOrders.dateSold, formatDate(fourWeeksAgo)), lte(salesOrders.dateSold, formatDate(oneWeekAgo))));
+        const prevTotal = fourWeekConnects[0]?.total || 0;
+        const prevCompleted = fourWeekConnects[0]?.completed || 0;
+        const prevRate = prevTotal > 0 ? (prevCompleted / prevTotal) * 100 : 0;
+
+        const weekConnects = await db.select({
+          total: sql<number>`count(*)`,
+          completed: sql<number>`count(*) FILTER (WHERE "job_status" = 'COMPLETED')`,
+        }).from(salesOrders)
+          .where(and(eq(salesOrders.repId, rep.repId), gte(salesOrders.dateSold, formatDate(oneWeekAgo))));
+        const weekTotal = weekConnects[0]?.total || 0;
+        const weekCompleted = weekConnects[0]?.completed || 0;
+        const weekRate = weekTotal > 0 ? (weekCompleted / weekTotal) * 100 : 0;
+
+        if (prevRate > 0 && weekRate < prevRate * 0.85) {
+          alerts.push({
+            repId: rep.repId, repName: rep.name, managerId: rep.assignedManagerId, executiveId: rep.assignedExecutiveId,
+            type: "CONNECT_RATE_DROPPING",
+            detail: `Connect rate ${weekRate.toFixed(0)}% vs prior ${prevRate.toFixed(0)}% (down ${Math.round(prevRate - weekRate)}pp)`,
+          });
+        }
+
+        const recentSale = await db.select({
+          latest: sql<string>`MAX("date_sold")`,
+        }).from(salesOrders).where(eq(salesOrders.repId, rep.repId));
+        const lastSaleDate = recentSale[0]?.latest ? new Date(recentSale[0].latest) : null;
+        const daysSinceLastSale = lastSaleDate ? Math.floor((now.getTime() - lastSaleDate.getTime()) / (24 * 60 * 60 * 1000)) : 999;
+
+        if (daysSinceLastSale >= 5 && weeklyAvg >= 1) {
+          alerts.push({
+            repId: rep.repId, repName: rep.name, managerId: rep.assignedManagerId, executiveId: rep.assignedExecutiveId,
+            type: "POTENTIAL_CHURN",
+            detail: `No sale in ${daysSinceLastSale} days, was averaging ${weeklyAvg.toFixed(1)}/week`,
+          });
+        }
+      }
+
+      if (alerts.length > 0) {
+        const managerAlerts = new Map<string, typeof alerts>();
+        for (const alert of alerts) {
+          const mgrId = alert.managerId || alert.executiveId || "unassigned";
+          if (!managerAlerts.has(mgrId)) managerAlerts.set(mgrId, []);
+          managerAlerts.get(mgrId)!.push(alert);
+        }
+
+        for (const [mgrId, mgrAlertList] of managerAlerts) {
+          const mgr = allUsers.find(u => u.id === mgrId);
+          if (!mgr || !["MANAGER", "EXECUTIVE"].includes(mgr.role)) continue;
+
+          const alertText = mgrAlertList.map(a => `• ${a.repName}: ${a.type} — ${a.detail}`).join("\n");
+          emailService.queueEmail({
+            to: mgr.email,
+            subject: `[Intelligence] ${mgrAlertList.length} Rep Performance Alerts`,
+            text: `Rep performance alerts for your team:\n\n${alertText}`,
+            html: `<p>Rep performance alerts:</p><ul>${mgrAlertList.map(a => `<li><strong>${a.repName}</strong>: ${a.type} — ${a.detail}</li>`).join("")}</ul>`,
+          });
+        }
+      }
+
+      await storage.updateBackgroundJob(job.id, {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        result: JSON.stringify({ repsAnalyzed: activeReps.length, alertsGenerated: alerts.length }),
+      });
+      if (alerts.length > 0) {
+        console.log(`[Scheduler] Rep performance: ${alerts.length} alerts for ${activeReps.length} reps`);
+      }
+    } catch (error: any) {
+      console.error("[Scheduler] Rep performance prediction failed:", error);
     }
   },
 };

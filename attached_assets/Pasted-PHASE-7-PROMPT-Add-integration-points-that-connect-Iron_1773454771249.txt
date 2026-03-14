@@ -1,0 +1,99 @@
+PHASE 7 PROMPT:
+
+Add integration points that connect Iron Crest's internal 
+system to external services. These are INTEGRATION_POINT 
+markers that were noted throughout the codebase.
+
+===================================================================
+INTEGRATION 1 — Carrier File Automation
+===================================================================
+
+Currently: Operations manually downloads carrier files 
+           and uploads them to the finance import screen.
+
+Target: Carrier files arrive automatically.
+
+Implementation options (build infrastructure for both,
+activate when carrier provides access):
+
+  Option A: Email parsing
+    Add an email listener endpoint:
+    POST /api/integrations/carrier-email-webhook
+    
+    When a recognized carrier sends an email with attachment:
+      - Extract the attachment
+      - Identify the client by sender email domain
+      - Automatically upload to finance imports
+      - Trigger auto-match
+      - Notify OPERATIONS: "Carrier file received from {client}"
+
+  Option B: SFTP polling
+    Add a scheduled job that polls configured SFTP paths:
+    - Check for new files matching expected naming pattern
+    - Download and submit to finance import pipeline
+    - Mark as downloaded, do not re-process
+
+  Store credentials and configuration in:
+    finance_import_schedules table (already created)
+    Add: sftpHost, sftpUser, sftpPasswordEncrypted, 
+         emailTriggerDomain, fileNamePattern
+
+===================================================================
+INTEGRATION 2 — ACH Payment Processing
+===================================================================
+
+Currently: ACH export generates a file that is manually 
+           submitted to the bank.
+
+Target: Direct ACH submission (when banking relationship exists).
+
+Build the infrastructure now, activate later:
+  
+  POST /api/integrations/ach/submit
+    Takes an ACH export ID
+    Formats as NACHA file
+    Submits to banking API
+    Records submission status
+    Polls for settlement confirmation
+    Updates pay statement status to PAID on settlement
+
+===================================================================
+INTEGRATION 3 — Calendar Integration for Install Tracking
+===================================================================
+
+Connect install dates to Google Calendar:
+
+  When an order with installDate is created or updated:
+    Create/update a Google Calendar event
+    Event details: customer name, address, service type, rep name
+    Calendar: shared "Iron Crest Installs" calendar
+    Invite the assigned rep
+  
+  When install sync marks an order COMPLETED:
+    Update the calendar event as completed
+  
+  Auth: OAuth2 flow for Google Calendar API
+  Fallback: if Calendar unavailable, continue without it
+
+===================================================================
+INTEGRATION 4 — Reporting Webhooks
+===================================================================
+
+Allow external tools (Excel, Google Sheets, BI tools) 
+to pull live data:
+
+  GET /api/v1/webhooks/production-summary
+    API key authentication
+    Returns current period production metrics
+    Format: JSON (default) or CSV
+
+  GET /api/v1/webhooks/ar-status
+    Returns current AR pipeline status
+    
+  GET /api/v1/webhooks/payroll-summary
+    Returns pay run summary data
+
+  API key management:
+    POST /api/admin/api-keys (EXECUTIVE only)
+    Each key is scoped to specific webhook endpoints
+    Keys are logged when used

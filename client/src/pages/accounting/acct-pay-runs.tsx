@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getAuthHeaders } from "@/lib/auth";
 import {
-  Play, FileText, Download, CheckCircle, XCircle, Loader2, ChevronDown, ChevronRight, AlertTriangle, Flag
+  Play, FileText, Download, CheckCircle, XCircle, Loader2, ChevronDown, ChevronRight, AlertTriangle, Flag, TrendingUp, ArrowUpRight, ArrowDownRight
 } from "lucide-react";
 
 function fmt(v: string | number) {
@@ -66,6 +66,16 @@ export default function AcctPayRuns() {
     queryFn: async () => {
       const res = await fetch(`/api/admin/payroll/statements?payRunId=${selectedId}`, { headers: getAuthHeaders() });
       if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!selectedId,
+  });
+
+  const { data: cashProjection } = useQuery<any>({
+    queryKey: ["/api/admin/payruns", selectedId, "cash-projection"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/payruns/${selectedId}/cash-projection`, { headers: getAuthHeaders() });
+      if (!res.ok) return null;
       return res.json();
     },
     enabled: !!selectedId,
@@ -290,6 +300,9 @@ export default function AcctPayRuns() {
                   <TabsTrigger value="by-rep" data-testid="tab-by-rep">By Rep</TabsTrigger>
                   <TabsTrigger value="by-service" data-testid="tab-by-service">By Service</TabsTrigger>
                   <TabsTrigger value="exceptions" data-testid="tab-exceptions">Exceptions</TabsTrigger>
+                  <TabsTrigger value="cash-projection" data-testid="tab-cash-projection">
+                    <TrendingUp className="h-3.5 w-3.5 mr-1" /> Cash Projection
+                  </TabsTrigger>
                 </TabsList>
                 <TabsContent value="by-rep">
                   <Card>
@@ -368,6 +381,91 @@ export default function AcctPayRuns() {
                               </div>
                             </div>
                           ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="cash-projection">
+                  <Card data-testid="card-cash-projection">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4" /> Cash Flow Projection
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {!cashProjection ? (
+                        <p className="text-sm text-muted-foreground text-center py-4">Loading projection data...</p>
+                      ) : (
+                        <div className="space-y-6">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="p-4 rounded-lg border bg-red-50/50 dark:bg-red-950/30" data-testid="section-payouts">
+                              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Rep Payouts</p>
+                              <p className="text-2xl font-bold font-mono" data-testid="text-total-payouts">{fmt(cashProjection.payRunTotalCents / 100)}</p>
+                            </div>
+                            <div className="p-4 rounded-lg border bg-orange-50/50 dark:bg-orange-950/30" data-testid="section-overrides">
+                              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Override Obligations</p>
+                              <p className="text-2xl font-bold font-mono" data-testid="text-total-overrides">{fmt(cashProjection.overrideCents / 100)}</p>
+                            </div>
+                            <div className="p-4 rounded-lg border bg-blue-50/50 dark:bg-blue-950/30" data-testid="section-total-outgoing">
+                              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Total Outgoing</p>
+                              <p className="text-2xl font-bold font-mono" data-testid="text-total-outgoing">{fmt(cashProjection.totalOutgoingCents / 100)}</p>
+                            </div>
+                          </div>
+
+                          {cashProjection.arPipeline?.length > 0 && (
+                            <div>
+                              <p className="text-sm font-medium mb-2">AR Collection Forecast</p>
+                              <div className="border rounded-lg overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-muted/50">
+                                    <tr>
+                                      <th className="text-left p-2.5">Client</th>
+                                      <th className="text-right p-2.5">Remaining</th>
+                                      <th className="text-center p-2.5">Probability</th>
+                                      <th className="text-right p-2.5">Weighted</th>
+                                      <th className="text-right p-2.5">Expected By</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {cashProjection.arPipeline.map((c: any, i: number) => (
+                                      <tr key={i} className="border-t">
+                                        <td className="p-2.5">{c.clientName}</td>
+                                        <td className="p-2.5 text-right font-mono">{fmt(c.remainingCents / 100)}</td>
+                                        <td className="p-2.5 text-center">
+                                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                                            c.probability >= 70 ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                                            : c.probability >= 50 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300"
+                                            : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                                          }`}>{c.probability}%</span>
+                                        </td>
+                                        <td className="p-2.5 text-right font-mono">{fmt(Math.round(c.remainingCents * c.probability / 100) / 100)}</td>
+                                        <td className="p-2.5 text-right text-muted-foreground">{c.expectedDate}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-2">
+                                Total expected AR (weighted): {fmt(cashProjection.totalIncomingCents / 100)}
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="border-t pt-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {cashProjection.projectedNetCents >= 0
+                                  ? <ArrowUpRight className="h-5 w-5 text-green-500" />
+                                  : <ArrowDownRight className="h-5 w-5 text-red-500" />}
+                                <span className="font-medium">Projected Net Cash Position</span>
+                              </div>
+                              <span className={`text-xl font-bold font-mono ${cashProjection.projectedNetCents >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`} data-testid="text-projected-net">
+                                {fmt(cashProjection.projectedNetCents / 100)}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">AR weighted total minus payout &amp; override obligations</p>
+                          </div>
                         </div>
                       )}
                     </CardContent>

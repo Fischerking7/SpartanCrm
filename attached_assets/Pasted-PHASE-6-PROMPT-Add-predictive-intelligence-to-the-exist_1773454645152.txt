@@ -1,0 +1,121 @@
+PHASE 6 PROMPT:
+
+Add predictive intelligence to the existing data. The app 
+has months of historical data — use it to surface insights 
+that humans would miss.
+
+===================================================================
+INTELLIGENCE FEATURE 1 — Chargeback Risk Scoring
+===================================================================
+
+Add to salesOrders (migration):
+  - chargebackRiskScore: integer nullable (0-100)
+  - chargebackRiskFactors: text nullable (JSON)
+
+Create server/chargebackRiskEngine.ts:
+
+  async function scoreChargebackRisk(orderId: string): Promise<number>
+
+  Risk factors and weights:
+    Rep has chargeback in last 90 days: +25
+    Rep chargeback rate > 10%: +20
+    Customer zip code has high chargeback history: +15
+    Order amount is in the top 10% for this service: +10
+    Order submitted on a weekend: +5
+    No install date set: +10
+    Rep is in first 30 days: +15
+    
+  Score interpretation:
+    0-25: Low risk (green)
+    26-50: Medium risk (yellow)
+    51-75: High risk (orange, flag for review)
+    76-100: Critical risk (red, require manual approval)
+
+  Run scoring on every new order submission.
+  High-risk orders (>75) bypass auto-approval regardless 
+  of confidence score — always require human review.
+  
+  Show risk score on order detail for OPERATIONS and EXECUTIVE.
+  Show on approval queue to help reviewers prioritize.
+
+===================================================================
+INTELLIGENCE FEATURE 2 — Rep Performance Prediction
+===================================================================
+
+Add a weekly background job: repPerformancePrediction
+
+For each active rep, analyze:
+  - Sales velocity (orders per week, trending up or down)
+  - Connect rate trend (improving or declining)
+  - Days since last sale (leading indicator of churn)
+  - Compare to their own 90-day average
+
+Generate alerts:
+  'VELOCITY_DECLINING': rep's weekly sales 30%+ below their average
+  'CONNECT_RATE_DROPPING': connect rate down 15%+ vs prior 4 weeks
+  'POTENTIAL_CHURN': no sale in 5+ days AND velocity was above average
+
+Route alerts to DIRECTOR and the rep's MANAGER.
+Surface in team health score calculation.
+
+===================================================================
+INTELLIGENCE FEATURE 3 — AR Collection Prediction
+===================================================================
+
+For each open AR expectation, calculate:
+  - Expected collection date based on:
+    This client's historical average days to pay
+    Time already elapsed
+    Variance history with this client
+  
+  - Collection probability score (0-100%)
+  
+  Display on AR table as:
+    "Expected by {date} ({n}% likely)"
+  
+  Route alerts to ACCOUNTING when:
+    Collection probability drops below 50%
+    Expected collection date passes with no payment
+
+===================================================================
+INTELLIGENCE FEATURE 4 — Profit Anomaly Detection
+===================================================================
+
+Run daily on all orders approved in the last 7 days:
+
+  Compare actual ironCrestProfitCents to:
+    Historical average profit for this service type
+    Expected profit from rate card
+  
+  Flag if actual profit is:
+    More than 20% below expected: 'PROFIT_BELOW_EXPECTED'
+    Negative: 'NEGATIVE_MARGIN' (already exists)
+    Zero: 'ZERO_MARGIN' (likely calculation error)
+  
+  Route to EXECUTIVE and ACCOUNTING immediately.
+
+===================================================================
+INTELLIGENCE FEATURE 5 — Pay Run Cash Flow Projection
+===================================================================
+
+Add to the pay run preview:
+
+  CASH FLOW PROJECTION SECTION:
+  
+  Current AR pipeline (expected collections before {payDate}):
+    Client A: ${X} expected by {date}
+    Client B: ${X} expected by {date}
+    Total incoming: ${X}
+  
+  Pay run total (money going out): ${X}
+  
+  Projected net position after pay run: ${X}
+  
+  Color: green if positive, red if negative
+  
+  Warning if projected net position < $0:
+    "⚠ Projected collections may be insufficient to cover 
+    this pay run. Consider delaying or reducing the run."
+  
+  This gives ACCOUNTING a real-time view of whether 
+  Iron Crest can afford to run payroll before committing.

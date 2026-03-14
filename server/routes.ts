@@ -235,6 +235,21 @@ async function createOrderWithCommission(params: CreateOrderParams) {
   });
 }
 
+async function scoreAndUpdateOrder(orderId: string) {
+  try {
+    const { scoreChargebackRisk } = await import("./chargebackRiskEngine");
+    const { score, factors } = await scoreChargebackRisk(orderId);
+    await storage.updateOrder(orderId, {
+      chargebackRiskScore: score,
+      chargebackRiskFactors: JSON.stringify(factors),
+    });
+    return score;
+  } catch (error) {
+    console.error(`[RiskEngine] Failed to score order ${orderId}:`, error);
+    return 0;
+  }
+}
+
 // Field allowlists for update operations (prevents privilege escalation)
 const USER_UPDATE_ALLOWLIST = ["name", "status", "assignedSupervisorId", "assignedManagerId", "assignedExecutiveId"] as const;
 const ORDER_UPDATE_ALLOWLIST = ["customerName", "customerAddress", "customerPhone", "customerEmail", "installDate", "accountNumber", "notes"] as const;
@@ -2121,11 +2136,13 @@ export async function registerRoutes(
         createdOrders.push(regularOrder);
       }
       
-      // Return the first order for backward compatibility, or all orders if mobile was split
+      for (const o of createdOrders) {
+        scoreAndUpdateOrder(o.id).catch(() => {});
+      }
+
       if (createdOrders.length === 1) {
         res.json(createdOrders[0]);
       } else {
-        // Return the non-mobile order as primary, with a note about the mobile order
         const primaryOrder = createdOrders.find(o => !o.isMobileOrder) || createdOrders[0];
         res.json({ 
           ...primaryOrder, 
@@ -2201,13 +2218,13 @@ export async function registerRoutes(
         auditAction: "create_mobile_order",
       });
       
+      scoreAndUpdateOrder(mobileOrder.id).catch(() => {});
       res.json(mobileOrder);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to create mobile order" });
     }
   });
 
-  // Get commission line items for an order
   app.get("/api/orders/:id/commission-breakdown", auth, async (req: AuthRequest, res) => {
     try {
       const order = await storage.getOrderById(req.params.id);
@@ -4162,8 +4179,66 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  // Get approved orders not yet linked to a pay run
-  // If weekEndingDate is provided, filter orders by approval date falling within that pay week
+  app.get("/api/admin/payruns/:id/cash-projection", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+
+      const linkedOrders = await storage.getOrdersByPayRunId(req.params.id);
+      const payRunTotalCents = linkedOrders.reduce((sum, o) => sum + Math.round(parseFloat(o.baseCommissionEarned || "0") * 100), 0);
+
+      const overrideTotal = await db.select({
+        total: sql<string>`COALESCE(SUM(CAST("amount" AS DECIMAL) * 100), 0)`,
+      }).from(overrideEarnings).where(and(eq(overrideEarnings.payRunId, req.params.id), eq(overrideEarnings.approvalStatus, "APPROVED")));
+      const overrideCents = parseInt(overrideTotal[0]?.total || "0");
+
+      const totalOutgoing = payRunTotalCents + overrideCents;
+
+      const openAr = await db.select({
+        clientId: arExpectations.clientId,
+        expectedCents: sql<string>`SUM("ar_expectations"."expected_amount_cents")`,
+        actualCents: sql<string>`SUM("ar_expectations"."actual_amount_cents")`,
+        avgDays: sql<string>`AVG(EXTRACT(EPOCH FROM (NOW() - "ar_expectations"."created_at")) / 86400)::int`,
+      }).from(arExpectations)
+        .where(sql`"ar_expectations"."status" IN ('OPEN', 'PARTIAL')`)
+        .groupBy(arExpectations.clientId);
+
+      const clientsList = await storage.getClients();
+      const clientMap = new Map(clientsList.map((c: any) => [c.id, c.name]));
+
+      const arPipeline = openAr.map(ar => {
+        const expectedCents = parseInt(ar.expectedCents || "0");
+        const actualCents = parseInt(ar.actualCents || "0");
+        const remaining = expectedCents - actualCents;
+        const avgDays = parseInt(ar.avgDays || "0");
+        const probability = avgDays <= 15 ? 90 : avgDays <= 30 ? 70 : avgDays <= 45 ? 50 : avgDays <= 60 ? 30 : 10;
+        const expectedDate = new Date();
+        expectedDate.setDate(expectedDate.getDate() + Math.max(0, 30 - avgDays));
+        return {
+          clientName: clientMap.get(ar.clientId) || "Unknown",
+          remainingCents: remaining,
+          probability,
+          expectedDate: expectedDate.toISOString().split("T")[0],
+        };
+      }).filter(a => a.remainingCents > 0).sort((a, b) => b.remainingCents - a.remainingCents);
+
+      const totalIncomingCents = arPipeline.reduce((sum, a) => sum + Math.round(a.remainingCents * (a.probability / 100)), 0);
+      const projectedNet = totalIncomingCents - totalOutgoing;
+
+      res.json({
+        payRunTotalCents,
+        overrideCents,
+        totalOutgoingCents: totalOutgoing,
+        arPipeline: arPipeline.slice(0, 10),
+        totalIncomingCents,
+        projectedNetCents: projectedNet,
+        isHealthy: projectedNet >= 0,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/payruns/unlinked-orders", auth, adminOnly, async (req: AuthRequest, res) => {
     try {
       const weekEndingDate = req.query.weekEndingDate as string | undefined;
@@ -14763,11 +14838,16 @@ export async function registerRoutes(
                 updates.jobStatus = "COMPLETED";
               }
               if (shouldAutoApprove && match.confidence >= 70 && order.approvalStatus !== "APPROVED") {
-                updates.approvalStatus = "APPROVED";
-                updates.approvedByUserId = user.id;
-                updates.approvedAt = now;
-                const salesRep = await storage.getUserByRepId(order.repId);
-                updates.repRoleAtSale = salesRep?.role || "REP";
+                const riskScore = order.chargebackRiskScore || 0;
+                if (riskScore > 75) {
+                  console.log(`[InstallSync] Order ${order.id} skipped auto-approval: chargeback risk ${riskScore} > 75`);
+                } else {
+                  updates.approvalStatus = "APPROVED";
+                  updates.approvedByUserId = user.id;
+                  updates.approvedAt = now;
+                  const salesRep = await storage.getUserByRepId(order.repId);
+                  updates.repRoleAtSale = salesRep?.role || "REP";
+                }
               }
             } else if (woStatus === "CN") {
               if (order.jobStatus !== "CANCELED") {
@@ -16224,6 +16304,7 @@ function registerDirectorRoutes(app: Express, storage: any, auth: any) {
           dateSold: o.dateSold,
           daysWaiting,
           accountNumber: o.accountNumber,
+          chargebackRiskScore: o.chargebackRiskScore,
         };
       }).sort((a, b) => b.daysWaiting - a.daysWaiting);
 
@@ -16338,6 +16419,9 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         .orderBy(sql`SUM("ar_expectations"."expected_amount_cents" - "ar_expectations"."actual_amount_cents") DESC`)
         .limit(1);
 
+      const highRiskOrders = await db.select({ count: sql<number>`count(*)` })
+        .from(salesOrders).where(sql`"chargeback_risk_score" > 75 AND "approval_status" = 'APPROVED' AND "date_sold" >= ${mtdStart}::date`);
+
       res.json({
         revenue: { mtdCents: mtdRevenue, deltaPercent: revenueDelta },
         profit: { mtdCents: mtdProfitVal, deltaPercent: profitDelta },
@@ -16349,6 +16433,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
             overduePayRuns: overduePayRuns[0]?.count || 0,
             largeArVariance: parseInt(arVariance[0]?.totalOutstanding || "0"),
             largeArClient: largestArClient[0]?.clientName || null,
+            highRiskOrders: highRiskOrders[0]?.count || 0,
           },
           operational: {
             pendingApprovals: pendingApprovals[0]?.count || 0,
