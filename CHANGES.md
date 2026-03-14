@@ -101,6 +101,38 @@ Issue: The startup setTimeout bootstrap called jobs directly, bypassing runJobWi
 Fix: Wrapped startup bootstrap calls with runJobWithLock to prevent overlap with first interval runs
 
 ### [FIXED] Employee credentials endpoint leaking sensitive data
-File: server/routes.ts (line ~12373)
+File: server/routes.ts
 Issue: GET /api/admin/employee-credentials/user/:userId returned raw user object with passwordHash and onboardingOtpHash
 Fix: Added sensitive field stripping to the response
+
+## Commission Calculation & Exception Queue Deep Audit
+
+### [FIXED] Agreement-based overrides creating $0 records
+File: server/routes.ts (generateOverrideEarnings)
+Issue: processAgreements did not filter out zero-amount agreements, creating $0.00 override earnings
+Fix: Added `parseFloat(agreement.amountFlat) <= 0` guard for both non-mobile and mobile agreement loops
+
+### [FIXED] Director override notification gap
+File: server/routes.ts (generateOverrideEarnings)
+Issue: When only one EXECUTIVE user exists (the override recipient), no one got notified of the PENDING_APPROVAL override
+Fix: Director override notifications now also go to OPERATIONS users, ensuring at least one person is always notified
+
+### [FIXED] Admin override notification gap
+File: server/routes.ts (generateOverrideEarnings)
+Issue: When no OPERATIONS users exist and admin override falls back to an ADMIN user, notification list was empty (only notified OPERATIONS)
+Fix: Notification now falls back to ADMIN users when no OPERATIONS users exist; also excludes the recipient from self-notification
+
+### [FIXED] Accounting override penny rounding loss
+File: server/routes.ts (generateOverrideEarnings)
+Issue: Dividing cents evenly across N accounting users could lose pennies (e.g., 1000c / 3 = $3.33 × 3 = $9.99 instead of $10.00)
+Fix: Uses floor division with remainder — first accounting user absorbs the leftover cents
+
+### [FIXED] Exception queue showing REJECTED orders as overdue
+File: server/routes.ts (GET /api/ops/exceptions)
+Issue: Overdue approval query only checked `approved_at IS NULL AND job_status = 'COMPLETED'` — rejected orders matched this filter
+Fix: Added `approval_status != 'REJECTED'` to the SQL filter
+
+### [FIXED] Auto-approval using stale chargeback risk score
+File: server/routes.ts (Install Sync auto-approve)
+Issue: Used cached `order.chargebackRiskScore` field which may be null or outdated
+Fix: Now calls `scoreChargebackRisk(order.id)` in real-time to compute fresh risk before deciding auto-approval. Wrapped in try/catch — on scoring failure, defaults to riskScore=100 (safe: skips auto-approval) and continues processing remaining orders

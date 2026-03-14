@@ -413,6 +413,8 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       );
       
       for (const agreement of nonMobileAgreements) {
+        const agreementAmount = parseFloat(agreement.amountFlat || "0");
+        if (agreementAmount <= 0) continue;
         const earning = await storage.createOverrideEarning({
           salesOrderId: approvedOrder.id,
           recipientUserId,
@@ -437,12 +439,14 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
           );
           
           for (const agreement of mobileAgreements) {
+            const agreementAmountParsed = parseFloat(agreement.amountFlat || "0");
+            if (agreementAmountParsed <= 0) continue;
             const matchingLines = mobileLines.filter(l => 
               l.mobileProductType === mobileType && 
               (!agreement.mobilePortedFilter || l.mobilePortedStatus === agreement.mobilePortedFilter)
             );
             const lineCount = matchingLines.length || 1;
-            const totalAmount = (parseFloat(agreement.amountFlat) * lineCount).toFixed(2);
+            const totalAmount = (agreementAmountParsed * lineCount).toFixed(2);
             
             const earning = await storage.createOverrideEarning({
               salesOrderId: approvedOrder.id,
@@ -505,20 +509,23 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
           earnings.push(earning);
 
           const executiveUsers = admins.filter(u => u.role === "EXECUTIVE" && u.status === "ACTIVE" && !u.deletedAt);
-          for (const execUser of executiveUsers) {
-            if (execUser.id !== hierarchy.executive.id) {
-              try {
-                await storage.createEmailNotification({
-                  userId: execUser.id,
-                  notificationType: "OVERRIDE_PENDING_APPROVAL",
-                  subject: "Override Earning Pending Approval",
-                  body: `A DIRECTOR_OVERRIDE override of $${(directorCents / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
-                  recipientEmail: "",
-                  status: "PENDING",
-                  isRead: false,
-                });
-              } catch (e) {}
-            }
+          const operationsUsersForDirector = admins.filter(u => u.role === "OPERATIONS" && u.status === "ACTIVE" && !u.deletedAt);
+          const directorNotifyList = [
+            ...executiveUsers.filter(u => u.id !== hierarchy.executive!.id),
+            ...operationsUsersForDirector,
+          ];
+          for (const notifyUser of directorNotifyList) {
+            try {
+              await storage.createEmailNotification({
+                userId: notifyUser.id,
+                notificationType: "OVERRIDE_PENDING_APPROVAL",
+                subject: "Override Earning Pending Approval",
+                body: `A DIRECTOR_OVERRIDE override of $${(directorCents / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
+                recipientEmail: "",
+                status: "PENDING",
+                isRead: false,
+              });
+            } catch (e) {}
           }
         }
       }
@@ -540,10 +547,12 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
           }, txDb);
           earnings.push(earning);
 
-          for (const opsUser of operationsUsers) {
+          const adminNotifyList = operationsUsers.length > 0 ? operationsUsers : activeAdmins;
+          for (const notifyUser of adminNotifyList) {
+            if (notifyUser.id === recipientId) continue;
             try {
               await storage.createEmailNotification({
-                userId: opsUser.id,
+                userId: notifyUser.id,
                 notificationType: "OVERRIDE_PENDING_APPROVAL",
                 subject: "Override Earning Pending Approval",
                 body: `An ADMIN_OVERRIDE override of $${(adminCents / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
@@ -570,14 +579,18 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
             console.error("[generateOverrideEarnings] Failed to create rate issue:", e);
           }
         } else {
-          const perUserAmount = (accountingCents / 100 / accountingUsers.length).toFixed(2);
-          for (const acctUser of accountingUsers) {
+          const totalAccountingDollars = accountingCents / 100;
+          const perUserBase = Math.floor(totalAccountingDollars * 100 / accountingUsers.length) / 100;
+          const remainderCents = Math.round(totalAccountingDollars * 100) - Math.round(perUserBase * 100 * accountingUsers.length);
+          for (let i = 0; i < accountingUsers.length; i++) {
+            const acctUser = accountingUsers[i];
+            const userAmount = i === 0 ? (perUserBase + remainderCents / 100).toFixed(2) : perUserBase.toFixed(2);
             const earning = await storage.createOverrideEarning({
               salesOrderId: approvedOrder.id,
               recipientUserId: acctUser.id,
               sourceRepId: approvedOrder.repId,
               sourceLevelUsed: "ACCOUNTING",
-              amount: perUserAmount,
+              amount: userAmount,
               overrideType: "ACCOUNTING_OVERRIDE",
               approvalStatus: "PENDING_APPROVAL",
             }, txDb);
@@ -5069,7 +5082,7 @@ export async function registerRoutes(
         createdAt: salesOrders.createdAt,
         baseCommissionEarned: salesOrders.baseCommissionEarned,
       }).from(salesOrders)
-        .where(sql`"sales_orders"."job_status" = 'COMPLETED' AND "sales_orders"."approved_at" IS NULL`);
+        .where(sql`"sales_orders"."job_status" = 'COMPLETED' AND "sales_orders"."approved_at" IS NULL AND "sales_orders"."approval_status" != 'REJECTED'`);
       for (const o of pendingOrders) {
         const completedAt = o.completionDate ? new Date(o.completionDate) : new Date(o.createdAt);
         const daysPending = Math.floor((Date.now() - completedAt.getTime()) / (1000 * 60 * 60 * 24));
@@ -14848,7 +14861,15 @@ export async function registerRoutes(
                 updates.jobStatus = "COMPLETED";
               }
               if (shouldAutoApprove && match.confidence >= 70 && order.approvalStatus !== "APPROVED") {
-                const riskScore = order.chargebackRiskScore || 0;
+                let riskScore = 0;
+                try {
+                  const { scoreChargebackRisk } = await import("./chargebackRiskEngine");
+                  const freshRisk = await scoreChargebackRisk(order.id);
+                  riskScore = freshRisk.score;
+                } catch (riskErr) {
+                  console.error(`[InstallSync] Failed to compute chargeback risk for order ${order.id}, skipping auto-approval:`, riskErr);
+                  riskScore = 100;
+                }
                 if (riskScore > 75) {
                   console.log(`[InstallSync] Order ${order.id} skipped auto-approval: chargeback risk ${riskScore} > 75`);
                 } else {
