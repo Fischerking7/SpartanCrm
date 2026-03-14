@@ -80,6 +80,7 @@ import OpsAR from "@/pages/ops/ops-ar";
 import OpsOverrides from "@/pages/ops/ops-overrides";
 import OpsAdvances from "@/pages/ops/ops-advances";
 import OpsSettings from "@/pages/ops/ops-settings";
+import OpsLeadImport from "@/pages/ops/ops-lead-import";
 import AcctHome from "@/pages/accounting/acct-home";
 import AcctPayRuns from "@/pages/accounting/acct-pay-runs";
 import AcctPayStubs from "@/pages/accounting/acct-pay-stubs";
@@ -345,6 +346,7 @@ function Router() {
             <Route path="/ops/install-sync">{() => <OpsLayout><OpsInstallSync /></OpsLayout>}</Route>
             <Route path="/ops/finance-imports">{() => <OpsLayout><OpsFinanceImports /></OpsLayout>}</Route>
             <Route path="/ops/reps">{() => <OpsLayout><OpsReps /></OpsLayout>}</Route>
+            <Route path="/ops/lead-import">{() => <OpsLayout><OpsLeadImport /></OpsLayout>}</Route>
             <Route path="/ops/pay-runs">{() => <OpsLayout><OpsPayRuns /></OpsLayout>}</Route>
             <Route path="/ops/pay-stubs">{() => <OpsLayout><OpsPayStubs /></OpsLayout>}</Route>
             <Route path="/ops/ar">{() => <OpsLayout><OpsAR /></OpsLayout>}</Route>

@@ -2,7 +2,7 @@ import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import {
   Home, ShoppingCart, Users, Zap, FileText, DollarSign,
-  Receipt, BarChart3, Scale, CreditCard, ClipboardList, Settings, Menu, X
+  Receipt, BarChart3, Scale, CreditCard, ClipboardList, Settings, Menu, X, Upload
 } from "lucide-react";
 import { useState } from "react";
 
@@ -10,6 +10,7 @@ const sidebarItems = [
   { label: "Home", icon: Home, path: "/ops" },
   { label: "Orders", icon: ShoppingCart, path: "/ops/orders" },
   { label: "Reps", icon: Users, path: "/ops/reps" },
+  { label: "Lead Import", icon: Upload, path: "/ops/lead-import" },
   { label: "Install Sync", icon: Zap, path: "/ops/install-sync" },
   { label: "Finance Imports", icon: FileText, path: "/ops/finance-imports" },
   { label: "Pay Runs", icon: DollarSign, path: "/ops/pay-runs" },
