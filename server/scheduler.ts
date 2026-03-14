@@ -2,7 +2,7 @@ import { storage } from "./storage";
 import { emailService } from "./email";
 import { setForceLogoutTimestamp } from "./auth";
 import { db } from "./db";
-import { salesOrders, chargebacks, arExpectations, users, clients } from "@shared/schema";
+import { salesOrders, chargebacks, arExpectations, users, clients, carrierImportSchedules, integrationLogs } from "@shared/schema";
 import { eq, sql, and, gte, lte, inArray, isNull } from "drizzle-orm";
 
 function getEasternDate(date = new Date()): { year: number; month: number; day: number; hours: number; minutes: number } {
@@ -68,6 +68,7 @@ export const scheduler = {
     this.scheduleProfitAnomalyCheck();
     this.scheduleArCollectionPrediction();
     this.scheduleRepPerformancePrediction();
+    this.scheduleCarrierSftpPoll();
 
     setTimeout(() => {
       this.checkScheduledPayRuns();
@@ -1107,6 +1108,51 @@ export const scheduler = {
       }
     } catch (error: any) {
       console.error("[Scheduler] Rep performance prediction failed:", error);
+    }
+  },
+
+  scheduleCarrierSftpPoll() {
+    const ms = msUntilEasternTime(5, 0);
+    setTimeout(() => {
+      this.pollCarrierSftp();
+      const interval = setInterval(() => this.pollCarrierSftp(), 24 * 60 * 60 * 1000);
+      this.intervalIds.push(interval);
+    }, ms);
+    console.log(`[Scheduler] Carrier SFTP poll scheduled in ${Math.round(ms / 60000)} minutes`);
+  },
+
+  async pollCarrierSftp() {
+    try {
+      const schedules = await db.select().from(carrierImportSchedules)
+        .where(and(eq(carrierImportSchedules.isActive, true), eq(carrierImportSchedules.sourceType, "sftp")));
+
+      if (schedules.length === 0) return;
+
+      for (const schedule of schedules) {
+        if (!schedule.sftpHost || !schedule.sftpUser) continue;
+
+        await db.insert(integrationLogs).values({
+          integrationType: "CARRIER_SFTP", action: "POLL_ATTEMPTED",
+          details: JSON.stringify({
+            scheduleId: schedule.id,
+            host: schedule.sftpHost,
+            path: schedule.sftpRemotePath,
+            message: "SFTP polling infrastructure ready. Configure SFTP credentials and install ssh2-sftp-client to activate live polling.",
+          }),
+          relatedEntityId: schedule.id,
+        });
+
+        await db.update(carrierImportSchedules).set({
+          lastRunAt: new Date(),
+          lastRunStatus: "INFRASTRUCTURE_READY",
+        }).where(eq(carrierImportSchedules.id, schedule.id));
+      }
+
+      if (schedules.length > 0) {
+        console.log(`[Scheduler] Carrier SFTP: checked ${schedules.length} schedules`);
+      }
+    } catch (error: any) {
+      console.error("[Scheduler] Carrier SFTP poll failed:", error);
     }
   },
 };

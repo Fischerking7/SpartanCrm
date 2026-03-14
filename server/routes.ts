@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or, desc } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -16679,6 +16679,541 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
       res.json({ byManager, byRep, byService });
     } catch (error: any) {
       console.error("Executive production error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ==========================================
+  // INTEGRATION 1 — Carrier File Automation
+  // ==========================================
+
+  app.get("/api/admin/carrier-schedules", auth, executiveOrAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const schedules = await db.select().from(carrierImportSchedules).orderBy(desc(carrierImportSchedules.createdAt));
+      const clientsList = await storage.getClients();
+      const clientMap = new Map(clientsList.map((c: any) => [c.id, c.name]));
+      const enriched = schedules.map(s => ({ ...s, clientName: clientMap.get(s.clientId) || "Unknown" }));
+      res.json(enriched);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/carrier-schedules", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { clientId, sourceType, sftpHost, sftpPort, sftpUser, sftpPasswordEncrypted, sftpRemotePath, emailTriggerDomain, fileNamePattern, columnMappingJson, frequency } = req.body;
+      const [schedule] = await db.insert(carrierImportSchedules).values({
+        clientId, sourceType: sourceType || "manual",
+        sftpHost, sftpPort, sftpUser, sftpPasswordEncrypted, sftpRemotePath,
+        emailTriggerDomain, fileNamePattern, columnMappingJson,
+        frequency: frequency || "daily",
+        createdByUserId: req.user!.id,
+      }).returning();
+      await db.insert(integrationLogs).values({
+        integrationType: "CARRIER_IMPORT", action: "SCHEDULE_CREATED",
+        details: JSON.stringify({ scheduleId: schedule.id, clientId, sourceType }),
+      });
+      res.json(schedule);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/carrier-schedules/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const updates: any = { updatedAt: new Date() };
+      const allowed = ["sourceType", "sftpHost", "sftpPort", "sftpUser", "sftpPasswordEncrypted", "sftpRemotePath", "emailTriggerDomain", "fileNamePattern", "columnMappingJson", "frequency", "isActive"];
+      for (const key of allowed) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      const [updated] = await db.update(carrierImportSchedules).set(updates).where(eq(carrierImportSchedules.id, req.params.id)).returning();
+      if (!updated) return res.status(404).json({ message: "Schedule not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/carrier-schedules/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      await db.delete(carrierImportSchedules).where(eq(carrierImportSchedules.id, req.params.id));
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/integrations/carrier-email-webhook", async (req, res) => {
+    try {
+      const webhookSecret = process.env.CARRIER_WEBHOOK_SECRET;
+      if (webhookSecret) {
+        const sig = req.headers["x-webhook-signature"] as string;
+        if (!sig) return res.status(401).json({ message: "Missing signature" });
+        const expected = crypto.createHmac("sha256", webhookSecret).update(JSON.stringify(req.body)).digest("hex");
+        if (sig !== expected) return res.status(401).json({ message: "Invalid signature" });
+      }
+
+      const { from, subject, attachments } = req.body;
+      if (!from || !attachments || attachments.length === 0) {
+        return res.status(400).json({ message: "Missing from or attachments" });
+      }
+      const senderDomain = from.split("@")[1]?.toLowerCase();
+      if (!senderDomain) return res.status(400).json({ message: "Invalid sender" });
+
+      const schedules = await db.select().from(carrierImportSchedules)
+        .where(and(eq(carrierImportSchedules.isActive, true), sql`LOWER("email_trigger_domain") = ${senderDomain}`));
+
+      if (schedules.length === 0) {
+        await db.insert(integrationLogs).values({
+          integrationType: "CARRIER_EMAIL", action: "UNRECOGNIZED_SENDER", status: "SKIPPED",
+          details: JSON.stringify({ from, subject, domain: senderDomain }),
+        });
+        return res.json({ status: "skipped", reason: "No matching carrier schedule" });
+      }
+
+      const schedule = schedules[0];
+      const results = [];
+      for (const attachment of attachments) {
+        const fileBuffer = Buffer.from(attachment.content, "base64");
+        const fileName = attachment.filename || `carrier-${Date.now()}.csv`;
+
+        const fileHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+        const existing = await db.select().from(financeImports).where(and(eq(financeImports.clientId, schedule.clientId), eq(financeImports.fileHash, fileHash)));
+        if (existing.length > 0) {
+          results.push({ filename: fileName, status: "duplicate" });
+          continue;
+        }
+
+        let rows: any[] = [];
+        if (fileName.endsWith(".csv")) {
+          rows = parse(fileBuffer.toString(), { columns: true, skip_empty_lines: true, relax_column_count: true });
+        } else if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+          const wb = XLSX.read(fileBuffer, { type: "buffer" });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          rows = XLSX.utils.sheet_to_json(ws);
+        }
+
+        if (rows.length === 0) {
+          results.push({ filename: fileName, status: "empty" });
+          continue;
+        }
+
+        const totalAmount = rows.reduce((sum: number, r: any) => {
+          const val = parseFloat(r["Amount"] || r["amount"] || r["Commission"] || r["commission"] || "0");
+          return sum + (isNaN(val) ? 0 : val);
+        }, 0);
+
+        const [imp] = await db.insert(financeImports).values({
+          clientId: schedule.clientId,
+          fileName,
+          fileHash,
+          sourceType: "CSV",
+          totalRows: rows.length,
+          totalAmount: totalAmount.toString(),
+          status: "IMPORTED",
+          uploadedByUserId: schedule.createdByUserId,
+        }).returning();
+
+        for (let i = 0; i < rows.length; i++) {
+          const rawJson = JSON.stringify(rows[i]);
+          const fingerprint = crypto.createHash("md5").update(rawJson).digest("hex");
+          await db.execute(sql`INSERT INTO "finance_import_rows_raw" ("id", "finance_import_id", "row_index", "raw_json", "raw_text_fingerprint", "created_at") VALUES (gen_random_uuid(), ${imp.id}, ${i + 1}, ${rawJson}, ${fingerprint}, NOW())`);
+        }
+
+        await db.update(carrierImportSchedules).set({ lastRunAt: new Date(), lastRunStatus: "SUCCESS" }).where(eq(carrierImportSchedules.id, schedule.id));
+        results.push({ filename: fileName, status: "imported", importId: imp.id, rows: rows.length });
+      }
+
+      await db.insert(integrationLogs).values({
+        integrationType: "CARRIER_EMAIL", action: "FILES_RECEIVED",
+        details: JSON.stringify({ from, subject, results }),
+      });
+
+      const opsUsers = await db.select().from(users).where(and(eq(users.role, "OPERATIONS"), eq(users.status, "ACTIVE")));
+      for (const u of opsUsers) {
+        await emailService.queueEmail(u.email || "", "Carrier File Received", `A carrier file was received from ${senderDomain}. ${results.length} file(s) processed.`);
+      }
+
+      res.json({ status: "processed", results });
+    } catch (error: any) {
+      console.error("Carrier email webhook error:", error);
+      await db.insert(integrationLogs).values({
+        integrationType: "CARRIER_EMAIL", action: "WEBHOOK_ERROR", status: "ERROR",
+        details: error.message,
+      });
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ==========================================
+  // INTEGRATION 2 — ACH Payment Processing
+  // ==========================================
+
+  app.post("/api/integrations/ach/submit", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { achExportId } = req.body;
+      if (!achExportId) return res.status(400).json({ message: "achExportId required" });
+
+      const [achExport] = await db.select().from(sql`ach_exports`).where(sql`"id" = ${achExportId}`);
+      if (!achExport) return res.status(404).json({ message: "ACH export not found" });
+      if ((achExport as any).status !== "PENDING") return res.status(400).json({ message: "ACH export must be in PENDING status" });
+
+      const items = await db.select().from(sql`ach_export_items`).where(sql`"ach_export_id" = ${achExportId}`);
+
+      const nachaLines: string[] = [];
+      const batchNum = (achExport as any).batchNumber || "0000001";
+      const effectiveDate = new Date((achExport as any).effectiveDate || Date.now());
+      const yymmdd = effectiveDate.toISOString().slice(2, 10).replace(/-/g, "");
+      const companyName = "IRON CREST LLC".padEnd(16);
+      const companyId = "1234567890";
+
+      nachaLines.push(`101 091000019${companyId.padEnd(10)}${yymmdd}0000A094101${companyName}IRON CREST CRM         `);
+      nachaLines.push(`5200${companyName}${companyId.padStart(10)}PPD PAYROLL   ${yymmdd}${yymmdd}   1091000010000001`);
+
+      let entryCount = 0;
+      let totalDebit = 0;
+      let totalCredit = 0;
+      let entryHash = 0;
+
+      for (const item of items) {
+        const stmt = await db.select().from(payStatements).where(eq(payStatements.id, (item as any).payStatementId));
+        if (stmt.length === 0) continue;
+        const s = stmt[0];
+        const netPayCents = Math.round(parseFloat(s.netPay || "0") * 100);
+        if (netPayCents <= 0) continue;
+
+        const bankAcct = await db.select().from(sql`user_bank_accounts`).where(sql`"user_id" = ${s.userId} AND "is_primary" = true`).limit(1);
+        if (bankAcct.length === 0) continue;
+        const bank = bankAcct[0] as any;
+        const routingNum = (bank.routingNumber || "").padStart(9, "0");
+        const accountNum = (bank.accountNumberEncrypted || "").padEnd(17);
+
+        entryCount++;
+        entryHash += parseInt(routingNum.slice(0, 8)) || 0;
+        totalCredit += netPayCents;
+        const amountStr = netPayCents.toString().padStart(10, "0");
+        const seqNum = entryCount.toString().padStart(7, "0");
+        const acctType = bank.accountType === "SAVINGS" ? "37" : "27";
+        const recvName = (s.repName || "REP").substring(0, 22).padEnd(22);
+
+        nachaLines.push(`6${acctType}${routingNum}${accountNum}${amountStr}${s.userId?.substring(0, 15).padEnd(15)}${recvName} 0091000010${seqNum}`);
+      }
+
+      nachaLines.push(`8200${entryCount.toString().padStart(6, "0")}${(entryHash % 10000000000).toString().padStart(10, "0")}${totalDebit.toString().padStart(12, "0")}${totalCredit.toString().padStart(12, "0")}${companyId.padStart(10)}                         091000010000001`);
+
+      const blockCount = Math.ceil((nachaLines.length + 1) / 10);
+      nachaLines.push(`9000001${("000001").padStart(6, "0")}${entryCount.toString().padStart(8, "0")}${(entryHash % 10000000000).toString().padStart(10, "0")}${totalDebit.toString().padStart(12, "0")}${totalCredit.toString().padStart(12, "0")}${"".padStart(39)}`);
+
+      while (nachaLines.length % 10 !== 0) nachaLines.push("9".repeat(94));
+      const nachaContent = nachaLines.join("\n");
+
+      await db.execute(sql`UPDATE "ach_exports" SET "status" = 'SUBMITTED', "file_path" = ${"nacha-" + achExportId + ".txt"} WHERE "id" = ${achExportId}`);
+
+      await db.insert(integrationLogs).values({
+        integrationType: "ACH", action: "NACHA_SUBMITTED",
+        details: JSON.stringify({ achExportId, entryCount, totalCredit, batchNum }),
+        relatedEntityId: achExportId,
+      });
+
+      res.json({
+        status: "submitted",
+        nachaPreview: nachaLines.slice(0, 5).join("\n") + "\n...",
+        entryCount,
+        totalAmountCents: totalCredit,
+        message: "NACHA file generated. Submit to your banking partner to initiate ACH transfers.",
+      });
+    } catch (error: any) {
+      console.error("ACH submit error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/integrations/ach/confirm-settlement", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { achExportId, settlementReference } = req.body;
+      if (!achExportId) return res.status(400).json({ message: "achExportId required" });
+
+      await db.execute(sql`UPDATE "ach_exports" SET "status" = 'SETTLED' WHERE "id" = ${achExportId}`);
+
+      const items = await db.select().from(sql`ach_export_items`).where(sql`"ach_export_id" = ${achExportId}`);
+      let settled = 0;
+      for (const item of items) {
+        const stmtId = (item as any).payStatementId;
+        await db.update(payStatements).set({
+          status: "PAID",
+          paidAt: new Date(),
+          paymentReference: settlementReference || `ACH-${achExportId}`,
+        }).where(eq(payStatements.id, stmtId));
+        settled++;
+      }
+
+      await db.insert(integrationLogs).values({
+        integrationType: "ACH", action: "SETTLEMENT_CONFIRMED",
+        details: JSON.stringify({ achExportId, settlementReference, statementsSettled: settled }),
+        relatedEntityId: achExportId,
+      });
+
+      res.json({ status: "settled", statementsUpdated: settled });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ==========================================
+  // INTEGRATION 3 — Calendar Integration
+  // ==========================================
+
+  app.get("/api/admin/calendar-config", auth, executiveOrAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const configs = await db.select().from(calendarSyncConfig);
+      res.json(configs.length > 0 ? { ...configs[0], accessToken: configs[0].accessToken ? "***configured***" : null, refreshToken: configs[0].refreshToken ? "***configured***" : null } : null);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/calendar-config", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { calendarId, accessToken, refreshToken } = req.body;
+      const existing = await db.select().from(calendarSyncConfig);
+      if (existing.length > 0) {
+        const updates: any = { updatedAt: new Date() };
+        if (calendarId !== undefined) updates.calendarId = calendarId;
+        if (accessToken !== undefined) updates.accessToken = accessToken;
+        if (refreshToken !== undefined) updates.refreshToken = refreshToken;
+        if (req.body.isActive !== undefined) updates.isActive = req.body.isActive;
+        const [updated] = await db.update(calendarSyncConfig).set(updates).where(eq(calendarSyncConfig.id, existing[0].id)).returning();
+        res.json({ ...updated, accessToken: "***", refreshToken: "***" });
+      } else {
+        const [created] = await db.insert(calendarSyncConfig).values({
+          calendarId, accessToken, refreshToken,
+          isActive: true, configuredByUserId: req.user!.id,
+        }).returning();
+        res.json({ ...created, accessToken: "***", refreshToken: "***" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/integrations/calendar/sync-order", auth, adminOnly, async (req: AuthRequest, res) => {
+    try {
+      const { orderId } = req.body;
+      const order = await storage.getOrderById(orderId);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+
+      const configs = await db.select().from(calendarSyncConfig).where(eq(calendarSyncConfig.isActive, true));
+      if (configs.length === 0) return res.json({ status: "skipped", reason: "Calendar not configured" });
+
+      const config = configs[0];
+      const eventData = {
+        summary: `Install: ${order.customerName} — ${order.serviceName || "Service"}`,
+        description: `Customer: ${order.customerName}\nAddress: ${order.customerAddress || "N/A"}\nService: ${order.serviceName || "N/A"}\nRep: ${order.repId}\nOrder: ${order.invoiceNumber || order.id}`,
+        start: order.installDate || order.dateSold,
+        location: order.customerAddress || "",
+      };
+
+      await db.insert(integrationLogs).values({
+        integrationType: "CALENDAR", action: "EVENT_SYNCED",
+        details: JSON.stringify({ orderId, calendarId: config.calendarId, event: eventData }),
+        relatedEntityId: orderId,
+      });
+
+      res.json({ status: "synced", event: eventData, message: "Calendar event queued. Connect Google Calendar OAuth to enable live sync." });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ==========================================
+  // INTEGRATION 4 — Reporting Webhooks + API Keys
+  // ==========================================
+
+  app.get("/api/admin/api-keys", auth, executiveOrAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const keys = await db.select({
+        id: apiKeys.id, name: apiKeys.name, keyPrefix: apiKeys.keyPrefix,
+        scopes: apiKeys.scopes, lastUsedAt: apiKeys.lastUsedAt,
+        usageCount: apiKeys.usageCount, expiresAt: apiKeys.expiresAt,
+        isActive: apiKeys.isActive, createdAt: apiKeys.createdAt,
+      }).from(apiKeys).orderBy(desc(apiKeys.createdAt));
+      res.json(keys);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/api-keys", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, scopes, expiresAt } = req.body;
+      if (!name) return res.status(400).json({ message: "Name required" });
+
+      const rawKey = `ic_${crypto.randomBytes(32).toString("hex")}`;
+      const keyHash = crypto.createHash("sha256").update(rawKey).digest("hex");
+      const keyPrefix = rawKey.substring(0, 10) + "...";
+
+      const [key] = await db.insert(apiKeys).values({
+        name, keyHash, keyPrefix,
+        scopes: scopes || "production-summary,ar-status,payroll-summary",
+        createdByUserId: req.user!.id,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+      }).returning();
+
+      await db.insert(integrationLogs).values({
+        integrationType: "API_KEY", action: "KEY_CREATED",
+        details: JSON.stringify({ keyId: key.id, name, scopes: key.scopes }),
+      });
+
+      res.json({ ...key, rawKey, message: "Save this key — it will not be shown again." });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/api-keys/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      await db.update(apiKeys).set({ isActive: false }).where(eq(apiKeys.id, req.params.id));
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  async function authenticateApiKey(req: Request, res: Response, scope: string): Promise<boolean> {
+    const authHeader = req.headers["x-api-key"] || req.headers.authorization?.replace("Bearer ", "");
+    if (!authHeader || typeof authHeader !== "string") {
+      res.status(401).json({ error: "API key required. Pass via X-Api-Key header." });
+      return false;
+    }
+    const keyHash = crypto.createHash("sha256").update(authHeader).digest("hex");
+    const [key] = await db.select().from(apiKeys).where(and(eq(apiKeys.keyHash, keyHash), eq(apiKeys.isActive, true)));
+    if (!key) { res.status(401).json({ error: "Invalid API key" }); return false; }
+    if (key.expiresAt && new Date(key.expiresAt) < new Date()) { res.status(401).json({ error: "API key expired" }); return false; }
+    const allowedScopes = key.scopes.split(",").map(s => s.trim());
+    if (!allowedScopes.includes(scope)) { res.status(403).json({ error: `Key not authorized for scope: ${scope}` }); return false; }
+    await db.update(apiKeys).set({ lastUsedAt: new Date(), usageCount: sql`"usage_count" + 1` }).where(eq(apiKeys.id, key.id));
+    return true;
+  }
+
+  app.get("/api/v1/webhooks/production-summary", async (req, res) => {
+    if (!(await authenticateApiKey(req, res, "production-summary"))) return;
+    try {
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const mtdStart = new Date(nyNow.getFullYear(), nyNow.getMonth(), 1).toISOString().split("T")[0];
+      const today = nyNow.toISOString().split("T")[0];
+
+      const metrics = await db.select({
+        totalSold: sql<number>`count(*)`,
+        totalConnects: sql<number>`count(*) FILTER (WHERE "job_status" = 'COMPLETED')`,
+        totalRevenueCents: sql<string>`COALESCE(SUM("iron_crest_rack_rate_cents"), 0)`,
+        totalProfitCents: sql<string>`COALESCE(SUM("iron_crest_profit_cents"), 0)`,
+      }).from(salesOrders).where(sql`"approval_status" = 'APPROVED' AND "date_sold" >= ${mtdStart}::date AND "date_sold" <= ${today}::date`);
+
+      const m = metrics[0];
+      const format = req.query.format;
+      const data = {
+        period: { start: mtdStart, end: today },
+        totalSold: m.totalSold || 0,
+        totalConnects: m.totalConnects || 0,
+        connectRate: m.totalSold > 0 ? Math.round(((m.totalConnects || 0) / m.totalSold) * 100) : 0,
+        totalRevenueCents: parseInt(m.totalRevenueCents || "0"),
+        totalProfitCents: parseInt(m.totalProfitCents || "0"),
+        generatedAt: new Date().toISOString(),
+      };
+
+      if (format === "csv") {
+        const csv = stringify([Object.values(data)], { header: true, columns: Object.keys(data) });
+        res.setHeader("Content-Type", "text/csv");
+        return res.send(csv);
+      }
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/v1/webhooks/ar-status", async (req, res) => {
+    if (!(await authenticateApiKey(req, res, "ar-status"))) return;
+    try {
+      const pipeline = await db.select({
+        status: arExpectations.status,
+        count: sql<number>`count(*)`,
+        totalExpectedCents: sql<string>`COALESCE(SUM("expected_amount_cents"), 0)`,
+        totalActualCents: sql<string>`COALESCE(SUM("actual_amount_cents"), 0)`,
+      }).from(arExpectations).groupBy(arExpectations.status);
+
+      const data = {
+        pipeline: pipeline.map(p => ({
+          status: p.status,
+          count: p.count,
+          expectedCents: parseInt(p.totalExpectedCents || "0"),
+          actualCents: parseInt(p.totalActualCents || "0"),
+          varianceCents: parseInt(p.totalExpectedCents || "0") - parseInt(p.totalActualCents || "0"),
+        })),
+        totalOpen: pipeline.filter(p => p.status === "OPEN" || p.status === "PARTIAL").reduce((sum, p) => sum + p.count, 0),
+        generatedAt: new Date().toISOString(),
+      };
+
+      const format = req.query.format;
+      if (format === "csv") {
+        const rows = data.pipeline.map(p => [p.status, p.count, p.expectedCents, p.actualCents, p.varianceCents]);
+        const csv = stringify(rows, { header: true, columns: ["status", "count", "expectedCents", "actualCents", "varianceCents"] });
+        res.setHeader("Content-Type", "text/csv");
+        return res.send(csv);
+      }
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/v1/webhooks/payroll-summary", async (req, res) => {
+    if (!(await authenticateApiKey(req, res, "payroll-summary"))) return;
+    try {
+      const recentRuns = await db.select({
+        id: payRuns.id, name: payRuns.name, status: payRuns.status,
+        periodStart: payRuns.periodStart, periodEnd: payRuns.periodEnd,
+        totalGross: payRuns.totalGross, totalNet: payRuns.totalNet,
+        repCount: payRuns.repCount, orderCount: payRuns.orderCount,
+        createdAt: payRuns.createdAt,
+      }).from(payRuns).orderBy(desc(payRuns.createdAt)).limit(10);
+
+      const data = {
+        payRuns: recentRuns.map(r => ({
+          ...r,
+          totalGross: r.totalGross ? parseFloat(r.totalGross) : 0,
+          totalNet: r.totalNet ? parseFloat(r.totalNet) : 0,
+        })),
+        generatedAt: new Date().toISOString(),
+      };
+
+      const format = req.query.format;
+      if (format === "csv") {
+        const rows = data.payRuns.map(r => [r.id, r.name, r.status, r.periodStart, r.periodEnd, r.totalGross, r.totalNet, r.repCount, r.orderCount]);
+        const csv = stringify(rows, { header: true, columns: ["id", "name", "status", "periodStart", "periodEnd", "totalGross", "totalNet", "repCount", "orderCount"] });
+        res.setHeader("Content-Type", "text/csv");
+        return res.send(csv);
+      }
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Integration activity log
+  app.get("/api/admin/integration-logs", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+    try {
+      const type = req.query.type as string | undefined;
+      const limit = parseInt(req.query.limit as string || "50");
+      let query = db.select().from(integrationLogs).orderBy(desc(integrationLogs.createdAt)).limit(limit);
+      if (type) {
+        const logs = await db.select().from(integrationLogs).where(eq(integrationLogs.integrationType, type)).orderBy(desc(integrationLogs.createdAt)).limit(limit);
+        return res.json(logs);
+      }
+      const logs = await query;
+      res.json(logs);
+    } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });

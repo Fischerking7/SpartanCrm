@@ -1,0 +1,1104 @@
+Integrate the Iron Crest contractor onboarding system directly 
+into the existing Iron Crest application. This is not a separate 
+app — it is a new module within the existing codebase.
+
+The onboarding system handles 1099 independent contractor reps 
+completing 6 legal documents before gaining app access. It must 
+connect bidirectionally with the existing user, payroll, and 
+compliance infrastructure.
+
+Governing law: State of New Jersey
+Ops email: ironcrestoperations@ironcrestai.com
+Onboarding URL: https://onboarding.ironcrestsolutions.com
+
+===================================================================
+SECTION 1 — SCHEMA ADDITIONS
+===================================================================
+
+### TASK 1A — Add onboarding status to users table
+
+Add to users table (Drizzle migration):
+
+  -- Onboarding lifecycle
+  onboardingStatus: varchar(30) not null default 'NOT_STARTED'
+    Values: 'NOT_STARTED' | 'OTP_SENT' | 'OTP_VERIFIED' | 
+            'IN_PROGRESS' | 'SUBMITTED' | 'UNDER_REVIEW' | 
+            'APPROVED' | 'REJECTED'
+  
+  onboardingStartedAt: timestamp nullable
+  onboardingSubmittedAt: timestamp nullable
+  onboardingApprovedAt: timestamp nullable
+  onboardingApprovedByUserId: varchar nullable references users(id)
+  onboardingRejectedAt: timestamp nullable
+  onboardingRejectionReason: text nullable
+  
+  -- Compliance flags (updated when documents are processed)
+  backgroundCheckStatus: varchar(20) default 'PENDING'
+    Values: 'PENDING' | 'SUBMITTED' | 'CLEARED' | 'FAILED'
+  drugTestStatus: varchar(20) default 'PENDING'
+    Values: 'PENDING' | 'SUBMITTED' | 'CLEARED' | 'FAILED'
+  ndaSignedAt: timestamp nullable
+  contractorAgreementSignedAt: timestamp nullable
+  
+  -- Access control
+  appAccessGrantedAt: timestamp nullable
+  appAccessGrantedByUserId: varchar nullable references users(id)
+  
+  -- OTP for onboarding portal access
+  onboardingOtpHash: varchar nullable
+  onboardingOtpExpiresAt: timestamp nullable
+  onboardingOtpAttempts: integer default 0
+  onboardingOtpLockedAt: timestamp nullable
+
+### TASK 1B — Create onboarding submissions table
+
+Create new table: onboarding_submissions
+  
+  id: uuid primary key default gen_random_uuid()
+  userId: varchar not null references users(id)
+  
+  -- Submission metadata (E-SIGN / UETA compliance)
+  repName: varchar not null
+  repEmail: varchar nullable
+  repPhone: varchar nullable
+  ipAddress: varchar not null
+  userAgent: text not null
+  submittedAt: timestamp not null default now()
+  payloadHash: varchar not null  -- SHA-256 of full submission
+  
+  -- Document completion status
+  backgroundCheckCompleted: boolean default false
+  backgroundCheckSignedAt: timestamp nullable
+  chargebackPolicyCompleted: boolean default false
+  chargebackPolicySignedAt: timestamp nullable
+  contractorAppCompleted: boolean default false
+  contractorAppSignedAt: timestamp nullable
+  directDepositCompleted: boolean default false
+  directDepositSignedAt: timestamp nullable
+  drugTestCompleted: boolean default false
+  drugTestSignedAt: timestamp nullable
+  ndaCompleted: boolean default false
+  ndaSignedAt: timestamp nullable
+  
+  -- Signature captures (base64 PNG)
+  backgroundCheckSignature: text nullable
+  chargebackPolicySignature: text nullable
+  contractorAppSignature: text nullable
+  directDepositSignature: text nullable
+  drugTestSignature: text nullable
+  ndaSignature: text nullable
+  
+  -- Encrypted sensitive fields
+  ssnEncrypted: text nullable      -- AES-256
+  ssnLast4: varchar(4) nullable
+  routingNumberEncrypted: text nullable
+  accountNumberEncrypted: text nullable
+  accountNumberLast4: varchar(4) nullable
+  bankName: varchar nullable
+  accountType: varchar(10) nullable  -- 'checking' | 'savings'
+  
+  -- File upload references (S3 keys)
+  photoIdS3Key: varchar nullable
+  voidedCheckS3Key: varchar nullable
+  drugTestPhotoS3Key: varchar nullable
+  
+  -- Review
+  reviewedByUserId: varchar nullable references users(id)
+  reviewedAt: timestamp nullable
+  reviewNotes: text nullable
+  status: varchar(20) default 'PENDING'
+    Values: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED'
+  
+  createdAt: timestamp default now()
+  updatedAt: timestamp default now()
+
+### TASK 1C — Create onboarding audit log table
+
+Create new table: onboarding_audit_log
+  
+  id: uuid primary key default gen_random_uuid()
+  userId: varchar not null references users(id)
+  action: varchar not null
+  detail: text nullable  -- JSON
+  ipAddress: varchar nullable
+  userAgent: text nullable
+  createdAt: timestamp not null default now()
+  
+  -- This table is append-only
+  -- Add DB-level constraint: no UPDATE or DELETE via application
+  -- Enforce via Drizzle: never expose update/delete methods for this table
+
+  Action values:
+    'OTP_GENERATED'
+    'OTP_SENT_SMS'
+    'OTP_VERIFIED'
+    'OTP_FAILED_ATTEMPT'
+    'OTP_LOCKED'
+    'ONBOARDING_STARTED'
+    'DOCUMENT_SAVED'        -- intermediate save
+    'ONBOARDING_SUBMITTED'
+    'PDF_GENERATED'
+    'EMAIL_SENT_OPS'
+    'EMAIL_SENT_REP'
+    'SUBMISSION_REVIEWED'
+    'ONBOARDING_APPROVED'
+    'ONBOARDING_REJECTED'
+    'APP_ACCESS_GRANTED'
+    'BACKGROUND_CHECK_UPDATED'
+    'DRUG_TEST_UPDATED'
+
+### TASK 1D — Create onboarding document drafts table
+  (allows reps to save progress and return)
+
+Create new table: onboarding_drafts
+  
+  id: uuid primary key default gen_random_uuid()
+  userId: varchar not null references users(id)
+  documentType: varchar not null
+    Values: 'background_check' | 'chargeback_policy' | 
+            'contractor_app' | 'direct_deposit' | 
+            'drug_test' | 'nda'
+  draftJson: text not null  -- JSON of partial form data
+  lastSavedAt: timestamp not null default now()
+  
+  -- One draft per user per document type
+  UNIQUE constraint on (userId, documentType)
+
+===================================================================
+SECTION 2 — OTP SYSTEM
+===================================================================
+
+### TASK 2A — Install required packages
+
+  npm install bcryptjs jsonwebtoken twilio @sendgrid/mail 
+              pdf-lib aws-sdk crypto
+
+### TASK 2B — OTP generation and sending
+
+Create server/onboarding/otpService.ts:
+
+  import crypto from 'crypto';
+  import bcrypt from 'bcryptjs';
+
+  export async function generateAndSendOtp(
+    userId: string,
+    phoneNumber: string,
+    repName: string
+  ): Promise<{ success: boolean; error?: string }>
+
+  Steps:
+  1. Generate 6-digit OTP:
+     const otp = crypto.randomInt(100000, 999999).toString();
+  
+  2. Hash with bcrypt cost 10:
+     const otpHash = await bcrypt.hash(otp, 10);
+  
+  3. Store on user record:
+     await storage.updateUser(userId, {
+       onboardingOtpHash: otpHash,
+       onboardingOtpExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+       onboardingOtpAttempts: 0,
+       onboardingOtpLockedAt: null,
+       onboardingStatus: 'OTP_SENT',
+     });
+  
+  4. Send via Twilio SMS:
+     const client = twilio(
+       process.env.TWILIO_ACCOUNT_SID,
+       process.env.TWILIO_AUTH_TOKEN
+     );
+     await client.messages.create({
+       body: `Your Iron Crest onboarding code is: ${otp}. 
+              Valid for 48 hours. 
+              Visit: ${process.env.FRONTEND_URL}/onboarding`,
+       from: process.env.TWILIO_FROM_NUMBER,
+       to: phoneNumber,
+     });
+  
+  5. Log to onboarding_audit_log:
+     action: 'OTP_GENERATED' then 'OTP_SENT_SMS'
+     detail: { repName, phoneLastFour: phone.slice(-4) }
+  
+  6. Return success
+
+### TASK 2C — OTP verification
+
+Create server/onboarding/verifyOtp.ts:
+
+  export async function verifyOtp(
+    userId: string,
+    submittedOtp: string,
+    ipAddress: string,
+    userAgent: string
+  ): Promise<{ 
+    success: boolean; 
+    token?: string; 
+    error?: string;
+    locked?: boolean;
+  }>
+
+  Steps:
+  1. Load user record
+  
+  2. Check if locked:
+     if (user.onboardingOtpLockedAt) {
+       log: 'OTP_FAILED_ATTEMPT' with locked: true
+       return { success: false, locked: true, 
+                error: 'Account locked. Contact your manager.' }
+     }
+  
+  3. Check expiry:
+     if (new Date() > user.onboardingOtpExpiresAt) {
+       return { success: false, 
+                error: 'Code expired. Ask your manager to resend.' }
+     }
+  
+  4. Verify hash:
+     const valid = await bcrypt.compare(
+       submittedOtp, 
+       user.onboardingOtpHash
+     );
+  
+  5a. If valid:
+     -- Clear OTP fields (single use)
+     await storage.updateUser(userId, {
+       onboardingOtpHash: null,
+       onboardingOtpExpiresAt: null,
+       onboardingOtpAttempts: 0,
+       onboardingStatus: 'OTP_VERIFIED',
+       onboardingStartedAt: new Date(),
+     });
+     
+     -- Issue JWT (4-hour expiry, stored in memory not localStorage)
+     const token = jwt.sign(
+       { userId, purpose: 'onboarding' },
+       process.env.JWT_SECRET,
+       { expiresIn: '4h' }
+     );
+     
+     -- Log success
+     log: 'OTP_VERIFIED' with ipAddress, userAgent
+     
+     return { success: true, token }
+  
+  5b. If invalid:
+     const attempts = user.onboardingOtpAttempts + 1;
+     
+     if (attempts >= 5) {
+       -- Lock the account
+       await storage.updateUser(userId, {
+         onboardingOtpAttempts: attempts,
+         onboardingOtpLockedAt: new Date(),
+         onboardingStatus: 'OTP_SENT',
+       });
+       
+       -- Notify manager via in-app notification
+       if (user.assignedManagerId) {
+         await storage.createEmailNotification({
+           userId: user.assignedManagerId,
+           notificationType: 'ONBOARDING_OTP_LOCKED',
+           subject: 'Onboarding Access Locked',
+           body: `${repName}'s onboarding access has been 
+                  locked after 5 failed attempts. 
+                  Please generate a new OTP from the rep 
+                  management screen.`,
+           status: 'PENDING',
+           isRead: false,
+         });
+       }
+       
+       log: 'OTP_LOCKED'
+       return { success: false, locked: true,
+                error: 'Too many attempts. Contact your manager.' }
+     }
+     
+     await storage.updateUser(userId, {
+       onboardingOtpAttempts: attempts,
+     });
+     
+     log: 'OTP_FAILED_ATTEMPT' with { attempts }
+     return { success: false, 
+              error: `Invalid code. ${5 - attempts} attempts remaining.` }
+
+===================================================================
+SECTION 3 — ONBOARDING API ROUTES
+===================================================================
+
+Add all routes to the existing routes.ts file under a new section:
+// =====================================================
+// ONBOARDING PORTAL ROUTES
+// =====================================================
+
+### TASK 3A — Webhook receiver (called by rep creation flow)
+
+When a new rep is created in the system 
+(POST /api/admin/users with role REP, LEAD, or MANAGER),
+automatically trigger onboarding:
+
+Add to the existing user creation endpoint, after 
+the user is created:
+
+  if (['REP', 'LEAD', 'MANAGER'].includes(data.role) 
+      && data.phone) {
+    const { generateAndSendOtp } = await import('./onboarding/otpService');
+    await generateAndSendOtp(newUser.id, data.phone, data.name);
+  }
+
+Also create a standalone trigger endpoint for resending:
+
+POST /api/admin/onboarding/:userId/send-otp
+Access: OPERATIONS, EXECUTIVE
+
+Actions:
+  1. Verify the user exists and has a phone number
+  2. Check if currently locked — if so, clear the lock first
+  3. Call generateAndSendOtp()
+  4. Return { success: true, sentTo: phone.slice(-4) }
+  5. Create audit log: 'OTP_GENERATED' in main audit_logs table
+
+### TASK 3B — OTP verification endpoint
+
+POST /api/onboarding/verify-otp
+Access: Public (no auth — this is the entry point)
+
+Request body:
+  { repId: string, otp: string }
+
+Note: repId here is the user.repId (like 'NJS001'), 
+not the internal UUID. This is what the rep knows about themselves.
+
+Actions:
+  1. Look up user by repId
+  2. Verify user has onboardingStatus in 
+     ['OTP_SENT', 'OTP_VERIFIED', 'IN_PROGRESS']
+  3. Extract IP from request:
+     const ip = req.headers['x-forwarded-for'] || 
+                 req.socket.remoteAddress
+  4. Call verifyOtp(user.id, otp, ip, userAgent)
+  5. Return token or error
+
+Rate limiting: max 10 requests per IP per hour
+Add express-rate-limit to this endpoint.
+
+### TASK 3C — Get rep info for form pre-fill
+
+GET /api/onboarding/rep-info
+Access: Onboarding JWT required (purpose: 'onboarding')
+
+Create new middleware: onboardingAuth
+  Verifies JWT has purpose: 'onboarding'
+  Attaches userId to request
+  Does NOT use the main auth middleware
+
+Returns safe pre-fill data (never SSN, never sensitive):
+  {
+    repId: user.repId,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    managerName: manager?.name || null,
+    onboardingStatus: user.onboardingStatus,
+    completedDocuments: {
+      backgroundCheck: submission.backgroundCheckCompleted,
+      chargebackPolicy: submission.chargebackPolicyCompleted,
+      contractorApp: submission.contractorAppCompleted,
+      directDeposit: submission.directDepositCompleted,
+      drugTest: submission.drugTestCompleted,
+      nda: submission.ndaCompleted,
+    },
+    drafts: {
+      // which documents have saved drafts
+    }
+  }
+
+### TASK 3D — Save document draft
+
+POST /api/onboarding/draft/:documentType
+Access: Onboarding JWT
+
+Actions:
+  1. Validate documentType is one of the 6 valid types
+  2. Sanitize input (never store raw SSN in drafts — 
+     drafts are unencrypted JSON)
+  3. Upsert into onboarding_drafts table
+  4. Return { saved: true, lastSavedAt }
+
+  CRITICAL: If documentType is 'direct_deposit', 
+  do NOT store routing number, account number, or SSN 
+  in the draft table. Only store bank name and account type.
+  Sensitive fields must only be submitted in the final 
+  submission, never in drafts.
+
+### TASK 3E — Final submission endpoint
+
+POST /api/onboarding/submit
+Access: Onboarding JWT
+Content-Type: multipart/form-data (file uploads included)
+
+Request body (multipart):
+  -- Form data fields for all 6 documents
+  -- Files: photoId, voidedCheck, drugTestPhoto
+  
+Actions:
+
+STEP 1 — Validate completeness:
+  Verify all 6 document signatures are present
+  Verify all required fields are filled
+  Verify photo ID file is uploaded
+  Return 400 with specific missing fields if incomplete
+
+STEP 2 — Encrypt sensitive data:
+  import { encryptSsn, encryptField } from '../encryption'
+  
+  const ssnEncrypted = encryptField(formData.ssn);
+  const ssnLast4 = formData.ssn.slice(-4);
+  const routingNumberEncrypted = encryptField(formData.routingNumber);
+  const accountNumberEncrypted = encryptField(formData.accountNumber);
+  const accountNumberLast4 = formData.accountNumber.slice(-4);
+  
+  Use the same encryption utilities already used for 
+  SSN in the MDU staging orders module.
+
+STEP 3 — Upload files to S3:
+  Upload photoId → s3Key: `onboarding/{userId}/photo-id-{timestamp}.jpg`
+  Upload voidedCheck → s3Key: `onboarding/{userId}/voided-check-{timestamp}.jpg`
+  Upload drugTestPhoto → s3Key: `onboarding/{userId}/drug-test-{timestamp}.jpg`
+  
+  All files: private ACL, server-side encryption (AES-256)
+
+STEP 4 — Compute payload hash:
+  const payloadForHash = {
+    userId,
+    repName: formData.repName,
+    submittedAt: new Date().toISOString(),
+    ipAddress,
+    userAgent,
+    documentsCompleted: [list of document types],
+    // Do NOT include encrypted fields or file contents in hash
+    // Include all non-sensitive form field values
+  };
+  const payloadHash = crypto
+    .createHash('sha256')
+    .update(JSON.stringify(payloadForHash))
+    .digest('hex');
+
+STEP 5 — Save to onboarding_submissions:
+  Create submission record with all fields
+  Update user.onboardingStatus = 'SUBMITTED'
+  Update user.onboardingSubmittedAt = now()
+
+STEP 6 — Update user profile from submission data:
+  Automatically populate user fields from onboarding data:
+  await storage.updateUser(userId, {
+    // Only safe fields — not sensitive financial
+    emergencyContactName: formData.emergencyContactName,
+    emergencyContactPhone: formData.emergencyContactPhone,
+    dateOfBirth: formData.dateOfBirth,  
+    // add these fields to users table if not present
+  });
+  
+  Automatically create user bank account record:
+  await storage.createUserBankAccount({
+    userId,
+    bankName: formData.bankName,
+    accountType: formData.accountType,
+    accountNumberLast4,
+    routingNumberLast4: formData.routingNumber.slice(-4),
+    accountNumberEncrypted,
+    routingNumberEncrypted,
+    isPrimary: true,
+    isActive: true,
+    verificationStatus: 'PENDING',
+    // Voided check uploaded = manual verification
+    voidedCheckS3Key: s3Keys.voidedCheck,
+  });
+  
+  Automatically create user tax profile:
+  await storage.updateUserTaxProfile(userId, {
+    ssnLast4,
+    ssnEncrypted,
+    taxFilingName: formData.repName,
+    contractorType: '1099',
+  });
+
+STEP 7 — Generate stamped PDFs:
+  Call generateOnboardingPdfs(submissionId) 
+  (see Section 4)
+
+STEP 8 — Send emails:
+  Call sendOnboardingEmails(submissionId)
+  (see Section 5)
+
+STEP 9 — Notify operations:
+  Create in-app notification for all OPERATIONS and 
+  EXECUTIVE users:
+    notificationType: 'ONBOARDING_SUBMITTED'
+    subject: 'New Contractor Onboarding Submitted'
+    body: `${repName} (${repId}) has completed all 6 
+           onboarding documents and is ready for review.`
+
+STEP 10 — Clear drafts:
+  Delete all onboarding_drafts records for this userId
+  
+STEP 11 — Log to onboarding audit:
+  action: 'ONBOARDING_SUBMITTED'
+  detail: { payloadHash, documentsCompleted: 6, 
+            filesUploaded: 3 }
+
+Return:
+  { 
+    success: true, 
+    submissionId,
+    message: 'Your onboarding is complete. 
+              You will receive a confirmation email shortly.'
+  }
+
+### TASK 3F — Onboarding review endpoints
+
+GET /api/admin/onboarding/submissions
+Access: OPERATIONS, EXECUTIVE
+
+Query params:
+  - status: filter by submission status
+  - search: rep name or repId
+
+Returns list of all submissions with:
+  repName, repId, submittedAt, status, 
+  documentsCompleted count, reviewedBy
+
+---
+
+GET /api/admin/onboarding/submissions/:id
+Access: OPERATIONS, EXECUTIVE
+
+Returns full submission detail:
+  All non-encrypted fields
+  Document completion status per document
+  Signature images (base64 PNG)
+  S3 pre-signed URLs for file downloads 
+    (15-minute expiry, generated on request)
+  Audit log for this rep
+
+---
+
+POST /api/admin/onboarding/submissions/:id/approve
+Access: OPERATIONS, EXECUTIVE
+
+Actions:
+  1. Update submission status = 'APPROVED'
+  2. Update user:
+     onboardingStatus = 'APPROVED'
+     onboardingApprovedAt = now()
+     onboardingApprovedByUserId = req.user.id
+     status = 'ACTIVE'  (was previously PENDING or INACTIVE)
+     appAccessGrantedAt = now()
+     appAccessGrantedByUserId = req.user.id
+  3. Send SMS to rep via Twilio:
+     "Congratulations! Your Iron Crest onboarding has been 
+     approved. You now have full access to the rep portal. 
+     Log in at: {appUrl}"
+  4. Create in-app notification for rep:
+     "Your onboarding has been approved. Welcome to Iron Crest!"
+  5. Create audit log entry
+  6. Return updated submission
+
+---
+
+POST /api/admin/onboarding/submissions/:id/reject
+Access: OPERATIONS, EXECUTIVE
+
+Body: { reason: string, requestedDocuments?: string[] }
+
+Actions:
+  1. Update submission status = 'REJECTED'
+  2. Update user:
+     onboardingStatus = 'REJECTED'
+     onboardingRejectedAt = now()
+     onboardingRejectionReason = reason
+  3. Send SMS to rep:
+     "Your Iron Crest onboarding requires attention. 
+     Reason: {reason}. Please contact your manager."
+  4. Notify rep's manager via in-app notification
+  5. Log to audit
+
+---
+
+POST /api/admin/onboarding/:userId/update-compliance
+Access: OPERATIONS, EXECUTIVE
+
+Body: 
+  { 
+    backgroundCheckStatus?: string,
+    drugTestStatus?: string,
+    notes?: string 
+  }
+
+Updates compliance status fields on the user record.
+Creates audit log entry.
+If both backgroundCheckStatus = 'CLEARED' and 
+drugTestStatus = 'CLEARED' and onboardingStatus = 'APPROVED':
+  Create notification for OPERATIONS:
+  "{repName} is fully cleared and compliant."
+
+===================================================================
+SECTION 4 — PDF GENERATION
+===================================================================
+
+### TASK 4A — Install pdf-lib
+
+  npm install pdf-lib
+
+### TASK 4B — PDF generator service
+
+Create server/onboarding/pdfGenerator.ts
+
+Export:
+  async function generateOnboardingPdfs(
+    submissionId: string
+  ): Promise<{ s3Keys: string[] }>
+
+For each of the 6 documents, generate a stamped PDF:
+
+DOCUMENT CONTENT — render the full legal text of each document 
+with the rep's submitted data filled in. Use these templates:
+
+--- DOCUMENT 1: Background Check Authorization ---
+  Title: BACKGROUND CHECK AUTHORIZATION
+  Body: 
+    I, {repName}, born {dateOfBirth}, hereby authorize 
+    Iron Crest Solutions LLC and its designated agents to 
+    conduct a consumer background investigation including 
+    criminal history, employment verification, and other 
+    lawful checks.
+    
+    Social Security Number: ***-**-{ssnLast4} (on file)
+    
+    I understand this authorization complies with the Fair 
+    Credit Reporting Act (FCRA).
+    
+    Governing Law: State of New Jersey
+  
+  Signature block: [signature image] | {repName} | {date}
+
+--- DOCUMENT 2: Chargebacks & Rolling Reserve Policy ---
+  Title: CHARGEBACKS AND ROLLING RESERVE POLICY
+  Body:
+    Rolling Reserve: 15% of gross commissions held until 
+    reserve reaches $2,500.00 (the "Cap").
+    
+    Once the Cap is reached, no further reserve deductions 
+    occur until a chargeback event reduces the reserve below 
+    the Cap.
+    
+    Vendor Maturity Periods: Commissions are subject to 
+    vendor maturity periods as defined by each carrier. 
+    Iron Crest Solutions LLC reserves the right to withhold 
+    payment pending carrier confirmation.
+    
+    Chargebacks: Any commission paid for a customer who 
+    cancels, does not install, or fails to meet carrier 
+    requirements within the maturity period will be 
+    recovered from the contractor's reserve or future 
+    commissions.
+    
+    Governing Law: This agreement shall be governed by the 
+    laws of the State of New Jersey.
+  
+  Signature block
+
+--- DOCUMENT 3: Independent Contractor Application ---
+  Title: INDEPENDENT CONTRACTOR APPLICATION
+  Body: Full personal info form data rendered:
+    Full Name, Address, Phone, Email, Date of Birth
+    Driver's License / State ID: {dlNumber} ({dlState})
+    Emergency Contact: {emergencyContactName} 
+                       {emergencyContactPhone}
+    
+    By signing below, I confirm that all information 
+    provided is accurate and complete. I understand I am 
+    applying as an independent contractor, not an employee 
+    of Iron Crest Solutions LLC.
+  
+  Photo ID: uploaded and stored separately (not in PDF)
+  
+  Signature block
+
+--- DOCUMENT 4: Direct Deposit Authorization ---
+  Title: DIRECT DEPOSIT AUTHORIZATION
+  Body:
+    I authorize Iron Crest Solutions LLC to initiate 
+    electronic deposits to my account:
+    
+    Bank Name: {bankName}
+    Account Type: {accountType}
+    Account Number: ****{accountNumberLast4}
+    Routing Number: on file
+    
+    This authorization remains in effect until I provide 
+    written notice of cancellation.
+  
+  Note: Never include full account or routing numbers in PDF.
+  
+  Signature block
+
+--- DOCUMENT 5: At-Home Drug Test ---
+  Title: AT-HOME DRUG TEST CERTIFICATION
+  Body:
+    I, {repName}, certify that I have completed a 5-panel 
+    at-home drug test and the result was negative for all 
+    tested substances.
+    
+    Test completed on: {drugTestDate}
+    
+    I understand that a photo of the completed test must be 
+    submitted within 15 days of onboarding initiation and 
+    that Iron Crest Solutions LLC reserves the right to 
+    require additional testing at any time.
+    
+    False certification is grounds for immediate contract 
+    termination.
+  
+  Photo of test: uploaded and stored separately
+  
+  Signature block with self-certification checkbox acknowledged
+
+--- DOCUMENT 6: Iron Crest NDA ---
+  Title: NON-DISCLOSURE, NON-CIRCUMVENTION, AND 
+         NON-SOLICITATION AGREEMENT
+  Body:
+    This Agreement is entered into between Iron Crest 
+    Solutions LLC ("Company") and {repName} ("Contractor").
+    
+    1. CONFIDENTIALITY
+    Contractor agrees to maintain strict confidentiality 
+    of all proprietary information, customer data, business 
+    methods, pricing, and trade secrets of the Company 
+    indefinitely.
+    
+    2. NON-CIRCUMVENTION
+    For a period of THREE (3) YEARS following termination 
+    of this agreement, Contractor shall not directly or 
+    indirectly contact, solicit, or transact business with 
+    any carrier, vendor, or customer introduced through 
+    the Company without prior written consent.
+    
+    3. NON-SOLICITATION
+    For a period of TWO (2) YEARS following termination, 
+    Contractor shall not solicit, recruit, or hire any 
+    employee, contractor, or agent of Iron Crest Solutions LLC.
+    
+    4. LIQUIDATED DAMAGES
+    Contractor acknowledges that a breach of this Agreement 
+    would cause irreparable harm. Contractor agrees to pay 
+    TWENTY-FIVE THOUSAND DOLLARS ($25,000.00) per violation 
+    as liquidated damages, not as a penalty.
+    
+    5. GOVERNING LAW
+    This Agreement shall be governed by the laws of the 
+    State of New Jersey.
+    
+    6. ENTIRE AGREEMENT
+    This Agreement constitutes the entire agreement between 
+    the parties regarding its subject matter.
+  
+  Signature block
+
+FOOTER ON EVERY PAGE OF EVERY DOCUMENT:
+  Left: Iron Crest Solutions LLC | Confidential
+  Center: {repName} | Rep ID: {repId}
+  Right: {ipAddress} | {utcTimestamp}
+  
+  Bottom line: SHA-256: {payloadHash} (truncated to 16 chars)
+
+PDF GENERATION STEPS per document:
+  1. Create PDFDocument using pdf-lib
+  2. Add page(s) with letter size (612 x 792 points)
+  3. Render text using standard fonts
+  4. Render signature image from base64 PNG
+  5. Add footer to every page
+  6. Save as bytes
+  7. Upload to S3:
+     Key: `onboarding/{userId}/pdfs/{documentType}-{timestamp}.pdf`
+     ACL: private
+     ContentType: application/pdf
+  8. Record S3 key in submission record
+
+After all 6 PDFs are generated:
+  Update submission record with all PDF S3 keys
+  Log: 'PDF_GENERATED' to onboarding_audit_log
+
+===================================================================
+SECTION 5 — EMAIL DELIVERY
+===================================================================
+
+### TASK 5A — Install @sendgrid/mail
+
+  npm install @sendgrid/mail
+
+### TASK 5B — Email service for onboarding
+
+Create server/onboarding/emailService.ts
+
+Export:
+  async function sendOnboardingEmails(
+    submissionId: string
+  ): Promise<void>
+
+Steps:
+
+1. Load submission + user data + PDF S3 keys
+
+2. Generate pre-signed S3 URLs for all PDFs 
+   (7-day expiry for email links)
+
+3. Send to ops team (ironcrestoperations@ironcrestai.com):
+   Subject: "New Contractor Onboarding — {repName} ({repId})"
+   
+   Body (HTML):
+   <h2>New Onboarding Submission</h2>
+   <p><strong>Rep:</strong> {repName} ({repId})</p>
+   <p><strong>Submitted:</strong> {submittedAt}</p>
+   <p><strong>IP Address:</strong> {ipAddress}</p>
+   <p><strong>User Agent:</strong> {userAgent}</p>
+   <p><strong>Payload Hash:</strong> {payloadHash}</p>
+   
+   <h3>Documents Completed</h3>
+   <ul>
+     <li>✓ Background Check Authorization — {signedAt}</li>
+     <li>✓ Chargebacks & Rolling Reserve Policy — {signedAt}</li>
+     <li>✓ Independent Contractor Application — {signedAt}</li>
+     <li>✓ Direct Deposit Authorization — {signedAt}</li>
+     <li>✓ At-Home Drug Test — {signedAt}</li>
+     <li>✓ Iron Crest NDA — {signedAt}</li>
+   </ul>
+   
+   <h3>Document Downloads</h3>
+   {links to each PDF (pre-signed S3 URLs)}
+   
+   <p><a href="{adminUrl}/onboarding/{submissionId}">
+   Review in Admin Portal</a></p>
+
+4. Send confirmation to rep (if email exists):
+   Subject: "Iron Crest Onboarding — Documents Received"
+   
+   Body (HTML):
+   <h2>Thank you, {firstName}!</h2>
+   <p>We have received your completed onboarding documents.</p>
+   <p>Our team will review your submission and you will 
+   receive a text message once approved.</p>
+   <p>Document submission reference: {submissionId}</p>
+   <p>Submitted: {submittedAt}</p>
+   <p>If you have questions, contact your manager 
+   {managerName}.</p>
+
+5. Log both emails to onboarding_audit_log:
+   'EMAIL_SENT_OPS' and 'EMAIL_SENT_REP'
+
+===================================================================
+SECTION 6 — ONBOARDING STATUS IN APP
+===================================================================
+
+### TASK 6A — Block app access for incomplete onboarding
+
+Add to the main auth middleware (the existing auth function):
+
+After validating the JWT:
+  -- For REP, LEAD, MANAGER roles only:
+  if (['REP', 'LEAD', 'MANAGER'].includes(user.role)) {
+    -- Check if onboarding is complete
+    if (user.onboardingStatus !== 'APPROVED' 
+        && user.appAccessGrantedAt === null) {
+      -- Allow access only to onboarding routes
+      const allowedPaths = [
+        '/api/onboarding/',
+        '/api/my/profile',
+        '/api/notifications',
+      ];
+      const isAllowed = allowedPaths.some(p => 
+        req.path.startsWith(p)
+      );
+      if (!isAllowed) {
+        return res.status(403).json({
+          message: 'Onboarding not complete',
+          onboardingStatus: user.onboardingStatus,
+          redirectTo: '/onboarding',
+        });
+      }
+    }
+  }
+
+This means a new rep who hasn't completed onboarding 
+gets a 403 on every endpoint except the onboarding ones.
+The frontend uses the redirectTo field to send them 
+to the onboarding portal.
+
+### TASK 6B — Onboarding status in user responses
+
+Add onboardingStatus and appAccessGrantedAt to the 
+user object returned by GET /api/auth/me 
+(or wherever the current user info is fetched).
+
+The frontend uses this to:
+  - Show an onboarding banner if not yet complete
+  - Show a pending banner if submitted but not yet approved
+  - Show normal app if approved
+
+### TASK 6C — Onboarding progress in rep management
+
+In the OPERATIONS rep management screen data 
+(GET /api/admin/users or rep listing endpoint):
+
+Add to each rep's data:
+  onboardingStatus: string
+  onboardingSubmittedAt: timestamp | null
+  backgroundCheckStatus: string
+  drugTestStatus: string
+
+Add to the exception queue (OPERATIONS type):
+  'ONBOARDING_OVERDUE':
+    Priority: HIGH
+    Trigger: User created 7+ days ago with 
+             onboardingStatus not in ['SUBMITTED', 'APPROVED']
+    Title: "{n} reps have not completed onboarding"
+    estimatedImpact: null (compliance risk, not dollar risk)
+    Action: links to rep management filtered to 
+            onboardingStatus = 'NOT_STARTED' or 'OTP_SENT'
+
+### TASK 6D — Manager visibility into team onboarding
+
+Add to GET /api/my/team-health response:
+  onboardingMetrics: {
+    totalReps: number,
+    onboardingComplete: number,
+    onboardingPending: number,      // submitted, not approved
+    onboardingIncomplete: number,   // not yet submitted
+    complianceClear: number,        // both checks cleared
+  }
+
+MANAGER and DIRECTOR can see this for their scope.
+EXECUTIVE sees company-wide.
+
+===================================================================
+SECTION 7 — OTP MANAGEMENT IN OPERATIONS UI
+===================================================================
+
+Add to the existing rep detail page in Operations:
+
+ONBOARDING STATUS PANEL:
+  Current status badge (color coded):
+    NOT_STARTED (gray)
+    OTP_SENT (blue)
+    IN_PROGRESS (yellow)
+    SUBMITTED (orange, pending review)
+    APPROVED (green)
+    REJECTED (red)
+  
+  If status = 'NOT_STARTED' or 'OTP_SENT':
+    [Send/Resend OTP] button
+    → calls POST /api/admin/onboarding/:userId/send-otp
+    → shows "OTP sent to ***-***-{last4}"
+  
+  If status = 'OTP_SENT' and lockedAt is set:
+    Red badge: "LOCKED — {n} failed attempts"
+    [Unlock and Resend OTP] button
+    → clears lock, generates new OTP, sends SMS
+  
+  If status = 'SUBMITTED':
+    [Review Submission] button
+    → links to submission detail page
+  
+  If status = 'APPROVED':
+    Green badge with approval date
+    Approved by: {approverName}
+    App access granted: {date}
+  
+  COMPLIANCE STATUS:
+    Background Check: {status badge}
+    Drug Test: {status badge}
+    NDA Signed: {date or pending}
+    [Update Compliance Status] button
+
+===================================================================
+SECTION 8 — ENVIRONMENT VARIABLES
+===================================================================
+
+Add to the existing .env configuration:
+
+  -- Onboarding / OTP
+  TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  TWILIO_AUTH_TOKEN=<auth token>
+  TWILIO_FROM_NUMBER=+1XXXXXXXXXX
+  
+  -- Email
+  SENDGRID_API_KEY=SG.xxxxxxxxxx
+  OPS_EMAIL=ironcrestoperations@ironcrestai.com
+  
+  -- File storage
+  S3_BUCKET=ironcrest-onboarding-docs
+  AWS_ACCESS_KEY_ID=<key>
+  AWS_SECRET_ACCESS_KEY=<secret>
+  AWS_REGION=us-east-1
+  
+  -- Onboarding portal URL
+  ONBOARDING_URL=https://onboarding.ironcrestsolutions.com
+  APP_URL=https://app.ironcrestsolutions.com
+
+Add these to a .env.example file with placeholder values 
+and document each variable with a comment explaining 
+what it is used for.
+
+===================================================================
+SECTION 9 — SCHEMA SUMMARY (DRIZZLE MIGRATION)
+===================================================================
+
+Create ONE consolidated Drizzle migration for:
+
+  Users table additions:
+    onboardingStatus, onboardingStartedAt, 
+    onboardingSubmittedAt, onboardingApprovedAt,
+    onboardingApprovedByUserId, onboardingRejectedAt,
+    onboardingRejectionReason, backgroundCheckStatus,
+    drugTestStatus, ndaSignedAt, 
+    contractorAgreementSignedAt, appAccessGrantedAt,
+    appAccessGrantedByUserId, onboardingOtpHash,
+    onboardingOtpExpiresAt, onboardingOtpAttempts,
+    onboardingOtpLockedAt, emergencyContactName,
+    emergencyContactPhone, dateOfBirth
+
+  New tables:
+    onboarding_submissions
+    onboarding_audit_log (append-only)
+    onboarding_drafts
+
+===================================================================
+GENERAL CONSTRAINTS
+===================================================================
+
+- Create ONE consolidated Drizzle migration for all changes
+- The onboarding_audit_log must be truly append-only:
+  No updateOnboardingAuditLog or deleteOnboardingAuditLog 
+  methods in storage — only createOnboardingAuditLog
+- SSN and financial data must use the SAME encryption 
+  utilities already used in the MDU module (encryptSsn, 
+  decryptSsn) for consistency
+- Never log SSN, routing numbers, or account numbers 
+  anywhere — not in console, not in audit logs, not in 
+  error messages
+- Rate limit the OTP verification endpoint:
+  10 attempts per IP per hour
+- OTP is never stored in plaintext anywhere — only bcrypt hash
+- JWT for onboarding uses purpose: 'onboarding' claim and 
+  must be rejected by the main auth middleware
+- All S3 uploads must use private ACL + server-side encryption
+- Pre-signed S3 URLs must have maximum 15-minute expiry 
+  when served via API, 7-day expiry in emails
+- Do not touch the frontend
+- All new storage methods must have JSDoc comments
+- Add ONBOARDING_SUBMITTED and ONBOARDING_APPROVED 
+  to the exception queue as MEDIUM priority items
+- The onboarding flow must work even if Twilio is 
+  unavailable — fall back gracefully and log the failure,
+  do not crash the user creation flow
+- Phone number validation: normalize to E.164 format 
+  before storing and before sending SMS

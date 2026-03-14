@@ -39,6 +39,7 @@ import AdminOverrides from "@/pages/admin/overrides";
 import AdminPayroll from "@/pages/admin/payroll";
 import AdminPayrollAdvanced from "@/pages/admin/payroll-advanced";
 import AdminQuickBooks from "@/pages/admin/quickbooks";
+import AdminIntegrations from "@/pages/admin/integrations";
 import ExecutiveReports from "@/pages/executive-reports";
 import ExportHistory from "@/pages/export-history";
 import Reports from "@/pages/reports";
@@ -187,6 +188,7 @@ const routeTitles: Record<string, string> = {
   "/accounting/overrides": "Override Approvals",
   "/accounting/advances": "Advances & Deductions",
   "/accounting/reports": "Financial Reports",
+  "/admin/integrations": "Integrations",
 };
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -371,6 +373,7 @@ function Router() {
             <Route path="/admin/payroll" component={AdminPayroll} />
             <Route path="/admin/payroll-advanced" component={AdminPayrollAdvanced} />
             <Route path="/admin/quickbooks" component={AdminQuickBooks} />
+            <Route path="/admin/integrations" component={AdminIntegrations} />
             <Route path="/admin/employee-credentials" component={AdminEmployeeCredentials} />
             <Route path="/admin/disputes" component={AdminDisputes} />
             <Route path="/admin/install-sync" component={InstallSync} />

@@ -2099,3 +2099,81 @@ export const insertInstallSyncRunSchema = createInsertSchema(installSyncRuns).om
 });
 export type InstallSyncRun = typeof installSyncRuns.$inferSelect;
 export type InsertInstallSyncRun = z.infer<typeof insertInstallSyncRunSchema>;
+
+export const carrierImportSchedules = pgTable("carrier_import_schedules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  sourceType: text("source_type").notNull().default("manual"),
+  sftpHost: text("sftp_host"),
+  sftpPort: integer("sftp_port").default(22),
+  sftpUser: text("sftp_user"),
+  sftpPasswordEncrypted: text("sftp_password_encrypted"),
+  sftpRemotePath: text("sftp_remote_path"),
+  emailTriggerDomain: text("email_trigger_domain"),
+  fileNamePattern: text("file_name_pattern"),
+  columnMappingJson: text("column_mapping_json"),
+  frequency: text("frequency").notNull().default("daily"),
+  lastRunAt: timestamp("last_run_at"),
+  lastRunStatus: text("last_run_status"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCarrierImportScheduleSchema = createInsertSchema(carrierImportSchedules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastRunAt: true,
+  lastRunStatus: true,
+});
+export type CarrierImportSchedule = typeof carrierImportSchedules.$inferSelect;
+export type InsertCarrierImportSchedule = z.infer<typeof insertCarrierImportScheduleSchema>;
+
+export const apiKeys = pgTable("api_keys", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  keyHash: text("key_hash").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  scopes: text("scopes").notNull().default("production-summary,ar-status,payroll-summary"),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
+  lastUsedAt: timestamp("last_used_at"),
+  usageCount: integer("usage_count").notNull().default(0),
+  expiresAt: timestamp("expires_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertApiKeySchema = createInsertSchema(apiKeys).omit({
+  id: true,
+  createdAt: true,
+  lastUsedAt: true,
+  usageCount: true,
+});
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
+
+export const integrationLogs = pgTable("integration_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  integrationType: text("integration_type").notNull(),
+  action: text("action").notNull(),
+  status: text("status").notNull().default("SUCCESS"),
+  details: text("details"),
+  relatedEntityId: varchar("related_entity_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type IntegrationLog = typeof integrationLogs.$inferSelect;
+
+export const calendarSyncConfig = pgTable("calendar_sync_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  calendarId: text("calendar_id"),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  isActive: boolean("is_active").notNull().default(false),
+  configuredByUserId: varchar("configured_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

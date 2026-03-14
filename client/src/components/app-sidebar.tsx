@@ -53,6 +53,7 @@ import {
   RefreshCw,
   Crown,
   Shield,
+  Plug,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -128,6 +129,7 @@ const MENU = {
   payroll: { title: "Payroll", url: "/admin/payroll", icon: Calendar },
   advPayroll: { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
   quickbooks: { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
+  integrations: { title: "Integrations", url: "/admin/integrations", icon: Plug },
 } as const;
 
 // ============ COMPOSED MENU GROUPS ============
@@ -193,6 +195,7 @@ const adminSettingsItems: MenuItem[] = [
   MENU.empCredentials,
   MENU.adminDisputes,
   MENU.quickbooks,
+  MENU.integrations,
   MENU.userActivity,
   MENU.installSync,
 ];
