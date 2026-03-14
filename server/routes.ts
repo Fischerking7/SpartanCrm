@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or, desc } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -18,6 +18,7 @@ import { encryptSsn, decryptSsn, extractSsnLast4, maskSsn } from "./encryption";
 import { fetchGoogleSheet, parseUploadedCsv } from "./google-sheets";
 import { matchInstallationsToOrders, type OrderSummary } from "./claude-matching";
 import { emailService } from "./email";
+import { getOrCreateReserve, applyWithholding, applyChargebackToReserve, applyEquipmentRecovery, handleRepSeparation, checkAndReleaseMaturedReserves, calculateWithholding, isReserveEligibleRole } from "./reserves/reserveService";
 import { generatePayStub, generatePayStubsForPayRun } from "./payStubGenerator";
 import { generatePayStubPdf } from "./payStubPdf";
 import archiver from "archiver";
@@ -1451,6 +1452,21 @@ export async function registerRoutes(
         ? Math.round((mtdMetrics.connectedCount / mtdMetrics.soldCount) * 100)
         : 0;
 
+      let reserveInfo = null;
+      if (isReserveEligibleRole(user.role)) {
+        try {
+          const reserve = await getOrCreateReserve(user.id);
+          reserveInfo = {
+            currentBalance: reserve.currentBalanceCents / 100,
+            cap: reserve.capCents / 100,
+            status: reserve.status,
+            percentFull: reserve.capCents > 0 ? Math.round((reserve.currentBalanceCents / reserve.capCents) * 100) : 0,
+          };
+        } catch (e) {
+          console.error("Failed to load reserve for summary:", e);
+        }
+      }
+
       const hour = nyNow.getHours();
       const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
@@ -1479,6 +1495,7 @@ export async function registerRoutes(
           paymentStatus: o.paymentStatus,
           commissionAmount: o.commissionAmount,
         })),
+        reserve: reserveInfo,
       });
     } catch (error) {
       console.error("My summary error:", error);
@@ -3399,8 +3416,18 @@ export async function registerRoutes(
   app.post("/api/admin/users/:id/deactivate", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
+      const targetUser = await storage.getUserById(id);
       const user = await storage.updateUser(id, { status: "DEACTIVATED" });
       await storage.createAuditLog({ action: "deactivate_user", tableName: "users", recordId: id, userId: req.user!.id });
+
+      if (targetUser && isReserveEligibleRole(targetUser.role)) {
+        try {
+          await handleRepSeparation(id, "TERMINATED", req.user!.id);
+        } catch (sepErr) {
+          console.error("Reserve separation on deactivation failed:", sepErr);
+        }
+      }
+
       res.json({ ...user, passwordHash: undefined, onboardingOtpHash: undefined });
     } catch (error) {
       res.status(500).json({ message: "Failed to deactivate user" });
@@ -3414,6 +3441,14 @@ export async function registerRoutes(
       if (!targetUser) {
         return res.status(404).json({ message: "User not found" });
       }
+      if (isReserveEligibleRole(targetUser.role)) {
+        try {
+          await handleRepSeparation(id, "TERMINATED", req.user!.id);
+        } catch (sepErr) {
+          console.error("Reserve separation on delete failed:", sepErr);
+        }
+      }
+
       const user = await storage.softDeleteUser(id, req.user!.id);
       await storage.createAuditLog({ 
         action: "USER_REMOVED", 
@@ -17857,6 +17892,459 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
       res.json(logs);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================
+  // ROLLING RESERVE ENDPOINTS
+  // ============================================================
+
+  app.get("/api/my/reserve", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!isReserveEligibleRole(user.role)) {
+        return res.json({ eligible: false, message: "Rolling reserve does not apply to your role" });
+      }
+
+      const reserve = await getOrCreateReserve(user.id);
+
+      const recentTxns = await db
+        .select()
+        .from(reserveTransactions)
+        .where(eq(reserveTransactions.reserveId, reserve.id))
+        .orderBy(desc(reserveTransactions.createdAt))
+        .limit(10);
+
+      const immatureOrders = await db
+        .select({ dateSold: salesOrders.dateSold, maturityExpiresAt: salesOrders.maturityExpiresAt })
+        .from(salesOrders)
+        .where(and(eq(salesOrders.createdByUserId, user.id), eq(salesOrders.status, "APPROVED")));
+
+      let oldestImmatureOrderDate: string | null = null;
+      let latestMaturityDate: string | null = null;
+      let ordersInMaturityWindow = 0;
+
+      for (const o of immatureOrders) {
+        if (o.maturityExpiresAt && new Date(o.maturityExpiresAt) > new Date()) {
+          ordersInMaturityWindow++;
+          if (!oldestImmatureOrderDate || o.dateSold < oldestImmatureOrderDate) {
+            oldestImmatureOrderDate = o.dateSold;
+          }
+          const matStr = new Date(o.maturityExpiresAt).toISOString().split("T")[0];
+          if (!latestMaturityDate || matStr > latestMaturityDate) {
+            latestMaturityDate = matStr;
+          }
+        }
+      }
+
+      const statusLabels: Record<string, string> = {
+        ACTIVE: "Active — Withholding " + reserve.withholdingPercent + "%",
+        AT_CAP: "At Cap — Withholding Paused",
+        DEFICIT: "Deficit — Withholding Resumed",
+        HELD: "Held — Pending Maturity Release",
+        RELEASED: "Released",
+      };
+
+      res.json({
+        eligible: true,
+        currentBalance: reserve.currentBalanceCents / 100,
+        cap: reserve.capCents / 100,
+        withholdingPercent: parseFloat(reserve.withholdingPercent),
+        status: reserve.status,
+        statusLabel: statusLabels[reserve.status] || reserve.status,
+        percentFull: reserve.capCents > 0 ? Math.round((reserve.currentBalanceCents / reserve.capCents) * 100) : 0,
+        totalWithheld: reserve.totalWithheldCents / 100,
+        totalChargebacks: reserve.totalChargebacksCents / 100,
+        recentTransactions: recentTxns.map(t => ({
+          date: new Date(t.createdAt).toISOString(),
+          type: t.transactionType,
+          description: t.description,
+          amount: t.isCredit ? t.amountCents / 100 : -(t.amountCents / 100),
+          balanceAfter: t.balanceAfterCents / 100,
+        })),
+        maturityInfo: {
+          oldestImmatureOrderDate,
+          latestMaturityDate,
+          ordersInMaturityWindow,
+        },
+      });
+    } catch (error: any) {
+      console.error("My reserve error:", error);
+      res.status(500).json({ message: "Failed to get reserve info" });
+    }
+  });
+
+  app.get("/api/admin/reserves", auth, requireRoles("ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { status, search } = req.query;
+
+      let conditions: any[] = [];
+      if (status) {
+        conditions.push(eq(rollingReserves.status, status as string));
+      }
+
+      const allReserves = await db
+        .select({
+          reserve: rollingReserves,
+          userName: users.name,
+          userRepId: users.repId,
+          userRole: users.role,
+        })
+        .from(rollingReserves)
+        .innerJoin(users, eq(rollingReserves.userId, users.id))
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(rollingReserves.currentBalanceCents));
+
+      let filtered = allReserves;
+      if (search) {
+        const s = (search as string).toLowerCase();
+        filtered = allReserves.filter(r =>
+          r.userName.toLowerCase().includes(s) || r.userRepId.toLowerCase().includes(s)
+        );
+      }
+
+      res.json(filtered.map(r => ({
+        userId: r.reserve.userId,
+        repName: r.userName,
+        repId: r.userRepId,
+        role: r.userRole,
+        currentBalance: r.reserve.currentBalanceCents / 100,
+        cap: r.reserve.capCents / 100,
+        status: r.reserve.status,
+        withholdingPercent: parseFloat(r.reserve.withholdingPercent),
+        separatedAt: r.reserve.separatedAt,
+        earliestReleaseAt: r.reserve.earliestReleaseAt,
+        totalWithheld: r.reserve.totalWithheldCents / 100,
+        totalChargebacks: r.reserve.totalChargebacksCents / 100,
+      })));
+    } catch (error: any) {
+      console.error("Admin reserves error:", error);
+      res.status(500).json({ message: "Failed to get reserves" });
+    }
+  });
+
+  app.get("/api/admin/reserves/report/summary", auth, requireRoles("ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const allReserves = await db.select().from(rollingReserves);
+
+      let totalReserveHeld = 0;
+      let totalRepsWithActiveReserve = 0;
+      let totalRepsAtCap = 0;
+      let totalRepsInDeficit = 0;
+      let totalRepsHeld = 0;
+      let pendingReleaseCents = 0;
+      const byStatus: Record<string, { count: number; totalCents: number }> = {};
+
+      for (const r of allReserves) {
+        totalReserveHeld += r.currentBalanceCents;
+        if (!byStatus[r.status]) byStatus[r.status] = { count: 0, totalCents: 0 };
+        byStatus[r.status].count++;
+        byStatus[r.status].totalCents += r.currentBalanceCents;
+
+        if (r.status === "ACTIVE" || r.status === "DEFICIT") totalRepsWithActiveReserve++;
+        if (r.status === "AT_CAP") { totalRepsAtCap++; totalRepsWithActiveReserve++; }
+        if (r.status === "DEFICIT") totalRepsInDeficit++;
+        if (r.status === "HELD") { totalRepsHeld++; pendingReleaseCents += r.currentBalanceCents; }
+      }
+
+      const yearStart = new Date(new Date().getFullYear(), 0, 1);
+      const ytdChargebacks = allReserves.reduce((sum, r) => sum + r.totalChargebacksCents, 0);
+      const ytdWithheld = allReserves.reduce((sum, r) => sum + r.totalWithheldCents, 0);
+
+      res.json({
+        totalReserveHeld: totalReserveHeld / 100,
+        totalRepsWithActiveReserve,
+        totalRepsAtCap,
+        totalRepsInDeficit,
+        totalRepsHeld,
+        pendingReleaseCents: pendingReleaseCents / 100,
+        totalChargebacksYTD: ytdChargebacks / 100,
+        totalWithheldYTD: ytdWithheld / 100,
+        byStatus,
+      });
+    } catch (error: any) {
+      console.error("Reserve summary error:", error);
+      res.status(500).json({ message: "Failed to get reserve summary" });
+    }
+  });
+
+  app.get("/api/admin/reserves/:userId", auth, requireRoles("ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const [reserve] = await db.select().from(rollingReserves).where(eq(rollingReserves.userId, userId));
+      if (!reserve) return res.status(404).json({ message: "No reserve found for this user" });
+
+      const [user] = await db.select({ name: users.name, repId: users.repId, role: users.role }).from(users).where(eq(users.id, userId));
+
+      const txns = await db
+        .select()
+        .from(reserveTransactions)
+        .where(eq(reserveTransactions.reserveId, reserve.id))
+        .orderBy(desc(reserveTransactions.createdAt));
+
+      res.json({
+        reserve: {
+          ...reserve,
+          currentBalance: reserve.currentBalanceCents / 100,
+          cap: reserve.capCents / 100,
+          withholdingPercent: parseFloat(reserve.withholdingPercent),
+          totalWithheld: reserve.totalWithheldCents / 100,
+          totalChargebacks: reserve.totalChargebacksCents / 100,
+          totalReleased: reserve.totalReleasedCents / 100,
+          totalEquipmentRecovery: reserve.totalEquipmentRecoveryCents / 100,
+        },
+        user: user ? { name: user.name, repId: user.repId, role: user.role } : null,
+        transactions: txns.map(t => ({
+          id: t.id,
+          date: new Date(t.createdAt).toISOString(),
+          type: t.transactionType,
+          description: t.description,
+          amount: t.isCredit ? t.amountCents / 100 : -(t.amountCents / 100),
+          balanceAfter: t.balanceAfterCents / 100,
+          salesOrderId: t.salesOrderId,
+          chargebackId: t.chargebackId,
+          processedByUserId: t.processedByUserId,
+        })),
+      });
+    } catch (error: any) {
+      console.error("Admin reserve detail error:", error);
+      res.status(500).json({ message: "Failed to get reserve detail" });
+    }
+  });
+
+  app.get("/api/admin/reserves/:userId/transactions", auth, requireRoles("ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const { startDate, endDate, type } = req.query;
+
+      const [reserve] = await db.select().from(rollingReserves).where(eq(rollingReserves.userId, userId));
+      if (!reserve) return res.status(404).json({ message: "No reserve found" });
+
+      let conditions: any[] = [eq(reserveTransactions.reserveId, reserve.id)];
+      if (startDate) conditions.push(gte(reserveTransactions.createdAt, new Date(startDate as string)));
+      if (endDate) conditions.push(lte(reserveTransactions.createdAt, new Date(endDate as string)));
+      if (type) conditions.push(eq(reserveTransactions.transactionType, type as string));
+
+      const txns = await db
+        .select()
+        .from(reserveTransactions)
+        .where(and(...conditions))
+        .orderBy(desc(reserveTransactions.createdAt));
+
+      res.json(txns.map(t => ({
+        id: t.id,
+        date: new Date(t.createdAt).toISOString(),
+        type: t.transactionType,
+        description: t.description,
+        amount: t.isCredit ? t.amountCents / 100 : -(t.amountCents / 100),
+        balanceAfter: t.balanceAfterCents / 100,
+        salesOrderId: t.salesOrderId,
+        chargebackId: t.chargebackId,
+        processedByUserId: t.processedByUserId,
+      })));
+    } catch (error: any) {
+      console.error("Reserve transactions error:", error);
+      res.status(500).json({ message: "Failed to get transactions" });
+    }
+  });
+
+  app.post("/api/admin/reserves/:userId/adjust", auth, requireRoles("ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const { amountCents, isCredit, reason } = req.body;
+      const adminUser = req.user!;
+
+      if (!amountCents || typeof amountCents !== "number" || amountCents <= 0) {
+        return res.status(400).json({ message: "amountCents must be a positive integer" });
+      }
+      if (!reason || typeof reason !== "string") {
+        return res.status(400).json({ message: "reason is required" });
+      }
+
+      if (isCredit && amountCents > 50000 && adminUser.role !== "EXECUTIVE") {
+        return res.status(403).json({ message: "Credits over $500 require EXECUTIVE approval" });
+      }
+
+      const reserve = await getOrCreateReserve(userId);
+      const newBalance = isCredit
+        ? reserve.currentBalanceCents + amountCents
+        : Math.max(0, reserve.currentBalanceCents - amountCents);
+
+      await db.insert(reserveTransactions).values({
+        reserveId: reserve.id,
+        userId,
+        transactionType: "MANUAL_ADJUSTMENT",
+        amountCents,
+        isCredit: !!isCredit,
+        balanceAfterCents: newBalance,
+        processedByUserId: adminUser.id,
+        description: `Manual adjustment by ${adminUser.name}: ${reason}`,
+      });
+
+      let newStatus = reserve.status;
+      if (newBalance >= reserve.capCents && reserve.status !== "HELD" && reserve.status !== "RELEASED") {
+        newStatus = "AT_CAP";
+      } else if (newBalance > 0 && reserve.status === "DEFICIT") {
+        newStatus = "ACTIVE";
+      }
+
+      await db
+        .update(rollingReserves)
+        .set({
+          currentBalanceCents: newBalance,
+          status: newStatus,
+          updatedAt: new Date(),
+        })
+        .where(eq(rollingReserves.id, reserve.id));
+
+      await db
+        .update(users)
+        .set({ reserveStatus: newStatus })
+        .where(eq(users.id, userId));
+
+      await storage.createAuditLog({
+        action: "RESERVE_MANUAL_ADJUSTMENT",
+        tableName: "reserve_transactions",
+        recordId: reserve.id,
+        afterJson: JSON.stringify({ amountCents, isCredit, reason, newBalance, newStatus }),
+        userId: adminUser.id,
+      });
+
+      res.json({ message: "Adjustment applied", newBalance: newBalance / 100, status: newStatus });
+    } catch (error: any) {
+      console.error("Reserve adjustment error:", error);
+      res.status(500).json({ message: "Failed to apply adjustment" });
+    }
+  });
+
+  app.post("/api/admin/reserves/:userId/override-cap", auth, requireRoles("EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const { newCapCents, newWithholdingPercent, reason } = req.body;
+      const adminUser = req.user!;
+
+      if (!newCapCents || newCapCents < 250000) {
+        return res.status(400).json({ message: "Cap cannot be less than $2,500 (250000 cents)" });
+      }
+      if (newWithholdingPercent !== undefined && (newWithholdingPercent < 15 || newWithholdingPercent > 50)) {
+        return res.status(400).json({ message: "Withholding percent must be between 15 and 50" });
+      }
+      if (!reason) {
+        return res.status(400).json({ message: "reason is required" });
+      }
+
+      const reserve = await getOrCreateReserve(userId);
+
+      const updates: any = {
+        capCents: newCapCents,
+        capOverrideReason: reason,
+        capOverrideByUserId: adminUser.id,
+        capOverrideAt: new Date(),
+        updatedAt: new Date(),
+      };
+      if (newWithholdingPercent !== undefined) {
+        updates.withholdingPercent = newWithholdingPercent.toFixed(2);
+      }
+
+      if (reserve.currentBalanceCents < newCapCents && reserve.status === "AT_CAP") {
+        updates.status = "ACTIVE";
+      }
+
+      await db
+        .update(rollingReserves)
+        .set(updates)
+        .where(eq(rollingReserves.id, reserve.id));
+
+      if (updates.status) {
+        await db.update(users).set({ reserveStatus: updates.status }).where(eq(users.id, userId));
+      }
+
+      await storage.createAuditLog({
+        action: "RESERVE_CAP_OVERRIDE",
+        tableName: "rolling_reserves",
+        recordId: reserve.id,
+        afterJson: JSON.stringify({ newCapCents, newWithholdingPercent, reason }),
+        userId: adminUser.id,
+      });
+
+      const [targetUser] = await db.select({ name: users.name, repId: users.repId }).from(users).where(eq(users.id, userId));
+      await db.insert(systemExceptions).values({
+        exceptionType: "RESERVE_CAP_OVERRIDE_ACTIVE",
+        severity: "INFO",
+        title: `Cap override applied: ${targetUser?.name || userId}`,
+        detail: `New cap: $${(newCapCents / 100).toFixed(2)}, withholding: ${newWithholdingPercent ?? parseFloat(reserve.withholdingPercent)}%. Reason: ${reason}`,
+        relatedUserId: userId,
+        relatedEntityId: reserve.id,
+        relatedEntityType: "rolling_reserve",
+      });
+
+      res.json({ message: "Cap override applied", newCap: newCapCents / 100, withholdingPercent: newWithholdingPercent ?? parseFloat(reserve.withholdingPercent) });
+    } catch (error: any) {
+      console.error("Reserve cap override error:", error);
+      res.status(500).json({ message: "Failed to override cap" });
+    }
+  });
+
+  app.post("/api/admin/reserves/:userId/handle-separation", auth, requireRoles("OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const { separationType, ipadReturned, notes } = req.body;
+      const adminUser = req.user!;
+
+      if (!separationType || !["VOLUNTARY", "TERMINATED"].includes(separationType)) {
+        return res.status(400).json({ message: "separationType must be VOLUNTARY or TERMINATED" });
+      }
+
+      if (ipadReturned === true) {
+        await db.update(users).set({ ipadReturnedAt: new Date() }).where(eq(users.id, userId));
+      }
+
+      const result = await handleRepSeparation(userId, separationType, adminUser.id);
+
+      res.json({
+        message: "Separation processed",
+        reserveBalance: result.reserveBalance / 100,
+        earliestReleaseDate: result.earliestReleaseDate.toISOString(),
+        ipadRecoveryApplied: result.ipadRecoveryApplied,
+      });
+    } catch (error: any) {
+      console.error("Handle separation error:", error);
+      res.status(500).json({ message: "Failed to process separation" });
+    }
+  });
+
+  app.get("/api/admin/system-exceptions", auth, requireRoles("ADMIN", "OPERATIONS", "ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { status, type } = req.query;
+      let query = db.select().from(systemExceptions);
+      const conditions: any[] = [];
+      if (status) conditions.push(eq(systemExceptions.status, status as string));
+      if (type) conditions.push(eq(systemExceptions.exceptionType, type as string));
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions)) as any;
+      }
+      const results = await (query as any).orderBy(desc(systemExceptions.createdAt)).limit(200);
+      res.json(results);
+    } catch (error: any) {
+      console.error("System exceptions query error:", error);
+      res.status(500).json({ message: "Failed to fetch system exceptions" });
+    }
+  });
+
+  app.patch("/api/admin/system-exceptions/:id/resolve", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { resolutionNote } = req.body;
+      await db.update(systemExceptions).set({
+        status: "RESOLVED",
+        resolvedByUserId: req.user!.id,
+        resolvedAt: new Date(),
+        resolutionNote: resolutionNote || null,
+      }).where(eq(systemExceptions.id, id));
+      res.json({ message: "Exception resolved" });
+    } catch (error: any) {
+      console.error("Resolve system exception error:", error);
+      res.status(500).json({ message: "Failed to resolve exception" });
     }
   });
 

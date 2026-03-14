@@ -1,6 +1,9 @@
 import PDFDocument from "pdfkit";
 import { storage } from "./storage";
 import type { PayStatement, PayStatementLineItem } from "@shared/schema";
+import { db } from "./db";
+import { rollingReserves } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 export async function generatePayStubPdf(payStatementId: string): Promise<Buffer> {
   const statement = await storage.getPayStatementById(payStatementId);
@@ -9,13 +12,22 @@ export async function generatePayStubPdf(payStatementId: string): Promise<Buffer
   const lineItems = await storage.getPayStatementLineItems(payStatementId);
   const deductions = await storage.getPayStatementDeductions(payStatementId);
 
-  return buildPdf(statement, lineItems, deductions);
+  let reserveData: { capCents: number; withholdingPercent: string; status: string } | null = null;
+  if (statement.reserveWithheldTotal && parseFloat(statement.reserveWithheldTotal) > 0) {
+    const [reserve] = await db.select().from(rollingReserves).where(eq(rollingReserves.userId, statement.userId));
+    if (reserve) {
+      reserveData = { capCents: reserve.capCents, withholdingPercent: reserve.withholdingPercent, status: reserve.status };
+    }
+  }
+
+  return buildPdf(statement, lineItems, deductions, reserveData);
 }
 
 function buildPdf(
   stmt: PayStatement,
   lineItems: any[],
-  deductions: any[]
+  deductions: any[],
+  reserveData: { capCents: number; withholdingPercent: string; status: string } | null
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: "LETTER" });
@@ -141,11 +153,48 @@ function buildPdf(
     summaryLine("Deductions:", `-${stmt.deductionsTotal}`);
     summaryLine("Advances Applied:", `-${stmt.advancesApplied}`);
 
+    if (stmt.reserveWithheldTotal && parseFloat(stmt.reserveWithheldTotal) > 0) {
+      summaryLine("Reserve Withheld:", `-${stmt.reserveWithheldTotal}`);
+    }
+
     doc.moveDown(0.2);
     doc.moveTo(summaryCol, doc.y).lineTo(562, doc.y).stroke();
     doc.moveDown(0.3);
 
     summaryLine("Net Pay:", stmt.netPay, true);
+
+    if (stmt.reserveWithheldTotal && parseFloat(stmt.reserveWithheldTotal) > 0) {
+      doc.moveDown(0.5);
+      doc.moveTo(50, doc.y).lineTo(562, doc.y).stroke();
+      doc.moveDown(0.3);
+      doc.fontSize(10).font("Helvetica-Bold").text("ROLLING RESERVE STATUS", col1);
+      doc.font("Helvetica").fontSize(8);
+      doc.moveDown(0.3);
+
+      const reserveWithheld = parseFloat(stmt.reserveWithheldTotal || "0");
+      const reserveBalance = stmt.reserveBalanceAfter ? parseFloat(stmt.reserveBalanceAfter) : null;
+
+      if (reserveBalance !== null) {
+        const previousBalance = reserveBalance - reserveWithheld;
+        doc.text(`Previous Balance:        $${previousBalance.toFixed(2)}`, col1);
+        doc.moveDown(0.2);
+      }
+      doc.text(`Withheld This Period:    -$${reserveWithheld.toFixed(2)}`, col1);
+      doc.moveDown(0.2);
+      if (reserveBalance !== null) {
+        const cap = reserveData ? (reserveData.capCents / 100) : 2500;
+        const statusLabel = reserveData?.status === "AT_CAP" ? "AT CAP — Withholding Paused"
+          : reserveData?.status === "HELD" ? "HELD — Pending Maturity Release"
+          : `ACTIVE — Withholding ${reserveData?.withholdingPercent || "15"}%`;
+        doc.text(`Current Balance:         $${reserveBalance.toFixed(2)} / $${cap.toFixed(2)} cap`, col1);
+        doc.moveDown(0.2);
+        doc.text(`Status:                  ${statusLabel}`, col1);
+      }
+      doc.moveDown(0.3);
+      doc.fontSize(7).fillColor("gray");
+      doc.text("Note: The rolling reserve is not wages. It is a conditional holdback per your Independent Contractor Agreement.", col1, doc.y, { width: 500 });
+      doc.fillColor("black");
+    }
 
     doc.moveDown(1);
 

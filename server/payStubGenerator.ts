@@ -1,5 +1,9 @@
 import { storage } from "./storage";
 import type { TxDb } from "./storage";
+import { applyWithholding, getOrCreateReserve, isReserveEligibleRole } from "./reserves/reserveService";
+import { db } from "./db";
+import { reserveTransactions } from "@shared/schema";
+import { eq, sql, and, isNull } from "drizzle-orm";
 
 interface PayStubResult {
   payStatementId: string;
@@ -81,9 +85,56 @@ export async function generatePayStub(
     }
   }
 
+  let totalReserveWithheldCents = 0;
+  const reserveLineItems: Array<{ category: string; description: string; salesOrderId?: string; invoiceNumber?: string; amount: string }> = [];
+
+  if (isReserveEligibleRole(user.role)) {
+    for (const { order } of readyOrders) {
+      const orderNetCents = Math.round(
+        (parseFloat(order.commissionAmount || "0")) * 100
+      );
+      if (orderNetCents <= 0) continue;
+
+      const withholdingResult = await applyWithholding(
+        userId,
+        order.id,
+        "PENDING",
+        orderNetCents,
+        txDb
+      );
+
+      if (withholdingResult.withheldCents > 0) {
+        totalReserveWithheldCents += withholdingResult.withheldCents;
+        reserveLineItems.push({
+          category: "Reserve Withholding",
+          description: `15% reserve hold — ${order.invoiceNumber || order.id}`,
+          salesOrderId: order.id,
+          invoiceNumber: order.invoiceNumber || undefined,
+          amount: `-${(withholdingResult.withheldCents / 100).toFixed(2)}`,
+        });
+
+        if (withholdingResult.capReached) {
+          reserveLineItems.push({
+            category: "Reserve Withholding",
+            description: "Rolling reserve cap of $2,500 reached. Withholding paused.",
+            amount: "0.00",
+          });
+        }
+      }
+    }
+  }
+
   const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents;
-  const totalDeductions = chargebackTotalCents + deductionTotalCents + advanceTotalCents;
+  const totalDeductions = chargebackTotalCents + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents;
   const netPayCents = grossTotal - totalDeductions;
+
+  let reserveBalanceAfterStr: string | undefined;
+  if (totalReserveWithheldCents > 0) {
+    try {
+      const reserve = await getOrCreateReserve(userId, txDb);
+      reserveBalanceAfterStr = (reserve.currentBalanceCents / 100).toFixed(2);
+    } catch {}
+  }
 
   const statement = await storage.createPayStatement({
     payRunId,
@@ -110,10 +161,24 @@ export async function generatePayStub(
     totalMobileLines,
     isViewableByRep: false,
     companyName: "Iron Crest",
+    reserveWithheldTotal: (totalReserveWithheldCents / 100).toFixed(2),
+    reserveBalanceAfter: reserveBalanceAfterStr,
     ytdGross: "0",
     ytdDeductions: "0",
     ytdNetPay: "0",
   }, txDb);
+
+  if (totalReserveWithheldCents > 0) {
+    const d = txDb ?? db;
+    await d
+      .update(reserveTransactions)
+      .set({ payStatementId: statement.id })
+      .where(and(
+        eq(reserveTransactions.userId, userId),
+        eq(reserveTransactions.transactionType, "WITHHOLDING"),
+        isNull(reserveTransactions.payStatementId)
+      ));
+  }
 
   let lineItemCount = 0;
 
@@ -134,6 +199,19 @@ export async function generatePayStub(
       installDate: order.installDate || undefined,
       repRoleAtSale: order.repRoleAtSale || undefined,
       amount: commAmount.toFixed(2),
+    }, txDb);
+    lineItemCount++;
+  }
+
+  for (const rli of reserveLineItems) {
+    await storage.createPayStatementLineItemFull({
+      payStatementId: statement.id,
+      category: rli.category,
+      description: rli.description,
+      sourceType: "RESERVE_WITHHOLDING",
+      salesOrderId: rli.salesOrderId,
+      invoiceNumber: rli.invoiceNumber,
+      amount: rli.amount,
     }, txDb);
     lineItemCount++;
   }
@@ -289,9 +367,47 @@ async function generatePayStubFromPayRun(
     }
   }
 
+  let totalReserveWithheldCents2 = 0;
+  const reserveLineItems2: Array<{ category: string; description: string; salesOrderId?: string; invoiceNumber?: string; amount: string }> = [];
+
+  if (isReserveEligibleRole(user.role)) {
+    for (const order of userOrders) {
+      const orderNetCents = Math.round(parseFloat(order.commissionAmount || "0") * 100);
+      if (orderNetCents <= 0) continue;
+
+      const withholdingResult = await applyWithholding(userId, order.id, "PENDING", orderNetCents, txDb);
+
+      if (withholdingResult.withheldCents > 0) {
+        totalReserveWithheldCents2 += withholdingResult.withheldCents;
+        reserveLineItems2.push({
+          category: "Reserve Withholding",
+          description: `15% reserve hold — ${order.invoiceNumber || order.id}`,
+          salesOrderId: order.id,
+          invoiceNumber: order.invoiceNumber || undefined,
+          amount: `-${(withholdingResult.withheldCents / 100).toFixed(2)}`,
+        });
+        if (withholdingResult.capReached) {
+          reserveLineItems2.push({
+            category: "Reserve Withholding",
+            description: "Rolling reserve cap of $2,500 reached. Withholding paused.",
+            amount: "0.00",
+          });
+        }
+      }
+    }
+  }
+
   const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents;
-  const totalDeductionsCalc = chargebackTotalCents + deductionTotalCents + advanceTotalCents;
+  const totalDeductionsCalc = chargebackTotalCents + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents2;
   const netPayCents = grossTotal - totalDeductionsCalc;
+
+  let reserveBalanceAfterStr2: string | undefined;
+  if (totalReserveWithheldCents2 > 0) {
+    try {
+      const reserve = await getOrCreateReserve(userId, txDb);
+      reserveBalanceAfterStr2 = (reserve.currentBalanceCents / 100).toFixed(2);
+    } catch {}
+  }
 
   const statement = await storage.createPayStatement({
     payRunId,
@@ -318,10 +434,24 @@ async function generatePayStubFromPayRun(
     totalMobileLines,
     isViewableByRep: false,
     companyName: "Iron Crest",
+    reserveWithheldTotal: (totalReserveWithheldCents2 / 100).toFixed(2),
+    reserveBalanceAfter: reserveBalanceAfterStr2,
     ytdGross: "0",
     ytdDeductions: "0",
     ytdNetPay: "0",
   }, txDb);
+
+  if (totalReserveWithheldCents2 > 0) {
+    const d2 = txDb ?? db;
+    await d2
+      .update(reserveTransactions)
+      .set({ payStatementId: statement.id })
+      .where(and(
+        eq(reserveTransactions.userId, userId),
+        eq(reserveTransactions.transactionType, "WITHHOLDING"),
+        isNull(reserveTransactions.payStatementId)
+      ));
+  }
 
   let lineItemCount = 0;
 
@@ -340,6 +470,19 @@ async function generatePayStubFromPayRun(
       installDate: order.installDate || undefined,
       repRoleAtSale: order.repRoleAtSale || undefined,
       amount: commAmount.toFixed(2),
+    }, txDb);
+    lineItemCount++;
+  }
+
+  for (const rli of reserveLineItems2) {
+    await storage.createPayStatementLineItemFull({
+      payStatementId: statement.id,
+      category: rli.category,
+      description: rli.description,
+      sourceType: "RESERVE_WITHHOLDING",
+      salesOrderId: rli.salesOrderId,
+      invoiceNumber: rli.invoiceNumber,
+      amount: rli.amount,
     }, txDb);
     lineItemCount++;
   }

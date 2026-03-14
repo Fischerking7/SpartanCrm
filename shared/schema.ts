@@ -27,9 +27,6 @@ export const serviceCategoryEnum = pgEnum("service_category", ["INTERNET", "MOBI
 export const installTypeEnum = pgEnum("install_type", ["AGENT_INSTALL", "DIRECT_SHIP", "TECH_INSTALL"]);
 export const mduOrderStatusEnum = pgEnum("mdu_order_status", ["PENDING", "APPROVED", "REJECTED"]);
 
-export const reserveStatusEnum = pgEnum("reserve_status", ["ACTIVE", "SUSPENDED", "CLOSED"]);
-export const reserveTransactionTypeEnum = pgEnum("reserve_transaction_type", ["WITHHOLDING", "RELEASE", "FORFEITURE", "CHARGEBACK_OFFSET", "ADJUSTMENT"]);
-export const reserveReleaseEligibilityEnum = pgEnum("reserve_release_eligibility", ["PENDING", "ELIGIBLE", "RELEASED", "FORFEITED", "OFFSET"]);
 
 // Finance module enums
 export const financeImportStatusEnum = pgEnum("finance_import_status", ["IMPORTED", "MAPPED", "MATCHED", "POSTED", "LOCKED"]);
@@ -82,6 +79,12 @@ export const users = pgTable("users", {
   onboardingOtpExpiresAt: timestamp("onboarding_otp_expires_at"),
   onboardingOtpAttempts: integer("onboarding_otp_attempts").notNull().default(0),
   onboardingOtpLockedAt: timestamp("onboarding_otp_locked_at"),
+  hasActiveReserve: boolean("has_active_reserve").notNull().default(false),
+  reserveStatus: varchar("reserve_status", { length: 20 }),
+  ipadIssued: boolean("ipad_issued").notNull().default(false),
+  ipadSerialNumber: varchar("ipad_serial_number"),
+  ipadIssuedAt: timestamp("ipad_issued_at"),
+  ipadReturnedAt: timestamp("ipad_returned_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -310,8 +313,9 @@ export const salesOrders = pgTable("sales_orders", {
   chargebackRiskFactors: text("chargeback_risk_factors"),
   reserveWithheldCents: integer("reserve_withheld_cents").notNull().default(0),
   reserveReleasedCents: integer("reserve_released_cents").notNull().default(0),
-  reserveReleaseEligibility: reserveReleaseEligibilityEnum("reserve_release_eligibility"),
-  reserveReleaseEligibleDate: date("reserve_release_eligible_date"),
+  reserveWithholdingApplied: boolean("reserve_withholding_applied").notNull().default(false),
+  carrierMaturityType: varchar("carrier_maturity_type", { length: 30 }),
+  maturityExpiresAt: timestamp("maturity_expires_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -540,6 +544,9 @@ export const chargebacks = pgTable("chargebacks", {
   notes: text("notes"),
   reserveOffsetCents: integer("reserve_offset_cents").notNull().default(0),
   reserveOffsetApplied: boolean("reserve_offset_applied").notNull().default(false),
+  chargebackType: varchar("chargeback_type", { length: 30 }),
+  providerName: varchar("provider_name"),
+  maturityDays: integer("maturity_days"),
   createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -1174,6 +1181,8 @@ export const payStatements = pgTable("pay_statements", {
   companyName: varchar("company_name").default("Iron Crest"),
   reserveWithheldCents: integer("reserve_withheld_cents").notNull().default(0),
   reserveReleasedCents: integer("reserve_released_cents").notNull().default(0),
+  reserveWithheldTotal: varchar("reserve_withheld_total").notNull().default("0"),
+  reserveBalanceAfter: varchar("reserve_balance_after"),
   ytdGross: decimal("ytd_gross", { precision: 12, scale: 2 }).notNull().default("0"),
   ytdDeductions: decimal("ytd_deductions", { precision: 12, scale: 2 }).notNull().default("0"),
   ytdNetPay: decimal("ytd_net_pay", { precision: 12, scale: 2 }).notNull().default("0"),
@@ -2296,30 +2305,30 @@ export type OnboardingDraft = typeof onboardingDrafts.$inferSelect;
 export const rollingReserves = pgTable("rolling_reserves", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
-  repId: text("rep_id").notNull(),
-  balanceCents: integer("balance_cents").notNull().default(0),
-  lifetimeWithheldCents: integer("lifetime_withheld_cents").notNull().default(0),
-  lifetimeReleasedCents: integer("lifetime_released_cents").notNull().default(0),
-  lifetimeForfeitedCents: integer("lifetime_forfeited_cents").notNull().default(0),
-  lifetimeOffsetCents: integer("lifetime_offset_cents").notNull().default(0),
-  reserveRateBps: integer("reserve_rate_bps").notNull().default(1000),
-  holdbackDays: integer("holdback_days").notNull().default(90),
-  status: reserveStatusEnum("status").notNull().default("ACTIVE"),
-  suspendedAt: timestamp("suspended_at"),
-  suspendedReason: text("suspended_reason"),
-  closedAt: timestamp("closed_at"),
-  closedByUserId: varchar("closed_by_user_id").references(() => users.id),
-  closedReason: text("closed_reason"),
+  currentBalanceCents: integer("current_balance_cents").notNull().default(0),
+  capCents: integer("cap_cents").notNull().default(250000),
+  withholdingPercent: decimal("withholding_percent", { precision: 5, scale: 2 }).notNull().default("15.00"),
+  status: varchar("status", { length: 20 }).notNull().default("ACTIVE"),
+  separatedAt: timestamp("separated_at"),
+  separationType: varchar("separation_type", { length: 30 }),
+  earliestReleaseAt: timestamp("earliest_release_at"),
+  capOverrideReason: text("cap_override_reason"),
+  capOverrideByUserId: varchar("cap_override_by_user_id").references(() => users.id),
+  capOverrideAt: timestamp("cap_override_at"),
+  totalWithheldCents: integer("total_withheld_cents").notNull().default(0),
+  totalChargebacksCents: integer("total_chargebacks_cents").notNull().default(0),
+  totalReleasedCents: integer("total_released_cents").notNull().default(0),
+  totalEquipmentRecoveryCents: integer("total_equipment_recovery_cents").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
   uniqueIndex("rolling_reserves_user_id_unique").on(table.userId),
-  index("rolling_reserves_rep_id_idx").on(table.repId),
   index("rolling_reserves_status_idx").on(table.status),
 ]);
 
 export const rollingReservesRelations = relations(rollingReserves, ({ one, many }) => ({
   user: one(users, { fields: [rollingReserves.userId], references: [users.id] }),
+  capOverrideBy: one(users, { fields: [rollingReserves.capOverrideByUserId], references: [users.id], relationName: "capOverrideBy" }),
   transactions: many(reserveTransactions),
 }));
 
@@ -2331,37 +2340,33 @@ export type InsertRollingReserve = z.infer<typeof insertRollingReserveSchema>;
 
 export const reserveTransactions = pgTable("reserve_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  rollingReserveId: varchar("rolling_reserve_id").notNull().references(() => rollingReserves.id),
-  transactionType: reserveTransactionTypeEnum("transaction_type").notNull(),
+  reserveId: varchar("reserve_id").notNull().references(() => rollingReserves.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  transactionType: varchar("transaction_type", { length: 30 }).notNull(),
   amountCents: integer("amount_cents").notNull(),
+  isCredit: boolean("is_credit").notNull().default(true),
   balanceAfterCents: integer("balance_after_cents").notNull(),
-  reserveRateBpsAtTime: integer("reserve_rate_bps_at_time"),
   salesOrderId: varchar("sales_order_id").references(() => salesOrders.id),
-  chargebackId: varchar("chargeback_id").references(() => chargebacks.id),
-  payRunId: varchar("pay_run_id").references(() => payRuns.id),
   payStatementId: varchar("pay_statement_id").references(() => payStatements.id),
-  releaseEligibleDate: date("release_eligible_date"),
-  releaseActualDate: date("release_actual_date"),
-  eligibility: reserveReleaseEligibilityEnum("eligibility").notNull().default("PENDING"),
-  description: text("description"),
-  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  chargebackId: varchar("chargeback_id").references(() => chargebacks.id),
+  description: text("description").notNull(),
+  processedByUserId: varchar("processed_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
-  index("reserve_txn_reserve_id_idx").on(table.rollingReserveId),
+  index("reserve_txn_reserve_id_idx").on(table.reserveId),
+  index("reserve_txn_user_id_idx").on(table.userId),
   index("reserve_txn_type_idx").on(table.transactionType),
   index("reserve_txn_order_id_idx").on(table.salesOrderId),
   index("reserve_txn_chargeback_id_idx").on(table.chargebackId),
-  index("reserve_txn_eligibility_idx").on(table.eligibility),
-  index("reserve_txn_release_date_idx").on(table.releaseEligibleDate),
 ]);
 
 export const reserveTransactionsRelations = relations(reserveTransactions, ({ one }) => ({
-  rollingReserve: one(rollingReserves, { fields: [reserveTransactions.rollingReserveId], references: [rollingReserves.id] }),
+  reserve: one(rollingReserves, { fields: [reserveTransactions.reserveId], references: [rollingReserves.id] }),
+  user: one(users, { fields: [reserveTransactions.userId], references: [users.id] }),
   salesOrder: one(salesOrders, { fields: [reserveTransactions.salesOrderId], references: [salesOrders.id] }),
   chargeback: one(chargebacks, { fields: [reserveTransactions.chargebackId], references: [chargebacks.id] }),
-  payRun: one(payRuns, { fields: [reserveTransactions.payRunId], references: [payRuns.id] }),
   payStatement: one(payStatements, { fields: [reserveTransactions.payStatementId], references: [payStatements.id] }),
-  createdBy: one(users, { fields: [reserveTransactions.createdByUserId], references: [users.id] }),
+  processedBy: one(users, { fields: [reserveTransactions.processedByUserId], references: [users.id] }),
 }));
 
 export const insertReserveTransactionSchema = createInsertSchema(reserveTransactions).omit({
@@ -2369,3 +2374,34 @@ export const insertReserveTransactionSchema = createInsertSchema(reserveTransact
 });
 export type ReserveTransaction = typeof reserveTransactions.$inferSelect;
 export type InsertReserveTransaction = z.infer<typeof insertReserveTransactionSchema>;
+
+export const systemExceptions = pgTable("system_exceptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  exceptionType: varchar("exception_type").notNull(),
+  severity: varchar("severity").notNull().default("WARNING"),
+  title: text("title").notNull(),
+  detail: text("detail"),
+  relatedUserId: varchar("related_user_id").references(() => users.id),
+  relatedEntityId: varchar("related_entity_id"),
+  relatedEntityType: varchar("related_entity_type"),
+  status: varchar("status").notNull().default("OPEN"),
+  resolvedByUserId: varchar("resolved_by_user_id").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  resolutionNote: text("resolution_note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("sys_exc_type_idx").on(table.exceptionType),
+  index("sys_exc_status_idx").on(table.status),
+  index("sys_exc_user_idx").on(table.relatedUserId),
+]);
+
+export const systemExceptionsRelations = relations(systemExceptions, ({ one }) => ({
+  relatedUser: one(users, { fields: [systemExceptions.relatedUserId], references: [users.id] }),
+  resolvedBy: one(users, { fields: [systemExceptions.resolvedByUserId], references: [users.id] }),
+}));
+
+export const insertSystemExceptionSchema = createInsertSchema(systemExceptions).omit({
+  id: true, createdAt: true, resolvedByUserId: true, resolvedAt: true, resolutionNote: true,
+});
+export type SystemException = typeof systemExceptions.$inferSelect;
+export type InsertSystemException = z.infer<typeof insertSystemExceptionSchema>;

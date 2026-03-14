@@ -2,8 +2,9 @@ import { storage } from "./storage";
 import { emailService } from "./email";
 import { setForceLogoutTimestamp } from "./auth";
 import { db } from "./db";
-import { salesOrders, chargebacks, arExpectations, users, clients, carrierImportSchedules, integrationLogs } from "@shared/schema";
+import { salesOrders, chargebacks, arExpectations, users, clients, carrierImportSchedules, integrationLogs, rollingReserves, systemExceptions } from "@shared/schema";
 import { eq, sql, and, gte, lte, inArray, isNull } from "drizzle-orm";
+import { checkAndReleaseMaturedReserves } from "./reserves/reserveService";
 
 function getEasternDate(date = new Date()): { year: number; month: number; day: number; hours: number; minutes: number } {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -84,6 +85,8 @@ export const scheduler = {
     this.scheduleArCollectionPrediction();
     this.scheduleRepPerformancePrediction();
     this.scheduleCarrierSftpPoll();
+    this.scheduleReserveMaturityRelease();
+    this.scheduleReserveDeficitCheck();
 
     setTimeout(() => {
       runJobWithLock('checkScheduledPayRuns', () => this.checkScheduledPayRuns());
@@ -1169,5 +1172,71 @@ export const scheduler = {
     } catch (error: any) {
       console.error("[Scheduler] Carrier SFTP poll failed:", error);
     }
+  },
+
+  scheduleReserveMaturityRelease() {
+    const ms = msUntilEasternTime(6, 0);
+    console.log(`[Scheduler] Reserve maturity release scheduled in ${Math.round(ms / 60000)} minutes (6:00 AM ET)`);
+    const releaseJob = async () => {
+      try {
+        const result = await checkAndReleaseMaturedReserves();
+        if (result.released > 0) {
+          console.log(`[Scheduler] Reserve maturity: released ${result.released} reserves, $${(result.totalReleasedCents / 100).toFixed(2)} total`);
+          await db.insert(systemExceptions).values({
+            exceptionType: "RESERVE_MATURITY_RELEASE_DUE",
+            severity: "INFO",
+            title: `Maturity release processed: ${result.released} reserves`,
+            detail: `Released $${(result.totalReleasedCents / 100).toFixed(2)} across ${result.released} reserves per Section 7 maturity schedule.`,
+            relatedEntityType: "rolling_reserve",
+          });
+        }
+      } catch (error: any) {
+        console.error("[Scheduler] Reserve maturity release failed:", error);
+      }
+    };
+    setTimeout(() => {
+      runJobWithLock("reserveMaturityRelease", releaseJob);
+      setInterval(() => runJobWithLock("reserveMaturityRelease", releaseJob), 24 * 60 * 60 * 1000);
+    }, ms);
+  },
+
+  scheduleReserveDeficitCheck() {
+    const ms = msUntilEasternTime(8, 0);
+    console.log(`[Scheduler] Reserve deficit check scheduled in ${Math.round(ms / 60000)} minutes (8:00 AM ET)`);
+    const deficitJob = async () => {
+      try {
+        const deficitReserves = await db.select({
+          id: rollingReserves.id,
+          userId: rollingReserves.userId,
+          balance: rollingReserves.currentBalanceCents,
+        }).from(rollingReserves).where(eq(rollingReserves.status, "DEFICIT"));
+
+        for (const r of deficitReserves) {
+          const [user] = await db.select({ name: users.name, repId: users.repId }).from(users).where(eq(users.id, r.userId));
+          if (user) {
+            console.log(`[Scheduler] Reserve deficit alert: ${user.name} (${user.repId}) — balance: $${(r.balance / 100).toFixed(2)}`);
+            await db.insert(systemExceptions).values({
+              exceptionType: "RESERVE_DEFICIT",
+              severity: "WARNING",
+              title: `Reserve deficit: ${user.name} (${user.repId})`,
+              detail: `Rolling reserve balance is $${(r.balance / 100).toFixed(2)}, below the $2,500 cap. Withholding will resume per Section 3.`,
+              relatedUserId: r.userId,
+              relatedEntityId: r.id,
+              relatedEntityType: "rolling_reserve",
+            });
+          }
+        }
+
+        if (deficitReserves.length > 0) {
+          console.log(`[Scheduler] Reserve deficit: ${deficitReserves.length} reps in deficit`);
+        }
+      } catch (error: any) {
+        console.error("[Scheduler] Reserve deficit check failed:", error);
+      }
+    };
+    setTimeout(() => {
+      runJobWithLock("reserveDeficitCheck", deficitJob);
+      setInterval(() => runJobWithLock("reserveDeficitCheck", deficitJob), 24 * 60 * 60 * 1000);
+    }, ms);
   },
 };

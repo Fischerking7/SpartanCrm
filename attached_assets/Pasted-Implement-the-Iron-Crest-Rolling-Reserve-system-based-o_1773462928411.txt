@@ -1,0 +1,1111 @@
+Implement the Iron Crest Rolling Reserve system based on the 
+official Chargebacks and Rolling Reserve Policy document.
+
+The rolling reserve is a financial hold on rep commissions that 
+protects Iron Crest against chargebacks, cancellations, and 
+equipment losses. It applies to REP, LEAD, and MANAGER roles.
+
+KEY LEGAL DISTINCTIONS FROM THE POLICY DOCUMENT:
+- The rolling reserve is NOT wages — it is a conditional holdback
+- Iron Crest retains final authority over reserve administration
+- Reserve is held through full carrier maturity periods even after
+  termination — no early release
+- Governing law: State of New Jersey
+
+===================================================================
+SECTION 1 — SCHEMA
+===================================================================
+
+### TASK 1A — Create rolling_reserves table
+
+Create new table: rolling_reserves (Drizzle migration)
+
+  id: uuid primary key default gen_random_uuid()
+  userId: varchar not null references users(id)
+  
+  -- Reserve balance tracking
+  currentBalanceCents: integer not null default 0
+    -- Current amount held in reserve
+  capCents: integer not null default 250000
+    -- Default cap = $2,500.00 (stored as cents)
+    -- Can be increased by EXECUTIVE for high-chargeback reps
+  withholdingPercent: numeric(5,2) not null default 15.00
+    -- Default 15% — can be increased by EXECUTIVE
+  
+  -- Status
+  status: varchar(20) not null default 'ACTIVE'
+    Values: 
+      'ACTIVE'      -- withholding in progress (below cap)
+      'AT_CAP'      -- cap reached, withholding paused
+      'DEFICIT'     -- chargebacks exceeded reserve, 
+                       withholding resumes
+      'HELD'        -- rep separated, held through maturity
+      'RELEASED'    -- maturity period passed, funds released
+  
+  -- Separation tracking
+  separatedAt: timestamp nullable
+    -- Set when rep resigns or is terminated
+  separationType: varchar(30) nullable
+    Values: 'VOLUNTARY' | 'TERMINATED'
+  earliestReleaseAt: timestamp nullable
+    -- Calculated from separation date + longest maturity period
+  
+  -- Override tracking
+  capOverrideReason: text nullable
+  capOverrideByUserId: varchar nullable references users(id)
+  capOverrideAt: timestamp nullable
+  
+  -- Totals (running lifetime totals for reporting)
+  totalWithheldCents: integer not null default 0
+  totalChargebacksCents: integer not null default 0
+  totalReleasedCents: integer not null default 0
+  totalEquipmentRecoveryCents: integer not null default 0
+  
+  createdAt: timestamp default now()
+  updatedAt: timestamp default now()
+
+  -- One reserve account per user
+  UNIQUE constraint on userId
+
+### TASK 1B — Create reserve_transactions table
+
+Create new table: reserve_transactions (Drizzle migration)
+  
+  id: uuid primary key default gen_random_uuid()
+  reserveId: varchar not null references rolling_reserves(id)
+  userId: varchar not null references users(id)
+  
+  -- Transaction details
+  transactionType: varchar(30) not null
+    Values:
+      'WITHHOLDING'          -- 15% held from commission payment
+      'CHARGEBACK_DEDUCTION' -- chargeback applied from reserve
+      'REPLENISHMENT'        -- withholding resumed after chargeback
+      'CAP_REACHED'          -- withholding paused, cap hit
+      'EQUIPMENT_RECOVERY'   -- iPad or equipment charge
+      'MANUAL_ADJUSTMENT'    -- admin correction
+      'RELEASE'              -- funds released after maturity
+      'PARTIAL_RELEASE'      -- partial release (no chargebacks)
+  
+  amountCents: integer not null
+    -- Always positive — direction implied by transactionType
+    -- WITHHOLDING, REPLENISHMENT, EQUIPMENT_RECOVERY, 
+    --   CAP_REACHED: adds to reserve balance
+    -- CHARGEBACK_DEDUCTION, RELEASE, PARTIAL_RELEASE: 
+    --   reduces reserve balance
+    -- MANUAL_ADJUSTMENT: can be positive or negative 
+    --   (store separately with isCredit boolean)
+  
+  isCredit: boolean not null default true
+    -- true = adds to reserve balance
+    -- false = reduces reserve balance
+  
+  balanceAfterCents: integer not null
+    -- Reserve balance after this transaction
+  
+  -- Links
+  salesOrderId: varchar nullable references salesOrders(id)
+    -- For WITHHOLDING: the order commission was withheld from
+    -- For CHARGEBACK_DEDUCTION: the order that was charged back
+  payStatementId: varchar nullable references payStatements(id)
+    -- Which pay stub this withholding appeared on
+  chargebackId: varchar nullable references chargebacks(id)
+    -- For CHARGEBACK_DEDUCTION transactions
+  
+  -- Metadata
+  description: text not null
+    -- Human-readable explanation
+    -- e.g. "15% withholding from INV-0325-00142 commission of $200.00"
+    -- e.g. "Chargeback: Optimum voluntary cancellation — Jane Doe"
+    -- e.g. "iPad equipment recovery — device not returned"
+  
+  processedByUserId: varchar nullable references users(id)
+    -- null for automatic transactions
+    -- populated for manual adjustments
+  
+  createdAt: timestamp default now()
+
+### TASK 1C — Add reserve fields to salesOrders table
+
+Add to salesOrders table (migration):
+
+  reserveWithheldCents: integer nullable default 0
+    -- Amount withheld from THIS order's commission for reserve
+  reserveWithholdingApplied: boolean default false
+    -- Whether withholding was calculated for this order
+  carrierMaturityType: varchar(30) nullable
+    -- 'VOLUNTARY_CANCELLATION' | 'NON_PAY_DISCONNECT' | 'COMPLETED'
+    -- Set when chargeback type is determined
+  maturityExpiresAt: timestamp nullable
+    -- When the chargeback risk window expires for this order
+    -- Calculated from dateSold + carrier maturity period
+
+### TASK 1D — Add reserve fields to users table
+
+Add to users table (migration):
+
+  hasActiveReserve: boolean default false
+    -- Quick flag for filtering
+  reserveStatus: varchar(20) nullable
+    -- Mirrors rolling_reserves.status for quick access
+  ipadIssued: boolean default false
+    -- Whether an iPad has been issued to this rep
+  ipadSerialNumber: varchar nullable
+  ipadIssuedAt: timestamp nullable
+  ipadReturnedAt: timestamp nullable
+
+===================================================================
+SECTION 2 — CARRIER MATURITY PERIODS
+===================================================================
+
+### TASK 2A — Create carrier maturity configuration
+
+Add to system_settings table (seed data):
+
+  Key: 'carrier_maturity_optimum_voluntary_days'
+  Value: '120'
+  
+  Key: 'carrier_maturity_optimum_nonpay_days'
+  Value: '180'
+  
+  Key: 'carrier_maturity_astound_voluntary_days'
+  Value: '120'
+  
+  Key: 'carrier_maturity_astound_nonpay_days'
+  Value: '120'
+  
+  Key: 'reserve_cap_default_cents'
+  Value: '250000'
+  
+  Key: 'reserve_withholding_percent_default'
+  Value: '15'
+  
+  Key: 'reserve_equipment_recovery_ipad_cents'
+  Value: '50000'
+
+Create server/onboarding/maturityService.ts:
+
+  export function getMaturityDays(
+    providerName: string,
+    chargebackType: 'VOLUNTARY_CANCELLATION' | 'NON_PAY_DISCONNECT'
+  ): number {
+    const provider = providerName.toLowerCase();
+    
+    if (provider.includes('optimum') || provider.includes('altice')) {
+      return chargebackType === 'VOLUNTARY_CANCELLATION' 
+        ? 120 : 180;
+    }
+    if (provider.includes('astound')) {
+      return 120; // both types are 120 for Astound
+    }
+    // Default fallback for unknown carriers
+    return 180;
+  }
+
+  export function calculateMaturityDate(
+    dateSold: string,
+    providerName: string,
+    chargebackType: 'VOLUNTARY_CANCELLATION' | 'NON_PAY_DISCONNECT'
+      = 'VOLUNTARY_CANCELLATION'
+  ): Date {
+    const days = getMaturityDays(providerName, chargebackType);
+    const saleDate = new Date(dateSold);
+    saleDate.setDate(saleDate.getDate() + days);
+    return saleDate;
+  }
+
+  export function isOrderMature(
+    dateSold: string,
+    providerName: string
+  ): boolean {
+    // An order is mature when ALL possible maturity periods 
+    // have expired. Use the longest period for the carrier.
+    const longestMaturity = calculateMaturityDate(
+      dateSold, 
+      providerName, 
+      'NON_PAY_DISCONNECT'
+    );
+    return new Date() > longestMaturity;
+  }
+
+===================================================================
+SECTION 3 — RESERVE SERVICE
+===================================================================
+
+### TASK 3A — Create reserve service
+
+Create server/reserves/reserveService.ts
+
+This file contains all reserve business logic.
+
+---
+
+FUNCTION 1: getOrCreateReserve
+
+  export async function getOrCreateReserve(
+    userId: string
+  ): Promise<RollingReserve>
+  
+  Looks up existing reserve for user. If none exists, 
+  creates one with default values (15%, $2,500 cap).
+  Returns the reserve record.
+
+---
+
+FUNCTION 2: calculateWithholding
+
+  export function calculateWithholding(
+    netCommissionCents: number,
+    reserve: RollingReserve
+  ): number
+  
+  Logic:
+    if (reserve.status === 'AT_CAP') return 0;
+    if (reserve.status === 'HELD') return 0;
+    if (reserve.status === 'RELEASED') return 0;
+    
+    const withholdingPercent = reserve.withholdingPercent / 100;
+    const rawWithholding = Math.floor(
+      netCommissionCents * withholdingPercent
+    );
+    
+    // Only withhold enough to reach the cap
+    const remainingToCapCents = 
+      reserve.capCents - reserve.currentBalanceCents;
+    
+    return Math.min(rawWithholding, remainingToCapCents);
+
+---
+
+FUNCTION 3: applyWithholding
+
+  export async function applyWithholding(
+    userId: string,
+    salesOrderId: string,
+    payStatementId: string,
+    netCommissionCents: number,
+    txDb?: TxDb
+  ): Promise<{
+    withheldCents: number,
+    newBalance: number,
+    newStatus: string,
+    capReached: boolean,
+  }>
+  
+  Called during pay stub generation for each order.
+  
+  Steps:
+  1. Load or create reserve for user
+  2. If reserve is AT_CAP, HELD, or RELEASED: return 0
+  3. Calculate withholding amount
+  4. Create reserve_transaction record:
+       type: 'WITHHOLDING'
+       amountCents: withheldCents
+       isCredit: true
+       balanceAfterCents: newBalance
+       salesOrderId
+       payStatementId
+       description: `15% withholding from order 
+                     ${invoiceNumber} commission 
+                     of $${(netCommissionCents/100).toFixed(2)}`
+  5. Update rolling_reserves:
+       currentBalanceCents += withheldCents
+       totalWithheldCents += withheldCents
+       status = newBalance >= capCents ? 'AT_CAP' : 'ACTIVE'
+  6. Update salesOrders:
+       reserveWithheldCents = withheldCents
+       reserveWithholdingApplied = true
+  7. If cap just reached: create reserve_transaction 
+     with type 'CAP_REACHED' and description:
+     "Rolling reserve cap of $2,500.00 reached. 
+      Withholding paused."
+  8. Log to audit_logs:
+     action: 'RESERVE_WITHHOLDING_APPLIED'
+  9. Return result
+
+---
+
+FUNCTION 4: applyChargeback
+
+  export async function applyChargebackToReserve(
+    userId: string,
+    chargebackId: string,
+    salesOrderId: string,
+    chargebackAmountCents: number,
+    chargebackType: 'VOLUNTARY_CANCELLATION' | 'NON_PAY_DISCONNECT',
+    providerName: string,
+    txDb?: TxDb
+  ): Promise<{
+    deductedFromReserveCents: number,
+    remainingChargebackCents: number,
+    newReserveBalance: number,
+    reserveDeficit: boolean,
+  }>
+  
+  Called when a chargeback is applied to an order.
+  
+  Steps:
+  1. Load reserve for user
+  2. Determine how much can come from reserve:
+     const fromReserve = Math.min(
+       chargebackAmountCents, 
+       reserve.currentBalanceCents
+     );
+     const remaining = chargebackAmountCents - fromReserve;
+  
+  3. Create reserve_transaction:
+       type: 'CHARGEBACK_DEDUCTION'
+       amountCents: fromReserve
+       isCredit: false
+       balanceAfterCents: reserve.currentBalanceCents - fromReserve
+       chargebackId
+       salesOrderId
+       description: `Chargeback deduction: ${providerName} 
+                     ${chargebackType} — 
+                     $${(chargebackAmountCents/100).toFixed(2)}`
+  
+  4. Update rolling_reserves:
+       currentBalanceCents -= fromReserve
+       totalChargebacksCents += chargebackAmountCents
+       
+       If newBalance < capCents AND status was 'AT_CAP':
+         status = 'ACTIVE' (resume withholding)
+         Create 'REPLENISHMENT' transaction:
+         description: "Reserve dropped below cap due to 
+                      chargeback. Withholding of 15% resumed."
+       
+       If remaining > 0:
+         status = 'DEFICIT'
+  
+  5. If remaining > 0 (chargeback exceeded reserve):
+     The remaining amount must come from future commissions.
+     Create a negative adjustment on the next pay stub.
+     Store in a new field on the chargeback record:
+       excessAmountCents: remaining
+     This will be deducted from the rep's next pay run 
+     as a line item.
+  
+  6. Update salesOrders:
+       carrierMaturityType = chargebackType
+       maturityExpiresAt = calculateMaturityDate(
+         order.dateSold, providerName, chargebackType
+       )
+  
+  7. Log to audit_logs
+  8. Return result
+
+---
+
+FUNCTION 5: applyEquipmentRecovery
+
+  export async function applyEquipmentRecovery(
+    userId: string,
+    equipmentType: 'IPAD',
+    amountCents: number,
+    appliedByUserId: string,
+    reason: string,
+    txDb?: TxDb
+  ): Promise<void>
+  
+  Called when a rep separates and does not return equipment.
+  
+  Steps:
+  1. Load reserve for user
+  2. Create reserve_transaction:
+       type: 'EQUIPMENT_RECOVERY'
+       amountCents
+       isCredit: false
+       description: `${equipmentType} equipment recovery — 
+                     ${reason}`
+  3. Update reserve balance and totalEquipmentRecoveryCents
+  4. If recovery exceeds reserve: mark deficit, 
+     offset from future commissions (same as chargeback logic)
+  5. Create in-app notification for ACCOUNTING:
+     "Equipment recovery of $${amount} applied to 
+     ${repName}'s reserve. Balance: $${newBalance}"
+  6. Log to audit_logs: 'RESERVE_EQUIPMENT_RECOVERY'
+
+---
+
+FUNCTION 6: handleSeparation
+
+  export async function handleRepSeparation(
+    userId: string,
+    separationType: 'VOLUNTARY' | 'TERMINATED',
+    appliedByUserId: string,
+    txDb?: TxDb
+  ): Promise<{
+    reserveBalance: number,
+    earliestReleaseDate: Date,
+    ipadRecoveryApplied: boolean,
+  }>
+  
+  Called when a rep is deactivated.
+  
+  Steps:
+  1. Load reserve for user
+  2. Set reserve.status = 'HELD'
+  3. Set reserve.separatedAt = now()
+  4. Set reserve.separationType
+  
+  5. Calculate earliestReleaseAt:
+     -- Get all orders for this rep that are not yet mature
+     -- Find the latest maturityExpiresAt date
+     -- That date becomes the earliestReleaseAt
+     -- If no immature orders: 
+        earliestReleaseAt = now() + longest carrier maturity
+     
+     The policy states: reserve is held through full applicable
+     maturity periods. Use the LONGEST maturity of any open order.
+  
+  6. If user.ipadIssued = true AND user.ipadReturnedAt IS NULL:
+     Apply $500 equipment recovery automatically:
+     await applyEquipmentRecovery(
+       userId, 'IPAD', 50000, appliedByUserId,
+       'iPad not returned at separation'
+     )
+     ipadRecoveryApplied = true
+  
+  7. Create reserve_transaction: type = 'CAP_REACHED' 
+     with description:
+     "Reserve held pending maturity period expiry. 
+     Earliest release: ${earliestReleaseDate}. 
+     No early release per policy."
+  
+  8. Notify ACCOUNTING and EXECUTIVE:
+     "${repName} (${repId}) has separated (${separationType}). 
+     Reserve of $${balance} held until ${earliestReleaseDate}. 
+     No early release permitted per policy."
+  
+  9. Log to audit_logs: 'RESERVE_HELD_SEPARATION'
+  
+  10. Return result
+
+---
+
+FUNCTION 7: checkAndReleaseMaturedReserves
+
+  export async function checkAndReleaseMaturedReserves(): Promise<{
+    released: number,
+    totalReleasedCents: number,
+  }>
+  
+  Called by the daily scheduler.
+  
+  Logic:
+  1. Find all reserves where:
+     status = 'HELD'
+     AND earliestReleaseAt <= now()
+     AND separatedAt IS NOT NULL
+  
+  2. For each reserve:
+     a. Check if any chargebacks are still pending 
+        for this rep's orders (within maturity window)
+     b. If no pending chargebacks and maturity has passed:
+        Create reserve_transaction: type = 'RELEASE'
+        amountCents: currentBalanceCents
+        isCredit: false
+        description: "Reserve released after maturity period. 
+                      No outstanding chargebacks."
+        Update reserve: status = 'RELEASED', 
+                        currentBalanceCents = 0,
+                        totalReleasedCents += amount
+        Notify ACCOUNTING: "Reserve of $X released for 
+                           ${repName} — maturity period complete"
+  
+  3. Return counts
+
+===================================================================
+SECTION 4 — INTEGRATION WITH PAY STUB GENERATION
+===================================================================
+
+### TASK 4A — Integrate reserve withholding into pay stub generator
+
+In server/payStubGenerator.ts, modify the generatePayStub function:
+
+AFTER calculating netPay and BEFORE creating the payStatement,
+add reserve withholding calculation:
+
+  // Calculate total reserve withholding for this pay run
+  let totalReserveWithheldCents = 0;
+  const reserveLineItems = [];
+  
+  // Only apply to REP, LEAD, MANAGER roles
+  if (['REP', 'LEAD', 'MANAGER'].includes(rep.role)) {
+    const reserve = await getOrCreateReserve(userId);
+    
+    // Apply withholding to each order's net commission
+    for (const order of orders) {
+      const orderNetCents = Math.round(
+        (parseFloat(order.baseCommissionEarned || '0') +
+         parseFloat(order.incentiveEarned || '0') -
+         parseFloat(order.overrideDeduction || '0')) * 100
+      );
+      
+      const withholdingResult = await applyWithholding(
+        userId,
+        order.id,
+        'PENDING', // payStatementId not yet created
+        orderNetCents,
+        txDb
+      );
+      
+      if (withholdingResult.withheldCents > 0) {
+        totalReserveWithheldCents += withholdingResult.withheldCents;
+        
+        reserveLineItems.push({
+          category: 'Reserve Withholding',
+          description: `15% reserve hold — ${order.invoiceNumber}`,
+          salesOrderId: order.id,
+          invoiceNumber: order.invoiceNumber,
+          amount: `-${(withholdingResult.withheldCents / 100)
+                       .toFixed(2)}`,
+          // Stored as negative — reduces net pay
+        });
+        
+        if (withholdingResult.capReached) {
+          reserveLineItems.push({
+            category: 'Reserve Withholding',
+            description: 'Rolling reserve cap of $2,500 reached. 
+                         Withholding paused.',
+            amount: '0.00',
+          });
+        }
+      }
+    }
+  }
+  
+  // Include reserve withholding in netPay calculation:
+  netPay = grossCommission + incentivesTotal 
+           + overrideEarningsTotal + bonusesTotal 
+           - chargebacksTotal - deductionsTotal 
+           - advancesApplied - taxWithheld
+           - (totalReserveWithheldCents / 100);
+  
+  // Add to payStatement:
+  reserveWithheldTotal: (totalReserveWithheldCents / 100).toFixed(2)
+  
+  // After payStatement is created, update each withholding 
+  // transaction with the actual payStatementId:
+  for each reserve withholding transaction:
+    update payStatementId = statement.id
+
+Add to payStatements table (migration):
+  reserveWithheldTotal: varchar default '0'
+  reserveBalanceAfter: varchar nullable
+    -- Rep's reserve balance after this pay run
+
+Add each reserve withholding as a line item in the 
+payStatementLineItems table with category: 'Reserve Withholding'
+
+### TASK 4B — Show reserve status on pay stub PDF
+
+In the pay stub PDF generator, add a RESERVE STATUS section 
+between Deductions and Net Pay:
+
+  ROLLING RESERVE STATUS:
+  Previous Balance:     $X,XXX.XX
+  Withheld This Period: -$XXX.XX
+  Chargebacks Applied:  -$XXX.XX  (if any)
+  Current Balance:      $X,XXX.XX / $2,500.00 cap
+  Status:               [ACTIVE - Withholding 15%] 
+                        or [AT CAP - Withholding Paused]
+                        or [HELD - Pending Maturity Release]
+  
+  Note: "The rolling reserve is not wages. It is a conditional 
+  holdback per your Independent Contractor Agreement."
+
+===================================================================
+SECTION 5 — CHARGEBACK INTEGRATION
+===================================================================
+
+### TASK 5A — Connect chargebacks to reserve
+
+In the existing chargeback processing logic 
+(wherever chargebacks are applied to orders):
+
+When a chargeback is created for an order:
+
+  1. Determine chargeback type from the chargeback record:
+     If cancellation reason = 'non_pay' or 'disconnect': 
+       chargebackType = 'NON_PAY_DISCONNECT'
+     Else: chargebackType = 'VOLUNTARY_CANCELLATION'
+  
+  2. Get the provider name from the order's linked provider
+  
+  3. Call applyChargebackToReserve():
+     const result = await applyChargebackToReserve(
+       order.repId → userId,
+       chargeback.id,
+       order.id,
+       chargebackAmountCents,
+       chargebackType,
+       providerName
+     );
+  
+  4. If result.reserveDeficit = true:
+     Create a URGENT exception:
+       type: 'RESERVE_DEFICIT'
+       title: "${repName} reserve deficit — 
+              $${(result.remainingChargebackCents/100).toFixed(2)} 
+              will be deducted from next pay"
+       priority: 'HIGH'
+     
+     Store the excess amount for deduction on next pay stub.
+     Add to user's deductions as a one-time deduction.
+  
+  5. Update the exception queue:
+     Remove 'CHARGEBACK_REQUIRES_ACTION' exception for this order
+     (it has been processed)
+  
+  6. Notify rep via in-app notification:
+     "A chargeback of $X has been applied to your rolling 
+     reserve for order ${invoiceNumber}. Your reserve balance 
+     is now $${newBalance}."
+
+### TASK 5B — Add chargeback type to chargeback records
+
+Add to chargebacks table (migration):
+  chargebackType: varchar(30) nullable
+    Values: 'VOLUNTARY_CANCELLATION' | 'NON_PAY_DISCONNECT'
+  providerName: varchar nullable  -- denormalized for quick access
+  maturityDays: integer nullable  -- days applicable to this CB
+
+Update chargeback creation endpoints to capture these fields.
+
+===================================================================
+SECTION 6 — API ENDPOINTS
+===================================================================
+
+### TASK 6A — Reserve management endpoints
+
+GET /api/my/reserve
+Access: REP, LEAD, MANAGER (own reserve only)
+
+Returns:
+  {
+    currentBalance: number,      // dollars
+    cap: number,                 // dollars ($2,500 default)
+    withholdingPercent: number,  // 15 default
+    status: string,
+    statusLabel: string,         // human readable
+    percentFull: number,         // currentBalance / cap * 100
+    totalWithheld: number,       // lifetime total withheld
+    totalChargebacks: number,    // lifetime total chargebacks
+    recentTransactions: Array<{
+      date: string,
+      type: string,
+      description: string,
+      amount: number,            // positive = added to reserve
+                                 // negative = deducted
+      balanceAfter: number,
+    }>,                          // last 10 transactions
+    maturityInfo: {
+      oldestImmatureOrderDate: string | null,
+      latestMaturityDate: string | null,
+      ordersInMaturityWindow: number,
+    }
+  }
+
+---
+
+GET /api/admin/reserves
+Access: ACCOUNTING, EXECUTIVE
+
+Query params: status, search (rep name or repId)
+
+Returns all rep reserves with:
+  repName, repId, role, currentBalance, cap, 
+  status, withholdingPercent, separatedAt,
+  earliestReleaseAt, totalWithheld, totalChargebacks
+
+---
+
+GET /api/admin/reserves/:userId
+Access: ACCOUNTING, EXECUTIVE
+
+Returns full reserve detail for one rep including 
+complete transaction history.
+
+---
+
+POST /api/admin/reserves/:userId/adjust
+Access: ACCOUNTING, EXECUTIVE
+
+Body:
+  {
+    type: 'MANUAL_ADJUSTMENT',
+    amountCents: number,
+    isCredit: boolean,
+    reason: string,
+  }
+
+Creates a manual reserve transaction.
+Used for corrections, one-time credits, etc.
+Requires EXECUTIVE for credits > $500.
+Creates audit log: 'RESERVE_MANUAL_ADJUSTMENT'
+
+---
+
+POST /api/admin/reserves/:userId/override-cap
+Access: EXECUTIVE only
+
+Body:
+  {
+    newCapCents: number,
+    newWithholdingPercent?: number,
+    reason: string,
+  }
+
+Implements the policy provision allowing Iron Crest 
+to increase reserve cap or withholding percentage 
+for high-chargeback reps.
+
+Validations:
+  - newCapCents must be >= 250000 (cannot reduce below $2,500)
+  - newWithholdingPercent must be between 15 and 50
+  - reason is required
+
+Updates rolling_reserves with:
+  capCents, withholdingPercent,
+  capOverrideReason, capOverrideByUserId, capOverrideAt
+
+Creates in-app notification for rep:
+  "Your rolling reserve cap has been adjusted to 
+  $${newCap}. Withholding rate: ${newPercent}%. 
+  Reason: ${reason}"
+
+Creates audit log: 'RESERVE_CAP_OVERRIDE'
+
+---
+
+POST /api/admin/reserves/:userId/handle-separation
+Access: OPERATIONS, EXECUTIVE
+
+Body:
+  {
+    separationType: 'VOLUNTARY' | 'TERMINATED',
+    ipadReturned: boolean,
+    notes?: string,
+  }
+
+Calls handleRepSeparation().
+If ipadReturned = false AND user.ipadIssued = true:
+  Applies $500 equipment recovery automatically.
+
+This should ALSO be called automatically when a user 
+is deactivated. Add to the existing user deactivation 
+flow (softDeleteUser in storage.ts):
+
+  if (['REP', 'LEAD', 'MANAGER'].includes(user.role)) {
+    const { handleRepSeparation } = 
+      await import('./reserves/reserveService');
+    await handleRepSeparation(
+      id,
+      'TERMINATED',
+      deletedByUserId
+    );
+  }
+
+---
+
+GET /api/admin/reserves/:userId/transactions
+Access: ACCOUNTING, EXECUTIVE
+
+Returns full transaction history for a rep's reserve.
+Query params: startDate, endDate, type
+
+---
+
+GET /api/admin/reserves/report/summary
+Access: ACCOUNTING, EXECUTIVE
+
+Returns company-wide reserve summary:
+  {
+    totalReserveHeld: number,        // all active reserves
+    totalRepsWithActiveReserve: number,
+    totalRepsAtCap: number,
+    totalRepsInDeficit: number,
+    totalRepsHeld: number,           // separated
+    pendingReleaseCents: number,     // held, maturity approaching
+    totalChargebacksYTD: number,
+    totalWithheldYTD: number,
+    byStatus: Record<string, { count: number, totalCents: number }>
+  }
+
+===================================================================
+SECTION 7 — EXCEPTION QUEUE ADDITIONS
+===================================================================
+
+Add these new exception types:
+
+  HIGH priority:
+    'RESERVE_DEFICIT':
+      Trigger: rep's reserve went negative after chargeback
+      Title: "{repName} reserve deficit — ${amount} owed"
+      Impact: excess chargeback amount
+      Action: links to reserve detail
+
+  MEDIUM priority:
+    'RESERVE_MATURITY_RELEASE_DUE':
+      Trigger: separated rep's earliestReleaseAt is within 7 days
+      Title: "${repName} reserve eligible for release on {date}"
+      Impact: reserve balance amount
+      Action: links to reserve detail for review and release
+
+  LOW priority:
+    'RESERVE_CAP_OVERRIDE_ACTIVE':
+      Trigger: rep has a non-default cap or withholding rate
+      Title: "${repName} has custom reserve terms"
+      Informational only
+
+===================================================================
+SECTION 8 — ONBOARDING DOCUMENT UPDATE
+===================================================================
+
+### TASK 8A — Update chargeback policy document template
+
+In server/onboarding/pdfGenerator.ts, update the 
+Document 2 template to match the actual policy document 
+exactly. Replace the existing placeholder text with:
+
+--- DOCUMENT 2: Chargebacks & Rolling Reserve Policy ---
+
+  Title: IRON CREST SOLUTIONS LLC
+  Subtitle: Chargebacks & Rolling Reserve Policy
+
+  Section 1 — Rolling Reserve Requirement:
+    Iron Crest Solutions LLC ("Iron Crest" or "Company") 
+    maintains a rolling reserve account for each independent 
+    sales representative ("Sales Rep") to offset potential 
+    vendor chargebacks, cancellations, non-pay disconnects, 
+    and commission reversals. Iron Crest will withhold fifteen 
+    percent (15%) of all commissions otherwise payable to the 
+    Sales Rep until the rolling reserve balance reaches two 
+    thousand five hundred dollars ($2,500). Once the reserve 
+    reaches $2,500, the 15% withholding will cease, subject 
+    to this Policy. Sales Reps acknowledge the rolling reserve 
+    is not wages and is a conditional holdback against future 
+    liabilities.
+
+  Section 2 — Chargebacks:
+    Any vendor chargebacks, cancellations, non-pay disconnects, 
+    clawbacks, or commission reversals attributable to a Sales 
+    Rep's accounts shall be deducted directly from the rolling 
+    reserve. Commissions are not fully earned or vested until 
+    the applicable vendor chargeback maturity periods have expired.
+
+  Section 3 — Replenishment of Rolling Reserve:
+    If chargebacks reduce the rolling reserve below $2,500, 
+    Iron Crest will resume withholding fifteen percent (15%) 
+    of commissions until the reserve is restored. Iron Crest 
+    has no obligation to advance commissions during a reserve 
+    deficit.
+
+  Section 4 — Adjustment of Rolling Reserve for Excessive 
+  Chargebacks:
+    If a Sales Rep generates chargebacks exceeding the standard 
+    $2,500 reserve, Iron Crest may, in its sole and reasonable 
+    discretion, increase the reserve cap, increase the 
+    withholding percentage, or impose other risk controls. 
+    Continued participation after notice constitutes acceptance.
+
+  Section 5 — Vendor Chargeback Maturity Periods:
+    Optimum: Voluntary Cancellation – 120 days; 
+             Non-Pay Disconnect – 180 days.
+    Astound: Voluntary Cancellation – 120 days; 
+             Non-Pay Disconnect – 120 days.
+
+  Section 6 — Company-Issued Equipment (iPad):
+    If a Sales Rep is issued an iPad or other electronic device 
+    for business use, such equipment remains the sole property 
+    of Iron Crest Solutions LLC at all times. In the event the 
+    Sales Rep voluntarily or involuntarily separates from the 
+    Company, and the issued iPad is not returned or is returned 
+    damaged beyond normal wear and tear, the full replacement 
+    cost of the device ($500) shall be treated as a recoverable 
+    charge. This amount will be deducted from the Sales Rep's 
+    remaining rolling reserve balance in the same manner as 
+    vendor chargebacks or other recoverable losses. If the 
+    rolling reserve is insufficient, Iron Crest reserves the 
+    right to set off the remaining balance against future 
+    commissions or other amounts payable, where legally 
+    permissible.
+
+  Section 7 — Termination or Resignation:
+    Upon resignation or termination for any reason, Iron Crest 
+    will retain the rolling reserve through the full applicable 
+    chargeback maturity period(s). If no chargebacks occur, 
+    remaining reserve funds will be released after maturity. 
+    No early release is required.
+
+  Section 8 — Setoff Rights:
+    Sales Reps authorize Iron Crest to set off any chargebacks, 
+    refunds, reversals, penalties, or equipment recovery costs 
+    against the rolling reserve, future commissions, or other 
+    amounts payable.
+
+  Section 9 — Governing Law and Venue:
+    This Policy shall be governed by and construed in accordance 
+    with the laws of the State of New Jersey, without regard to 
+    conflict-of-law principles.
+
+  Section 10 — Acknowledgment of Risk and Authority:
+    Sales Reps acknowledge commission-based sales involve risk 
+    and delayed reversals, and that acceptance of this Policy 
+    is a condition of participation. Iron Crest retains final 
+    authority regarding reserve administration and chargeback 
+    determinations.
+
+  Signature block:
+    Sales Representative Signature: {signatureImage}
+    Date: {signedAt}
+    Printed Name: {repName}
+    
+    Iron Crest Solutions LLC: ___________________
+    Date: ___________
+
+===================================================================
+SECTION 9 — SCHEDULER ADDITIONS
+===================================================================
+
+Add to the existing daily scheduler:
+
+  Job: checkAndReleaseMaturedReserves
+    Schedule: Daily at 6:00 AM
+    Function: checkAndReleaseMaturedReserves()
+    Log to backgroundJobs table
+    
+  Job: reserveDeficitCheck
+    Schedule: Daily at 8:00 AM
+    Logic: Find all reserves with status = 'DEFICIT'
+    For each: create or refresh HIGH exception in queue
+    Notify ACCOUNTING if any deficit has been open > 7 days
+
+===================================================================
+SECTION 10 — UPDATE USER GUIDES
+===================================================================
+
+### TASK 10A — Update REP User Guide section on Rolling Reserve
+
+Replace the existing rolling reserve description in the 
+REP guide with this accurate version based on the policy:
+
+ROLLING RESERVE — WHAT IT IS AND HOW IT WORKS
+
+The rolling reserve is a financial protection account 
+that Iron Crest holds on your behalf to cover potential 
+chargebacks from carriers.
+
+Here is how it works:
+
+WITHHOLDING: 15% of your net commission on each order 
+is held back and placed in your reserve account until 
+the reserve reaches $2,500. After it reaches $2,500, 
+no more is withheld unless a chargeback reduces it below 
+that amount.
+
+Example: You earn $200 on a 1 Gig sale. Your take-home 
+pay is $170. The remaining $30 (15%) goes into your reserve.
+
+CHARGEBACKS: If a customer cancels or does not pay their 
+bill, the carrier takes the commission back from Iron Crest, 
+and Iron Crest deducts it from your reserve. If the 
+chargeback exceeds your reserve balance, the excess is 
+deducted from your future commissions.
+
+MATURITY PERIODS: Commissions are not fully yours until 
+the carrier's maturity period passes without a chargeback:
+  Optimum — Voluntary cancel: 120 days after the sale
+  Optimum — Non-pay disconnect: 180 days after the sale
+  Astound — Both types: 120 days after the sale
+
+REPLENISHMENT: If chargebacks bring your reserve below 
+$2,500, the 15% withholding automatically resumes until 
+the reserve is back at $2,500.
+
+WHEN YOU LEAVE: If you resign or are terminated, your 
+reserve is held until all your open orders have passed 
+their maturity periods. There is no early release.
+
+EQUIPMENT: If you were issued an iPad and do not return 
+it when you leave, $500 is automatically deducted from 
+your reserve.
+
+IMPORTANT: The rolling reserve is not your wages. It is 
+a conditional holdback. You can view your reserve balance 
+and full transaction history in the app under 
+Earnings → Rolling Reserve.
+
+===================================================================
+SCHEMA SUMMARY — DRIZZLE MIGRATION
+===================================================================
+
+Create ONE consolidated Drizzle migration for:
+
+New tables:
+  rolling_reserves
+  reserve_transactions
+
+salesOrders additions:
+  reserveWithheldCents
+  reserveWithholdingApplied
+  carrierMaturityType
+  maturityExpiresAt
+
+payStatements additions:
+  reserveWithheldTotal
+  reserveBalanceAfter
+
+chargebacks additions:
+  chargebackType
+  providerName
+  maturityDays
+
+users additions:
+  hasActiveReserve
+  reserveStatus
+  ipadIssued
+  ipadSerialNumber
+  ipadIssuedAt
+  ipadReturnedAt
+
+system_settings seed data:
+  All carrier maturity period values
+  Reserve default configuration values
+
+===================================================================
+GENERAL CONSTRAINTS
+===================================================================
+
+- Create ONE consolidated Drizzle migration
+- The rolling reserve is explicitly NOT wages — 
+  add this as a JSDoc comment on every reserve method
+- Never refer to reserve funds as "earned" in any 
+  UI text, notification, or description — always use 
+  "held" or "withheld"
+- All reserve amounts stored as INTEGER cents
+- Reserve transactions are append-only — 
+  never update or delete a reserve_transaction record
+- The daily maturity release check must verify BOTH:
+  a) earliestReleaseAt has passed
+  b) No chargebacks are pending within maturity window
+  BOTH conditions must be true before releasing
+- Reserve withholding must appear as a separate line 
+  item on every pay stub where it applies
+- The PDF for Document 2 must exactly match the 
+  policy document text — use the verbatim text 
+  provided in Task 8A
+- iPad recovery of $500 must trigger automatically 
+  on separation if ipadIssued = true and 
+  ipadReturnedAt IS NULL — no manual step required
+- Governing law is State of New Jersey on all 
+  reserve-related document text
+- The reserve cap increase (Section 4 of policy) 
+  can only be applied by EXECUTIVE role — 
+  ACCOUNTING can view but not modify cap terms
+- Add reserve balance to the rep's dashboard summary 
+  (GET /api/my/summary) response
+- Do not touch the frontend
+- All new storage methods must have JSDoc comments 
+  citing which policy section they implement
