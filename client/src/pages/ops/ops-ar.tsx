@@ -13,9 +13,12 @@ import {
   DollarSign, AlertTriangle, CheckCircle2, Clock, Search, BarChart3, TrendingUp
 } from "lucide-react";
 
-function formatCurrency(v: number | string) {
-  const num = typeof v === "string" ? parseFloat(v) : v;
-  return "$" + (num || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function centsToStr(cents: number) {
+  return (cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatCurrency(cents: number) {
+  return "$" + centsToStr(cents);
 }
 
 function formatDate(d: string | Date) {
@@ -30,6 +33,24 @@ const statusColors: Record<string, string> = {
   WRITTEN_OFF: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400",
 };
 
+function aggregateSummary(rows: any[]) {
+  const buckets: Record<string, { count: number; totalCents: number }> = {
+    OPEN: { count: 0, totalCents: 0 },
+    PARTIAL: { count: 0, totalCents: 0 },
+    SATISFIED: { count: 0, totalCents: 0 },
+    OVERDUE: { count: 0, totalCents: 0 },
+  };
+  if (!Array.isArray(rows)) return buckets;
+  for (const row of rows) {
+    const key = (row.status || "OPEN").toUpperCase();
+    if (buckets[key]) {
+      buckets[key].count += row.count || 0;
+      buckets[key].totalCents += row.totalCents || 0;
+    }
+  }
+  return buckets;
+}
+
 export default function OpsAR() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -41,13 +62,13 @@ export default function OpsAR() {
     queryKey: ["/api/finance/ar"],
   });
 
-  const { data: summary, isLoading: summaryLoading } = useQuery<any>({
+  const { data: summaryRaw, isLoading: summaryLoading } = useQuery<any>({
     queryKey: ["/api/finance/ar/summary"],
   });
 
   const recordPaymentMutation = useMutation({
-    mutationFn: async ({ id, amount }: { id: number; amount: number }) => {
-      const res = await apiRequest("POST", `/api/finance/ar/${id}/payments`, { amount });
+    mutationFn: async ({ id, amountCents }: { id: string; amountCents: number }) => {
+      const res = await apiRequest("POST", `/api/finance/ar/${id}/payments`, { amountCents });
       return res.json();
     },
     onSuccess: () => {
@@ -76,12 +97,18 @@ export default function OpsAR() {
     return matchSearch && matchTab;
   });
 
+  const summary = aggregateSummary(summaryRaw);
+
   const summaryCards = [
-    { label: "Open", value: summary?.open?.count || 0, amount: summary?.open?.total || 0, icon: Clock, color: "text-orange-600", bg: "bg-orange-100 dark:bg-orange-900/30" },
-    { label: "Partial", value: summary?.partial?.count || 0, amount: summary?.partial?.total || 0, icon: TrendingUp, color: "text-yellow-600", bg: "bg-yellow-100 dark:bg-yellow-900/30" },
-    { label: "Satisfied", value: summary?.satisfied?.count || 0, amount: summary?.satisfied?.total || 0, icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
-    { label: "Overdue", value: summary?.overdue?.count || 0, amount: summary?.overdue?.total || 0, icon: AlertTriangle, color: "text-red-600", bg: "bg-red-100 dark:bg-red-900/30" },
+    { label: "Open", value: summary.OPEN.count, amount: summary.OPEN.totalCents, icon: Clock, color: "text-orange-600", bg: "bg-orange-100 dark:bg-orange-900/30" },
+    { label: "Partial", value: summary.PARTIAL.count, amount: summary.PARTIAL.totalCents, icon: TrendingUp, color: "text-yellow-600", bg: "bg-yellow-100 dark:bg-yellow-900/30" },
+    { label: "Satisfied", value: summary.SATISFIED.count, amount: summary.SATISFIED.totalCents, icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
+    { label: "Overdue", value: summary.OVERDUE.count, amount: summary.OVERDUE.totalCents, icon: AlertTriangle, color: "text-red-600", bg: "bg-red-100 dark:bg-red-900/30" },
   ];
+
+  const dialogExpectedCents = paymentDialog?.expectedAmountCents || 0;
+  const dialogReceivedCents = paymentDialog?.actualAmountCents || 0;
+  const dialogBalanceCents = dialogExpectedCents - dialogReceivedCents;
 
   return (
     <div className="p-4 md:p-6 space-y-6" data-testid="ops-ar">
@@ -169,9 +196,9 @@ export default function OpsAR() {
               </thead>
               <tbody>
                 {filtered.map((ar: any) => {
-                  const expected = parseFloat(ar.expectedAmount || ar.amount || "0");
-                  const received = parseFloat(ar.receivedAmount || ar.paidAmount || "0");
-                  const balance = expected - received;
+                  const expectedCents = ar.expectedAmountCents || 0;
+                  const receivedCents = ar.actualAmountCents || 0;
+                  const balanceCents = expectedCents - receivedCents;
                   const customerName = ar.order?.customerName || ar.customerName || "";
                   const invoiceLabel = ar.order?.invoiceNumber || ar.invoiceNumber || `AR-${ar.id}`;
                   const repLabel = ar.order?.repName || ar.repName || ar.order?.repId || ar.repId || "—";
@@ -186,9 +213,9 @@ export default function OpsAR() {
                       </td>
                       <td className="p-3 text-muted-foreground">{repLabel}</td>
                       <td className="p-3 text-muted-foreground">{clientLabel}</td>
-                      <td className="p-3 text-right">{formatCurrency(expected)}</td>
-                      <td className="p-3 text-right text-emerald-600">{formatCurrency(received)}</td>
-                      <td className="p-3 text-right font-medium">{formatCurrency(balance)}</td>
+                      <td className="p-3 text-right">{formatCurrency(expectedCents)}</td>
+                      <td className="p-3 text-right text-emerald-600">{formatCurrency(receivedCents)}</td>
+                      <td className="p-3 text-right font-medium">{formatCurrency(balanceCents)}</td>
                       <td className="p-3 text-center">
                         <Badge className={`text-xs ${statusColors[ar.status] || ""}`}>
                           {ar.status || "OPEN"}
@@ -221,8 +248,22 @@ export default function OpsAR() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div>
+                <p className="text-muted-foreground">Expected</p>
+                <p className="font-medium">{formatCurrency(dialogExpectedCents)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Received</p>
+                <p className="font-medium text-emerald-600">{formatCurrency(dialogReceivedCents)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Balance</p>
+                <p className="font-medium">{formatCurrency(dialogBalanceCents)}</p>
+              </div>
+            </div>
             <div>
-              <p className="text-sm text-muted-foreground mb-1">Payment Amount</p>
+              <p className="text-sm text-muted-foreground mb-1">Payment Amount ($)</p>
               <Input
                 type="number"
                 step="0.01"
@@ -239,7 +280,10 @@ export default function OpsAR() {
             </Button>
             <Button
               disabled={!paymentAmount || parseFloat(paymentAmount) <= 0 || recordPaymentMutation.isPending}
-              onClick={() => recordPaymentMutation.mutate({ id: paymentDialog.id, amount: parseFloat(paymentAmount) })}
+              onClick={() => recordPaymentMutation.mutate({
+                id: paymentDialog.id,
+                amountCents: Math.round(parseFloat(paymentAmount) * 100),
+              })}
               className="bg-[#C9A84C] hover:bg-[#b8973e] text-white"
               data-testid="btn-submit-payment"
             >
