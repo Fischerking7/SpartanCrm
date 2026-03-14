@@ -66,9 +66,12 @@ export default function OpsAR() {
   const arList = Array.isArray(items) ? items : [];
 
   const filtered = arList.filter((ar: any) => {
-    const matchSearch = !search || ar.invoiceNumber?.toLowerCase().includes(search.toLowerCase())
-      || ar.customerName?.toLowerCase().includes(search.toLowerCase())
-      || ar.repName?.toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    const matchSearch = !search 
+      || (ar.order?.invoiceNumber || ar.invoiceNumber || "").toLowerCase().includes(q)
+      || (ar.order?.customerName || ar.customerName || "").toLowerCase().includes(q)
+      || (ar.order?.repName || ar.repName || "").toLowerCase().includes(q)
+      || (ar.client?.name || "").toLowerCase().includes(q);
     const matchTab = tab === "all" || ar.status?.toUpperCase() === tab.toUpperCase();
     return matchSearch && matchTab;
   });
@@ -154,8 +157,9 @@ export default function OpsAR() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left p-3 font-medium">Invoice</th>
+                  <th className="text-left p-3 font-medium">Order Info</th>
                   <th className="text-left p-3 font-medium">Rep</th>
+                  <th className="text-left p-3 font-medium">Client</th>
                   <th className="text-right p-3 font-medium">Expected</th>
                   <th className="text-right p-3 font-medium">Received</th>
                   <th className="text-right p-3 font-medium">Balance</th>
@@ -168,10 +172,20 @@ export default function OpsAR() {
                   const expected = parseFloat(ar.expectedAmount || ar.amount || "0");
                   const received = parseFloat(ar.receivedAmount || ar.paidAmount || "0");
                   const balance = expected - received;
+                  const customerName = ar.order?.customerName || ar.customerName || "";
+                  const invoiceLabel = ar.order?.invoiceNumber || ar.invoiceNumber || `AR-${ar.id}`;
+                  const repLabel = ar.order?.repName || ar.repName || ar.order?.repId || ar.repId || "—";
+                  const clientLabel = ar.client?.name || "—";
+                  const createdDate = ar.createdAt ? formatDate(ar.createdAt) : "";
                   return (
                     <tr key={ar.id} className="border-b hover:bg-muted/30" data-testid={`ar-row-${ar.id}`}>
-                      <td className="p-3 font-medium">{ar.invoiceNumber || `#${ar.id}`}</td>
-                      <td className="p-3 text-muted-foreground">{ar.repName || ar.repId || "—"}</td>
+                      <td className="p-3">
+                        <div className="font-medium">{invoiceLabel}</div>
+                        {customerName && <div className="text-xs text-muted-foreground">{customerName}</div>}
+                        {createdDate && <div className="text-xs text-muted-foreground">{createdDate}</div>}
+                      </td>
+                      <td className="p-3 text-muted-foreground">{repLabel}</td>
+                      <td className="p-3 text-muted-foreground">{clientLabel}</td>
                       <td className="p-3 text-right">{formatCurrency(expected)}</td>
                       <td className="p-3 text-right text-emerald-600">{formatCurrency(received)}</td>
                       <td className="p-3 text-right font-medium">{formatCurrency(balance)}</td>
@@ -202,7 +216,8 @@ export default function OpsAR() {
           <DialogHeader>
             <DialogTitle>Record Payment</DialogTitle>
             <DialogDescription>
-              Invoice: {paymentDialog?.invoiceNumber || `#${paymentDialog?.id}`}
+              {paymentDialog?.order?.invoiceNumber || paymentDialog?.invoiceNumber || `AR-${paymentDialog?.id}`}
+              {paymentDialog?.order?.customerName ? ` — ${paymentDialog.order.customerName}` : ""}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

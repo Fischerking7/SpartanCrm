@@ -77,9 +77,10 @@ export default function AcctAR() {
   const filtered = arList.filter((a: any) => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return (a.invoiceNumber || "").toLowerCase().includes(q) ||
-      (a.customerName || "").toLowerCase().includes(q) ||
-      (a.orderId || "").toLowerCase().includes(q);
+    return (a.order?.invoiceNumber || a.invoiceNumber || "").toLowerCase().includes(q) ||
+      (a.order?.customerName || a.customerName || "").toLowerCase().includes(q) ||
+      (a.order?.repName || a.repName || "").toLowerCase().includes(q) ||
+      (a.client?.name || "").toLowerCase().includes(q);
   });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
@@ -157,7 +158,9 @@ export default function AcctAR() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50">
-                      <th className="text-left p-3">Invoice #</th>
+                      <th className="text-left p-3">Order Info</th>
+                      <th className="text-left p-3">Rep</th>
+                      <th className="text-left p-3">Client</th>
                       <th className="text-right p-3">Expected</th>
                       <th className="text-right p-3">Received</th>
                       <th className="text-right p-3">Balance</th>
@@ -167,23 +170,36 @@ export default function AcctAR() {
                   </thead>
                   <tbody>
                     {paginated.length === 0 && (
-                      <tr><td colSpan={6} className="text-center p-6 text-muted-foreground">No AR expectations found</td></tr>
+                      <tr><td colSpan={8} className="text-center p-6 text-muted-foreground">No AR expectations found</td></tr>
                     )}
-                    {paginated.map((ar: any) => (
-                      <tr key={ar.id} className={`border-b hover:bg-muted/30 cursor-pointer ${rowColor(ar)}`}
-                        onClick={() => setSelectedAR(ar)} data-testid={`row-ar-${ar.id}`}>
-                        <td className="p-3 font-medium">{ar.invoiceNumber || ar.orderId?.slice(0, 8)}</td>
-                        <td className="p-3 text-right">{fmt(ar.expectedAmountCents || 0)}</td>
-                        <td className="p-3 text-right text-green-600">{fmt(ar.actualAmountCents || 0)}</td>
-                        <td className="p-3 text-right font-medium">{fmt((ar.expectedAmountCents || 0) - (ar.actualAmountCents || 0))}</td>
-                        <td className="p-3 text-center">
-                          <Badge variant="outline" className={ar.status === "SATISFIED" ? "text-green-600" : ar.status === "PARTIAL" ? "text-amber-600" : "text-red-600"}>
-                            {ar.status}
-                          </Badge>
-                        </td>
-                        <td className="p-3 text-right text-muted-foreground">{daysSince(ar.createdAt)}</td>
-                      </tr>
-                    ))}
+                    {paginated.map((ar: any) => {
+                      const customerName = ar.order?.customerName || ar.customerName || "";
+                      const invoiceLabel = ar.order?.invoiceNumber || ar.invoiceNumber || `AR-${ar.id}`;
+                      const repLabel = ar.order?.repName || ar.repName || ar.order?.repId || "—";
+                      const clientLabel = ar.client?.name || "—";
+                      const createdDate = ar.createdAt ? new Date(ar.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+                      return (
+                        <tr key={ar.id} className={`border-b hover:bg-muted/30 cursor-pointer ${rowColor(ar)}`}
+                          onClick={() => setSelectedAR(ar)} data-testid={`row-ar-${ar.id}`}>
+                          <td className="p-3">
+                            <div className="font-medium">{invoiceLabel}</div>
+                            {customerName && <div className="text-xs text-muted-foreground">{customerName}</div>}
+                            {createdDate && <div className="text-xs text-muted-foreground">{createdDate}</div>}
+                          </td>
+                          <td className="p-3 text-muted-foreground">{repLabel}</td>
+                          <td className="p-3 text-muted-foreground">{clientLabel}</td>
+                          <td className="p-3 text-right">{fmt(ar.expectedAmountCents || 0)}</td>
+                          <td className="p-3 text-right text-green-600">{fmt(ar.actualAmountCents || 0)}</td>
+                          <td className="p-3 text-right font-medium">{fmt((ar.expectedAmountCents || 0) - (ar.actualAmountCents || 0))}</td>
+                          <td className="p-3 text-center">
+                            <Badge variant="outline" className={ar.status === "SATISFIED" ? "text-green-600" : ar.status === "PARTIAL" ? "text-amber-600" : "text-red-600"}>
+                              {ar.status}
+                            </Badge>
+                          </td>
+                          <td className="p-3 text-right text-muted-foreground">{daysSince(ar.createdAt)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -293,12 +309,16 @@ export default function AcctAR() {
           {selectedAR && (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-3">
-                <div><p className="text-muted-foreground">Order</p><p className="font-medium">{selectedAR.orderId?.slice(0, 8)}</p></div>
+                <div><p className="text-muted-foreground">Invoice</p><p className="font-medium">{selectedAR.order?.invoiceNumber || selectedAR.invoiceNumber || `AR-${selectedAR.id}`}</p></div>
                 <div><p className="text-muted-foreground">Status</p><Badge variant="outline">{selectedAR.status}</Badge></div>
+                <div><p className="text-muted-foreground">Customer</p><p className="font-medium">{selectedAR.order?.customerName || selectedAR.customerName || "—"}</p></div>
+                <div><p className="text-muted-foreground">Rep</p><p className="font-medium">{selectedAR.order?.repName || selectedAR.repName || selectedAR.order?.repId || "—"}</p></div>
+                <div><p className="text-muted-foreground">Client</p><p className="font-medium">{selectedAR.client?.name || "—"}</p></div>
+                <div><p className="text-muted-foreground">Days Open</p><p className="font-medium">{daysSince(selectedAR.createdAt)}</p></div>
                 <div><p className="text-muted-foreground">Expected</p><p className="font-medium">{fmt(selectedAR.expectedAmountCents || 0)}</p></div>
                 <div><p className="text-muted-foreground">Received</p><p className="font-medium text-green-600">{fmt(selectedAR.actualAmountCents || 0)}</p></div>
                 <div><p className="text-muted-foreground">Balance</p><p className="font-medium">{fmt((selectedAR.expectedAmountCents || 0) - (selectedAR.actualAmountCents || 0))}</p></div>
-                <div><p className="text-muted-foreground">Days Open</p><p className="font-medium">{daysSince(selectedAR.createdAt)}</p></div>
+                <div><p className="text-muted-foreground">Created</p><p className="font-medium">{selectedAR.createdAt ? new Date(selectedAR.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</p></div>
               </div>
             </div>
           )}
