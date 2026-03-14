@@ -93,9 +93,10 @@ const fmtCents = (v: number | null | undefined) => {
   return `$${(v / 100).toFixed(2)}`;
 };
 
-type TabKey = "pending" | "awaiting_approval" | "approved" | "paid";
+type TabKey = "all" | "pending" | "awaiting_approval" | "approved" | "paid";
 
 const TAB_CONFIG: { key: TabKey; label: string; icon: any; color: string }[] = [
+  { key: "all", label: "All Orders", icon: Package, color: "text-slate-600" },
   { key: "pending", label: "Pending", icon: Clock, color: "text-yellow-600" },
   { key: "awaiting_approval", label: "Completed / Awaiting Approval", icon: ShieldCheck, color: "text-orange-600" },
   { key: "approved", label: "Approved", icon: FileCheck, color: "text-green-600" },
@@ -105,7 +106,7 @@ const TAB_CONFIG: { key: TabKey; label: string; icon: any; color: string }[] = [
 export default function OpsOrderTracker() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabKey>("pending");
+  const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -138,12 +139,14 @@ export default function OpsOrderTracker() {
   }, [allOrdersRaw]);
 
   const buckets = useMemo(() => {
+    const all: any[] = [];
     const pending: any[] = [];
     const awaiting_approval: any[] = [];
     const approved: any[] = [];
     const paid: any[] = [];
 
     for (const o of allOrders) {
+      all.push(o);
       if (o.paymentStatus === "PAID") {
         paid.push(o);
       } else if (o.approvalStatus === "APPROVED") {
@@ -155,7 +158,7 @@ export default function OpsOrderTracker() {
       }
     }
 
-    return { pending, awaiting_approval, approved, paid };
+    return { all, pending, awaiting_approval, approved, paid };
   }, [allOrders]);
 
   const filteredOrders = useMemo(() => {
@@ -592,7 +595,7 @@ export default function OpsOrderTracker() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-2 sm:gap-3">
+      <div className="grid grid-cols-5 gap-2 sm:gap-3">
         {TAB_CONFIG.map(tab => {
           const count = buckets[tab.key]?.length || 0;
           const Icon = tab.icon;
