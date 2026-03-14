@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "Wh5k1LG7iSjRVeN0aryew"
+uri = "file://exports/comp-plan-export.csv"
+type = "table"
+title = "Compensation Plan & Rate Card Export"

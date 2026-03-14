@@ -1,0 +1,145 @@
+IRON CREST CRM - COMPENSATION PLAN & RATE CARD EXPORT
+  Generated: March 14, 2026
+  ================================================================
+
+  ================================================================
+  SECTION 1: ACTIVE PROVIDERS
+  ================================================================
+  Provider,Status
+  Astound,Active
+  Optimum,Active
+
+  ================================================================
+  SECTION 2: ACTIVE CLIENT
+  ================================================================
+  Client,Status
+  PMG,Active
+
+  ================================================================
+  SECTION 3: RATE CARDS - ASTOUND / PMG (Internet)
+  ================================================================
+  Service Tier,Rack Rate (Base),TV Addon,REP Payout,Override Deduction,TV Override Deduction,Status
+  50 MBPS,$95.00,$80.00,$25.00,$70.00,$40.00,Active
+  150 MBPS,$190.00,$80.00,$60.00,$130.00,$40.00,Active
+  300 MBPS,$255.00,$80.00,$125.00,$130.00,$40.00,Active
+  600 MBPS,$285.00,$80.00,$135.00,$150.00,$40.00,Active
+  1 Gig,$350.00,$80.00,$200.00,$150.00,$40.00,Active
+  GIG+ / Multi-Gig,$390.00,$80.00,$225.00,$165.00,$40.00,Active
+
+  Notes: Rack Rate = REP Payout + Override Deduction. TV Override = $40 all tiers.
+
+  ================================================================
+  SECTION 4: RATE CARDS - ASTOUND / PMG (Mobile)
+  ================================================================
+  Product Type,Per Line Amount,Override Deduction,Mobile Override Deduction,Status
+  3 GIG Mobile,$30.00,$0.00,$0.00,Active
+  1 GIG Mobile,$15.00,$0.00,$0.00,Active
+
+  ================================================================
+  SECTION 5: RATE CARDS - OPTIMUM / PMG (Internet)
+  ================================================================
+  Service Tier,Rack Rate (Base),TV Addon,Override Deduction,TV Override Deduction,Status
+  300 MBPS,$350.00,$40.00,$0.00,$0.00,Active
+  500 MBPS,$350.00,$40.00,$0.00,$0.00,Active
+  GIG+,$390.00,$40.00,$0.00,$0.00,Active
+  Gen Internet,$350.00,$40.00,$125.00,$20.00,Inactive
+
+  ================================================================
+  SECTION 6: RATE CARDS - OPTIMUM / PMG (Mobile)
+  ================================================================
+  Ported Status,Per Line Amount,Override Deduction,Mobile Override Deduction,Status
+  Ported,$130.00,$0.00,$0.00,Active - override via role overrides
+  Non-Ported,$55.00,$0.00,$55.00,Active
+
+  ================================================================
+  SECTION 7: ROLE-BASED OVERRIDE AMOUNTS (rate_card_role_overrides)
+  ================================================================
+  Provider,Service,Role,Override Deduction,TV Override,Mobile Override,Additive
+  Astound,50 MBPS,REP,$70.00,$0.00,$0.00,No
+  Astound,50 MBPS,LEAD,$45.00,$0.00,$0.00,No
+  Astound,150 MBPS,REP,$100.00,$40.00,$0.00,No
+  Astound,150 MBPS,LEAD,$80.00,$20.00,$0.00,No
+  Astound,300 MBPS,REP,$125.00,$40.00,$0.00,No
+  Astound,300 MBPS,LEAD,$100.00,$0.00,$0.00,No
+  Astound,300 MBPS,MDU,$0.00,$20.00,$0.00,No
+  Astound,600 MBPS,REP,$125.00,$40.00,$0.00,No
+  Astound,600 MBPS,LEAD,$100.00,$20.00,$0.00,No
+  Astound,1 Gig,REP,$125.00,$40.00,$0.00,No
+  Astound,1 Gig,LEAD,$100.00,$20.00,$0.00,No
+  Astound,GIG+/Multi-Gig,REP,$125.00,$20.00,$0.00,No
+  Astound,GIG+/Multi-Gig,LEAD,$90.00,$5.00,$0.00,No
+  Astound,3 GIG Mobile,REP,$30.00,$0.00,$0.00,No
+  Astound,3 GIG Mobile,LEAD,$15.00,$0.00,$0.00,No
+  Astound,1 GIG Mobile,REP,$15.00,$0.00,$0.00,No
+  Astound,1 GIG Mobile,LEAD,$10.00,$0.00,$0.00,No
+  Optimum,300 MBPS,REP,$125.00,$20.00,$0.00,No
+  Optimum,300 MBPS,LEAD,$100.00,$5.00,$0.00,No
+  Optimum,500 MBPS,REP,$125.00,$20.00,$0.00,No
+  Optimum,500 MBPS,LEAD,$100.00,$5.00,$0.00,No
+  Optimum,GIG+,REP,$125.00,$20.00,$0.00,No
+  Optimum,GIG+,LEAD,$90.00,$5.00,$0.00,No
+  Optimum,Mobile (Ported),REP,$0.00,$0.00,$80.00,No
+  Optimum,Mobile (Ported),LEAD,$0.00,$0.00,$55.00,No
+  Optimum,Mobile (Non-Ported),REP,$0.00,$0.00,$55.00,No
+  Optimum,Mobile (Non-Ported),LEAD,$0.00,$0.00,$30.00,No
+
+  ================================================================
+  SECTION 8: COMPENSATION PLAN - REP PAYOUTS
+  ================================================================
+  Provider,Service Tier,REP Internet Payout,REP TV Payout
+  Astound,50 MBPS,$25.00,$40.00
+  Astound,150 MBPS,$60.00,$40.00
+  Astound,300 MBPS,$125.00,$40.00
+  Astound,600 MBPS,$135.00,$40.00
+  Astound,1 Gig,$200.00,$40.00
+  Astound,GIG+/Multi-Gig,$225.00,$40.00
+
+  Calculation: REP Payout = Rack Rate (base_amount) - Override Deduction
+  TV REP Payout = TV Addon ($80) - TV Override Deduction ($40) = $40
+
+  ================================================================
+  SECTION 9: OVERRIDE TIER STRUCTURE (4 Tiers)
+  ================================================================
+  Tier,Role,Description
+  Tier 1,LEAD,Direct team lead override
+  Tier 2,MANAGER,Manager-level override
+  Tier 3,DIRECTOR,Director-level override
+  Tier 4,EXECUTIVE,Executive-level override
+
+  Override amounts are distributed from the override_deduction pool per order.
+
+  ================================================================
+  SECTION 10: OVERRIDE DEDUCTION POOL (Existing Entries)
+  ================================================================
+  Order ID,Rate Card Service,Pool Amount,Status,Deduction Type
+  aa6b34c6 (1 Gig),$125.00,PENDING,BASE
+  a7e4561a (1 Gig),$125.00,PENDING,BASE
+  2c06639a (Multi-Gig),$135.00,PENDING,BASE
+  2c06639a (Multi-Gig),$40.00,PENDING,TV
+  a31046e5 (500 MBPS Opt),$125.00,PENDING,BASE
+  9b59a8b5 (300 MBPS Opt),$125.00,PENDING,BASE
+  375b5de2 (1 Gig),$125.00,PENDING,BASE
+  c78baddf (300 MBPS),$125.00,PENDING,BASE
+
+  ================================================================
+  SECTION 11: OVERRIDE AGREEMENTS
+  ================================================================
+  Recipient User,Effective Start,Active,Flat Amount
+  578142f5 (Admin),2026-01-07,No,$2.00
+
+  ================================================================
+  SECTION 12: COMMISSION TIERS & ASSIGNMENTS
+  ================================================================
+  No commission tiers currently configured.
+  No rep tier assignments currently configured.
+  No split commission agreements currently configured.
+
+  ================================================================
+  SECTION 13: KEY FORMULAS
+  ================================================================
+  Rack Rate (base_amount) = REP Payout + Override Deduction
+  TV REP Payout = TV Addon Amount - TV Override Deduction
+  Override Pool = Override Deduction amount per order flows to override_deduction_pool
+  Override Distribution = Pool amount split across 4 override tiers (LEAD -> MANAGER -> DIRECTOR -> EXECUTIVE)
+  Commission Earned = REP Payout (from rate card minus role override adjustments)
+  
