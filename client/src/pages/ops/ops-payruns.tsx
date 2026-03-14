@@ -51,30 +51,49 @@ function formatDate(d: string | Date) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function defaultDates() {
+  const today = new Date();
+  const end = today.toISOString().split("T")[0];
+  const start = new Date(today.getTime() - 14 * 86400000).toISOString().split("T")[0];
+  return { start, end };
+}
+
 export default function OpsPayRuns() {
   const { toast } = useToast();
   const [selectedRun, setSelectedRun] = useState<any>(null);
   const [finalizeConfirm, setFinalizeConfirm] = useState("");
   const [showFinalizeDialog, setShowFinalizeDialog] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [weekEndingDate, setWeekEndingDate] = useState("");
 
   const { data: payRuns, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/payruns"],
   });
 
+  const openCreateDialog = () => {
+    const d = defaultDates();
+    setPeriodStart(d.start);
+    setPeriodEnd(d.end);
+    setWeekEndingDate(d.end);
+    setShowCreateDialog(true);
+  };
+
   const createMutation = useMutation({
-    mutationFn: async () => {
-      const periodEnd = new Date().toISOString().split("T")[0];
+    mutationFn: async ({ periodStart, periodEnd, weekEndingDate }: { periodStart: string; periodEnd: string; weekEndingDate: string }) => {
       const res = await apiRequest("POST", "/api/admin/payruns", {
-        periodStart: new Date(Date.now() - 14 * 86400000).toISOString().split("T")[0],
+        periodStart,
         periodEnd,
-        weekEndingDate: periodEnd,
-        name: `Pay Run ${periodEnd}`,
+        weekEndingDate,
+        name: `Pay Run ${periodStart} to ${periodEnd}`,
       });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
       toast({ title: "Pay run created" });
+      setShowCreateDialog(false);
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -120,7 +139,7 @@ export default function OpsPayRuns() {
           <h1 className="text-2xl font-bold">Pay Runs</h1>
           <p className="text-sm text-muted-foreground">Manage payroll processing workflow</p>
         </div>
-        <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} data-testid="btn-create-payrun">
+        <Button onClick={openCreateDialog} data-testid="btn-create-payrun">
           <Plus className="h-4 w-4 mr-2" />
           New Pay Run
         </Button>
@@ -250,6 +269,65 @@ export default function OpsPayRuns() {
           })}
         </div>
       )}
+
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Pay Run</DialogTitle>
+            <DialogDescription>Select the date range for this pay run.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Period Start</p>
+                <Input
+                  type="date"
+                  value={periodStart}
+                  onChange={(e) => setPeriodStart(e.target.value)}
+                  data-testid="input-period-start"
+                />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Period End</p>
+                <Input
+                  type="date"
+                  value={periodEnd}
+                  onChange={(e) => {
+                    setPeriodEnd(e.target.value);
+                    setWeekEndingDate(e.target.value);
+                  }}
+                  data-testid="input-period-end"
+                />
+              </div>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">Week Ending Date</p>
+              <Input
+                type="date"
+                value={weekEndingDate}
+                onChange={(e) => setWeekEndingDate(e.target.value)}
+                data-testid="input-week-ending"
+              />
+            </div>
+            {periodStart && periodEnd && (
+              <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
+                Pay run will cover <span className="font-medium text-foreground">{formatDate(periodStart)}</span> through <span className="font-medium text-foreground">{formatDate(periodEnd)}</span>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
+            <Button
+              disabled={!periodStart || !periodEnd || !weekEndingDate || periodStart > periodEnd || createMutation.isPending}
+              onClick={() => createMutation.mutate({ periodStart, periodEnd, weekEndingDate })}
+              className="bg-[#C9A84C] hover:bg-[#b8973e] text-white"
+              data-testid="btn-confirm-create-payrun"
+            >
+              {createMutation.isPending ? "Creating..." : "Create Pay Run"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showFinalizeDialog} onOpenChange={setShowFinalizeDialog}>
         <DialogContent>
