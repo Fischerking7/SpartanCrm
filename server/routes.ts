@@ -8914,8 +8914,8 @@ export async function registerRoutes(
   // Seed reference data from bundled JSON (OPERATIONS only) - one-click sync
   app.post("/api/admin/seed-reference-data", auth, async (req: AuthRequest, res) => {
     try {
-      if (req.user?.role !== "OPERATIONS") {
-        return res.status(403).json({ message: "Only OPERATIONS can seed reference data" });
+      if (req.user?.role !== "OPERATIONS" && req.user?.role !== "EXECUTIVE" && req.user?.role !== "ADMIN") {
+        return res.status(403).json({ message: "Only OPERATIONS/EXECUTIVE can seed reference data" });
       }
 
       const referenceData = await import("./reference-data.json");
@@ -9105,9 +9105,10 @@ export async function registerRoutes(
           }
 
           const existing = await db.select().from(rateCards).where(and(...whereConditions)).limit(1);
+          let rateCardId: string;
           
           if (existing.length > 0) {
-            // Update existing rate card
+            rateCardId = existing[0].id;
             await db.update(rateCards).set({
               effectiveStart: r.effectiveStart,
               active: r.active,
@@ -9117,10 +9118,22 @@ export async function registerRoutes(
               overrideDeduction: String(r.overrideDeduction),
               tvOverrideDeduction: String(r.tvOverrideDeduction),
               mobileOverrideDeduction: String(r.mobileOverrideDeduction),
-            }).where(eq(rateCards.id, existing[0].id));
+            }).where(eq(rateCards.id, rateCardId));
           } else {
-            // Insert new rate card
-            await db.insert(rateCards).values(rateCardData);
+            const [inserted] = await db.insert(rateCards).values(rateCardData).returning();
+            rateCardId = inserted.id;
+          }
+
+          if ((r as any).roleOverrides && Array.isArray((r as any).roleOverrides)) {
+            for (const ro of (r as any).roleOverrides) {
+              await storage.upsertRateCardRoleOverride({
+                rateCardId,
+                role: ro.role,
+                overrideDeduction: String(ro.overrideDeduction),
+                tvOverrideDeduction: String(ro.tvOverrideDeduction),
+                mobileOverrideDeduction: String(ro.mobileOverrideDeduction),
+              });
+            }
           }
           results.rateCards++;
         } catch (e) {
@@ -9146,8 +9159,8 @@ export async function registerRoutes(
   // Export reference data as SQL (OPERATIONS only) - for syncing to production
   app.get("/api/admin/export-reference-data", auth, async (req: AuthRequest, res) => {
     try {
-      if (req.user?.role !== "OPERATIONS") {
-        return res.status(403).json({ message: "Only OPERATIONS can export reference data" });
+      if (req.user?.role !== "OPERATIONS" && req.user?.role !== "EXECUTIVE" && req.user?.role !== "ADMIN") {
+        return res.status(403).json({ message: "Only OPERATIONS/EXECUTIVE can export reference data" });
       }
 
       const providers = await storage.getProviders();
