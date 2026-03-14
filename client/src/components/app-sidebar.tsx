@@ -494,9 +494,9 @@ export function AppSidebar() {
   const renderAccountingSidebar = () => (
     <>
       <CollapsibleSection 
-        title="Accounting" 
+        title="Accounting Center" 
         icon={Wallet} 
-        items={[MENU.acctHome, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acctReports, MENU.acct1099]} 
+        items={[MENU.acctHome]} 
         location={location}
         defaultOpen={true}
       />
