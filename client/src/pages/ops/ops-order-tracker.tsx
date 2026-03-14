@@ -744,24 +744,32 @@ export default function OpsOrderTracker() {
               <thead>
                 <tr className="bg-muted/50 border-b">
                   {activeTab === "awaiting_approval" && (
-                    <th className="px-3 py-2.5 text-left w-10"></th>
+                    <th className="px-2 py-2.5 text-left w-10"></th>
                   )}
-                  <th className="px-3 py-2.5 text-left font-medium">Invoice</th>
-                  <th className="px-3 py-2.5 text-left font-medium">Rep</th>
-                  <th className="px-3 py-2.5 text-left font-medium">Customer</th>
-                  <th className="px-3 py-2.5 text-left font-medium">Service</th>
-                  <th className="px-3 py-2.5 text-left font-medium">Date Sold</th>
-                  <th className="px-3 py-2.5 text-left font-medium">Job</th>
-                  <th className="px-3 py-2.5 text-left font-medium">Approval</th>
-                  <th className="px-3 py-2.5 text-left font-medium">Payment</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Invoice</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Rep</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Customer</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Address</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Account #</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Provider</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Service</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">TV</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Date Sold</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Install</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Job</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Approval</th>
+                  <th className="px-2 py-2.5 text-left font-medium text-xs">Payment</th>
                   {activeTab === "awaiting_approval" && (
-                    <th className="px-3 py-2.5 text-left font-medium">Age</th>
+                    <th className="px-2 py-2.5 text-left font-medium text-xs">Age</th>
                   )}
-                  <th className="px-3 py-2.5 text-right font-medium">Actions</th>
+                  <th className="px-2 py-2.5 text-right font-medium text-xs">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {paginatedOrders.map((o: any) => (
+                {paginatedOrders.map((o: any) => {
+                  const addr = [o.houseNumber, o.streetName, o.aptUnit ? `#${o.aptUnit}` : ""].filter(Boolean).join(" ") || o.customerAddress || "";
+                  const cityZip = [o.city, o.zipCode].filter(Boolean).join(", ");
+                  return (
                   <tr
                     key={o.id}
                     className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
@@ -769,7 +777,7 @@ export default function OpsOrderTracker() {
                     data-testid={`row-order-${o.id}`}
                   >
                     {activeTab === "awaiting_approval" && (
-                      <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                      <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
                         <Checkbox
                           checked={selectedIds.has(o.id)}
                           onCheckedChange={() => toggleSelect(o.id)}
@@ -777,27 +785,49 @@ export default function OpsOrderTracker() {
                         />
                       </td>
                     )}
-                    <td className="px-3 py-2.5 font-mono text-xs">{o.invoiceNumber || "—"}</td>
-                    <td className="px-3 py-2.5">
-                      <span className="font-medium">{o.repName || o.repId}</span>
-                      {o.repRoleAtSale && (
-                        <Badge variant="outline" className={`text-[10px] ml-1 ${roleColors[o.repRoleAtSale] || ""}`}>
-                          {o.repRoleAtSale}
-                        </Badge>
-                      )}
+                    <td className="px-2 py-2 font-mono text-xs">{o.invoiceNumber || "—"}</td>
+                    <td className="px-2 py-2">
+                      <div className="flex items-center gap-1">
+                        <span className="font-medium text-xs">{o.repName || o.repId}</span>
+                        {o.repRoleAtSale && (
+                          <Badge variant="outline" className={`text-[9px] px-1 py-0 ${roleColors[o.repRoleAtSale] || ""}`}>
+                            {o.repRoleAtSale}
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">{o.repId}</span>
                     </td>
-                    <td className="px-3 py-2.5 max-w-[150px] truncate">{o.customerName || "—"}</td>
-                    <td className="px-3 py-2.5 text-xs">{o.serviceName || "—"}</td>
-                    <td className="px-3 py-2.5 text-xs">{fmtDate(o.dateSold)}</td>
-                    <td className="px-3 py-2.5"><StatusBadge status={o.jobStatus} /></td>
-                    <td className="px-3 py-2.5"><StatusBadge status={o.approvalStatus} /></td>
-                    <td className="px-3 py-2.5"><StatusBadge status={o.paymentStatus} /></td>
+                    <td className="px-2 py-2">
+                      <div className="text-xs font-medium max-w-[120px] truncate">{o.customerName || "—"}</div>
+                      {o.customerPhone && <div className="text-[10px] text-muted-foreground">{o.customerPhone}</div>}
+                    </td>
+                    <td className="px-2 py-2">
+                      <div className="text-xs max-w-[140px] truncate">{addr || "—"}</div>
+                      {cityZip && <div className="text-[10px] text-muted-foreground">{cityZip}</div>}
+                    </td>
+                    <td className="px-2 py-2 text-xs font-mono">{o.accountNumber || "—"}</td>
+                    <td className="px-2 py-2">
+                      <div className="text-xs">{o.providerName || "—"}</div>
+                      <div className="text-[10px] text-muted-foreground">{o.clientName || ""}</div>
+                    </td>
+                    <td className="px-2 py-2 text-xs">{o.serviceName || "—"}</td>
+                    <td className="px-2 py-2 text-xs text-center">
+                      {o.tvSold ? <Badge variant="outline" className="text-[9px] px-1 py-0 bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 border-purple-300">TV</Badge> : "—"}
+                    </td>
+                    <td className="px-2 py-2 text-xs whitespace-nowrap">{fmtDate(o.dateSold)}</td>
+                    <td className="px-2 py-2">
+                      <div className="text-xs whitespace-nowrap">{fmtDate(o.installDate)}</div>
+                      {o.installTime && <div className="text-[10px] text-muted-foreground">{o.installTime}</div>}
+                    </td>
+                    <td className="px-2 py-2"><StatusBadge status={o.jobStatus} /></td>
+                    <td className="px-2 py-2"><StatusBadge status={o.approvalStatus} /></td>
+                    <td className="px-2 py-2"><StatusBadge status={o.paymentStatus} /></td>
                     {activeTab === "awaiting_approval" && (
-                      <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                      <td className="px-2 py-2 text-xs text-muted-foreground">
                         {o.dateSold ? `${getDaysSince(o.dateSold)}d` : "—"}
                       </td>
                     )}
-                    <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
+                    <td className="px-2 py-2 text-right" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
                         {activeTab === "awaiting_approval" && (
                           <>
@@ -817,7 +847,8 @@ export default function OpsOrderTracker() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
