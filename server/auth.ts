@@ -96,7 +96,8 @@ export function authMiddleware(db: any) {
 
     const onboardingExemptPaths = ['/api/onboarding/', '/api/auth/', '/api/my/profile'];
     const needsOnboarding = ['REP', 'MDU', 'LEAD'].includes(user.role);
-    if (needsOnboarding && !user.appAccessGrantedAt && user.onboardingStatus && user.onboardingStatus !== 'APPROVED') {
+    const activeOnboardingStatuses = ['OTP_VERIFIED', 'IN_PROGRESS', 'SUBMITTED', 'REJECTED'];
+    if (needsOnboarding && !user.appAccessGrantedAt && activeOnboardingStatuses.includes(user.onboardingStatus)) {
       const isExempt = onboardingExemptPaths.some(p => req.path.startsWith(p));
       if (!isExempt) {
         return res.status(403).json({

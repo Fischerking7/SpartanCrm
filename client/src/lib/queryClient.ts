@@ -19,6 +19,15 @@ async function throwIfResNotOk(res: Response) {
         }
       } catch {}
     }
+    if (res.status === 403) {
+      try {
+        const data = JSON.parse(text);
+        if (data.redirectTo === "/onboarding" && data.onboardingStatus) {
+          window.location.href = "/onboarding";
+          return;
+        }
+      } catch {}
+    }
     throw new Error(`${res.status}: ${text}`);
   }
 }
