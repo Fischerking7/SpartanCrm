@@ -1,0 +1,770 @@
+Update the OPERATIONS role throughout the entire Iron Crest 
+application. The person in the Operations role is the primary 
+app administrator and main point of contact. They need 
+unrestricted access to every function in the system.
+
+The only things that remain exclusive to EXECUTIVE are:
+  1. Creating or deactivating EXECUTIVE-level users
+  2. Overriding reserve caps above $2,500 (policy protection)
+  3. Rate card financial amount editing (business owner decision)
+  4. Viewing Iron Crest profit margin data (owner-only data)
+
+Everything else must be fully accessible to OPERATIONS.
+
+===================================================================
+SECTION 1 — UPDATE PERMISSIONS OBJECT
+===================================================================
+
+In server/permissions.ts, update every permission that 
+currently excludes OPERATIONS to include it.
+
+Replace the entire PERMISSIONS object with this updated version:
+
+  export const PERMISSIONS = {
+    
+    // Order permissions
+    'orders:view:own': ['REP', 'LEAD', 'MANAGER', 'DIRECTOR',
+                        'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    'orders:view:team': ['LEAD', 'MANAGER', 'DIRECTOR',
+                         'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    'orders:view:all': ['DIRECTOR', 'OPERATIONS', 
+                        'ACCOUNTING', 'EXECUTIVE'],
+    'orders:create': ['REP', 'LEAD', 'MANAGER', 'OPERATIONS',
+                      'EXECUTIVE'],
+    'orders:edit': ['OPERATIONS', 'EXECUTIVE'],
+    'orders:approve': ['MANAGER', 'DIRECTOR', 'OPERATIONS',
+                       'EXECUTIVE'],
+    'orders:reject': ['MANAGER', 'DIRECTOR', 'OPERATIONS',
+                      'EXECUTIVE'],
+    'orders:delete': ['OPERATIONS', 'EXECUTIVE'],
+    // NOTE: OPERATIONS can now delete orders
+    
+    // Financial permissions
+    'financial:view:commission': ['REP', 'LEAD', 'MANAGER',
+                                   'OPERATIONS', 'ACCOUNTING',
+                                   'EXECUTIVE'],
+    'financial:view:profit': ['ACCOUNTING', 'EXECUTIVE'],
+    // NOTE: OPERATIONS intentionally excluded from profit view
+    // Iron Crest profit margin is owner-only data
+    
+    'financial:view:ar': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    'financial:edit:ar': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    // NOTE: OPERATIONS can now record AR payments
+    
+    'financial:view:payruns': ['OPERATIONS', 'ACCOUNTING',
+                                'EXECUTIVE'],
+    'financial:create:payruns': ['OPERATIONS', 'ACCOUNTING',
+                                  'EXECUTIVE'],
+    'financial:finalize:payruns': ['OPERATIONS', 'ACCOUNTING',
+                                    'EXECUTIVE'],
+    // NOTE: OPERATIONS can now finalize pay runs
+    
+    'financial:view:stubs:own': ['REP', 'LEAD', 'MANAGER',
+                                  'OPERATIONS', 'ACCOUNTING',
+                                  'EXECUTIVE'],
+    'financial:view:stubs:all': ['OPERATIONS', 'ACCOUNTING',
+                                  'EXECUTIVE'],
+    // NOTE: OPERATIONS can now view all rep pay stubs
+    
+    'financial:approve:advances': ['OPERATIONS', 'ACCOUNTING',
+                                    'EXECUTIVE'],
+    // NOTE: OPERATIONS can now approve advances
+    
+    'financial:manage:deductions': ['OPERATIONS', 'ACCOUNTING',
+                                     'EXECUTIVE'],
+    'financial:manage:taxprofiles': ['OPERATIONS', 'ACCOUNTING',
+                                      'EXECUTIVE'],
+    'financial:export:ach': ['OPERATIONS', 'ACCOUNTING',
+                              'EXECUTIVE'],
+    // NOTE: OPERATIONS can now export ACH files
+    
+    'financial:view:reserves': ['OPERATIONS', 'ACCOUNTING',
+                                 'EXECUTIVE'],
+    'financial:manage:reserves': ['OPERATIONS', 'ACCOUNTING',
+                                   'EXECUTIVE'],
+    'financial:override:reserve:cap': ['EXECUTIVE'],
+    // NOTE: Reserve cap override stays EXECUTIVE only
+    // This is a legal policy protection
+    
+    // Override permissions
+    'overrides:approve:director': ['OPERATIONS', 'EXECUTIVE'],
+    // NOTE: OPERATIONS can now approve Director overrides
+    // Previously this was EXECUTIVE only
+    
+    'overrides:approve:admin': ['OPERATIONS', 'ACCOUNTING',
+                                 'EXECUTIVE'],
+    'overrides:approve:accounting': ['OPERATIONS', 'ACCOUNTING',
+                                      'EXECUTIVE'],
+    'overrides:view': ['MANAGER', 'DIRECTOR', 'OPERATIONS',
+                       'ACCOUNTING', 'EXECUTIVE'],
+    
+    // Production and reporting permissions
+    'production:view:own': ['REP', 'LEAD', 'MANAGER', 'DIRECTOR',
+                             'OPERATIONS', 'EXECUTIVE'],
+    'production:view:team': ['LEAD', 'MANAGER', 'DIRECTOR',
+                              'OPERATIONS', 'EXECUTIVE'],
+    'production:view:all': ['DIRECTOR', 'OPERATIONS', 'EXECUTIVE'],
+    'production:view:dollars': ['REP', 'LEAD', 'MANAGER',
+                                 'OPERATIONS', 'ACCOUNTING',
+                                 'EXECUTIVE'],
+    // NOTE: DIRECTOR still excluded from dollars by design
+    // OPERATIONS sees all dollar amounts
+    
+    // User management permissions
+    'users:view': ['MANAGER', 'DIRECTOR', 'OPERATIONS',
+                   'ACCOUNTING', 'EXECUTIVE'],
+    'users:create': ['OPERATIONS', 'EXECUTIVE'],
+    'users:edit': ['OPERATIONS', 'EXECUTIVE'],
+    'users:deactivate': ['OPERATIONS', 'EXECUTIVE'],
+    'users:create:executive': ['EXECUTIVE'],
+    // NOTE: Only EXECUTIVE can create other EXECUTIVE users
+    'users:create:accounting': ['OPERATIONS', 'EXECUTIVE'],
+    // NOTE: OPERATIONS can now create ACCOUNTING users
+    'users:create:director': ['OPERATIONS', 'EXECUTIVE'],
+    'users:create:operations': ['EXECUTIVE'],
+    // NOTE: Only EXECUTIVE can create other OPERATIONS users
+    // Prevents privilege escalation
+    
+    // Finance import permissions
+    'finance:import:upload': ['OPERATIONS', 'EXECUTIVE'],
+    'finance:import:view': ['OPERATIONS', 'ACCOUNTING',
+                             'EXECUTIVE'],
+    'finance:import:post': ['OPERATIONS', 'ACCOUNTING',
+                             'EXECUTIVE'],
+    // NOTE: OPERATIONS can now post finance imports
+    
+    // Install tracking permissions
+    'installs:sync': ['OPERATIONS', 'EXECUTIVE'],
+    'installs:view': ['DIRECTOR', 'OPERATIONS', 'EXECUTIVE'],
+    
+    // System permissions
+    'system:settings:operational': ['OPERATIONS', 'EXECUTIVE'],
+    'system:settings:financial': ['OPERATIONS', 'ACCOUNTING',
+                                   'EXECUTIVE'],
+    // NOTE: OPERATIONS can now access financial settings
+    'system:settings:all': ['OPERATIONS', 'EXECUTIVE'],
+    // NOTE: OPERATIONS now has full system settings access
+    
+    'system:ratecards:view': ['DIRECTOR', 'OPERATIONS',
+                               'ACCOUNTING', 'EXECUTIVE'],
+    'system:ratecards:edit': ['EXECUTIVE'],
+    // NOTE: Rate card dollar amounts stay EXECUTIVE only
+    // OPERATIONS can view but not change commission amounts
+    
+    'system:automation': ['OPERATIONS', 'EXECUTIVE'],
+    
+    // Exception queue permissions
+    'exceptions:operational': ['DIRECTOR', 'OPERATIONS',
+                                'EXECUTIVE'],
+    'exceptions:financial': ['OPERATIONS', 'ACCOUNTING',
+                              'EXECUTIVE'],
+    // NOTE: OPERATIONS now sees all exception types
+    'exceptions:all': ['OPERATIONS', 'EXECUTIVE'],
+    
+    // MDU permissions
+    'mdu:submit': ['MDU'],
+    'mdu:review': ['OPERATIONS', 'EXECUTIVE'],
+    
+    // Dispute permissions
+    'disputes:view:own': ['REP', 'LEAD', 'MANAGER'],
+    'disputes:view:all': ['DIRECTOR', 'OPERATIONS',
+                          'ACCOUNTING', 'EXECUTIVE'],
+    'disputes:resolve': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    // NOTE: OPERATIONS can now resolve commission disputes
+    
+    // Reporting permissions
+    'reports:production': ['DIRECTOR', 'OPERATIONS', 'EXECUTIVE'],
+    'reports:financial': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    // NOTE: OPERATIONS can now access financial reports
+    'reports:all': ['OPERATIONS', 'EXECUTIVE'],
+    
+    // Onboarding permissions
+    'onboarding:review': ['OPERATIONS', 'EXECUTIVE'],
+    'onboarding:approve': ['OPERATIONS', 'EXECUTIVE'],
+    'onboarding:reject': ['OPERATIONS', 'EXECUTIVE'],
+    'onboarding:send:otp': ['OPERATIONS', 'EXECUTIVE'],
+    
+    // Pay stub permissions
+    'paystubs:view:all': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    'paystubs:generate': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    'paystubs:export:pdf': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    
+    // Reserve permissions
+    'reserves:view:all': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    'reserves:manual:adjust': ['OPERATIONS', 'ACCOUNTING',
+                                'EXECUTIVE'],
+    'reserves:handle:separation': ['OPERATIONS', 'EXECUTIVE'],
+    'reserves:override:cap': ['EXECUTIVE'],
+    
+    // Audit log permissions
+    'audit:view': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    
+    // Background jobs permissions
+    'jobs:view': ['OPERATIONS', 'EXECUTIVE'],
+    'jobs:trigger': ['OPERATIONS', 'EXECUTIVE'],
+    
+    // ACH and banking permissions
+    'banking:view': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    'banking:export': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+    'banking:manage:accounts': ['ACCOUNTING', 'EXECUTIVE'],
+    // NOTE: OPERATIONS can view and export ACH
+    // but cannot edit rep bank accounts directly
+    
+  } as const;
+
+===================================================================
+SECTION 2 — UPDATE USER CREATION HIERARCHY
+===================================================================
+
+In the user creation endpoint, update the role creation rules:
+
+  const canCreateRole = {
+    'EXECUTIVE': ['EXECUTIVE'],
+    // Only EXECUTIVE can create another EXECUTIVE
+    
+    'OPERATIONS': ['EXECUTIVE'],
+    // Only EXECUTIVE can create OPERATIONS users
+    // This prevents a rogue OPERATIONS user from creating 
+    // another OPERATIONS user and bypassing oversight
+    
+    'DIRECTOR': ['OPERATIONS', 'EXECUTIVE'],
+    'ACCOUNTING': ['OPERATIONS', 'EXECUTIVE'],
+    'MANAGER': ['OPERATIONS', 'EXECUTIVE'],
+    'LEAD': ['OPERATIONS', 'EXECUTIVE', 'MANAGER'],
+    'REP': ['OPERATIONS', 'EXECUTIVE', 'MANAGER'],
+    'MDU': ['OPERATIONS', 'EXECUTIVE'],
+  };
+
+  // In the route handler:
+  const allowedCreators = canCreateRole[newUserRole] || [];
+  if (!allowedCreators.includes(req.user.role)) {
+    return res.status(403).json({
+      message: `Your role (${req.user.role}) cannot create 
+                users with role ${newUserRole}`,
+    });
+  }
+
+===================================================================
+SECTION 3 — UPDATE ROUTE GUARDS THROUGHOUT routes.ts
+===================================================================
+
+Audit every route in routes.ts and update the permission 
+check where OPERATIONS was previously excluded.
+
+Specific routes to update:
+
+PAY RUN ROUTES:
+  POST /api/admin/pay-runs/auto-build
+    Change: managerOrAdmin → requirePermission('financial:create:payruns')
+  
+  POST /api/admin/pay-runs/:id/finalize
+    Change: adminOnly → requirePermission('financial:finalize:payruns')
+  
+  POST /api/admin/pay-runs/:id/generate-stubs
+    Change: adminOnly → requirePermission('financial:create:payruns')
+  
+  POST /api/admin/pay-runs/full-cycle
+    Change: adminOnly → requirePermission('financial:create:payruns')
+
+PAY STUB ROUTES:
+  GET /api/pay-stubs/:id/pdf
+    Update access check to include OPERATIONS:
+    if (!['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE']
+         .includes(user.role) && 
+        statement.userId !== user.id) {
+      return res.status(403)...
+    }
+  
+  GET /api/admin/pay-runs/:id/stubs/export-all
+    Change: adminOnly → requirePermission('paystubs:export:pdf')
+
+AR ROUTES:
+  POST /api/finance/ar/:id/payments
+    Change: adminOnly → requirePermission('financial:edit:ar')
+  
+  POST /api/finance/ar/:id/write-off
+    Change: adminOnly → requirePermission('financial:edit:ar')
+  
+  PATCH /api/finance/ar/:id/variance
+    Change: adminOnly → requirePermission('financial:edit:ar')
+  
+  PATCH /api/finance/ar/:id/expected-amount
+    Change: adminOnly → requirePermission('financial:edit:ar')
+
+FINANCE IMPORT ROUTES:
+  POST /api/finance/imports/:id/post
+    Change: adminOnly → requirePermission('finance:import:post')
+
+OVERRIDE APPROVAL ROUTES:
+  POST /api/admin/override-earnings/:id/approve
+    For DIRECTOR_OVERRIDE type:
+      OLD check: only EXECUTIVE
+      NEW check: OPERATIONS or EXECUTIVE
+    
+    Update the inline permission check:
+    if (overrideEarning.overrideType === 'DIRECTOR_OVERRIDE') {
+      if (!['OPERATIONS', 'EXECUTIVE'].includes(user.role)) {
+        return res.status(403).json({
+          message: 'Only OPERATIONS or EXECUTIVE can approve 
+                   Director overrides'
+        });
+      }
+    }
+
+ADVANCE ROUTES:
+  POST /api/admin/advances/:id/approve
+    Change: adminOnly → requirePermission('financial:approve:advances')
+  
+  POST /api/admin/advances/:id/reject
+    Change: adminOnly → requirePermission('financial:approve:advances')
+
+DISPUTE ROUTES:
+  POST /api/admin/disputes/:id/resolve
+    Change: adminOnly → requirePermission('disputes:resolve')
+
+SYSTEM SETTINGS ROUTES:
+  GET /api/admin/system-settings
+    Change: adminOnly → requirePermission('system:settings:all')
+  
+  POST /api/admin/system-settings
+    For financial keys (payroll, reserve, rate):
+      requirePermission('system:settings:financial')
+    For all keys:
+      requirePermission('system:settings:all')
+    Both OPERATIONS and EXECUTIVE pass both checks.
+
+RESERVE ROUTES:
+  POST /api/admin/reserves/:userId/adjust
+    Change: executiveOrAdmin → requirePermission('reserves:manual:adjust')
+  
+  POST /api/admin/reserves/:userId/override-cap
+    Keep: EXECUTIVE only — do not change this one
+  
+  POST /api/admin/reserves/:userId/handle-separation
+    Change: executiveOrAdmin → requirePermission('reserves:handle:separation')
+
+REPORT ROUTES:
+  GET /api/admin/reports/iron-crest-profit
+    Keep: ACCOUNTING and EXECUTIVE only — do not change
+    OPERATIONS should not see profit margins
+  
+  GET /api/admin/accounting/summary
+    Change: executiveOrAdmin → 
+    requirePermission('reports:financial')
+  
+  GET /api/admin/accounting/ar-payroll-reconciliation
+    Change: executiveOrAdmin → 
+    requirePermission('reports:financial')
+  
+  GET /api/admin/accounting/variance-report
+    Change: executiveOrAdmin → 
+    requirePermission('reports:financial')
+
+ONBOARDING ROUTES:
+  POST /api/admin/onboarding/submissions/:id/approve
+    Change: executiveOrAdmin → requirePermission('onboarding:approve')
+  
+  POST /api/admin/onboarding/submissions/:id/reject
+    Change: executiveOrAdmin → requirePermission('onboarding:reject')
+  
+  POST /api/admin/onboarding/:userId/send-otp
+    Change: executiveOrAdmin → requirePermission('onboarding:send:otp')
+
+TAX PROFILE ROUTES:
+  GET /api/admin/tax-profiles
+    Change: adminOnly → requirePermission('financial:manage:taxprofiles')
+  
+  PATCH /api/admin/tax-profiles/:userId
+    Change: adminOnly → requirePermission('financial:manage:taxprofiles')
+
+ACH ROUTES:
+  GET /api/admin/ach-exports
+    Change: adminOnly → requirePermission('financial:export:ach')
+  
+  POST /api/admin/ach-exports
+    Change: adminOnly → requirePermission('financial:export:ach')
+
+AUDIT LOG ROUTES:
+  GET /api/admin/audit-logs
+    Change: adminOnly → requirePermission('audit:view')
+
+BACKGROUND JOB ROUTES:
+  GET /api/admin/background-jobs
+    Change: adminOnly → requirePermission('jobs:view')
+  
+  POST /api/admin/trigger-report
+    Change: adminOnly → requirePermission('jobs:trigger')
+  
+  POST /api/admin/chargebacks/process
+    Change: adminOnly → requirePermission('jobs:trigger')
+  
+  POST /api/admin/scheduled-pay-runs/trigger
+    Change: adminOnly → requirePermission('jobs:trigger')
+
+===================================================================
+SECTION 4 — UPDATE EXCEPTION QUEUE FOR OPERATIONS
+===================================================================
+
+In the exception queue endpoint 
+(GET /api/admin/exceptions/queue):
+
+Update getExceptionTypesForRole for OPERATIONS:
+
+  case 'OPERATIONS':
+    return ALL_EXCEPTION_TYPES;
+    // OPERATIONS now sees every exception type
+    // They are the primary person responding to issues
+
+Update the exception queue counts endpoint 
+(GET /api/admin/exceptions/counts):
+
+  OPERATIONS now receives counts for all exception types,
+  not just operational ones.
+
+===================================================================
+SECTION 5 — UPDATE OPERATIONS DASHBOARD
+===================================================================
+
+Update GET /api/my/summary for OPERATIONS role:
+
+The Operations home screen should now show everything, 
+not just the operational subset. Update the response 
+to include:
+
+  {
+    role: 'OPERATIONS',
+    
+    exceptionQueue: {
+      urgent: number,         // ALL urgent exceptions
+      high: number,
+      total: number,
+    },
+    
+    operationalMetrics: {
+      pendingApprovals: number,
+      financeImportsPending: number,
+      installSyncLastRun: timestamp,
+      backgroundJobsStatus: string,
+      onboardingPending: number,
+    },
+    
+    financialMetrics: {
+      // NOW INCLUDED for OPERATIONS
+      payRunsDraft: number,
+      overridesPendingApproval: number,
+      arOpenBalance: number,
+      advancesPendingApproval: number,
+      reservesInDeficit: number,
+      payStubsGenerated: number,
+    },
+    
+    productionMetrics: {
+      ordersThisMonth: number,
+      connectsThisMonth: number,
+      connectRate: number,
+      autoApprovalRate: number,  // % approved automatically
+    },
+    
+    pendingActions: [
+      // Prioritized list of what needs attention today
+      // Pulled from exception queue + pending items
+      // Ordered by urgency and dollar impact
+    ]
+  }
+
+===================================================================
+SECTION 6 — UPDATE NOTIFICATION ROUTING
+===================================================================
+
+Find every place in the codebase where notifications 
+are sent only to EXECUTIVE for operational matters 
+and add OPERATIONS as a co-recipient.
+
+Specific notification updates:
+
+  Pay run auto-built:
+    OLD: notify ACCOUNTING and EXECUTIVE
+    NEW: notify ACCOUNTING, OPERATIONS, and EXECUTIVE
+
+  Finance import posted (auto):
+    OLD: notify OPERATIONS and ACCOUNTING
+    NEW: no change (already correct)
+
+  Override pending approval (Director override):
+    OLD: notify only EXECUTIVE
+    NEW: notify OPERATIONS and EXECUTIVE
+
+  Negative margin detected:
+    OLD: notify EXECUTIVE and ACCOUNTING
+    NEW: notify OPERATIONS, EXECUTIVE, and ACCOUNTING
+
+  Onboarding submitted:
+    OLD: notify OPERATIONS and EXECUTIVE
+    NEW: no change (already correct)
+
+  Reserve cap override applied:
+    OLD: notify ACCOUNTING
+    NEW: notify OPERATIONS and ACCOUNTING
+
+  Rep separation with reserve hold:
+    OLD: notify ACCOUNTING and EXECUTIVE
+    NEW: notify OPERATIONS, ACCOUNTING, and EXECUTIVE
+
+  Background job failure:
+    OLD: no notification
+    NEW: notify OPERATIONS immediately
+    Create notification:
+      type: 'BACKGROUND_JOB_FAILED'
+      subject: 'Background Job Failed'
+      body: `${jobType} failed at ${timestamp}. 
+             Error: ${errorMessage}. 
+             Check background jobs for details.`
+
+===================================================================
+SECTION 7 — UPDATE STORAGE METHODS
+===================================================================
+
+Find every storage method that has an internal role 
+check and update it to include OPERATIONS:
+
+In storage.ts, search for any method that checks:
+  if (role === 'EXECUTIVE' || role === 'ADMIN')
+
+Replace with:
+  if (['EXECUTIVE', 'OPERATIONS'].includes(role))
+
+Specific methods to check:
+  - Any method that gates data by role internally
+  - getExecutiveScope (OPERATIONS should get full scope)
+  - Any method that checks for 'ADMIN' (deprecated role)
+
+Add a new storage method:
+  async getFullOrganizationScope(): Promise<{
+    allManagerIds: string[],
+    allRepRepIds: string[],
+    allRepIds: string[],
+    allUserIds: string[],
+  }>
+  
+  Returns ALL users in the system regardless of hierarchy.
+  Used by OPERATIONS and EXECUTIVE when they need 
+  full access to data without hierarchy filtering.
+  
+  Called when:
+    req.user.role === 'OPERATIONS' 
+    OR req.user.role === 'EXECUTIVE'
+  
+  Instead of calling getManagerScope or getExecutiveScope 
+  (which are hierarchy-based), OPERATIONS gets everything.
+
+===================================================================
+SECTION 8 — UPDATE SELF-APPROVAL PROHIBITION
+===================================================================
+
+The self-approval prohibition remains fully in effect for 
+OPERATIONS. Even though OPERATIONS can approve Director 
+overrides, they cannot approve their own override earnings.
+
+Verify this check exists in the Director override 
+approval route:
+
+  // After confirming OPERATIONS can approve this type:
+  if (overrideEarning.recipientUserId === req.user.id) {
+    return res.status(403).json({
+      message: 'You cannot approve your own override earning. 
+               Another OPERATIONS or EXECUTIVE user must 
+               approve overrides where you are the recipient.',
+    });
+  }
+
+This is important because OPERATIONS may receive Admin 
+override earnings. Those must be approved by EXECUTIVE 
+when the recipient is an OPERATIONS user.
+
+===================================================================
+SECTION 9 — RATE CARD PROTECTION
+===================================================================
+
+Even though OPERATIONS has expanded access, rate card 
+dollar amounts remain protected. This is a business 
+owner decision that only EXECUTIVE can make.
+
+In the rate card routes:
+  GET /api/admin/rate-cards (view all)
+    Access: DIRECTOR, OPERATIONS, ACCOUNTING, EXECUTIVE
+    Returns: full rate card data including amounts (view only)
+  
+  POST /api/admin/rate-cards (create)
+    Access: EXECUTIVE only
+    Return 403 for OPERATIONS with message:
+    "Rate card creation requires Executive approval. 
+     Contact the business owner to add or modify rate cards."
+  
+  PATCH /api/admin/rate-cards/:id (edit amounts)
+    Access: EXECUTIVE only
+    Same message as above
+  
+  PATCH /api/admin/rate-cards/:id/activate
+    Access: OPERATIONS, EXECUTIVE
+    OPERATIONS can activate or deactivate rate cards 
+    but cannot change the amounts
+  
+  DELETE /api/admin/rate-cards/:id (soft delete)
+    Access: EXECUTIVE only
+
+===================================================================
+SECTION 10 — UPDATE USER GUIDES
+===================================================================
+
+Replace the OPERATIONS User Guide with this updated version
+that reflects full access:
+
+Save as a knowledge document in the system titled:
+"Operations Role — Complete Access Guide"
+
+---
+
+OPERATIONS USER GUIDE — FULL ACCESS VERSION
+
+YOUR ROLE:
+You are the primary app administrator and main point of 
+contact for Iron Crest Solutions LLC. You have full access 
+to every function in the system except:
+- Creating other OPERATIONS users (requires EXECUTIVE)
+- Creating EXECUTIVE users (requires EXECUTIVE)
+- Editing rate card dollar amounts (requires EXECUTIVE)
+- Overriding reserve caps above $2,500 (requires EXECUTIVE)
+- Viewing Iron Crest profit margin data (owner-only)
+
+Everything else in the app is yours to manage.
+
+YOUR HOME SCREEN:
+Your dashboard shows the complete picture — both 
+operational and financial exceptions in one unified view. 
+You are the first line of response for everything.
+
+WHAT YOU CAN DO THAT IS NEW:
+
+Pay Runs:
+- Build, review, and FINALIZE pay runs
+- Generate pay stubs for all reps
+- Export ACH files for bank submission
+- Download all pay stub PDFs
+
+Pay Stubs:
+- View any rep's pay stub at any time
+- Download individual or bulk PDFs
+- Void or reissue stubs when needed
+
+AR Management:
+- Record carrier payments against AR expectations
+- Write off uncollectible AR
+- Adjust expected amounts
+- Post finance imports to create AR records
+
+Override Approvals:
+- Approve Director overrides (previously EXECUTIVE only)
+- Approve Admin overrides
+- Approve Accounting overrides
+- Bulk approve entire queues
+- (You still cannot approve your own override earnings)
+
+Advances:
+- Approve or reject rep advance requests
+- Set repayment terms
+- Apply manual repayments
+
+Tax Profiles:
+- View and edit all rep tax profiles
+- Manage withholding settings
+
+Financial Reports:
+- AR aging report
+- Payroll summary
+- Commission variance report
+- Reserve summary report
+- YTD earnings by rep
+- 1099 preparation data
+(You do not see the Iron Crest profit margin report)
+
+Disputes:
+- Resolve commission disputes
+- Set resolution amounts
+- Notify affected reps
+
+System Settings:
+- Full access to all settings including financial settings
+- Automation rules management
+- Scheduled report management
+- Background job monitoring and triggering
+
+User Management:
+- Create DIRECTOR, ACCOUNTING, MANAGER, LEAD, REP, MDU users
+- Edit any user's profile and role
+- Deactivate any user except EXECUTIVE
+- Manage onboarding for all reps
+
+Reserves:
+- View all rep reserve accounts and transaction history
+- Apply manual adjustments with documented reason
+- Process rep separations and equipment recovery
+- Monitor deficit accounts
+
+WHAT STILL REQUIRES EXECUTIVE:
+- Creating or managing other OPERATIONS users
+- Creating EXECUTIVE users
+- Changing rate card commission amounts
+- Overriding reserve caps beyond $2,500
+- Viewing Iron Crest profit margin percentages
+
+---
+
+===================================================================
+SECTION 11 — STARTUP HEALTH CHECK UPDATE
+===================================================================
+
+Update the startup health check in runStartupChecks():
+
+  // Verify OPERATIONS user exists
+  { name: 'OPERATIONS user exists',
+    fn: async () => {
+      const ops = await storage.getUsersByRole('OPERATIONS');
+      if (ops.length === 0) {
+        throw new Error(
+          'No OPERATIONS users found. The app requires at ' +
+          'least one OPERATIONS user to function. Create one ' +
+          'using an EXECUTIVE account.'
+        );
+      }
+      // Unlike ACCOUNTING and DIRECTOR which warn,
+      // missing OPERATIONS is a critical error because
+      // this role is the primary administrator
+    }},
+
+===================================================================
+GENERAL CONSTRAINTS
+===================================================================
+
+- Do not change any API response shapes
+- Do not touch the frontend
+- The self-approval prohibition is non-negotiable —
+  even with expanded OPERATIONS access, no user can 
+  approve their own financial records at any layer
+- Rate card amounts remain EXECUTIVE only —
+  add a clear error message on any attempt by OPERATIONS
+  that explains they need EXECUTIVE to change amounts
+- Iron Crest profit margin data remains EXECUTIVE 
+  and ACCOUNTING only — OPERATIONS sees commissions 
+  and AR but not the company's margin
+- Creating another OPERATIONS user requires EXECUTIVE —
+  this prevents privilege escalation
+- All permission changes must be reflected in BOTH 
+  the PERMISSIONS object AND any inline role checks
+  throughout routes.ts
+- Run npx tsc --noEmit after all changes and fix 
+  every TypeScript error before finishing
+- Update CHANGES.md with every permission change made,
+  organized by which routes were affected
+- The OPERATIONS role must appear in the startup 
+  health check as a CRITICAL requirement 
+  (not just a warning like ACCOUNTING and DIRECTOR)

@@ -1,0 +1,73 @@
+Send this to Replit Agent:
+
+Run the following verification tests against the Iron Crest 
+backend and report the results. Fix any failures before 
+marking each test as passed.
+
+TEST 1 — Server starts clean
+  npm run dev
+  Expected: Server starts, all startup health checks pass,
+  no TypeScript errors, no missing environment variables
+
+TEST 2 — Database is complete
+  npx drizzle-kit check
+  Expected: All migrations applied, no pending changes,
+  all tables exist with correct columns
+
+TEST 3 — Commission math is correct
+  Create a test order for each of these scenarios and verify
+  the output matches exactly:
+  
+  Scenario A: REP sells 1 Gig
+    Expected: baseCommissionEarned = $200.00
+    Expected: directorOverrideCents = 3000 ($30.00)
+    Expected: adminOverrideCents = 1000 ($10.00)
+    Expected: accountingOverrideCents = 500 ($5.00)
+    Expected: ironCrestRackRateCents = 35000 ($350.00)
+    Expected: ironCrestProfitCents = 10500 ($105.00)
+  
+  Scenario B: MANAGER sells 300 Mbps
+    Expected: baseCommissionEarned = $135.00
+    Expected: ironCrestProfitCents = 8000 ($80.00)
+  
+  Scenario C: LEAD sells 1 Gig + TV + 2 Mobile lines
+    Expected: baseCommissionEarned = $210.00 + $50.00 + $90.00
+    = $350.00 total
+
+TEST 4 — Role permissions are enforced
+  Simulate API calls from each role and verify:
+  DIRECTOR cannot see dollar amounts on any order response
+  OPERATIONS can finalize a pay run
+  ACCOUNTING cannot create an order
+  REP cannot access any /api/admin/* route
+  OPERATIONS cannot approve their own override earning
+
+TEST 5 — OTP flow works
+  Generate an OTP for a test user
+  Verify it is stored as bcrypt hash (not plaintext)
+  Verify SMS would be sent (mock Twilio in test mode)
+  Verify 5 failed attempts locks the account
+  Verify successful verification issues a JWT
+
+TEST 6 — Rolling reserve math is correct
+  REP earns $200.00 commission
+  Expected withholding: $30.00 (15%)
+  Expected net pay: $170.00
+  Expected reserve transaction created: type=WITHHOLDING
+  
+  Apply $50.00 chargeback to that rep
+  Expected reserve balance reduces by $50.00
+  Expected chargeback_deduction transaction created
+
+TEST 7 — AR to payroll pipeline
+  Approve an order
+  Verify payrollReadyAt is NULL
+  Create AR expectation for that order
+  Record full payment against AR expectation
+  Verify AR status becomes SATISFIED
+  Verify payrollReadyAt is automatically set
+  Verify payrollReadyTriggeredBy = 'AR_SATISFIED'
+
+Report every test result as PASS or FAIL with 
+specific error details for any failure.
+Fix all failures before we proceed.

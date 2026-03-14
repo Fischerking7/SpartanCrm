@@ -5,7 +5,8 @@ import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or, desc } from "drizzle-orm";
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions } from "@shared/schema";
-import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
+import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
+import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
@@ -1148,7 +1149,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/dashboard/admin-stats", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/dashboard/admin-stats", auth, requirePermission("reports:all"), async (req: AuthRequest, res) => {
     try {
       const stats = await storage.getAdminStatsSQL();
       
@@ -1904,7 +1905,7 @@ export async function registerRoutes(
   });
 
   // Admin: Manage sales goals
-  app.get("/api/admin/sales-goals", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/sales-goals", auth, requirePermission("admin:overrides:manage"), async (req: AuthRequest, res) => {
     try {
       const goals = await storage.getAllSalesGoals();
       const users = await storage.getUsers();
@@ -1919,7 +1920,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/sales-goals", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/sales-goals", auth, requirePermission("admin:overrides:manage"), async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
       const goalData = {
@@ -1934,7 +1935,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/sales-goals/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/sales-goals/:id", auth, requirePermission("admin:overrides:manage"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const updatedGoal = await storage.updateSalesGoal(id, req.body);
@@ -1948,7 +1949,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/admin/sales-goals/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/sales-goals/:id", auth, requirePermission("admin:overrides:manage"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       await storage.deleteSalesGoal(id);
@@ -2679,7 +2680,7 @@ export async function registerRoutes(
   });
 
   
-  app.post("/api/admin/orders/:id/mark-paid", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/orders/:id/mark-paid", auth, requirePermission("orders:edit"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const user = req.user!;
@@ -2700,7 +2701,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/orders/bulk-mark-paid", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/orders/bulk-mark-paid", auth, requirePermission("orders:edit"), async (req: AuthRequest, res) => {
     try {
       const { orderIds } = req.body;
       const user = req.user!;
@@ -2996,7 +2997,7 @@ export async function registerRoutes(
     limits: { fileSize: MAX_FILE_SIZE, files: 1 }
   });
   
-  app.post("/api/admin/orders/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/orders/import", auth, requirePermission("orders:edit"), upload.single("file"), async (req: AuthRequest, res) => {
     try {
       // Validate file upload
       const validation = validateFileUpload(req.file, res);
@@ -3210,7 +3211,7 @@ export async function registerRoutes(
   });
 
   // Admin reference data routes (executives can view, admins can modify)
-  app.get("/api/admin/users", auth, executiveOrAdmin, async (req, res) => {
+  app.get("/api/admin/users", auth, requirePermission("users:view"), async (req, res) => {
     try {
       const users = await storage.getUsers();
       res.json(users.map(u => ({ ...u, passwordHash: undefined, onboardingOtpHash: undefined })));
@@ -3219,7 +3220,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/users", auth, executiveOrAdmin, async (req, res) => {
+  app.get("/api/users", auth, requirePermission("users:view"), async (req, res) => {
     try {
       const users = await storage.getUsers();
       res.json(users.map(u => ({ ...u, passwordHash: undefined, onboardingOtpHash: undefined })));
@@ -3262,7 +3263,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/users", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/users", auth, requirePermission("users:create"), async (req: AuthRequest, res) => {
     try {
       const { password, name, repId, role, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
       if (!password || !name || !repId) {
@@ -3270,6 +3271,12 @@ export async function registerRoutes(
       }
       
       const userRole = role || "REP";
+      
+      const creatorRole = req.user!.role;
+      const allowedCreators = canCreateRole[userRole];
+      if (!allowedCreators || !allowedCreators.includes(creatorRole)) {
+        return res.status(403).json({ message: `Your role (${creatorRole}) cannot create users with role ${userRole}` });
+      }
       
       // Check if repId is already in use by an active (non-deleted) user
       const existingWithRepId = await storage.getActiveUserByRepId(repId);
@@ -3329,7 +3336,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/users/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/users/:id", auth, requirePermission("users:edit"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const { password, name, role, repId, status, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
@@ -3413,7 +3420,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/users/:id/deactivate", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/users/:id/deactivate", auth, requirePermission("users:deactivate"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const targetUser = await storage.getUserById(id);
@@ -3434,7 +3441,7 @@ export async function registerRoutes(
     }
   });
   
-  app.delete("/api/admin/users/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/users/:id", auth, requirePermission("users:edit"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const targetUser = await storage.getUserById(id);
@@ -3465,7 +3472,7 @@ export async function registerRoutes(
   });
 
   // Providers - public read for order creation dropdowns, admin for full CRUD
-  app.get("/api/admin/providers", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/providers", auth, requirePermission("admin:providers"), async (req, res) => {
     try { res.json(await storage.getProviders()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
   app.get("/api/providers", auth, async (req, res) => {
@@ -3474,21 +3481,21 @@ export async function registerRoutes(
       res.json(providers.filter(p => p.active).map(p => ({ id: p.id, name: p.name }))); 
     } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
-  app.post("/api/admin/providers", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/providers", auth, requirePermission("admin:providers"), async (req: AuthRequest, res) => {
     try {
       const provider = await storage.createProvider(req.body);
       await storage.createAuditLog({ action: "create_provider", tableName: "providers", recordId: provider.id, afterJson: JSON.stringify(provider), userId: req.user!.id });
       res.json(provider);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.patch("/api/admin/providers/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/providers/:id", auth, requirePermission("admin:providers"), async (req: AuthRequest, res) => {
     try {
       const provider = await storage.updateProvider(req.params.id, req.body);
       await storage.createAuditLog({ action: "update_provider", tableName: "providers", recordId: req.params.id, afterJson: JSON.stringify(provider), userId: req.user!.id });
       res.json(provider);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.delete("/api/admin/providers/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/providers/:id", auth, requirePermission("admin:providers"), async (req: AuthRequest, res) => {
     try {
       const depCount = await storage.getProviderDependencyCount(req.params.id);
       const provider = await storage.softDeleteProvider(req.params.id, req.user!.id);
@@ -3504,7 +3511,7 @@ export async function registerRoutes(
   });
 
   // Clients - public read for order creation dropdowns, admin for full CRUD
-  app.get("/api/admin/clients", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/clients", auth, requirePermission("admin:clients"), async (req, res) => {
     try { res.json(await storage.getClients()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
   app.get("/api/clients", auth, async (req, res) => {
@@ -3513,21 +3520,21 @@ export async function registerRoutes(
       res.json(clients.filter(c => c.active).map(c => ({ id: c.id, name: c.name }))); 
     } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
-  app.post("/api/admin/clients", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/clients", auth, requirePermission("admin:clients"), async (req: AuthRequest, res) => {
     try {
       const client = await storage.createClient(req.body);
       await storage.createAuditLog({ action: "create_client", tableName: "clients", recordId: client.id, afterJson: JSON.stringify(client), userId: req.user!.id });
       res.json(client);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.patch("/api/admin/clients/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/clients/:id", auth, requirePermission("admin:clients"), async (req: AuthRequest, res) => {
     try {
       const client = await storage.updateClient(req.params.id, req.body);
       await storage.createAuditLog({ action: "update_client", tableName: "clients", recordId: req.params.id, afterJson: JSON.stringify(client), userId: req.user!.id });
       res.json(client);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.delete("/api/admin/clients/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/clients/:id", auth, requirePermission("admin:clients"), async (req: AuthRequest, res) => {
     try {
       const depCount = await storage.getClientDependencyCount(req.params.id);
       const client = await storage.softDeleteClient(req.params.id, req.user!.id);
@@ -3543,7 +3550,7 @@ export async function registerRoutes(
   });
 
   // Services - public read for order creation dropdowns, admin for full CRUD
-  app.get("/api/admin/services", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/services", auth, requirePermission("admin:services"), async (req, res) => {
     try { res.json(await storage.getServices()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
   app.get("/api/services", auth, async (req, res) => {
@@ -3582,21 +3589,21 @@ export async function registerRoutes(
       res.status(500).json({ message: "Failed to get available services" }); 
     }
   });
-  app.post("/api/admin/services", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/services", auth, requirePermission("admin:services"), async (req: AuthRequest, res) => {
     try {
       const service = await storage.createService(req.body);
       await storage.createAuditLog({ action: "create_service", tableName: "services", recordId: service.id, afterJson: JSON.stringify(service), userId: req.user!.id });
       res.json(service);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.patch("/api/admin/services/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/services/:id", auth, requirePermission("admin:services"), async (req: AuthRequest, res) => {
     try {
       const service = await storage.updateService(req.params.id, req.body);
       await storage.createAuditLog({ action: "update_service", tableName: "services", recordId: req.params.id, afterJson: JSON.stringify(service), userId: req.user!.id });
       res.json(service);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.delete("/api/admin/services/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/services/:id", auth, requirePermission("admin:services"), async (req: AuthRequest, res) => {
     try {
       const depCount = await storage.getServiceDependencyCount(req.params.id);
       const service = await storage.softDeleteService(req.params.id, req.user!.id);
@@ -3612,7 +3619,7 @@ export async function registerRoutes(
   });
 
   // Rate Cards
-  app.get("/api/admin/rate-cards", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/rate-cards", auth, requirePermission("system:ratecards:view"), async (req, res) => {
     try { res.json(await storage.getRateCards()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
   
@@ -3657,7 +3664,7 @@ export async function registerRoutes(
       res.status(500).json({ hasMobileRates: false }); 
     }
   });
-  app.post("/api/admin/rate-cards", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/rate-cards", auth, requirePermission("system:ratecards:edit"), async (req: AuthRequest, res) => {
     try {
       let { customServiceName, serviceId, ...rateCardData } = req.body;
       
@@ -3674,7 +3681,7 @@ export async function registerRoutes(
       res.json(rateCard);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.patch("/api/admin/rate-cards/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/rate-cards/:id", auth, requirePermission("system:ratecards:edit"), async (req: AuthRequest, res) => {
     try {
       let { customServiceName, serviceId, ...rateCardData } = req.body;
       
@@ -3692,7 +3699,7 @@ export async function registerRoutes(
       res.json(rateCard);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.delete("/api/admin/rate-cards/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/rate-cards/:id", auth, requirePermission("system:ratecards:edit"), async (req: AuthRequest, res) => {
     try {
       const depCount = await storage.getRateCardDependencyCount(req.params.id);
       const rateCard = await storage.softDeleteRateCard(req.params.id, req.user!.id);
@@ -3708,13 +3715,13 @@ export async function registerRoutes(
   });
 
   // Rate Card Lead Overrides
-  app.get("/api/admin/rate-cards/:id/lead-overrides", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/rate-cards/:id/lead-overrides", auth, requirePermission("system:ratecards:view"), async (req, res) => {
     try {
       res.json(await storage.getRateCardLeadOverrides(req.params.id));
     } catch (error) { res.status(500).json({ message: "Failed to get lead overrides" }); }
   });
   
-  app.post("/api/admin/rate-cards/:id/lead-overrides", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/rate-cards/:id/lead-overrides", auth, requirePermission("system:ratecards:edit"), async (req: AuthRequest, res) => {
     try {
       const { leadId, overrideDeduction, tvOverrideDeduction, mobileOverrideDeduction } = req.body;
       const override = await storage.upsertRateCardLeadOverride({
@@ -3729,7 +3736,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed to save lead override" }); }
   });
   
-  app.delete("/api/admin/rate-cards/:rateCardId/lead-overrides/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/rate-cards/:rateCardId/lead-overrides/:id", auth, requirePermission("system:ratecards:edit"), async (req: AuthRequest, res) => {
     try {
       await storage.deleteRateCardLeadOverride(req.params.id);
       await storage.createAuditLog({ action: "delete_lead_override", tableName: "rate_card_lead_overrides", recordId: req.params.id, userId: req.user!.id });
@@ -3738,13 +3745,13 @@ export async function registerRoutes(
   });
 
   // Rate Card Role Overrides
-  app.get("/api/admin/rate-cards/:id/role-overrides", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/rate-cards/:id/role-overrides", auth, requirePermission("system:ratecards:view"), async (req, res) => {
     try {
       res.json(await storage.getRateCardRoleOverrides(req.params.id));
     } catch (error) { res.status(500).json({ message: "Failed to get role overrides" }); }
   });
   
-  app.post("/api/admin/rate-cards/:id/role-overrides", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/rate-cards/:id/role-overrides", auth, requirePermission("system:ratecards:edit"), async (req: AuthRequest, res) => {
     try {
       const validRoles = ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE"];
       const { roleOverrides } = req.body;
@@ -3767,17 +3774,17 @@ export async function registerRoutes(
   });
 
   // Incentives
-  app.get("/api/admin/incentives", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/incentives", auth, requirePermission("admin:incentives"), async (req, res) => {
     try { res.json(await storage.getIncentives()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
-  app.post("/api/admin/incentives", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/incentives", auth, requirePermission("admin:incentives"), async (req: AuthRequest, res) => {
     try {
       const incentive = await storage.createIncentive(req.body);
       await storage.createAuditLog({ action: "create_incentive", tableName: "incentives", recordId: incentive.id, afterJson: JSON.stringify(incentive), userId: req.user!.id });
       res.json(incentive);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.patch("/api/admin/incentives/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/incentives/:id", auth, requirePermission("admin:incentives"), async (req: AuthRequest, res) => {
     try {
       const incentive = await storage.updateIncentive(req.params.id, req.body);
       await storage.createAuditLog({ action: "update_incentive", tableName: "incentives", recordId: req.params.id, afterJson: JSON.stringify(incentive), userId: req.user!.id });
@@ -3786,10 +3793,10 @@ export async function registerRoutes(
   });
 
   // Override Agreements
-  app.get("/api/admin/overrides", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/overrides", auth, requirePermission("admin:overrides:manage"), async (req, res) => {
     try { res.json(await storage.getOverrideAgreements()); } catch (error) { res.status(500).json({ message: "Failed to fetch override agreements" }); }
   });
-  app.post("/api/admin/overrides", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/overrides", auth, requirePermission("admin:overrides:manage"), async (req: AuthRequest, res) => {
     try {
       const validated = insertOverrideAgreementSchema.parse(req.body);
       const override = await storage.createOverrideAgreement(validated);
@@ -3800,7 +3807,7 @@ export async function registerRoutes(
       res.status(500).json({ message: error.message || "Failed to create override agreement" }); 
     }
   });
-  app.patch("/api/admin/overrides/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/overrides/:id", auth, requirePermission("admin:overrides:manage"), async (req: AuthRequest, res) => {
     try {
       const validated = insertOverrideAgreementSchema.partial().parse(req.body);
       const override = await storage.updateOverrideAgreement(req.params.id, validated);
@@ -3811,7 +3818,7 @@ export async function registerRoutes(
       res.status(500).json({ message: error.message || "Failed to update override agreement" }); 
     }
   });
-  app.delete("/api/admin/overrides/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/overrides/:id", auth, requirePermission("admin:overrides:manage"), async (req: AuthRequest, res) => {
     try {
       const override = await storage.updateOverrideAgreement(req.params.id, { active: false });
       await storage.createAuditLog({ action: "soft_delete_override_agreement", tableName: "override_agreements", recordId: req.params.id, afterJson: JSON.stringify(override), userId: req.user!.id });
@@ -3820,7 +3827,7 @@ export async function registerRoutes(
   });
 
   // Pay Runs
-  app.get("/api/admin/payruns", auth, executiveOrAdmin, async (req, res) => {
+  app.get("/api/admin/payruns", auth, requirePermission("admin:payruns:manage"), async (req, res) => {
     try {
       const payRuns = await storage.getPayRuns();
       // Enrich with order counts and totals
@@ -3838,7 +3845,7 @@ export async function registerRoutes(
       res.json(enriched);
     } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
-  app.post("/api/admin/payruns", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payruns", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const validated = insertPayRunSchema.parse({ ...req.body, createdByUserId: req.user!.id });
       const payRun = await storage.createPayRun(validated);
@@ -3849,7 +3856,7 @@ export async function registerRoutes(
       res.status(500).json({ message: error.message || "Failed" }); 
     }
   });
-  app.delete("/api/admin/payruns/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/payruns/:id", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -3863,7 +3870,7 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
-  app.post("/api/admin/payruns/:id/submit-review", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payruns/:id/submit-review", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -3884,7 +3891,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.post("/api/admin/payruns/:id/submit-approval", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payruns/:id/submit-approval", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -3897,7 +3904,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.post("/api/admin/payruns/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payruns/:id/approve", auth, requirePermission("admin:payruns:approve"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -3910,7 +3917,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.post("/api/admin/payruns/:id/reject", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payruns/:id/reject", auth, requirePermission("admin:payruns:approve"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -3924,7 +3931,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.get("/api/admin/payruns/:id/variance", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payruns/:id/variance", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -3980,7 +3987,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.post("/api/admin/payruns/:id/finalize", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payruns/:id/finalize", auth, requirePermission("financial:finalize:payruns"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -4109,7 +4116,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.get("/api/admin/payruns/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payruns/:id", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -4143,7 +4150,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.post("/api/admin/payruns/:id/link-orders", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payruns/:id/link-orders", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const { orderIds } = req.body;
       if (!orderIds?.length) return res.status(400).json({ message: "No orders to link" });
@@ -4164,7 +4171,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
   
-  app.post("/api/admin/payruns/:id/link-all-orders", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payruns/:id/link-all-orders", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -4211,7 +4218,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.post("/api/admin/payruns/:id/unlink-orders", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payruns/:id/unlink-orders", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const { orderIds } = req.body;
       if (!orderIds?.length) return res.status(400).json({ message: "No orders to unlink" });
@@ -4237,7 +4244,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.get("/api/admin/payruns/:id/cash-projection", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payruns/:id/cash-projection", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -4297,7 +4304,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/payruns/unlinked-orders", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payruns/unlinked-orders", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const weekEndingDate = req.query.weekEndingDate as string | undefined;
       const orders = await storage.getOrders();
@@ -4371,7 +4378,7 @@ export async function registerRoutes(
   });
 
   // Override Deduction Pool
-  app.get("/api/admin/override-pool", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/override-pool", auth, requirePermission("admin:overridepool"), async (req: AuthRequest, res) => {
     try {
       const status = req.query.status as "PENDING" | "DISTRIBUTED" | undefined;
       const entries = await storage.getOverrideDeductionPoolEntries(status);
@@ -4393,7 +4400,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to fetch pool entries" }); }
   });
 
-  app.get("/api/admin/override-pool/total", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/override-pool/total", auth, requirePermission("admin:overridepool"), async (req: AuthRequest, res) => {
     try {
       const total = await storage.getPendingPoolTotal();
       res.json({ total });
@@ -4401,7 +4408,7 @@ export async function registerRoutes(
   });
 
   // Override Distribution Management (Manual Distribution)
-  app.get("/api/admin/payruns/:id/override-pool", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payruns/:id/override-pool", auth, requirePermission("admin:overridepool"), async (req: AuthRequest, res) => {
     try {
       const orders = await storage.getOrdersByPayRunId(req.params.id);
       if (orders.length === 0) return res.json([]);
@@ -4440,7 +4447,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.get("/api/admin/payruns/:id/distributions", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payruns/:id/distributions", auth, requirePermission("admin:overridepool"), async (req: AuthRequest, res) => {
     try {
       const distributions = await storage.getOverrideDistributionsByPayRun(req.params.id);
       
@@ -4459,7 +4466,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.post("/api/admin/payruns/:id/distributions", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payruns/:id/distributions", auth, requirePermission("admin:overridepool"), async (req: AuthRequest, res) => {
     try {
       const { poolEntryId, recipientUserId, allocationType, allocationValue } = req.body;
       
@@ -4515,7 +4522,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.delete("/api/admin/payruns/:payRunId/distributions/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/payruns/:payRunId/distributions/:id", auth, requirePermission("admin:overridepool"), async (req: AuthRequest, res) => {
     try {
       await storage.deleteOverrideDistribution(req.params.id);
       await storage.createAuditLog({
@@ -4529,7 +4536,7 @@ export async function registerRoutes(
   });
 
   // Accounting Export/Import
-  app.post("/api/admin/accounting/export-approved", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/accounting/export-approved", auth, requirePermission("admin:export:approved"), async (req: AuthRequest, res) => {
     try {
       const { reexport } = req.body;
       const orders = reexport ? await storage.getAllApproved() : await storage.getApprovedUnexported();
@@ -4632,7 +4639,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Export failed" }); }
   });
 
-  app.post("/api/admin/accounting/import-payments", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/accounting/import-payments", auth, requirePermission("admin:import:payments"), upload.single("file"), async (req: AuthRequest, res) => {
     try {
       // Validate file upload
       if (!req.file) {
@@ -4703,7 +4710,7 @@ export async function registerRoutes(
   });
 
   // Chargeback import
-  app.post("/api/admin/chargebacks/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/chargebacks/import", auth, requirePermission("admin:import:chargebacks"), upload.single("file"), async (req: AuthRequest, res) => {
     try {
       // Validate file upload
       if (!req.file) {
@@ -4784,7 +4791,7 @@ export async function registerRoutes(
   });
 
   // Bulk commission recalculation
-  app.post("/api/admin/recalculate-commissions", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/recalculate-commissions", auth, requirePermission("admin:recalculate"), async (req: AuthRequest, res) => {
     try {
       const { orderIds, providerId, clientId, dateFrom, dateTo, recalculateAll } = req.body;
       
@@ -4924,7 +4931,7 @@ export async function registerRoutes(
   });
 
   // Reports API
-  app.get("/api/admin/reports/summary", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/reports/summary", auth, requirePermission("reports:all"), async (req: AuthRequest, res) => {
     try {
       const { dateFrom, dateTo, providerId, clientId } = req.query as Record<string, string>;
       
@@ -5029,14 +5036,14 @@ export async function registerRoutes(
   });
 
   // Export Batches
-  app.get("/api/admin/accounting/export-batches", auth, executiveOrAdmin, async (req, res) => {
+  app.get("/api/admin/accounting/export-batches", auth, requirePermission("admin:export:approved"), async (req, res) => {
     try {
       const batches = await storage.getExportBatches();
       res.json(batches);
     } catch (error) { res.status(500).json({ message: "Failed to get export batches" }); }
   });
 
-  app.get("/api/admin/accounting/export-batches/:id", auth, executiveOrAdmin, async (req, res) => {
+  app.get("/api/admin/accounting/export-batches/:id", auth, requirePermission("admin:export:approved"), async (req, res) => {
     try {
       const batch = await storage.getExportBatchById(req.params.id);
       if (!batch) return res.status(404).json({ message: "Batch not found" });
@@ -5045,7 +5052,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to get export batch" }); }
   });
 
-  app.delete("/api/admin/accounting/export-batches/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/accounting/export-batches/:id", auth, requirePermission("admin:export:approved"), async (req: AuthRequest, res) => {
     try {
       await storage.deleteExportBatch(req.params.id);
       await storage.createAuditLog({ action: "delete_export_batch", tableName: "export_batches", recordId: req.params.id, userId: req.user!.id });
@@ -5053,7 +5060,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to delete export batch" }); }
   });
 
-  app.get("/api/admin/accounting/exported-orders", auth, adminOnly, async (req, res) => {
+  app.get("/api/admin/accounting/exported-orders", auth, requirePermission("admin:export:approved"), async (req, res) => {
     try {
       const orders = await storage.getExportedOrders();
       res.json(orders);
@@ -5199,16 +5206,16 @@ export async function registerRoutes(
   });
 
   // Exception Queues
-  app.get("/api/admin/queues/unmatched-payments", auth, executiveOrAdmin, async (req, res) => {
+  app.get("/api/admin/queues/unmatched-payments", auth, requirePermission("exceptions:all"), async (req, res) => {
     try { res.json(await storage.getUnmatchedPayments()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
-  app.get("/api/admin/queues/unmatched-chargebacks", auth, executiveOrAdmin, async (req, res) => {
+  app.get("/api/admin/queues/unmatched-chargebacks", auth, requirePermission("exceptions:all"), async (req, res) => {
     try { res.json(await storage.getUnmatchedChargebacks()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
-  app.get("/api/admin/queues/rate-issues", auth, executiveOrAdmin, async (req, res) => {
+  app.get("/api/admin/queues/rate-issues", auth, requirePermission("exceptions:all"), async (req, res) => {
     try { res.json(await storage.getRateIssues()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
-  app.post("/api/admin/queues/:type/:id/resolve", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/queues/:type/:id/resolve", auth, requirePermission("admin:queues:resolve"), async (req: AuthRequest, res) => {
     try {
       const { type, id } = req.params;
       const { resolutionNote } = req.body;
@@ -5228,7 +5235,7 @@ export async function registerRoutes(
   });
 
   // Order Exceptions (flagged orders)
-  app.get("/api/admin/queues/order-exceptions", auth, executiveOrAdmin, async (req, res) => {
+  app.get("/api/admin/queues/order-exceptions", auth, requirePermission("exceptions:all"), async (req, res) => {
     try {
       const exceptions = await storage.getOrderExceptions();
       const enriched = await Promise.all(exceptions.map(async (exc: any) => {
@@ -5272,7 +5279,7 @@ export async function registerRoutes(
   });
 
   // Audit Log
-  app.get("/api/admin/audit", auth, executiveOrAdmin, async (req, res) => {
+  app.get("/api/admin/audit", auth, requirePermission("audit:view"), async (req, res) => {
     try { res.json(await storage.getAuditLogs()); } catch (error) { res.status(500).json({ message: "Failed" }); }
   });
 
@@ -6389,7 +6396,7 @@ export async function registerRoutes(
   });
 
   // Admin delete leads by date range (auto-exports before deletion)
-  app.delete("/api/admin/leads/by-date", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/leads/by-date", auth, requirePermission("admin:leads:manage"), async (req: AuthRequest, res) => {
     try {
       const { dateFrom, dateTo } = req.query;
       if (!dateFrom || !dateTo) {
@@ -6437,7 +6444,7 @@ export async function registerRoutes(
   });
 
   // Admin delete all leads (auto-exports before deletion)
-  app.delete("/api/admin/leads/all", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/leads/all", auth, requirePermission("admin:leads:manage"), async (req: AuthRequest, res) => {
     try {
       const allLeads = await storage.getAllLeadsForAdmin();
 
@@ -6475,7 +6482,7 @@ export async function registerRoutes(
   });
 
   // Admin fix leads with building numbers in wrong position (street suffix)
-  app.post("/api/admin/leads/fix-addresses", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/leads/fix-addresses", auth, requirePermission("admin:leads:manage"), async (req: AuthRequest, res) => {
     try {
       // Get all leads
       const allLeads = await storage.getAllLeadsForAdmin();
@@ -6524,7 +6531,7 @@ export async function registerRoutes(
   });
 
   // Admin delete single lead
-  app.delete("/api/admin/leads/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/leads/:id", auth, requirePermission("admin:leads:manage"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const lead = await storage.getLeadById(id);
@@ -6688,7 +6695,7 @@ export async function registerRoutes(
   });
 
   // Bulk delete all leads for a specific user (ADMIN/OPERATIONS/EXECUTIVE only)
-  app.delete("/api/leads/by-user/:repId", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.delete("/api/leads/by-user/:repId", auth, requirePermission("admin:leads:manage"), async (req: AuthRequest, res) => {
     try {
       const { repId } = req.params;
       if (!repId) {
@@ -8458,7 +8465,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/reports/sales-tracker", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/reports/sales-tracker", auth, requirePermission("reports:production"), async (req: AuthRequest, res) => {
     try {
       const { viewMode, view } = req.query;
       const user = req.user!;
@@ -9196,14 +9203,14 @@ export async function registerRoutes(
   // ================== PAYROLL SYSTEM API ==================
 
   // Payroll Schedules
-  app.get("/api/admin/payroll/schedules", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/schedules", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const schedules = await storage.getPayrollSchedules();
       res.json(schedules);
     } catch (error) { res.status(500).json({ message: "Failed to get schedules" }); }
   });
 
-  app.post("/api/admin/payroll/schedules", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/schedules", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const schedule = await storage.createPayrollSchedule(req.body);
       await storage.createAuditLog({ action: "create_payroll_schedule", tableName: "payroll_schedules", recordId: schedule.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
@@ -9211,7 +9218,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to create schedule" }); }
   });
 
-  app.put("/api/admin/payroll/schedules/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.put("/api/admin/payroll/schedules/:id", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const schedule = await storage.updatePayrollSchedule(req.params.id, req.body);
       await storage.createAuditLog({ action: "update_payroll_schedule", tableName: "payroll_schedules", recordId: req.params.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
@@ -9219,7 +9226,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to update schedule" }); }
   });
 
-  app.delete("/api/admin/payroll/schedules/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/payroll/schedules/:id", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       await storage.deletePayrollSchedule(req.params.id);
       await storage.createAuditLog({ action: "delete_payroll_schedule", tableName: "payroll_schedules", recordId: req.params.id, userId: req.user!.id });
@@ -9228,14 +9235,14 @@ export async function registerRoutes(
   });
 
   // Deduction Types
-  app.get("/api/admin/payroll/deduction-types", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/deduction-types", auth, requirePermission("financial:manage:deductions"), async (req: AuthRequest, res) => {
     try {
       const types = await storage.getDeductionTypes();
       res.json(types);
     } catch (error) { res.status(500).json({ message: "Failed to get deduction types" }); }
   });
 
-  app.post("/api/admin/payroll/deduction-types", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/deduction-types", auth, requirePermission("financial:manage:deductions"), async (req: AuthRequest, res) => {
     try {
       const type = await storage.createDeductionType(req.body);
       await storage.createAuditLog({ action: "create_deduction_type", tableName: "deduction_types", recordId: type.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
@@ -9243,7 +9250,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to create deduction type" }); }
   });
 
-  app.put("/api/admin/payroll/deduction-types/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.put("/api/admin/payroll/deduction-types/:id", auth, requirePermission("financial:manage:deductions"), async (req: AuthRequest, res) => {
     try {
       const type = await storage.updateDeductionType(req.params.id, req.body);
       await storage.createAuditLog({ action: "update_deduction_type", tableName: "deduction_types", recordId: req.params.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
@@ -9251,7 +9258,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to update deduction type" }); }
   });
 
-  app.delete("/api/admin/payroll/deduction-types/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/payroll/deduction-types/:id", auth, requirePermission("financial:manage:deductions"), async (req: AuthRequest, res) => {
     try {
       await storage.deleteDeductionType(req.params.id);
       await storage.createAuditLog({ action: "delete_deduction_type", tableName: "deduction_types", recordId: req.params.id, userId: req.user!.id });
@@ -9260,7 +9267,7 @@ export async function registerRoutes(
   });
 
   // User Deductions
-  app.get("/api/admin/payroll/user-deductions", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/user-deductions", auth, requirePermission("financial:manage:deductions"), async (req: AuthRequest, res) => {
     try {
       const userId = req.query.userId as string | undefined;
       if (userId) {
@@ -9273,7 +9280,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to get user deductions" }); }
   });
 
-  app.post("/api/admin/payroll/user-deductions", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/user-deductions", auth, requirePermission("financial:manage:deductions"), async (req: AuthRequest, res) => {
     try {
       const deduction = await storage.createUserDeduction(req.body);
       await storage.createAuditLog({ action: "create_user_deduction", tableName: "user_deductions", recordId: deduction.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
@@ -9281,7 +9288,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to create user deduction" }); }
   });
 
-  app.put("/api/admin/payroll/user-deductions/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.put("/api/admin/payroll/user-deductions/:id", auth, requirePermission("financial:manage:deductions"), async (req: AuthRequest, res) => {
     try {
       const deduction = await storage.updateUserDeduction(req.params.id, req.body);
       await storage.createAuditLog({ action: "update_user_deduction", tableName: "user_deductions", recordId: req.params.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
@@ -9289,7 +9296,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to update user deduction" }); }
   });
 
-  app.delete("/api/admin/payroll/user-deductions/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/payroll/user-deductions/:id", auth, requirePermission("financial:manage:deductions"), async (req: AuthRequest, res) => {
     try {
       await storage.deleteUserDeduction(req.params.id);
       await storage.createAuditLog({ action: "delete_user_deduction", tableName: "user_deductions", recordId: req.params.id, userId: req.user!.id });
@@ -9298,7 +9305,7 @@ export async function registerRoutes(
   });
 
   // Advances
-  app.get("/api/admin/payroll/advances", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/advances", auth, requirePermission("financial:approve:advances"), async (req: AuthRequest, res) => {
     try {
       const status = req.query.status as string | undefined;
       if (status === "pending") {
@@ -9311,7 +9318,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to get advances" }); }
   });
 
-  app.get("/api/admin/payroll/advances/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/advances/:id", auth, requirePermission("financial:approve:advances"), async (req: AuthRequest, res) => {
     try {
       const advance = await storage.getAdvanceById(req.params.id);
       if (!advance) return res.status(404).json({ message: "Advance not found" });
@@ -9320,7 +9327,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to get advance" }); }
   });
 
-  app.post("/api/admin/payroll/advances", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/advances", auth, requirePermission("financial:approve:advances"), async (req: AuthRequest, res) => {
     try {
       const advance = await storage.createAdvance(req.body);
       await storage.createAuditLog({ action: "create_advance", tableName: "advances", recordId: advance.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
@@ -9328,7 +9335,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to create advance" }); }
   });
 
-  app.post("/api/admin/payroll/advances/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/advances/:id/approve", auth, requirePermission("financial:approve:advances"), async (req: AuthRequest, res) => {
     try {
       const { approvedAmount, notes } = req.body;
       const advance = await storage.approveAdvance(req.params.id, req.user!.id, approvedAmount, notes);
@@ -9337,7 +9344,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to approve advance" }); }
   });
 
-  app.post("/api/admin/payroll/advances/:id/reject", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/advances/:id/reject", auth, requirePermission("financial:approve:advances"), async (req: AuthRequest, res) => {
     try {
       const { notes } = req.body;
       const advance = await storage.rejectAdvance(req.params.id, req.user!.id, notes);
@@ -9346,7 +9353,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to reject advance" }); }
   });
 
-  app.post("/api/admin/payroll/advances/:id/mark-paid", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/advances/:id/mark-paid", auth, requirePermission("financial:approve:advances"), async (req: AuthRequest, res) => {
     try {
       const advance = await storage.markAdvancePaid(req.params.id);
       await storage.createAuditLog({ action: "mark_advance_paid", tableName: "advances", recordId: req.params.id, userId: req.user!.id });
@@ -9377,21 +9384,21 @@ export async function registerRoutes(
   });
 
   // User Tax Profiles
-  app.get("/api/admin/payroll/tax-profiles", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/tax-profiles", auth, requirePermission("financial:manage:taxprofiles"), async (req: AuthRequest, res) => {
     try {
       const profiles = await storage.getAllUserTaxProfiles();
       res.json(profiles);
     } catch (error) { res.status(500).json({ message: "Failed to get tax profiles" }); }
   });
 
-  app.get("/api/admin/payroll/tax-profiles/:userId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/tax-profiles/:userId", auth, requirePermission("financial:manage:taxprofiles"), async (req: AuthRequest, res) => {
     try {
       const profile = await storage.getUserTaxProfile(req.params.userId);
       res.json(profile || {});
     } catch (error) { res.status(500).json({ message: "Failed to get tax profile" }); }
   });
 
-  app.put("/api/admin/payroll/tax-profiles/:userId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.put("/api/admin/payroll/tax-profiles/:userId", auth, requirePermission("financial:manage:taxprofiles"), async (req: AuthRequest, res) => {
     try {
       const profile = await storage.updateUserTaxProfile(req.params.userId, req.body);
       await storage.createAuditLog({ action: "update_tax_profile", tableName: "user_tax_profiles", recordId: req.params.userId, afterJson: JSON.stringify(req.body), userId: req.user!.id });
@@ -9400,14 +9407,14 @@ export async function registerRoutes(
   });
 
   // User Payment Methods
-  app.get("/api/admin/payroll/payment-methods/:userId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/payment-methods/:userId", auth, requirePermission("financial:manage:taxprofiles"), async (req: AuthRequest, res) => {
     try {
       const methods = await storage.getUserPaymentMethods(req.params.userId);
       res.json(methods);
     } catch (error) { res.status(500).json({ message: "Failed to get payment methods" }); }
   });
 
-  app.post("/api/admin/payroll/payment-methods", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/payment-methods", auth, requirePermission("financial:manage:taxprofiles"), async (req: AuthRequest, res) => {
     try {
       const method = await storage.createUserPaymentMethod(req.body);
       await storage.createAuditLog({ action: "create_payment_method", tableName: "user_payment_methods", recordId: method.id, afterJson: JSON.stringify({ ...req.body, accountLastFour: req.body.accountLastFour }), userId: req.user!.id });
@@ -9415,7 +9422,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to create payment method" }); }
   });
 
-  app.put("/api/admin/payroll/payment-methods/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.put("/api/admin/payroll/payment-methods/:id", auth, requirePermission("financial:manage:taxprofiles"), async (req: AuthRequest, res) => {
     try {
       const method = await storage.updateUserPaymentMethod(req.params.id, req.body);
       await storage.createAuditLog({ action: "update_payment_method", tableName: "user_payment_methods", recordId: req.params.id, afterJson: JSON.stringify(req.body), userId: req.user!.id });
@@ -9423,7 +9430,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to update payment method" }); }
   });
 
-  app.delete("/api/admin/payroll/payment-methods/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/payroll/payment-methods/:id", auth, requirePermission("financial:manage:taxprofiles"), async (req: AuthRequest, res) => {
     try {
       await storage.deleteUserPaymentMethod(req.params.id);
       await storage.createAuditLog({ action: "delete_payment_method", tableName: "user_payment_methods", recordId: req.params.id, userId: req.user!.id });
@@ -9447,7 +9454,7 @@ export async function registerRoutes(
   });
 
   // Pay Statements
-  app.get("/api/admin/payroll/statements", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/statements", auth, requirePermission("paystubs:view:all"), async (req: AuthRequest, res) => {
     try {
       const payRunId = req.query.payRunId as string | undefined;
       const statements = await storage.getPayStatements(payRunId);
@@ -9455,7 +9462,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to get statements" }); }
   });
 
-  app.get("/api/admin/payroll/statements/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/statements/:id", auth, requirePermission("paystubs:view:all"), async (req: AuthRequest, res) => {
     try {
       const statement = await storage.getPayStatementById(req.params.id);
       if (!statement) return res.status(404).json({ message: "Statement not found" });
@@ -9466,7 +9473,7 @@ export async function registerRoutes(
   });
 
   // Generate pay statements for a pay run
-  app.post("/api/admin/payroll/payruns/:payRunId/generate-statements", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/payruns/:payRunId/generate-statements", auth, requirePermission("paystubs:generate"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.payRunId);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -9652,7 +9659,7 @@ export async function registerRoutes(
   });
 
   // Generate weekly pay stubs from PAID orders
-  app.post("/api/admin/payroll/generate-weekly-stubs", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/generate-weekly-stubs", auth, requirePermission("paystubs:generate"), async (req: AuthRequest, res) => {
     try {
       const bodySchema = z.object({
         weekEndingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format, expected YYYY-MM-DD")
@@ -9844,7 +9851,7 @@ export async function registerRoutes(
   });
 
   // Export pay stub as Excel in the specific format
-  app.get("/api/admin/payroll/statements/:id/export-excel", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/statements/:id/export-excel", auth, requirePermission("paystubs:export:pdf"), async (req: AuthRequest, res) => {
     try {
       const statement = await storage.getPayStatementById(req.params.id);
       if (!statement) return res.status(404).json({ message: "Statement not found" });
@@ -9940,7 +9947,7 @@ export async function registerRoutes(
   });
 
   // Issue a pay statement
-  app.post("/api/admin/payroll/statements/:id/issue", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/statements/:id/issue", auth, requirePermission("paystubs:generate"), async (req: AuthRequest, res) => {
     try {
       const statement = await storage.issuePayStatement(req.params.id);
       await storage.createAuditLog({ action: "issue_pay_statement", tableName: "pay_statements", recordId: req.params.id, userId: req.user!.id });
@@ -9949,7 +9956,7 @@ export async function registerRoutes(
   });
 
   // Mark statement as paid
-  app.post("/api/admin/payroll/statements/:id/mark-paid", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/statements/:id/mark-paid", auth, requirePermission("paystubs:generate"), async (req: AuthRequest, res) => {
     try {
       const { paymentMethodId, paymentReference } = req.body;
       const statement = await storage.markPayStatementPaid(req.params.id, paymentMethodId, paymentReference);
@@ -9959,7 +9966,7 @@ export async function registerRoutes(
   });
 
   // Void a pay statement
-  app.post("/api/admin/payroll/statements/:id/void", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/statements/:id/void", auth, requirePermission("paystubs:generate"), async (req: AuthRequest, res) => {
     try {
       const statement = await storage.voidPayStatement(req.params.id);
       await storage.createAuditLog({ action: "void_pay_statement", tableName: "pay_statements", recordId: req.params.id, userId: req.user!.id });
@@ -10129,7 +10136,7 @@ export async function registerRoutes(
   });
 
   // Payroll Reports
-  app.get("/api/admin/payroll/reports/summary", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/reports/summary", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const statements = await storage.getPayStatements();
       const totalGross = statements.reduce((sum, s) => sum + parseFloat(s.grossCommission || "0"), 0);
@@ -10149,7 +10156,7 @@ export async function registerRoutes(
     } catch (error) { res.status(500).json({ message: "Failed to get summary" }); }
   });
 
-  app.get("/api/admin/payroll/reports/by-user", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/reports/by-user", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
       const users = await storage.getActiveUsers();
@@ -10173,14 +10180,14 @@ export async function registerRoutes(
   });
 
   // Pay Run Approvals
-  app.get("/api/admin/payroll/payruns/:payRunId/approvals", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/payruns/:payRunId/approvals", auth, requirePermission("admin:payruns:approve"), async (req: AuthRequest, res) => {
     try {
       const approvals = await storage.getPayRunApprovals(req.params.payRunId);
       res.json(approvals);
     } catch (error) { res.status(500).json({ message: "Failed to get approvals" }); }
   });
 
-  app.post("/api/admin/payroll/payruns/:payRunId/approvals", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/payruns/:payRunId/approvals", auth, requirePermission("admin:payruns:approve"), async (req: AuthRequest, res) => {
     try {
       const approval = await storage.createPayRunApproval({
         payRunId: req.params.payRunId,
@@ -10212,7 +10219,7 @@ export async function registerRoutes(
   // ============ QuickBooks Integration Routes ============
   
   // Get QuickBooks connection status
-  app.get("/api/admin/quickbooks/status", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/status", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const connection = await qb.getConnection();
@@ -10232,7 +10239,7 @@ export async function registerRoutes(
   });
 
   // Get QuickBooks OAuth authorization URL (returns JSON)
-  app.get("/api/admin/quickbooks/authorize", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/authorize", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const userId = req.user!.id;
@@ -10312,7 +10319,7 @@ export async function registerRoutes(
   });
 
   // Disconnect QuickBooks
-  app.post("/api/admin/quickbooks/disconnect", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/quickbooks/disconnect", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       await qb.disconnectQuickBooks();
@@ -10329,7 +10336,7 @@ export async function registerRoutes(
   });
 
   // Get QuickBooks accounts for mapping
-  app.get("/api/admin/quickbooks/accounts", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/accounts", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const accounts = await qb.fetchQBAccounts();
@@ -10340,7 +10347,7 @@ export async function registerRoutes(
   });
 
   // Save account mapping
-  app.post("/api/admin/quickbooks/mappings", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/quickbooks/mappings", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const { mappingType, qbAccountId, qbAccountName, qbAccountType } = req.body;
       
@@ -10366,7 +10373,7 @@ export async function registerRoutes(
   });
 
   // Sync order invoice to QuickBooks
-  app.post("/api/admin/quickbooks/sync-invoice/:orderId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/quickbooks/sync-invoice/:orderId", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const result = await qb.syncInvoiceToQuickBooks(req.params.orderId, req.user!.id);
@@ -10388,7 +10395,7 @@ export async function registerRoutes(
   });
 
   // Post pay run journal entry to QuickBooks
-  app.post("/api/admin/quickbooks/post-journal/:payRunId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/quickbooks/post-journal/:payRunId", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const result = await qb.postPayRunJournalEntry(req.params.payRunId, req.user!.id);
@@ -10410,7 +10417,7 @@ export async function registerRoutes(
   });
 
   // Get QuickBooks sync logs
-  app.get("/api/admin/quickbooks/sync-logs", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/sync-logs", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const entityType = req.query.entityType as string | undefined;
@@ -10423,7 +10430,7 @@ export async function registerRoutes(
   });
 
   // Retry failed sync
-  app.post("/api/admin/quickbooks/retry/:syncLogId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/quickbooks/retry/:syncLogId", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const result = await qb.retryFailedSync(req.params.syncLogId, req.user!.id);
@@ -10437,7 +10444,7 @@ export async function registerRoutes(
   // In-memory progress tracker for bulk sync jobs
   const bulkSyncJobs = new Map<string, { total: number; synced: number; failed: number; errors: string[]; status: "running" | "completed" }>();
 
-  app.post("/api/admin/quickbooks/bulk-sync-invoices", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/quickbooks/bulk-sync-invoices", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const ordersToSync = await db.query.salesOrders.findMany({
         where: and(
@@ -10479,14 +10486,14 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/quickbooks/bulk-sync-status/:jobId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/bulk-sync-status/:jobId", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     const job = bulkSyncJobs.get(req.params.jobId);
     if (!job) return res.status(404).json({ message: "Job not found" });
     res.json(job);
   });
 
   // Get exception queue (failed syncs with enriched details)
-  app.get("/api/admin/quickbooks/exception-queue", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/exception-queue", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const limit = parseInt(req.query.limit as string) || 50;
@@ -10498,7 +10505,7 @@ export async function registerRoutes(
   });
 
   // Get reconciliation data
-  app.get("/api/admin/quickbooks/reconciliation", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/reconciliation", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const data = await qb.getReconciliationData();
@@ -10509,7 +10516,7 @@ export async function registerRoutes(
   });
 
   // Get sync health metrics
-  app.get("/api/admin/quickbooks/health", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/health", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const metrics = await qb.getSyncHealthMetrics();
@@ -10520,7 +10527,7 @@ export async function registerRoutes(
   });
 
   // Get environment info
-  app.get("/api/admin/quickbooks/environment", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/environment", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const envInfo = qb.getEnvironmentInfo();
@@ -10531,7 +10538,7 @@ export async function registerRoutes(
   });
 
   // Get audit logs
-  app.get("/api/admin/quickbooks/audit-logs", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/audit-logs", auth, requirePermission("system:view:auditlogs"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const limit = parseInt(req.query.limit as string) || 100;
@@ -10543,7 +10550,7 @@ export async function registerRoutes(
   });
 
   // Fetch QB classes
-  app.get("/api/admin/quickbooks/classes", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/classes", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const classes = await qb.fetchQBClasses();
@@ -10554,7 +10561,7 @@ export async function registerRoutes(
   });
 
   // Fetch QB departments
-  app.get("/api/admin/quickbooks/departments", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/departments", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const departments = await qb.fetchQBDepartments();
@@ -10565,7 +10572,7 @@ export async function registerRoutes(
   });
 
   // Fetch QB items
-  app.get("/api/admin/quickbooks/items", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/quickbooks/items", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const items = await qb.fetchQBItems();
@@ -10576,7 +10583,7 @@ export async function registerRoutes(
   });
 
   // Sync payment statuses
-  app.post("/api/admin/quickbooks/sync-payments", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/quickbooks/sync-payments", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const result = await qb.syncPaymentStatuses();
@@ -10587,7 +10594,7 @@ export async function registerRoutes(
   });
 
   // Save advanced mapping
-  app.post("/api/admin/quickbooks/advanced-mappings", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/quickbooks/advanced-mappings", auth, requirePermission("admin:quickbooks"), async (req: AuthRequest, res) => {
     try {
       const qb = await import("./quickbooks");
       const { mappingType, qbId, qbName, qbAccountType } = req.body;
@@ -10601,7 +10608,7 @@ export async function registerRoutes(
   // ========== NEW PAYROLL FEATURES ROUTES ==========
 
   // Tax Documents (1099s)
-  app.get("/api/admin/tax-documents", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/tax-documents", auth, requirePermission("admin:taxdocs"), async (req: AuthRequest, res) => {
     try {
       const filters: any = {};
       if (req.query.userId) filters.userId = req.query.userId as string;
@@ -10614,7 +10621,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/tax-documents/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/tax-documents/:id", auth, requirePermission("admin:taxdocs"), async (req: AuthRequest, res) => {
     try {
       const doc = await storage.getTaxDocumentById(req.params.id);
       if (!doc) return res.status(404).json({ message: "Tax document not found" });
@@ -10624,7 +10631,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/tax-documents/generate-data/:year", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/tax-documents/generate-data/:year", auth, requirePermission("admin:taxdocs"), async (req: AuthRequest, res) => {
     try {
       const taxYear = parseInt(req.params.year);
       const data = await storage.generate1099DataForYear(taxYear);
@@ -10634,7 +10641,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/tax-documents", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/tax-documents", auth, requirePermission("admin:taxdocs"), async (req: AuthRequest, res) => {
     try {
       const doc = await storage.createTaxDocument({
         ...req.body,
@@ -10653,7 +10660,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/tax-documents/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/tax-documents/:id", auth, requirePermission("admin:taxdocs"), async (req: AuthRequest, res) => {
     try {
       const doc = await storage.updateTaxDocument(req.params.id, req.body);
       await storage.createAuditLog({
@@ -10670,7 +10677,7 @@ export async function registerRoutes(
   });
 
   // Bulk generate 1099s for a tax year
-  app.post("/api/admin/tax-documents/bulk-generate/:year", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/tax-documents/bulk-generate/:year", auth, requirePermission("admin:taxdocs"), async (req: AuthRequest, res) => {
     try {
       const taxYear = parseInt(req.params.year);
       const data = await storage.generate1099DataForYear(taxYear);
@@ -10713,7 +10720,7 @@ export async function registerRoutes(
   });
 
   // User Bank Accounts (ACH)
-  app.get("/api/admin/bank-accounts", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/bank-accounts", auth, requirePermission("admin:bankaccounts"), async (req: AuthRequest, res) => {
     try {
       const userId = req.query.userId as string;
       if (!userId) return res.status(400).json({ message: "userId required" });
@@ -10724,7 +10731,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/bank-accounts", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/bank-accounts", auth, requirePermission("admin:bankaccounts"), async (req: AuthRequest, res) => {
     try {
       const { userId, accountHolderName, bankName, accountType, routingNumber, accountNumber, isPrimary } = req.body;
       
@@ -10762,7 +10769,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/admin/bank-accounts/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/bank-accounts/:id", auth, requirePermission("admin:bankaccounts"), async (req: AuthRequest, res) => {
     try {
       await storage.deactivateUserBankAccount(req.params.id);
       res.json({ success: true });
@@ -10772,7 +10779,7 @@ export async function registerRoutes(
   });
 
   // ACH Exports
-  app.get("/api/admin/ach-exports", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/ach-exports", auth, requirePermission("financial:export:ach"), async (req: AuthRequest, res) => {
     try {
       const filters: any = {};
       if (req.query.status) filters.status = req.query.status;
@@ -10784,7 +10791,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/ach-exports/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/ach-exports/:id", auth, requirePermission("financial:export:ach"), async (req: AuthRequest, res) => {
     try {
       const exp = await storage.getAchExportById(req.params.id);
       if (!exp) return res.status(404).json({ message: "ACH export not found" });
@@ -10795,7 +10802,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/ach-exports/generate/:payRunId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/ach-exports/generate/:payRunId", auth, requirePermission("financial:export:ach"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.payRunId);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -10857,7 +10864,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/ach-exports/:id/status", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/ach-exports/:id/status", auth, requirePermission("financial:export:ach"), async (req: AuthRequest, res) => {
     try {
       const { status } = req.body;
       const exp = await storage.updateAchExport(req.params.id, { 
@@ -10872,7 +10879,7 @@ export async function registerRoutes(
   });
 
   // Payment Reconciliation
-  app.get("/api/admin/payment-reconciliations", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payment-reconciliations", auth, requirePermission("admin:reconciliations"), async (req: AuthRequest, res) => {
     try {
       const filters: any = {};
       if (req.query.status) filters.status = req.query.status;
@@ -10884,7 +10891,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/payment-reconciliations", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payment-reconciliations", auth, requirePermission("admin:reconciliations"), async (req: AuthRequest, res) => {
     try {
       const rec = await storage.createPaymentReconciliation(req.body);
       res.status(201).json(rec);
@@ -10893,7 +10900,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/payment-reconciliations/:id/match", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/payment-reconciliations/:id/match", auth, requirePermission("admin:reconciliations"), async (req: AuthRequest, res) => {
     try {
       const { paidAmount, paymentReference } = req.body;
       const rec = await storage.matchPaymentReconciliation(
@@ -10909,7 +10916,7 @@ export async function registerRoutes(
   });
 
   // Bonuses/SPIFFs
-  app.get("/api/admin/bonuses", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/bonuses", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const filters: any = {};
       if (req.query.userId) filters.userId = req.query.userId;
@@ -10922,7 +10929,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/bonuses/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/bonuses/:id", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const bonus = await storage.getBonusById(req.params.id);
       if (!bonus) return res.status(404).json({ message: "Bonus not found" });
@@ -10932,7 +10939,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/bonuses", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/bonuses", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const bonus = await storage.createBonus({
         ...req.body,
@@ -10951,7 +10958,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/bonuses/:id/approve", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/bonuses/:id/approve", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const bonus = await storage.approveBonus(req.params.id, req.user!.id);
       await storage.createAuditLog({
@@ -10966,7 +10973,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/bonuses/:id/cancel", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/bonuses/:id/cancel", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const { reason } = req.body;
       const bonus = await storage.cancelBonus(req.params.id, reason);
@@ -10977,7 +10984,7 @@ export async function registerRoutes(
   });
 
   // Draw Accounts
-  app.get("/api/admin/draw-accounts", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/draw-accounts", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const filters: any = {};
       if (req.query.userId) filters.userId = req.query.userId;
@@ -10989,7 +10996,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/draw-accounts/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/draw-accounts/:id", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const account = await storage.getDrawAccountById(req.params.id);
       if (!account) return res.status(404).json({ message: "Draw account not found" });
@@ -11000,7 +11007,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/draw-accounts", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/draw-accounts", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const account = await storage.createDrawAccount({
         ...req.body,
@@ -11019,7 +11026,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/draw-accounts/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/draw-accounts/:id", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const account = await storage.updateDrawAccount(req.params.id, req.body);
       res.json(account);
@@ -11029,7 +11036,7 @@ export async function registerRoutes(
   });
 
   // Split Commission Agreements
-  app.get("/api/admin/split-agreements", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/split-agreements", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const filters: any = {};
       if (req.query.primaryRepId) filters.primaryRepId = req.query.primaryRepId;
@@ -11041,7 +11048,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/split-agreements/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/split-agreements/:id", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const agreement = await storage.getSplitAgreementById(req.params.id);
       if (!agreement) return res.status(404).json({ message: "Agreement not found" });
@@ -11052,7 +11059,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/split-agreements", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/split-agreements", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const { recipients, ...agreementData } = req.body;
       const agreement = await storage.createSplitAgreement({
@@ -11085,7 +11092,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/split-agreements/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/split-agreements/:id", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const { recipients, ...agreementData } = req.body;
       const agreement = await storage.updateSplitAgreement(req.params.id, agreementData);
@@ -11109,7 +11116,7 @@ export async function registerRoutes(
   });
 
   // Commission Tiers
-  app.get("/api/admin/commission-tiers", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/commission-tiers", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const filters: any = {};
       if (req.query.providerId) filters.providerId = req.query.providerId;
@@ -11121,7 +11128,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/commission-tiers/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/commission-tiers/:id", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const tier = await storage.getCommissionTierById(req.params.id);
       if (!tier) return res.status(404).json({ message: "Tier not found" });
@@ -11132,7 +11139,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/commission-tiers", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/commission-tiers", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const { levels, ...tierData } = req.body;
       const tier = await storage.createCommissionTier({
@@ -11167,7 +11174,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/commission-tiers/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/commission-tiers/:id", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const { levels, ...tierData } = req.body;
       const tier = await storage.updateCommissionTier(req.params.id, tierData);
@@ -11193,7 +11200,7 @@ export async function registerRoutes(
   });
 
   // Rep Tier Assignments
-  app.get("/api/admin/rep-tier-assignments/:userId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/rep-tier-assignments/:userId", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const assignments = await storage.getRepTierAssignments(req.params.userId);
       res.json(assignments);
@@ -11202,7 +11209,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/rep-tier-assignments", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/rep-tier-assignments", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       const assignment = await storage.createRepTierAssignment({
         ...req.body,
@@ -11214,7 +11221,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/admin/rep-tier-assignments/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/rep-tier-assignments/:id", auth, requirePermission("admin:bonuses"), async (req: AuthRequest, res) => {
     try {
       await storage.deleteRepTierAssignment(req.params.id);
       res.json({ success: true });
@@ -11224,7 +11231,7 @@ export async function registerRoutes(
   });
 
   // Scheduled Pay Runs
-  app.get("/api/admin/scheduled-pay-runs", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/scheduled-pay-runs", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
     try {
       const schedules = await storage.getScheduledPayRuns();
       res.json(schedules);
@@ -11233,7 +11240,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/scheduled-pay-runs/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/scheduled-pay-runs/:id", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
     try {
       const schedule = await storage.getScheduledPayRunById(req.params.id);
       if (!schedule) return res.status(404).json({ message: "Schedule not found" });
@@ -11243,7 +11250,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/scheduled-pay-runs", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/scheduled-pay-runs", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
     try {
       const schedule = await storage.createScheduledPayRun({
         ...req.body,
@@ -11262,7 +11269,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/scheduled-pay-runs/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/scheduled-pay-runs/:id", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
     try {
       const schedule = await storage.updateScheduledPayRun(req.params.id, req.body);
       res.json(schedule);
@@ -11271,7 +11278,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/admin/scheduled-pay-runs/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/scheduled-pay-runs/:id", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
     try {
       await storage.deleteScheduledPayRun(req.params.id);
       res.json({ success: true });
@@ -11281,7 +11288,7 @@ export async function registerRoutes(
   });
 
   // Commission Forecasts
-  app.get("/api/admin/commission-forecasts", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/commission-forecasts", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const filters: any = {};
       if (req.query.userId) filters.userId = req.query.userId;
@@ -11293,7 +11300,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/commission-forecasts/calculate/:userId", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/commission-forecasts/calculate/:userId", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const { periodType = "MONTH", periodStart, periodEnd } = req.query as any;
       const now = new Date();
@@ -11310,7 +11317,7 @@ export async function registerRoutes(
   });
 
   // Payroll Reports Dashboard
-  app.get("/api/admin/payroll-reports/summary", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll-reports/summary", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
       const startOfYear = `${year}-01-01`;
@@ -11373,7 +11380,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/payroll-reports/deductions", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll-reports/deductions", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
       const startOfYear = `${year}-01-01`;
@@ -11766,7 +11773,7 @@ export async function registerRoutes(
   // =====================================================
 
   // Get all scheduled pay runs
-  app.get("/api/admin/scheduled-pay-runs", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/scheduled-pay-runs", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
     try {
       const schedules = await storage.getScheduledPayRuns();
       res.json(schedules);
@@ -11776,7 +11783,7 @@ export async function registerRoutes(
   });
 
   // Create scheduled pay run
-  app.post("/api/admin/scheduled-pay-runs", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/scheduled-pay-runs", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
       const { name, frequency, dayOfWeek, dayOfMonth, secondDayOfMonth, autoCreatePayRun, autoLinkOrders } = req.body;
@@ -11812,7 +11819,7 @@ export async function registerRoutes(
   });
 
   // Update scheduled pay run
-  app.patch("/api/admin/scheduled-pay-runs/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/scheduled-pay-runs/:id", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const { name, frequency, dayOfWeek, dayOfMonth, secondDayOfMonth, isActive, autoCreatePayRun, autoLinkOrders } = req.body;
@@ -11840,7 +11847,7 @@ export async function registerRoutes(
   });
 
   // Delete scheduled pay run
-  app.delete("/api/admin/scheduled-pay-runs/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/scheduled-pay-runs/:id", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       await storage.deleteScheduledPayRun(id);
@@ -11851,7 +11858,7 @@ export async function registerRoutes(
   });
 
   // Manually trigger scheduled pay run check
-  app.post("/api/admin/scheduled-pay-runs/trigger", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/scheduled-pay-runs/trigger", auth, requirePermission("financial:create:payruns"), async (req: AuthRequest, res) => {
     try {
       const { scheduler } = await import("./scheduler");
       await scheduler.checkScheduledPayRuns();
@@ -11866,7 +11873,7 @@ export async function registerRoutes(
   // =====================================================
 
   // Get recent background jobs
-  app.get("/api/admin/background-jobs", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/background-jobs", auth, requirePermission("system:view:jobs"), async (req: AuthRequest, res) => {
     try {
       const jobType = req.query.type as string | undefined;
       const jobs = await storage.getRecentBackgroundJobs(jobType, 50);
@@ -11877,7 +11884,7 @@ export async function registerRoutes(
   });
 
   // Manually trigger chargeback processing
-  app.post("/api/admin/chargebacks/process", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/chargebacks/process", auth, requirePermission("financial:process:chargebacks"), async (req: AuthRequest, res) => {
     try {
       const { scheduler } = await import("./scheduler");
       await scheduler.processChargebacks();
@@ -11887,7 +11894,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/trigger-report", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/trigger-report", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const { scheduler } = await import("./scheduler");
       const { type } = req.body;
@@ -11957,7 +11964,7 @@ export async function registerRoutes(
   });
 
   // Admin: Get notification logs
-  app.get("/api/admin/notifications", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/notifications", auth, requirePermission("admin:notifications"), async (req: AuthRequest, res) => {
     try {
       const status = req.query.status as string | undefined;
       const notifications = await storage.getEmailNotifications({ status });
@@ -11968,7 +11975,7 @@ export async function registerRoutes(
   });
 
   // Admin: Manually trigger notification sending
-  app.post("/api/admin/notifications/send", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/notifications/send", auth, requirePermission("admin:notifications"), async (req: AuthRequest, res) => {
     try {
       const { emailService } = await import("./email");
       const results = await emailService.sendPendingEmails();
@@ -12747,7 +12754,7 @@ export async function registerRoutes(
   });
 
   // Admin: Get all pending MDU staging orders for review
-  app.get("/api/admin/mdu/pending", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/mdu/pending", auth, requirePermission("mdu:review"), async (req: AuthRequest, res) => {
     try {
       const orders = await storage.getPendingMduStagingOrders();
       // Never send encrypted SSN to client - only masked display
@@ -12763,7 +12770,7 @@ export async function registerRoutes(
   });
 
   // Admin: Get all MDU staging orders
-  app.get("/api/admin/mdu/orders", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/mdu/orders", auth, requirePermission("mdu:review"), async (req: AuthRequest, res) => {
     try {
       const orders = await storage.getMduStagingOrders();
       // Never send encrypted SSN to client - only masked display
@@ -12815,7 +12822,7 @@ export async function registerRoutes(
   });
 
   // Admin: Get MDU order data for prefilling regular order form (excludes sensitive data)
-  app.get("/api/admin/mdu/:id/prefill", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/mdu/:id/prefill", auth, requirePermission("mdu:review"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const mduOrder = await storage.getMduStagingOrderById(id);
@@ -12854,7 +12861,7 @@ export async function registerRoutes(
   });
 
   // Admin: Reject MDU staging order
-  app.post("/api/admin/mdu/:id/reject", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/mdu/:id/reject", auth, requirePermission("mdu:review"), async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
       const { id } = req.params;
@@ -12953,7 +12960,7 @@ export async function registerRoutes(
   });
 
   // Admin can view all disputes
-  app.get("/api/admin/disputes", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/disputes", auth, requirePermission("admin:disputes"), async (req: AuthRequest, res) => {
     try {
       const { status, userId } = req.query;
       const disputes = await storage.getCommissionDisputes({
@@ -12967,7 +12974,7 @@ export async function registerRoutes(
   });
 
   // Admin can get a specific dispute
-  app.get("/api/admin/disputes/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/disputes/:id", auth, requirePermission("admin:disputes"), async (req: AuthRequest, res) => {
     try {
       const result = await storage.getCommissionDisputeById(req.params.id);
       if (!result) return res.status(404).json({ message: "Dispute not found" });
@@ -12978,7 +12985,7 @@ export async function registerRoutes(
   });
 
   // Admin can update dispute status
-  app.patch("/api/admin/disputes/:id/status", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/disputes/:id/status", auth, requirePermission("admin:disputes"), async (req: AuthRequest, res) => {
     try {
       const { status } = req.body;
       if (!["PENDING", "UNDER_REVIEW", "APPROVED", "REJECTED", "CLOSED"].includes(status)) {
@@ -13003,7 +13010,7 @@ export async function registerRoutes(
   });
 
   // Admin can resolve a dispute
-  app.post("/api/admin/disputes/:id/resolve", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/disputes/:id/resolve", auth, requirePermission("financial:resolve:disputes"), async (req: AuthRequest, res) => {
     try {
       const { status, resolution, resolvedAmount } = req.body;
       if (!["APPROVED", "REJECTED", "CLOSED"].includes(status)) {
@@ -13037,7 +13044,7 @@ export async function registerRoutes(
   });
 
   // Get pending disputes count (for badges)
-  app.get("/api/admin/disputes/count/pending", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/disputes/count/pending", auth, requirePermission("admin:disputes"), async (req: AuthRequest, res) => {
     try {
       const count = await storage.getPendingDisputesCount();
       res.json({ count });
@@ -13049,7 +13056,7 @@ export async function registerRoutes(
   // ===================== FINANCE MODULE ROUTES =====================
 
   // Get all finance imports
-  app.get("/api/finance/imports", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/imports", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const clientId = req.query.clientId as string | undefined;
       const imports = await storage.getFinanceImports(clientId);
@@ -13060,7 +13067,7 @@ export async function registerRoutes(
   });
 
   // Get single finance import with summary
-  app.get("/api/finance/imports/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/imports/:id", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const financeImport = await storage.getFinanceImportById(req.params.id);
       if (!financeImport) {
@@ -13073,7 +13080,7 @@ export async function registerRoutes(
   });
 
   // Delete finance import and all related data
-  app.delete("/api/finance/imports/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/finance/imports/:id", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const existing = await storage.getFinanceImportById(req.params.id);
       if (!existing) {
@@ -13087,7 +13094,7 @@ export async function registerRoutes(
   });
 
   // Get finance import summary (counts by status)
-  app.get("/api/finance/imports/:id/summary", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/imports/:id/summary", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const counts = await storage.getFinanceImportRowCounts(req.params.id);
       const financeImport = await storage.getFinanceImportById(req.params.id);
@@ -13124,7 +13131,7 @@ export async function registerRoutes(
   });
 
   // List sheets in an Excel file
-  app.post("/api/finance/import/sheets", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+  app.post("/api/finance/import/sheets", auth, requirePermission("admin:finance:imports"), upload.single("file"), async (req: AuthRequest, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
@@ -13165,7 +13172,7 @@ export async function registerRoutes(
   });
 
   // Upload and import a finance file
-  app.post("/api/finance/import", auth, adminOnly, upload.single("file"), async (req: AuthRequest, res) => {
+  app.post("/api/finance/import", auth, requirePermission("admin:finance:imports"), upload.single("file"), async (req: AuthRequest, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
@@ -13390,7 +13397,7 @@ export async function registerRoutes(
   });
 
   // Map columns and normalize rows
-  app.post("/api/finance/imports/:id/map", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/finance/imports/:id/map", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const { mapping, saveAsDefault } = req.body;
       // mapping: { customerName: 'Customer Name', saleDate: 'Date Sold', ... }
@@ -13505,7 +13512,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/finance/imports/:id/raw-rows", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/imports/:id/raw-rows", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const rows = await storage.getFinanceImportRowsRaw(req.params.id);
       res.json(rows);
@@ -13515,7 +13522,7 @@ export async function registerRoutes(
   });
 
   // Get normalized rows for an import
-  app.get("/api/finance/imports/:id/rows", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/imports/:id/rows", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const matchStatus = req.query.matchStatus as string | undefined;
       const rows = await storage.getFinanceImportRows(req.params.id, matchStatus);
@@ -13526,7 +13533,7 @@ export async function registerRoutes(
   });
 
   // Run auto-matching for an import
-  app.post("/api/finance/imports/:id/auto-match", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/finance/imports/:id/auto-match", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const financeImport = await storage.getFinanceImportById(req.params.id);
       if (!financeImport) {
@@ -13806,7 +13813,7 @@ export async function registerRoutes(
   });
 
   // Manual match a row to an order
-  app.post("/api/finance/imports/:id/manual-match", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/finance/imports/:id/manual-match", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const { rowId, orderId } = req.body;
       if (!rowId || !orderId) {
@@ -13839,7 +13846,7 @@ export async function registerRoutes(
   });
 
   // Get matched order details for reconciliation review
-  app.get("/api/finance/imports/:id/matched-order/:rowId", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/imports/:id/matched-order/:rowId", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const row = await storage.getFinanceImportRowById(req.params.rowId);
       if (!row || row.financeImportId !== req.params.id) {
@@ -13896,7 +13903,7 @@ export async function registerRoutes(
   });
 
   // Reconciliation adjustment - adjust order fields during matching
-  app.patch("/api/finance/imports/:id/reconcile-order", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/finance/imports/:id/reconcile-order", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const { rowId, orderId, adjustments } = req.body;
       if (!rowId || !orderId) {
@@ -14062,7 +14069,7 @@ export async function registerRoutes(
   });
 
   // Create order from unmatched finance import row
-  app.post("/api/finance/imports/:id/create-order", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/finance/imports/:id/create-order", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const { rowId, providerId, serviceId, repId } = req.body;
       if (!rowId || !providerId || !serviceId) {
@@ -14149,7 +14156,7 @@ export async function registerRoutes(
   });
 
   // Ignore a row
-  app.post("/api/finance/imports/:id/ignore-row", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/finance/imports/:id/ignore-row", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const { rowId, reason } = req.body;
       if (!rowId) {
@@ -14168,7 +14175,7 @@ export async function registerRoutes(
   });
 
   // Post an import (create AR expectations and update orders)
-  app.post("/api/finance/imports/:id/post", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/finance/imports/:id/post", auth, requirePermission("financial:edit:ar"), async (req: AuthRequest, res) => {
     try {
       const financeImport = await storage.getFinanceImportById(req.params.id);
       if (!financeImport) {
@@ -14283,7 +14290,7 @@ export async function registerRoutes(
   });
 
   // Lock an import
-  app.post("/api/finance/imports/:id/lock", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/finance/imports/:id/lock", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
     try {
       const financeImport = await storage.getFinanceImportById(req.params.id);
       if (!financeImport) {
@@ -14302,7 +14309,7 @@ export async function registerRoutes(
   });
 
   // AR Expectations endpoints
-  app.get("/api/finance/ar", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/ar", auth, requirePermission("admin:finance:ar"), async (req: AuthRequest, res) => {
     try {
       const clientId = req.query.clientId as string | undefined;
       const status = req.query.status as string | undefined;
@@ -14320,7 +14327,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/finance/ar/export", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/ar/export", auth, requirePermission("admin:finance:ar"), async (req: AuthRequest, res) => {
     try {
       const clientId = req.query.clientId as string | undefined;
       const status = req.query.status as string | undefined;
@@ -14365,7 +14372,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/finance/ar/summary", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/ar/summary", auth, requirePermission("admin:finance:ar"), async (req: AuthRequest, res) => {
     try {
       const summary = await storage.getArSummaryByClient();
       res.json(summary);
@@ -14375,7 +14382,7 @@ export async function registerRoutes(
   });
 
   // Get single AR expectation with payments
-  app.get("/api/finance/ar/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/ar/:id", auth, requirePermission("admin:finance:ar"), async (req: AuthRequest, res) => {
     try {
       const ar = await storage.getArExpectationById(req.params.id);
       if (!ar) return res.status(404).json({ message: "AR expectation not found" });
@@ -14387,7 +14394,7 @@ export async function registerRoutes(
   });
 
   // Record a payment against an AR expectation
-  app.post("/api/finance/ar/:id/payments", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/finance/ar/:id/payments", auth, requirePermission("financial:edit:ar"), async (req: AuthRequest, res) => {
     try {
       const { amountCents: rawAmountCents, paymentDate, paymentReference, paymentMethod, notes } = req.body;
       
@@ -14481,7 +14488,7 @@ export async function registerRoutes(
   });
 
   // Delete an AR payment
-  app.delete("/api/finance/ar/payments/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/finance/ar/payments/:id", auth, requirePermission("financial:edit:ar"), async (req: AuthRequest, res) => {
     try {
       // Find the payment to get its AR expectation ID
       const payment = await db.query.arPayments.findFirst({
@@ -14562,7 +14569,7 @@ export async function registerRoutes(
   });
 
   // Update variance reason for an AR expectation
-  app.patch("/api/finance/ar/:id/variance", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/finance/ar/:id/variance", auth, requirePermission("financial:edit:ar"), async (req: AuthRequest, res) => {
     try {
       const { varianceReason } = req.body;
       
@@ -14589,7 +14596,7 @@ export async function registerRoutes(
   });
 
   // Update expected amount for an AR expectation
-  app.patch("/api/finance/ar/:id/expected-amount", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/finance/ar/:id/expected-amount", auth, requirePermission("financial:edit:ar"), async (req: AuthRequest, res) => {
     try {
       const { expectedAmountCents, reason } = req.body;
       
@@ -14656,7 +14663,7 @@ export async function registerRoutes(
   });
 
   // Write off an AR expectation
-  app.post("/api/finance/ar/:id/write-off", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/finance/ar/:id/write-off", auth, requirePermission("financial:edit:ar"), async (req: AuthRequest, res) => {
     try {
       const { reason } = req.body;
       if (!reason) return res.status(400).json({ message: "Write-off reason is required" });
@@ -14686,7 +14693,7 @@ export async function registerRoutes(
   });
 
   // Finance Reports
-  app.get("/api/finance/reports/enrolled", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/finance/reports/enrolled", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const groupBy = req.query.groupBy as string || 'global';
       const period = req.query.period as string || 'month';
@@ -14724,7 +14731,7 @@ export async function registerRoutes(
   });
 
   // Get client column mappings
-  app.get("/api/finance/column-mappings", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/column-mappings", auth, requirePermission("admin:finance:columnmaps"), async (req: AuthRequest, res) => {
     try {
       const clientId = req.query.clientId as string;
       if (!clientId) {
@@ -14738,7 +14745,7 @@ export async function registerRoutes(
   });
 
   // Get default column mapping for a client
-  app.get("/api/finance/column-mappings/default", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/finance/column-mappings/default", auth, requirePermission("admin:finance:columnmaps"), async (req: AuthRequest, res) => {
     try {
       const clientId = req.query.clientId as string;
       if (!clientId) {
@@ -15102,7 +15109,7 @@ export async function registerRoutes(
 
   // ===== Iron Crest Commission Extension Endpoints =====
 
-  app.post("/api/admin/seed-iron-crest-rate-cards", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/seed-iron-crest-rate-cards", auth, requirePermission("admin:seeddata"), async (req: AuthRequest, res) => {
     try {
       const { rateCardIds, ironCrestRackRateCents, ironCrestProfitBaseCents, directorOverrideCents, adminOverrideCents, accountingOverrideCents } = req.body;
       if (!rateCardIds || !Array.isArray(rateCardIds) || rateCardIds.length === 0) {
@@ -15136,7 +15143,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/reports/iron-crest-profit", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/reports/iron-crest-profit", auth, requirePermission("financial:view:profit"), async (req: AuthRequest, res) => {
     try {
       const { startDate, endDate } = req.query;
       const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(new Date().getDate() - 90));
@@ -15196,8 +15203,9 @@ export async function registerRoutes(
   const overrideApprovalAccess = requireRoles("EXECUTIVE", "OPERATIONS", "ACCOUNTING");
 
   function canApproveOverrideType(userRole: string, overrideType: string): boolean {
-    if (userRole === "EXECUTIVE") return ["DIRECTOR_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
-    if (userRole === "OPERATIONS") return ["ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
+    if (userRole === "EXECUTIVE") return ["DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
+    if (userRole === "OPERATIONS") return ["DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
+    if (userRole === "ACCOUNTING") return ["ACCOUNTING_OVERRIDE"].includes(overrideType);
     return false;
   }
 
@@ -15554,7 +15562,7 @@ export async function registerRoutes(
 
   // ===== AUTO-BUILD PAY RUN =====
 
-  app.post("/api/admin/payroll/auto-build", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/auto-build", auth, requirePermission("financial:create:payruns"), async (req: AuthRequest, res) => {
     try {
       const { periodStart, periodEnd, name } = req.body;
       if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
@@ -15635,7 +15643,7 @@ export async function registerRoutes(
 
   // ===== PAY STUB GENERATION =====
 
-  app.post("/api/admin/payroll/generate-stubs/:payRunId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/generate-stubs/:payRunId", auth, requirePermission("financial:create:payruns"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.payRunId);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -15659,7 +15667,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/payroll/finalize/:payRunId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/finalize/:payRunId", auth, requirePermission("financial:finalize:payruns"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.payRunId);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -15702,7 +15710,7 @@ export async function registerRoutes(
 
   // ===== FULL-CYCLE ENDPOINT =====
 
-  app.post("/api/admin/payroll/full-cycle", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/payroll/full-cycle", auth, requirePermission("financial:create:payruns"), async (req: AuthRequest, res) => {
     try {
       const { periodStart, periodEnd, name, finalize } = req.body;
       if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
@@ -15817,7 +15825,7 @@ export async function registerRoutes(
 
   // ===== ACCOUNTING RECONCILIATION ENDPOINTS =====
 
-  app.get("/api/admin/accounting/summary", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/accounting/summary", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const { periodStart, periodEnd } = req.query;
       if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
@@ -15828,7 +15836,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/accounting/ar-payroll-reconciliation", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/accounting/ar-payroll-reconciliation", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const { periodStart, periodEnd } = req.query;
       if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
@@ -15839,7 +15847,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/accounting/variance-report", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/accounting/variance-report", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
       const { periodStart, periodEnd } = req.query;
       if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
@@ -16753,7 +16761,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
   // INTEGRATION 1 — Carrier File Automation
   // ==========================================
 
-  app.get("/api/admin/carrier-schedules", auth, executiveOrAdmin, async (_req: AuthRequest, res) => {
+  app.get("/api/admin/carrier-schedules", auth, requirePermission("admin:integrations"), async (_req: AuthRequest, res) => {
     try {
       const schedules = await db.select().from(carrierImportSchedules).orderBy(desc(carrierImportSchedules.createdAt));
       const clientsList = await storage.getClients();
@@ -16765,7 +16773,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.post("/api/admin/carrier-schedules", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/carrier-schedules", auth, requirePermission("admin:integrations"), async (req: AuthRequest, res) => {
     try {
       const { clientId, sourceType, sftpHost, sftpPort, sftpUser, sftpPasswordEncrypted, sftpRemotePath, emailTriggerDomain, fileNamePattern, columnMappingJson, frequency } = req.body;
       const [schedule] = await db.insert(carrierImportSchedules).values({
@@ -16785,7 +16793,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.patch("/api/admin/carrier-schedules/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/carrier-schedules/:id", auth, requirePermission("admin:integrations"), async (req: AuthRequest, res) => {
     try {
       const updates: any = { updatedAt: new Date() };
       const allowed = ["sourceType", "sftpHost", "sftpPort", "sftpUser", "sftpPasswordEncrypted", "sftpRemotePath", "emailTriggerDomain", "fileNamePattern", "columnMappingJson", "frequency", "isActive"];
@@ -16800,7 +16808,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.delete("/api/admin/carrier-schedules/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/carrier-schedules/:id", auth, requirePermission("admin:integrations"), async (req: AuthRequest, res) => {
     try {
       await db.delete(carrierImportSchedules).where(eq(carrierImportSchedules.id, req.params.id));
       res.json({ success: true });
@@ -16915,7 +16923,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
   // INTEGRATION 2 — ACH Payment Processing
   // ==========================================
 
-  app.post("/api/integrations/ach/submit", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/integrations/ach/submit", auth, requirePermission("admin:integrations"), async (req: AuthRequest, res) => {
     try {
       const { achExportId } = req.body;
       if (!achExportId) return res.status(400).json({ message: "achExportId required" });
@@ -16994,7 +17002,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.post("/api/integrations/ach/confirm-settlement", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/integrations/ach/confirm-settlement", auth, requirePermission("admin:integrations"), async (req: AuthRequest, res) => {
     try {
       const { achExportId, settlementReference } = req.body;
       if (!achExportId) return res.status(400).json({ message: "achExportId required" });
@@ -17029,7 +17037,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
   // INTEGRATION 3 — Calendar Integration
   // ==========================================
 
-  app.get("/api/admin/calendar-config", auth, executiveOrAdmin, async (_req: AuthRequest, res) => {
+  app.get("/api/admin/calendar-config", auth, requirePermission("admin:integrations"), async (_req: AuthRequest, res) => {
     try {
       const configs = await db.select().from(calendarSyncConfig);
       res.json(configs.length > 0 ? { ...configs[0], accessToken: configs[0].accessToken ? "***configured***" : null, refreshToken: configs[0].refreshToken ? "***configured***" : null } : null);
@@ -17038,7 +17046,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.post("/api/admin/calendar-config", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/calendar-config", auth, requirePermission("admin:integrations"), async (req: AuthRequest, res) => {
     try {
       const { calendarId, accessToken, refreshToken } = req.body;
       const existing = await db.select().from(calendarSyncConfig);
@@ -17062,7 +17070,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.post("/api/integrations/calendar/sync-order", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/integrations/calendar/sync-order", auth, requirePermission("admin:integrations"), async (req: AuthRequest, res) => {
     try {
       const { orderId } = req.body;
       const order = await storage.getOrderById(orderId);
@@ -17095,7 +17103,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
   // INTEGRATION 4 — Reporting Webhooks + API Keys
   // ==========================================
 
-  app.get("/api/admin/api-keys", auth, executiveOrAdmin, async (_req: AuthRequest, res) => {
+  app.get("/api/admin/api-keys", auth, requirePermission("admin:integrations"), async (_req: AuthRequest, res) => {
     try {
       const keys = await db.select({
         id: apiKeys.id, name: apiKeys.name, keyPrefix: apiKeys.keyPrefix,
@@ -17109,7 +17117,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.post("/api/admin/api-keys", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/api-keys", auth, requirePermission("admin:integrations"), async (req: AuthRequest, res) => {
     try {
       const { name, scopes, expiresAt } = req.body;
       if (!name) return res.status(400).json({ message: "Name required" });
@@ -17136,7 +17144,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.delete("/api/admin/api-keys/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/api-keys/:id", auth, requirePermission("admin:integrations"), async (req: AuthRequest, res) => {
     try {
       await db.update(apiKeys).set({ isActive: false }).where(eq(apiKeys.id, req.params.id));
       res.json({ success: true });
@@ -17879,7 +17887,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
   });
 
   // Integration activity log
-  app.get("/api/admin/integration-logs", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/integration-logs", auth, requirePermission("admin:integrations"), async (req: AuthRequest, res) => {
     try {
       const type = req.query.type as string | undefined;
       const limit = parseInt(req.query.limit as string || "50");
@@ -17974,7 +17982,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.get("/api/admin/reserves", auth, requireRoles("ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/reserves", auth, requirePermission("reserves:view:all"), async (req: AuthRequest, res) => {
     try {
       const { status, search } = req.query;
 
@@ -18023,7 +18031,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.get("/api/admin/reserves/report/summary", auth, requireRoles("ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/reserves/report/summary", auth, requirePermission("reserves:view:all"), async (req: AuthRequest, res) => {
     try {
       const allReserves = await db.select().from(rollingReserves);
 
@@ -18068,7 +18076,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.get("/api/admin/reserves/:userId", auth, requireRoles("ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/reserves/:userId", auth, requirePermission("reserves:view:all"), async (req: AuthRequest, res) => {
     try {
       const { userId } = req.params;
       const [reserve] = await db.select().from(rollingReserves).where(eq(rollingReserves.userId, userId));
@@ -18112,7 +18120,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.get("/api/admin/reserves/:userId/transactions", auth, requireRoles("ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/reserves/:userId/transactions", auth, requirePermission("reserves:view:all"), async (req: AuthRequest, res) => {
     try {
       const { userId } = req.params;
       const { startDate, endDate, type } = req.query;
@@ -18148,7 +18156,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.post("/api/admin/reserves/:userId/adjust", auth, requireRoles("ACCOUNTING", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/reserves/:userId/adjust", auth, requirePermission("reserves:manual:adjust"), async (req: AuthRequest, res) => {
     try {
       const { userId } = req.params;
       const { amountCents, isCredit, reason } = req.body;
@@ -18217,7 +18225,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  app.post("/api/admin/reserves/:userId/override-cap", auth, requireRoles("EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/reserves/:userId/override-cap", auth, requirePermission("reserves:override:cap"), async (req: AuthRequest, res) => {
     try {
       const { userId } = req.params;
       const { newCapCents, newWithholdingPercent, reason } = req.body;

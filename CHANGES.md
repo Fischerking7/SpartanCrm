@@ -136,3 +136,41 @@ Fix: Added `approval_status != 'REJECTED'` to the SQL filter
 File: server/routes.ts (Install Sync auto-approve)
 Issue: Used cached `order.chargebackRiskScore` field which may be null or outdated
 Fix: Now calls `scoreChargebackRisk(order.id)` in real-time to compute fresh risk before deciding auto-approval. Wrapped in try/catch — on scoring failure, defaults to riskScore=100 (safe: skips auto-approval) and continues processing remaining orders
+
+## Phase 7 — OPERATIONS Role Elevation
+
+### [ADDED] Centralized permissions system
+File: server/permissions.ts
+Detail: Created comprehensive PERMISSIONS object with 80+ granular permission keys mapping to allowed roles. Added `requirePermission(key)` middleware, `hasPermission(role, key)` helper, and `canCreateRole` hierarchy map. OPERATIONS gets near-full-admin access with four explicit exclusions: creating EXECUTIVE/OPERATIONS users, editing rate card amounts, overriding reserve caps above $2,500, and viewing Iron Crest profit margins.
+
+### [UPDATED] All route guards migrated to permission-based system
+File: server/routes.ts
+Detail: Replaced ~150+ `adminOnly` and `executiveOrAdmin` middleware calls with `requirePermission()` calls using specific permission keys. Every admin route now uses granular permission checks instead of blanket role guards. Categories updated: orders, users, providers, clients, services, rate cards, incentives, overrides, pay runs, pay statements, deductions, advances, tax profiles, payment methods, ACH exports, QuickBooks, tax documents, bank accounts, reconciliations, bonuses, draws, splits, tiers, disputes, finance imports, AR management, column mappings, scheduled pay runs, background jobs, chargebacks, notifications, integration endpoints, audit logs, and reports.
+
+### [ADDED] User creation hierarchy enforcement
+File: server/routes.ts (POST /api/admin/users)
+Detail: Added `canCreateRole` check — OPERATIONS can create all roles except EXECUTIVE and OPERATIONS. EXECUTIVE can create all roles. MANAGER can create REP, LEAD. Other roles cannot create users. Returns 403 with descriptive message on violation.
+
+### [UPDATED] Override approval expanded for OPERATIONS
+File: server/routes.ts (canApproveOverrideType function)
+Detail: OPERATIONS can now approve DIRECTOR_OVERRIDE, ADMIN_OVERRIDE, and ACCOUNTING_OVERRIDE overrides. Previously only had ADMIN_OVERRIDE and ACCOUNTING_OVERRIDE. Self-approval prohibition remains enforced for all roles including OPERATIONS.
+
+### [UPDATED] Storage scope for OPERATIONS
+File: server/storage.ts (getRepIdsForScope)
+Detail: Added OPERATIONS to the EXECUTIVE/ADMIN case in getRepIdsForScope so OPERATIONS users see all active reps company-wide for dashboard and reporting purposes.
+
+### [ADDED] Permissions health check
+File: server/index.ts
+Detail: Added startup health check verifying the permissions system is loaded with >10 permission keys. Now shows "4 passed, 0 failed" on startup.
+
+### Rate card protection
+Files: server/routes.ts, server/permissions.ts
+Detail: Rate card GET routes use `system:ratecards:view` (DIRECTOR, OPERATIONS, ACCOUNTING, EXECUTIVE). Rate card POST/PATCH/DELETE routes use `system:ratecards:edit` (EXECUTIVE only). OPERATIONS can view rate cards but cannot create, modify amounts, or delete them.
+
+### Reserve cap override protection
+Files: server/permissions.ts
+Detail: `reserves:override:cap` and `financial:override:reserve:cap` permissions restricted to EXECUTIVE only. OPERATIONS can view reserves, make manual adjustments, and handle separations, but cannot override the $2,500 cap.
+
+### Iron Crest profit margin protection
+Files: server/routes.ts, server/permissions.ts
+Detail: `/api/admin/reports/iron-crest-profit` route uses `financial:view:profit` permission which is restricted to ACCOUNTING and EXECUTIVE only. OPERATIONS cannot view Iron Crest profit margins.

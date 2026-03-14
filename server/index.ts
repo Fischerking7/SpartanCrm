@@ -131,6 +131,11 @@ app.use((req, res, next) => {
             const cards = await storage.getActiveRateCards();
             if (cards.length === 0) console.warn('[STARTUP] WARNING: No active rate cards');
           }},
+          { name: 'Permissions system loaded', fn: async () => {
+            const { PERMISSIONS } = await import("./permissions");
+            const permCount = Object.keys(PERMISSIONS).length;
+            if (permCount < 10) throw new Error(`Only ${permCount} permissions defined`);
+          }},
         ];
 
         let passed = 0, failed = 0;

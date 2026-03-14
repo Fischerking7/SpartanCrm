@@ -1,0 +1,364 @@
+Send this to Replit Agent now:
+
+We are in development and preparing to verify today's changes
+before releasing to production. Run these verification checks
+and report every result.
+
+===================================================================
+VERIFICATION 1 — Operations Role Expansion
+===================================================================
+
+Test that the OPERATIONS role now has the correct access.
+Create a test user with role OPERATIONS and verify:
+
+1.1 — Can finalize a pay run:
+  PATCH /api/admin/pay-runs/[any-draft-id]/finalize
+  Expected: 200 OK (not 403)
+
+1.2 — Can view all pay stubs:
+  GET /api/pay-stubs/[any-stub-id]/pdf
+  Expected: 200 OK (not 403)
+
+1.3 — Can record AR payment:
+  POST /api/finance/ar/[any-ar-id]/payments
+  Expected: 200 OK (not 403)
+
+1.4 — Can approve Director overrides:
+  POST /api/admin/override-earnings/[director-override-id]/approve
+  Expected: 200 OK (not 403)
+
+1.5 — Can post finance imports:
+  POST /api/finance/imports/[any-import-id]/post
+  Expected: 200 OK (not 403)
+
+1.6 — Cannot create another OPERATIONS user:
+  POST /api/admin/users with role: 'OPERATIONS'
+  Expected: 403 Forbidden
+
+1.7 — Cannot edit rate card amounts:
+  PATCH /api/admin/rate-cards/[any-id]
+  with body: { baseAmount: '999' }
+  Expected: 403 Forbidden
+
+1.8 — Cannot see Iron Crest profit report:
+  GET /api/admin/reports/iron-crest-profit
+  Expected: 403 Forbidden
+
+1.9 — Cannot approve their own override earning:
+  Create an override earning where recipientUserId = 
+  the OPERATIONS test user's id
+  Attempt to approve it as that same user
+  Expected: 403 with message about self-approval
+
+1.10 — Sees ALL exception types in queue:
+  GET /api/admin/exceptions/queue
+  Expected: Returns both operational AND financial exceptions
+
+Report each test as PASS or FAIL with the actual 
+HTTP status code and response body received.
+
+===================================================================
+VERIFICATION 2 — Rolling Reserve System
+===================================================================
+
+2.1 — rolling_reserves table exists:
+  SELECT COUNT(*) FROM rolling_reserves;
+  Expected: table exists, returns 0 or more rows
+
+2.2 — reserve_transactions table exists:
+  SELECT COUNT(*) FROM reserve_transactions;
+  Expected: table exists, returns 0 or more rows
+
+2.3 — salesOrders has new reserve columns:
+  SELECT 
+    column_name 
+  FROM information_schema.columns
+  WHERE table_name = 'sales_orders'
+  AND column_name IN (
+    'reserve_withheld_cents',
+    'reserve_withholding_applied',
+    'carrier_maturity_type',
+    'maturity_expires_at'
+  );
+  Expected: all 4 columns returned
+
+2.4 — Users table has new reserve columns:
+  SELECT column_name
+  FROM information_schema.columns
+  WHERE table_name = 'users'
+  AND column_name IN (
+    'has_active_reserve',
+    'reserve_status',
+    'ipad_issued',
+    'ipad_serial_number',
+    'ipad_issued_at',
+    'ipad_returned_at'
+  );
+  Expected: all 6 columns returned
+
+2.5 — 15% withholding calculates correctly:
+  Call calculateWithholding with:
+    netCommissionCents: 20000 (= $200.00)
+    reserve.withholdingPercent: 15
+    reserve.currentBalanceCents: 0
+    reserve.capCents: 250000
+    reserve.status: 'ACTIVE'
+  Expected result: 3000 (= $30.00)
+
+2.6 — Withholding stops at cap:
+  Call calculateWithholding with:
+    netCommissionCents: 20000
+    reserve.currentBalanceCents: 248000 (= $2,480)
+    reserve.capCents: 250000
+  Expected result: 2000 (= $20.00, not $30.00)
+  Only withholds enough to reach the cap exactly.
+
+2.7 — AT_CAP status returns zero withholding:
+  Call calculateWithholding with:
+    reserve.status: 'AT_CAP'
+  Expected result: 0
+
+2.8 — Chargeback deduction creates correct transaction:
+  Call applyChargebackToReserve with:
+    chargebackAmountCents: 5000 (= $50.00)
+    reserve.currentBalanceCents: 20000 (= $200.00)
+  Expected:
+    deductedFromReserveCents: 5000
+    remainingChargebackCents: 0
+    newReserveBalance: 15000 (= $150.00)
+    reserveDeficit: false
+
+2.9 — Chargeback deficit scenario:
+  Call applyChargebackToReserve with:
+    chargebackAmountCents: 30000 (= $300.00)
+    reserve.currentBalanceCents: 20000 (= $200.00)
+  Expected:
+    deductedFromReserveCents: 20000
+    remainingChargebackCents: 10000 (= $100.00)
+    reserveDeficit: true
+
+2.10 — Carrier maturity periods are correct:
+  Call getMaturityDays('Optimum', 'VOLUNTARY_CANCELLATION')
+  Expected: 120
+  
+  Call getMaturityDays('Optimum', 'NON_PAY_DISCONNECT')
+  Expected: 180
+  
+  Call getMaturityDays('Astound', 'VOLUNTARY_CANCELLATION')
+  Expected: 120
+  
+  Call getMaturityDays('Astound', 'NON_PAY_DISCONNECT')
+  Expected: 120
+
+2.11 — System settings seeded correctly:
+  SELECT key, value FROM system_settings
+  WHERE key LIKE 'carrier_maturity%'
+  OR key LIKE 'reserve_%';
+  Expected: at least 7 rows with correct values
+
+===================================================================
+VERIFICATION 3 — Commission Calculation
+===================================================================
+
+These are the most important tests. Every number must 
+match exactly.
+
+3.1 — REP selling 1 Gig:
+  Create a test order with:
+    repRole: 'REP'
+    serviceType: '1 Gig'
+  After commission calculation verify:
+    baseCommissionEarned: '200.00'
+    directorOverrideCents: 3000
+    adminOverrideCents: 1000
+    accountingOverrideCents: 500
+    ironCrestRackRateCents: 35000
+    ironCrestProfitCents: 10500
+
+3.2 — LEAD selling 300 Mbps:
+    baseCommissionEarned: '130.00'
+    ironCrestProfitCents: 8500
+
+3.3 — MANAGER selling 600 Mbps:
+    baseCommissionEarned: '155.00'
+    ironCrestProfitCents: 8500
+
+3.4 — REP selling 1 Gig + TV + 2 Mobile lines:
+    baseCommissionEarned should equal:
+    $200 (internet) + $40 (TV) + $80 (2x mobile) = $320.00
+    ironCrestRackRateCents should equal:
+    35000 + 8000 + 12000 = 55000
+
+3.5 — Override earnings created correctly for 1 Gig sale:
+  After approval, verify overrideEarnings records:
+  One record with:
+    overrideType: 'DIRECTOR_OVERRIDE'
+    amount: '30.00'
+    recipientRole: 'DIRECTOR'
+    approvalStatus: 'PENDING_APPROVAL'
+  One record with:
+    overrideType: 'ADMIN_OVERRIDE'
+    amount: '10.00'
+    recipientRole: 'OPERATIONS'
+    approvalStatus: 'PENDING_APPROVAL'
+  One record with:
+    overrideType: 'ACCOUNTING_OVERRIDE'
+    amount: '5.00'
+    recipientRole: 'ACCOUNTING'
+    approvalStatus: 'PENDING_APPROVAL'
+
+3.6 — 50 Mbps creates zero override earnings:
+  After approval of a 50 Mbps order, verify:
+  SELECT COUNT(*) FROM override_earnings
+  WHERE sales_order_id = [test order id]
+  Expected: 0 rows (no overrides for 50 Mbps)
+
+===================================================================
+VERIFICATION 4 — AR to Payroll Pipeline
+===================================================================
+
+4.1 — Approved order has null payrollReadyAt:
+  SELECT payroll_ready_at 
+  FROM sales_orders
+  WHERE approval_status = 'APPROVED'
+  AND payroll_ready_at IS NULL
+  LIMIT 1;
+  Expected: returns rows (approved orders without ready flag)
+
+4.2 — AR satisfaction sets payrollReadyAt:
+  Find an approved order with no AR expectation.
+  Create an AR expectation for it.
+  Record a payment equal to the full expected amount.
+  Verify:
+    arExpectation.status = 'SATISFIED'
+    salesOrder.payrollReadyAt IS NOT NULL
+    salesOrder.payrollReadyTriggeredBy = 'AR_SATISFIED'
+
+4.3 — isPayrollHeld blocks pay run inclusion:
+  Set isPayrollHeld = true on a payroll-ready order.
+  Call getPayrollReadyOrders().
+  Verify: the held order does NOT appear in results.
+
+4.4 — Override with PENDING_APPROVAL excluded from pay run:
+  Create a pay run.
+  Verify that override earnings with 
+  approvalStatus = 'PENDING_APPROVAL' are NOT included.
+
+===================================================================
+VERIFICATION 5 — Onboarding System
+===================================================================
+
+5.1 — Onboarding tables exist:
+  SELECT COUNT(*) FROM onboarding_submissions;
+  SELECT COUNT(*) FROM onboarding_audit_log;
+  SELECT COUNT(*) FROM onboarding_drafts;
+  Expected: all three exist
+
+5.2 — Users table has onboarding columns:
+  SELECT column_name
+  FROM information_schema.columns
+  WHERE table_name = 'users'
+  AND column_name IN (
+    'onboarding_status',
+    'onboarding_otp_hash',
+    'onboarding_otp_expires_at',
+    'onboarding_otp_attempts',
+    'onboarding_otp_locked_at',
+    'app_access_granted_at'
+  );
+  Expected: all 6 columns
+
+5.3 — OTP is never stored in plaintext:
+  Generate a test OTP for a test user.
+  Query the database directly:
+  SELECT onboarding_otp_hash FROM users 
+  WHERE id = [test user id];
+  Expected: value starts with '$2b$' (bcrypt hash format)
+  NOT a 6-digit number
+
+5.4 — App access gate blocks incomplete reps:
+  Create a test user with:
+    role: 'REP'
+    onboarding_status: 'IN_PROGRESS'
+    app_access_granted_at: NULL
+  Attempt to call GET /api/orders as this user
+  Expected: 403 with:
+    { message: 'Onboarding not complete',
+      onboardingStatus: 'IN_PROGRESS',
+      redirectTo: '/onboarding' }
+
+5.5 — Approved rep gets full access:
+  Set the test user:
+    onboarding_status: 'APPROVED'
+    app_access_granted_at: now()
+  Attempt to call GET /api/orders as this user
+  Expected: 200 OK
+
+===================================================================
+VERIFICATION 6 — Schema Completeness Check
+===================================================================
+
+Run this query to check for all expected tables:
+
+  SELECT table_name
+  FROM information_schema.tables
+  WHERE table_schema = 'public'
+  AND table_name IN (
+    'users',
+    'sales_orders',
+    'override_earnings',
+    'override_agreements',
+    'pay_runs',
+    'pay_statements',
+    'pay_statement_line_items',
+    'ar_expectations',
+    'ar_payments',
+    'finance_imports',
+    'finance_import_rows',
+    'finance_import_rows_raw',
+    'rolling_reserves',
+    'reserve_transactions',
+    'onboarding_submissions',
+    'onboarding_audit_log',
+    'onboarding_drafts',
+    'system_settings',
+    'automation_rules',
+    'exception_dismissals',
+    'match_corrections',
+    'finance_import_schedules',
+    'saved_reports',
+    'commission_disputes',
+    'advances',
+    'advance_repayments',
+    'user_deductions',
+    'user_tax_profiles',
+    'user_bank_accounts',
+    'chargebacks',
+    'audit_logs'
+  )
+  ORDER BY table_name;
+
+Expected: all 30 tables exist.
+For any missing table: list it and create it now.
+
+===================================================================
+FINAL STEP — TypeScript Compilation
+===================================================================
+
+After all verification tests pass:
+
+  npx tsc --noEmit
+
+Fix every TypeScript error before we consider 
+development verification complete.
+
+Report the final summary:
+  Tests passed: X / 30
+  Tests failed: X (list each with reason)
+  TypeScript errors: X (list each)
+  Tables missing: X (list each)
+
+Do not mark verification complete until:
+  All 30 tests pass
+  Zero TypeScript errors
+  All 30 tables exist
