@@ -1,0 +1,766 @@
+Using the complete existing infrastructure of the Iron Crest application,
+implement the following automation, streamlining, and simplification 
+improvements across every module. The guiding principle for every change:
+
+  HUMANS SHOULD ONLY SEE EXCEPTIONS.
+  EVERYTHING ROUTINE SHOULD BE INVISIBLE AND AUTOMATIC.
+
+===================================================================
+SECTION 1 — INTELLIGENT EXCEPTION MANAGEMENT
+===================================================================
+
+The single most important UX improvement is an exceptions-first 
+admin interface. Instead of admins reviewing tables of data, the 
+system surfaces only what needs attention.
+
+### TASK 1A — Unified exception queue
+
+Create a new endpoint:
+GET /api/admin/exceptions/queue
+Access: ADMIN, OPERATIONS
+
+This endpoint aggregates ALL pending actions across every module 
+into a single prioritized list. This becomes the admin's homepage.
+
+Response:
+  {
+    urgent: ExceptionItem[],      // must act today
+    high: ExceptionItem[],        // act within 3 days  
+    medium: ExceptionItem[],      // act within 7 days
+    low: ExceptionItem[],         // informational
+    totalCount: number,
+    lastRefreshedAt: string,
+  }
+
+ExceptionItem shape:
+  {
+    id: string,                   // unique exception ID
+    type: ExceptionType,
+    priority: 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW',
+    title: string,                // human readable one-liner
+    description: string,          // what needs to happen
+    affectedEntityId: string,     // orderId, repId, arId, etc.
+    affectedEntityType: string,
+    actionUrl: string,            // deep link to the relevant page
+    actionLabel: string,          // button text e.g. "Review Order"
+    createdAt: string,
+    staleSince?: string,          // how long this has been waiting
+    estimatedImpactCents?: number // dollar value at stake
+  }
+
+ExceptionType values and their priority rules:
+
+  URGENT (act today):
+    'ORDER_APPROVAL_OVERDUE'      
+      // Completed order unapproved for 3+ days
+      // estimatedImpact: baseCommissionEarned
+    'NEGATIVE_MARGIN_DETECTED'    
+      // ironCrestProfitCents < 0 on any order
+    'PAY_RUN_FINALIZATION_DUE'    
+      // Pay run in DRAFT status past its scheduled pay date
+    'CHARGEBACK_REQUIRES_ACTION'  
+      // Chargeback applied with no response in 48 hours
+    'AR_PAYMENT_OVERDUE'          
+      // AR expectation open 45+ days past expectedFromDate
+
+  HIGH (3 days):
+    'OVERRIDE_PENDING_APPROVAL'   
+      // Override earning waiting >24 hours
+    'DISPUTE_UNRESPONDED'         
+      // Commission dispute with no admin response in 48 hours
+    'ADVANCE_OVERDUE'             
+      // Advance in REPAYING status with no payment in 2 periods
+    'AR_VARIANCE_LARGE'           
+      // AR variance > $50 unresolved
+    'RATE_CARD_MISSING'           
+      // Approved order has no rate card applied
+
+  MEDIUM (7 days):
+    'OVERRIDE_PENDING_APPROVAL'   
+      // Override waiting <24 hours (lower priority version)
+    'REP_MISSING_TAX_PROFILE'     
+      // Rep in active pay run with no tax profile
+    'AR_PARTIAL_PAYMENT'          
+      // AR partially paid, balance outstanding 14+ days
+    'FINANCE_IMPORT_UNMATCHED'    
+      // Finance import has unmatched rows 7+ days old
+    'ADVANCE_AWAITING_APPROVAL'   
+      // Advance request pending >3 days
+
+  LOW (informational):
+    'STALE_AR_NO_EXPECTATION'     
+      // Approved order 30+ days with no AR expectation
+    'REP_NO_SALES_7_DAYS'         
+      // Active rep with no orders in 7 days (field context)
+    'RATE_CARD_EXPIRING_SOON'     
+      // Rate card effectiveEnd within 14 days
+
+Build this by querying the relevant tables for each exception type.
+Cache the result for 5 minutes using a simple in-memory cache 
+(store last result + timestamp on the module, recompute if stale).
+
+### TASK 1B — Exception count badge endpoint
+
+GET /api/admin/exceptions/counts
+Access: ADMIN, OPERATIONS, EXECUTIVE, ACCOUNTING
+
+Returns:
+  {
+    urgent: number,
+    high: number,
+    total: number,
+    byType: Record<ExceptionType, number>
+  }
+
+This is called frequently for nav badges. It must be fast — 
+use COUNT queries only, no data loading. Cache for 2 minutes.
+
+### TASK 1C — Exception dismissal
+
+POST /api/admin/exceptions/:type/:entityId/dismiss
+Access: ADMIN, OPERATIONS
+
+Body: { reason: string, snoozeDays?: number }
+
+Marks an exception as dismissed/snoozed so it does not reappear 
+in the queue for snoozeDays (default: permanent dismissal).
+Store dismissals in a new table: exception_dismissals
+  - id, exceptionType, entityId, dismissedByUserId, 
+    reason, snoozedUntil, createdAt
+
+===================================================================
+SECTION 2 — SMART AUTO-APPROVAL RULES
+===================================================================
+
+### CONCEPT
+Routine approvals that meet all quality criteria should not require 
+human review. Humans should only approve exceptions.
+
+### TASK 2A — Auto-approval rule engine
+
+Create server/autoApprovalEngine.ts
+
+Export:
+  async function evaluateOrderForAutoApproval(
+    orderId: string
+  ): Promise<{
+    eligible: boolean,
+    confidence: number,       // 0-100
+    reasons: string[],        // why eligible or not
+    blockers: string[],       // what prevents auto-approval
+  }>
+
+Auto-approval criteria (ALL must be true):
+  1. jobStatus = 'COMPLETED'
+  2. approvalStatus = 'UNAPPROVED'
+  3. A valid rate card was found and applied (appliedRateCardId not null)
+  4. baseCommissionEarned > 0
+  5. ironCrestProfitCents >= 0 (no negative margin)
+  6. No active commission dispute linked to this order
+  7. No active chargeback linked to this order
+  8. The rep has no isPayrollHeld flag
+  9. The AR expectation for this order (if exists) is not WRITTEN_OFF
+  10. The order's invoiceNumber is unique (no duplicates)
+  11. customerName is not blank
+  12. dateSold is within the last 180 days
+
+Confidence scoring:
+  Start at 100, subtract for each soft concern:
+  - No AR expectation exists: -15
+  - Rep has had a chargeback in the last 90 days: -10
+  - Order amount is >2x this rep's average order: -20
+  - dateSold is a weekend: -5 (unusual for telecom)
+  - No installDate set: -10
+
+  If confidence >= 80 AND all hard criteria pass: eligible = true
+  If confidence < 80: eligible = false, flag for human review
+
+### TASK 2B — Auto-approval scheduler job
+
+Extend the existing scheduler with a new job that runs every 
+15 minutes:
+
+  async function runAutoApprovalSweep(): Promise<void>
+
+  1. Fetch all orders where:
+     jobStatus = 'COMPLETED'
+     AND approvalStatus = 'UNAPPROVED'
+     AND autoApprovalAttemptedAt IS NULL (new field, see below)
+  
+  2. For each order, call evaluateOrderForAutoApproval()
+  
+  3. If eligible:
+     a. Approve the order (set approvalStatus = 'APPROVED',
+        approvedByUserId = system user ID, approvedAt = now())
+     b. Call generateOverrideEarnings for the order
+     c. Set payrollReadyAt if AR is already satisfied
+     d. Create audit log: 'AUTO_APPROVAL_SYSTEM'
+        afterJson: { confidence, reasons }
+     e. Set autoApprovalAttemptedAt = now(), 
+        autoApprovalResult = 'APPROVED'
+  
+  4. If not eligible:
+     a. Set autoApprovalAttemptedAt = now()
+     b. Set autoApprovalResult = 'FLAGGED'
+     c. Set autoApprovalBlockers = JSON.stringify(blockers)
+     d. Create exception in queue: ORDER_APPROVAL_OVERDUE 
+        with description of blockers
+  
+  Add to salesOrders table (migration):
+    - autoApprovalAttemptedAt: timestamp nullable
+    - autoApprovalResult: varchar(20) nullable
+      Values: 'APPROVED' | 'FLAGGED' | 'SKIPPED'
+    - autoApprovalBlockers: text nullable (JSON array of reasons)
+    - autoApprovedBySystem: boolean default false
+
+### TASK 2C — Auto-approval configuration
+
+Add a system settings table:
+  system_settings
+    - key: varchar primary key
+    - value: text
+    - updatedByUserId: varchar
+    - updatedAt: timestamp
+
+Seed with:
+  'auto_approval_enabled': 'true'
+  'auto_approval_confidence_threshold': '80'
+  'auto_approval_max_amount_cents': '50000'  
+    // Orders above $500 always require human approval regardless
+  'auto_approval_new_rep_days': '90'         
+    // Reps within first 90 days always require human approval
+
+GET /api/admin/system-settings
+POST /api/admin/system-settings
+  Body: { key: string, value: string }
+  Access: ADMIN only
+
+===================================================================
+SECTION 3 — INTELLIGENT FINANCE IMPORT AUTO-MATCHING
+===================================================================
+
+### TASK 3A — Matching confidence improvement via learning
+
+Create a new table: match_corrections
+  - id: uuid primary key
+  - financeImportRowId: varchar
+  - originalMatchedOrderId: varchar nullable  
+    (what the system matched to, if anything)
+  - correctedOrderId: varchar nullable         
+    (what the human corrected it to)
+  - correctionType: varchar
+    Values: 'MANUAL_MATCH' | 'UNMATCH' | 'CREATE_NEW' | 'IGNORE'
+  - correctedByUserId: varchar
+  - scoreAtCorrection: integer
+  - nameTokenOverlap: numeric
+  - dateDiffDays: integer
+  - amountDiffCents: integer
+  - createdAt: timestamp
+
+Populate this table whenever a human performs a manual match, 
+unmatches an auto-match, or ignores a row in the finance import UI. 
+Update the relevant manual-match and ignore-row endpoints to 
+write a correction record.
+
+This table is the foundation for future ML-based matching 
+improvement — even if not used immediately, capturing it now 
+is free.
+
+### TASK 3B — Auto-match threshold configuration
+
+Add to system_settings:
+  'auto_match_confident_threshold': '75'    
+    // Score >= 75: auto-match without human review
+  'auto_match_ambiguous_threshold': '40'    
+    // Score 40-74: flag as AMBIGUOUS for human review
+    // Score < 40: UNMATCHED
+
+Update the auto-match engine to respect these settings instead 
+of hardcoded values. Fetch settings once before the match loop, 
+not per row.
+
+### TASK 3C — Post-import auto-trigger
+
+After a finance import auto-match completes and match rate >= 90%:
+  Automatically trigger the post operation (existing POST 
+  /api/finance/imports/:id/post) without requiring a manual step.
+
+  If match rate < 90%: require human review before posting.
+
+  Add to system_settings:
+    'auto_post_match_threshold': '90'
+
+  After auto-post:
+    - Run the payroll readiness trigger for all satisfied orders
+    - Create a single notification: 
+      "Finance import auto-posted: {matched} orders matched, 
+      {payrollReady} orders now payroll-ready"
+
+### TASK 3D — Recurring import schedule
+
+Add a new table: finance_import_schedules
+  - id: uuid primary key
+  - clientId: varchar references clients(id)
+  - name: varchar
+  - frequency: varchar ('WEEKLY' | 'BIWEEKLY' | 'MONTHLY')
+  - dayOfWeek: integer nullable
+  - dayOfMonth: integer nullable
+  - emailToWatch: varchar nullable    
+    // Future: email parsing integration placeholder
+  - sftpPath: varchar nullable        
+    // Future: SFTP auto-fetch placeholder  
+  - lastImportAt: timestamp nullable
+  - nextExpectedAt: timestamp nullable
+  - isActive: boolean default true
+  - createdAt, updatedAt
+
+Add endpoints:
+  GET /api/admin/finance-import-schedules
+  POST /api/admin/finance-import-schedules
+  PATCH /api/admin/finance-import-schedules/:id
+  DELETE /api/admin/finance-import-schedules/:id
+
+Add a daily scheduler job that checks finance_import_schedules 
+and creates an exception if a scheduled import is overdue:
+  Exception type: 'FINANCE_IMPORT_OVERDUE'
+  Title: "Expected carrier file from {clientName} is overdue"
+
+===================================================================
+SECTION 4 — REP-FACING SIMPLIFICATION
+===================================================================
+
+### CONCEPT
+Reps should have a radically simplified view: 
+What did I sell? What did I earn? When do I get paid?
+Nothing else.
+
+### TASK 4A — Rep summary endpoint
+
+GET /api/my/summary
+Access: All authenticated roles (personalized per user)
+
+Response:
+  {
+    rep: {
+      name, repId, role,
+      managerName: string | null,
+    },
+    
+    currentPeriod: {
+      periodLabel: string,       // e.g. "March 1 - March 15"
+      soldCount: number,
+      connectedCount: number,
+      pendingCount: number,
+      earnedAmount: number,      // approved + payroll-ready orders
+      pendingAmount: number,     // approved but not yet payroll-ready
+      projectedAmount: number,   // pending installs not yet approved
+    },
+    
+    nextPayment: {
+      estimatedDate: string | null,
+      estimatedAmount: number,
+      payRunName: string | null,
+      ordersIncluded: number,
+    },
+    
+    lastPayment: {
+      date: string | null,
+      amount: number,
+      stubId: string | null,     // link to view stub PDF
+      ordersIncluded: number,
+    },
+    
+    recentOrders: Array<{
+      invoiceNumber: string,
+      customerName: string,
+      dateSold: string,
+      serviceName: string,
+      status: string,            // simplified: 'Pending Install' | 
+                                 // 'Installed' | 'Approved' | 
+                                 // 'Paid' | 'Charged Back'
+      commissionAmount: number,
+      paymentStatus: string,
+    }>,                          // last 10 orders only
+    
+    alerts: Array<{
+      type: string,
+      message: string,
+      severity: 'info' | 'warning' | 'error',
+    }>,                          
+    // e.g. pending chargeback, advance repayment due,
+    // missing tax profile, etc.
+    
+    ytd: {
+      totalEarned: number,
+      totalPaid: number,
+      totalOrders: number,
+      totalConnects: number,
+    }
+  }
+
+This single endpoint replaces what currently requires 4-5 
+separate API calls for the rep dashboard.
+
+### TASK 4B — Simplified order status labels
+
+Add a computed field to all order responses: 
+  simplifiedStatus: string
+
+Computed as:
+  'Charged Back'    → if active chargeback exists
+  'Disputed'        → if open commission dispute
+  'Paid'            → paymentStatus = 'PAID'
+  'Pay Ready'       → payrollReadyAt IS NOT NULL and not in pay run
+  'Approved'        → approvalStatus = 'APPROVED' and jobStatus = 'COMPLETED'
+  'Installed'       → jobStatus = 'COMPLETED' and approvalStatus != 'APPROVED'
+  'Pending Install' → jobStatus = 'PENDING'
+  'Cancelled'       → jobStatus = 'CANCELED'
+  'Rejected'        → approvalStatus = 'REJECTED'
+
+Add this computation to a shared utility function:
+  function getSimplifiedOrderStatus(order: SalesOrder): string
+
+Call it in any endpoint that returns order data and append 
+simplifiedStatus to the response.
+
+### TASK 4C — Rep earnings timeline endpoint
+
+GET /api/my/earnings-timeline
+Access: All authenticated roles
+
+Query params:
+  - months: number (default 6, max 24)
+
+Returns month-by-month earnings for the rep:
+  Array<{
+    month: string,           // 'YYYY-MM'
+    monthLabel: string,      // 'March 2026'
+    ordersCount: number,
+    connectsCount: number,
+    grossEarned: number,
+    overrideEarned: number,
+    deductions: number,
+    netPaid: number,
+    payStubIds: string[],
+  }>
+
+Used for the rep's personal earnings history chart.
+
+===================================================================
+SECTION 5 — MANAGER AND EXECUTIVE SIMPLIFICATION
+===================================================================
+
+### TASK 5A — Team health score
+
+GET /api/my/team-health
+Access: MANAGER, EXECUTIVE, ADMIN
+
+Response:
+  {
+    overallScore: number,        // 0-100
+    scoreLabel: string,          // 'Healthy' | 'At Risk' | 'Critical'
+    
+    metrics: {
+      connectRate7d: number,     // connects / sales last 7 days
+      connectRateTarget: number, // from system settings, default 70%
+      avgDaysToApproval: number, // how long approvals are taking
+      pendingApprovals: number,
+      openChargebacks: number,
+      repsWithNoSales7d: number,
+      repsWithOpenDisputes: number,
+    },
+    
+    repAlerts: Array<{
+      repId: string,
+      repName: string,
+      alertType: string,
+      // 'NO_SALES_7_DAYS' | 'HIGH_CHARGEBACK_RATE' | 
+      // 'LOW_CONNECT_RATE' | 'PENDING_DISPUTE' |
+      // 'ADVANCE_OVERDUE'
+      message: string,
+    }>,
+    
+    topPerformers: Array<{
+      repId: string,
+      repName: string,
+      connectsThisMonth: number,
+      earnedThisMonth: number,
+    }>,                          // top 5
+    
+    needsAttention: Array<{
+      repId: string,
+      repName: string,
+      lastSaleDate: string | null,
+      connectRate: number,
+      openIssues: number,
+    }>,                          // bottom 5 by connect rate
+  }
+
+Score calculation:
+  Start at 100
+  -5 per rep with no sales in 7 days (max -25)
+  -10 per open chargeback (max -20)
+  -15 if connectRate7d < 60%
+  -5 if avgDaysToApproval > 3
+  -10 per open dispute (max -20)
+
+### TASK 5B — Executive financial snapshot
+
+GET /api/my/financial-snapshot
+Access: EXECUTIVE, ADMIN, ACCOUNTING
+
+Response:
+  {
+    asOf: string,
+    
+    thisMonth: {
+      grossRevenue: number,          // sum of rackRates for completed orders
+      repPayouts: number,
+      overridePayouts: number,
+      ironCrestProfit: number,
+      profitMargin: number,
+      ordersCompleted: number,
+      arReceived: number,
+      arOutstanding: number,
+    },
+    
+    lastMonth: { same shape },
+    
+    monthOverMonth: {
+      revenueChange: number,         // percent
+      profitChange: number,
+      marginChange: number,
+    },
+    
+    payrollObligations: {
+      nextPayRunEstimate: number,    // sum of payrollReady orders unpaid
+      overridesPendingApproval: number, // dollar value
+      advancesOutstanding: number,
+      totalObligation: number,
+    },
+    
+    arHealth: {
+      collectionRate30d: number,     // received / expected last 30 days
+      avgDaysToCollection: number,
+      openBalance: number,
+      overdueBalance: number,        // open > 45 days
+    },
+  }
+
+===================================================================
+SECTION 6 — WORKFLOW AUTOMATION RULES ENGINE
+===================================================================
+
+### TASK 6A — Configurable automation rules table
+
+Create table: automation_rules
+  - id: uuid primary key
+  - ruleName: varchar
+  - ruleType: varchar
+    Values:
+      'AUTO_APPROVE_ORDER'
+      'AUTO_POST_IMPORT'  
+      'AUTO_PAYROLL_READY'
+      'ALERT_ON_EXCEPTION'
+      'ESCALATE_AFTER_DAYS'
+  - isActive: boolean default true
+  - conditionsJson: text          // JSON rule conditions
+  - actionsJson: text             // JSON actions to take
+  - createdByUserId: varchar
+  - lastTriggeredAt: timestamp nullable
+  - triggerCount: integer default 0
+  - createdAt, updatedAt
+
+This is a simplified rules engine. Conditions and actions are 
+stored as JSON and evaluated by the automation runner.
+
+Example rule (stored as JSON):
+  {
+    "conditions": [
+      { "field": "jobStatus", "op": "eq", "value": "COMPLETED" },
+      { "field": "autoApprovalBlockers", "op": "null" },
+      { "field": "baseCommissionEarned", "op": "gt", "value": "0" }
+    ],
+    "actions": [
+      { "type": "APPROVE_ORDER" },
+      { "type": "GENERATE_OVERRIDE_EARNINGS" },
+      { "type": "NOTIFY", "role": "OPERATIONS", 
+        "message": "Order auto-approved: {invoiceNumber}" }
+    ]
+  }
+
+Add endpoints:
+  GET /api/admin/automation-rules
+  POST /api/admin/automation-rules
+  PATCH /api/admin/automation-rules/:id
+  DELETE /api/admin/automation-rules/:id
+  POST /api/admin/automation-rules/:id/test
+    // Dry-run the rule against recent data and show what 
+    // would have triggered
+
+Create server/automationRunner.ts:
+  async function evaluateRulesForOrder(orderId: string): Promise<void>
+  async function evaluateRulesForImport(importId: string): Promise<void>
+
+Call these at appropriate trigger points (order status change, 
+import completion, AR satisfaction).
+
+===================================================================
+SECTION 7 — DATA QUALITY AND INTEGRITY AUTOMATION
+===================================================================
+
+### TASK 7A — Duplicate order detection
+
+Add a duplicate detection check to the order creation endpoint.
+Before creating an order, check:
+
+  const potentialDuplicate = await db.select()
+    .from(salesOrders)
+    .where(and(
+      eq(salesOrders.repId, data.repId),
+      ilike(salesOrders.customerName, data.customerName),
+      gte(salesOrders.dateSold, thirtyDaysAgo),
+      ne(salesOrders.approvalStatus, 'REJECTED')
+    ))
+
+If a potential duplicate is found:
+  - Do not block the creation
+  - Set a flag on the new order: 
+    isDuplicateFlag: boolean default false
+    duplicateFlagReason: text nullable
+  - Return a warning in the API response:
+    { order: newOrder, warning: { 
+      type: 'POTENTIAL_DUPLICATE',
+      existingOrderId: string,
+      existingInvoiceNumber: string,
+      message: string
+    }}
+
+Add to salesOrders table (migration):
+  - isDuplicateFlag: boolean default false
+  - duplicateFlagReason: text nullable
+  - duplicateOfOrderId: varchar nullable
+
+### TASK 7B — Commission calculation integrity check
+
+Add a daily background job: commissionIntegrityCheck
+
+For all orders approved in the last 30 days:
+  1. Re-evaluate the rate card that should apply
+  2. Compare to the stored baseCommissionEarned
+  3. If difference > $1.00: create a rateIssue record
+     type: 'COMMISSION_MISMATCH'
+     details: JSON with expected vs actual amounts
+  4. Add to exception queue: 'RATE_CARD_MISSING' or 
+     create a new type 'COMMISSION_MISMATCH'
+
+This catches cases where rate cards were updated after 
+orders were approved.
+
+### TASK 7C — Orphaned record cleanup
+
+Add a weekly background job: orphanedRecordCheck
+
+Checks for data integrity issues:
+  1. Override earnings with no linked salesOrder
+  2. Pay statement line items with no linked payStatement
+  3. AR expectations with no linked order
+  4. Finance import rows marked MATCHED but matchedOrderId is null
+  5. Orders in a payRun where the payRun has been deleted
+
+For each issue found: create a LOW priority exception in the queue.
+Do not auto-delete anything — just flag for admin review.
+
+===================================================================
+SECTION 8 — REPORTING SIMPLIFICATION
+===================================================================
+
+### TASK 8A — Universal export endpoint
+
+GET /api/admin/export/:reportType
+Access: ADMIN, OPERATIONS, ACCOUNTING
+
+Supported reportTypes:
+  'orders'              → all orders with commission breakdown
+  'pay-stubs'           → all pay statements in period
+  'ar-reconciliation'   → AR vs payroll reconciliation
+  'override-earnings'   → all overrides with approval status
+  'commission-variance' → orders where payout differs from rate card
+  'iron-crest-profit'   → profitability by service/rep/period
+  'rep-summary'         → one row per rep with all YTD metrics
+
+Query params (all optional):
+  - startDate, endDate
+  - repId, repIds (comma-separated)
+  - format: 'csv' | 'json' (default csv)
+
+This replaces the current scattered individual export endpoints 
+with a single consistent interface.
+
+### TASK 8B — Saved report configurations
+
+Create table: saved_reports
+  - id: uuid primary key
+  - name: varchar
+  - reportType: varchar
+  - paramsJson: text             // stored query params
+  - createdByUserId: varchar
+  - isShared: boolean default false  
+    // shared reports visible to all admins
+  - lastRunAt: timestamp nullable
+  - createdAt, updatedAt
+
+Endpoints:
+  GET /api/admin/saved-reports
+  POST /api/admin/saved-reports
+  DELETE /api/admin/saved-reports/:id
+  POST /api/admin/saved-reports/:id/run
+    // Executes the saved report and returns the data
+
+===================================================================
+SECTION 9 — SCHEMA ADDITIONS SUMMARY
+===================================================================
+
+New tables (create Drizzle migrations):
+  - exception_dismissals
+  - match_corrections
+  - finance_import_schedules
+  - automation_rules
+  - system_settings
+  - saved_reports
+  - stub_sequences (if not created in previous prompt)
+
+salesOrders additions:
+  - autoApprovalAttemptedAt: timestamp nullable
+  - autoApprovalResult: varchar(20) nullable
+  - autoApprovalBlockers: text nullable
+  - autoApprovedBySystem: boolean default false
+  - isDuplicateFlag: boolean default false
+  - duplicateFlagReason: text nullable
+  - duplicateOfOrderId: varchar nullable
+  - simplifiedStatus: varchar(30) nullable
+    (computed and stored on write for query performance)
+
+===================================================================
+GENERAL CONSTRAINTS
+===================================================================
+
+- Create ONE consolidated Drizzle migration for all schema changes
+- Do not modify existing API response shapes — only ADD fields
+- Do not touch the frontend
+- All new scheduled jobs must integrate with the existing 
+  scheduler infrastructure and log to backgroundJobs table
+- Exception queue must be computed from live data, not a 
+  separate stored queue (except for dismissals)
+- All monetary values stored as INTEGER cents
+- Auto-approval system must create detailed audit logs so every 
+  system-approved order is fully traceable
+- System settings must be validated on write — unknown keys 
+  should be rejected with 400
+- The automation rules engine must fail gracefully — a broken 
+  rule should log to backgroundJobs and continue, never crash
+- Every new storage method must have JSDoc comments
+- Self-approval prohibition must be enforced everywhere
+- Add integration points (comments) in the code wherever a 
+  future webhook or external integration would connect — label 
+  these: // INTEGRATION_POINT: {description}

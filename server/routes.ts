@@ -18,6 +18,9 @@ import { encryptSsn, decryptSsn, extractSsnLast4, maskSsn } from "./encryption";
 import { fetchGoogleSheet, parseUploadedCsv } from "./google-sheets";
 import { matchInstallationsToOrders, type OrderSummary } from "./claude-matching";
 import { emailService } from "./email";
+import { generatePayStub, generatePayStubsForPayRun } from "./payStubGenerator";
+import { generatePayStubPdf } from "./payStubPdf";
+import archiver from "archiver";
 
 // Placeholder until actual MRC data is tracked
 const REVENUE_MULTIPLIER = parseFloat(process.env.REVENUE_MULTIPLIER || "5");
@@ -13699,7 +13702,6 @@ export async function registerRoutes(
             });
             arCreated++;
             
-            // When AR is created as satisfied, mark order completed, approved, and paid
             if (arStatus === 'SATISFIED' && order) {
               const orderUpdate: Record<string, any> = {
                 paymentStatus: 'PAID',
@@ -13708,6 +13710,10 @@ export async function registerRoutes(
               if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
               if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
               await storage.updateOrder(orderId, orderUpdate);
+
+              if (order.approvalStatus === 'APPROVED' && !order.isPayrollHeld && !order.payrollReadyAt) {
+                await storage.setPayrollReady(orderId, "AR_SATISFIED");
+              }
             }
           }
         } else if (rejectedRows.length > 0) {
@@ -14920,6 +14926,382 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Bulk reject override earnings error:", error);
       res.status(500).json({ message: "Failed to bulk reject" });
+    }
+  });
+
+  // ===== PAYROLL READINESS ENDPOINTS =====
+
+  app.get("/api/admin/payroll/ready-orders", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+    try {
+      const { periodStart, periodEnd } = req.query;
+      if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
+      const orders = await storage.getPayrollReadyOrders(periodStart as string, periodEnd as string);
+      res.json(orders);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/payroll/manual-ready/:orderId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const order = await storage.getOrderById(req.params.orderId);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.approvalStatus !== "APPROVED") return res.status(400).json({ message: "Order must be approved" });
+      if (order.payrollReadyAt) return res.status(400).json({ message: "Order already payroll-ready" });
+
+      const updated = await storage.setPayrollReady(req.params.orderId, "MANUAL");
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "payroll_manual_ready",
+        tableName: "sales_orders",
+        recordId: req.params.orderId,
+      });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/payroll/hold/:orderId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { reason } = req.body;
+      if (!reason) return res.status(400).json({ message: "Hold reason required" });
+      const updated = await storage.setPayrollHold(req.params.orderId, reason);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "payroll_hold",
+        tableName: "sales_orders",
+        recordId: req.params.orderId,
+        afterJson: JSON.stringify({ reason }),
+      });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/payroll/release-hold/:orderId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const updated = await storage.releasePayrollHold(req.params.orderId);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "payroll_release_hold",
+        tableName: "sales_orders",
+        recordId: req.params.orderId,
+      });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== AUTO-BUILD PAY RUN =====
+
+  app.post("/api/admin/payroll/auto-build", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { periodStart, periodEnd, name } = req.body;
+      if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
+
+      const readyOrders = await storage.getPayrollReadyOrders(periodStart, periodEnd);
+      if (readyOrders.length === 0) return res.status(400).json({ message: "No payroll-ready orders for this period" });
+
+      const weekEnd = periodEnd;
+      const payRun = await storage.createPayRun({
+        name: name || `Auto Pay Run ${periodStart} to ${periodEnd}`,
+        weekEndingDate: weekEnd,
+        periodStart,
+        periodEnd,
+        createdByUserId: req.user!.id,
+        status: "DRAFT",
+      });
+
+      for (const { order } of readyOrders) {
+        await storage.updateOrder(order.id, { payRunId: payRun.id });
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "payroll_auto_build",
+        tableName: "pay_runs",
+        recordId: payRun.id,
+        afterJson: JSON.stringify({ orderCount: readyOrders.length, periodStart, periodEnd }),
+      });
+
+      res.json({ payRun, orderCount: readyOrders.length });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/payroll/preview", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+    try {
+      const { periodStart, periodEnd } = req.query;
+      if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
+
+      const readyOrders = await storage.getPayrollReadyOrders(periodStart as string, periodEnd as string);
+
+      const byUser: Record<string, { orders: any[]; totalCommission: number; userId: string; userName: string }> = {};
+      for (const { order, client, provider, service } of readyOrders) {
+        if (!byUser[order.userId]) {
+          const user = await storage.getUserById(order.userId);
+          byUser[order.userId] = {
+            userId: order.userId,
+            userName: user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : "Unknown",
+            orders: [],
+            totalCommission: 0,
+          };
+        }
+        const comm = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
+        byUser[order.userId].totalCommission += comm;
+        byUser[order.userId].orders.push({
+          orderId: order.id,
+          invoiceNumber: order.invoiceNumber,
+          clientName: client?.name,
+          providerName: provider?.name,
+          serviceName: service?.name,
+          commissionAmount: comm,
+          payrollReadyAt: order.payrollReadyAt,
+        });
+      }
+
+      res.json({
+        periodStart,
+        periodEnd,
+        totalOrders: readyOrders.length,
+        totalCommission: Object.values(byUser).reduce((s, u) => s + u.totalCommission, 0),
+        userBreakdown: Object.values(byUser),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== PAY STUB GENERATION =====
+
+  app.post("/api/admin/payroll/generate-stubs/:payRunId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.payRunId);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+
+      const periodStart = payRun.periodStart || payRun.weekEndingDate;
+      const periodEnd = payRun.periodEnd || payRun.weekEndingDate;
+
+      const results = await generatePayStubsForPayRun(req.params.payRunId, periodStart, periodEnd);
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "payroll_generate_stubs",
+        tableName: "pay_runs",
+        recordId: req.params.payRunId,
+        afterJson: JSON.stringify({ stubCount: results.length }),
+      });
+
+      res.json({ payRunId: req.params.payRunId, stubs: results });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/payroll/finalize/:payRunId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.payRunId);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+
+      const stmts = await storage.getPayStatements(req.params.payRunId);
+      if (stmts.length === 0) return res.status(400).json({ message: "No pay statements to finalize" });
+
+      for (const stmt of stmts) {
+        await storage.updatePayStatement(stmt.id, {
+          isViewableByRep: true,
+          status: "ISSUED",
+          issuedAt: new Date(),
+        } as any);
+
+        if (stmt.repEmail) {
+          emailService.queueEmail({
+            to: stmt.repEmail,
+            subject: `Pay Statement ${stmt.stubNumber} Available`,
+            text: `Your pay statement ${stmt.stubNumber} for period ${stmt.periodStart} to ${stmt.periodEnd} is now available. Net Pay: $${stmt.netPay}`,
+            html: `<p>Your pay statement <strong>${stmt.stubNumber}</strong> for period ${stmt.periodStart} to ${stmt.periodEnd} is now available.</p><p>Net Pay: <strong>$${stmt.netPay}</strong></p>`,
+          });
+        }
+      }
+
+      await storage.updatePayRun(req.params.payRunId, { status: "FINALIZED", finalizedAt: new Date() });
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "payroll_finalize",
+        tableName: "pay_runs",
+        recordId: req.params.payRunId,
+        afterJson: JSON.stringify({ statementCount: stmts.length }),
+      });
+
+      res.json({ message: "Pay run finalized", statementCount: stmts.length });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== FULL-CYCLE ENDPOINT =====
+
+  app.post("/api/admin/payroll/full-cycle", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { periodStart, periodEnd, name, finalize } = req.body;
+      if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
+
+      const readyOrders = await storage.getPayrollReadyOrders(periodStart, periodEnd);
+      if (readyOrders.length === 0) return res.status(400).json({ message: "No payroll-ready orders" });
+
+      const payRun = await storage.createPayRun({
+        name: name || `Full Cycle ${periodStart} to ${periodEnd}`,
+        weekEndingDate: periodEnd,
+        periodStart,
+        periodEnd,
+        createdByUserId: req.user!.id,
+        status: "DRAFT",
+      });
+
+      for (const { order } of readyOrders) {
+        await storage.updateOrder(order.id, { payRunId: payRun.id });
+      }
+
+      const stubs = await generatePayStubsForPayRun(payRun.id, periodStart, periodEnd);
+
+      if (finalize) {
+        const stmts = await storage.getPayStatements(payRun.id);
+        for (const stmt of stmts) {
+          await storage.updatePayStatement(stmt.id, {
+            isViewableByRep: true,
+            status: "ISSUED",
+            issuedAt: new Date(),
+          } as any);
+
+          if (stmt.repEmail) {
+            emailService.queueEmail({
+              to: stmt.repEmail,
+              subject: `Pay Statement ${stmt.stubNumber} Available`,
+              text: `Your pay statement ${stmt.stubNumber} for period ${stmt.periodStart} to ${stmt.periodEnd} is now available. Net Pay: $${stmt.netPay}`,
+              html: `<p>Your pay statement <strong>${stmt.stubNumber}</strong> for period ${stmt.periodStart} to ${stmt.periodEnd} is now available.</p><p>Net Pay: <strong>$${stmt.netPay}</strong></p>`,
+            });
+          }
+        }
+        await storage.updatePayRun(payRun.id, { status: "FINALIZED", finalizedAt: new Date() });
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "payroll_full_cycle",
+        tableName: "pay_runs",
+        recordId: payRun.id,
+        afterJson: JSON.stringify({ orderCount: readyOrders.length, stubCount: stubs.length, finalized: !!finalize }),
+      });
+
+      res.json({
+        payRun,
+        orderCount: readyOrders.length,
+        stubs,
+        finalized: !!finalize,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== PDF GENERATION =====
+
+  app.get("/api/admin/payroll/pdf/:payStatementId", auth, async (req: AuthRequest, res) => {
+    try {
+      const stmt = await storage.getPayStatementById(req.params.payStatementId);
+      if (!stmt) return res.status(404).json({ message: "Pay statement not found" });
+
+      const userRole = req.user!.role;
+      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"].includes(userRole);
+      if (!isAdmin && stmt.userId !== req.user!.id) return res.status(403).json({ message: "Forbidden" });
+      if (!isAdmin && !stmt.isViewableByRep) return res.status(403).json({ message: "Pay stub not yet available" });
+
+      const pdf = await generatePayStubPdf(req.params.payStatementId);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${stmt.stubNumber || "paystub"}.pdf"`);
+      res.send(pdf);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/payroll/pdf-zip/:payRunId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.payRunId);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+
+      const stmts = await storage.getPayStatements(req.params.payRunId);
+      if (stmts.length === 0) return res.status(400).json({ message: "No pay statements in this pay run" });
+
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename="pay-run-${req.params.payRunId.substring(0, 8)}.zip"`);
+
+      const archive = archiver("zip", { zlib: { level: 9 } });
+      archive.pipe(res);
+
+      for (const stmt of stmts) {
+        try {
+          const pdf = await generatePayStubPdf(stmt.id);
+          archive.append(pdf, { name: `${stmt.stubNumber || stmt.id}.pdf` });
+        } catch (e) {
+          console.error(`Failed to generate PDF for ${stmt.id}:`, e);
+        }
+      }
+
+      await archive.finalize();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== ACCOUNTING RECONCILIATION ENDPOINTS =====
+
+  app.get("/api/admin/accounting/summary", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+    try {
+      const { periodStart, periodEnd } = req.query;
+      if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
+      const summary = await storage.getAccountingSummary(periodStart as string, periodEnd as string);
+      res.json(summary);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/accounting/ar-payroll-reconciliation", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+    try {
+      const { periodStart, periodEnd } = req.query;
+      if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
+      const reconciliation = await storage.getArPayrollReconciliation(periodStart as string, periodEnd as string);
+      res.json(reconciliation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/accounting/variance-report", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+    try {
+      const { periodStart, periodEnd } = req.query;
+      if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
+      const report = await storage.getVarianceReport(periodStart as string, periodEnd as string);
+      res.json(report);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== STALE AR ENDPOINT =====
+
+  app.get("/api/admin/payroll/stale-ar", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const staleOrders = await storage.getStaleArOrders(days);
+      res.json(staleOrders);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
     }
   });
 

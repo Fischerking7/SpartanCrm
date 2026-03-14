@@ -50,6 +50,7 @@ The application uses a monorepo structure with `client/` for the React frontend,
 - **User Activity Tracking**: Tracks user logins, device types, and page usage with IP geolocation, storing activity logs and providing an admin dashboard for monitoring.
 - **Client Finance Import & AR Reconciliation**: Allows import of client finance data with column mapping, multi-factor auto-matching against approved orders, and admin reconciliation capabilities with audit logging and commission cascade on paid orders.
 - **Install Sync (AI-Powered Order Matching)**: Automated workflow using Claude AI to match installation records against CRM orders from Google Sheets or CSV uploads, updating order statuses based on installation outcomes.
+- **Automated Payroll Pipeline**: End-to-end payroll automation with AR-gated readiness (auto-triggers on AR satisfaction), manual override/hold/release endpoints, auto-build pay runs from payroll-ready orders, pay stub generation with atomic stub numbering (`stub_sequences` table), PDF generation (pdfkit), bulk ZIP export (archiver), full-cycle endpoint (build + stubs + optional finalize in one call), accounting reconciliation dashboard (summary, AR-payroll reconciliation, variance report), and daily stale AR alerts (30+ day threshold). Key files: `server/payStubGenerator.ts`, `server/payStubPdf.ts`.
 
 ## External Dependencies
 
@@ -61,7 +62,9 @@ The application uses a monorepo structure with `client/` for the React frontend,
 - **@radix-ui/*, tailwindcss, class-variance-authority, lucide-react**: UI development.
 - **@tanstack/react-query, react-hook-form, zod**: State management, forms, and validation.
 - **QuickBooks Online Integration**: Deep OAuth 2.0 integration for two-way payment sync, account mapping, reconciliation, exception handling, and health monitoring.
-- **Background Scheduler**: Manages automated tasks like pay run creation, chargeback auto-matching, and email notifications.
+- **pdfkit**: PDF generation for pay stubs.
+- **archiver**: ZIP archive generation for bulk pay stub PDF export.
+- **Background Scheduler**: Manages automated tasks like pay run creation, chargeback auto-matching, email notifications, and stale AR alerts.
 - **Email Notifications**: Queue-based system for user notifications via SMTP.
-- **Automated Alerts System**: Sends alerts for pending approvals, low performance warnings, and in-app notifications.
+- **Automated Alerts System**: Sends alerts for pending approvals, low performance warnings, stale AR (30+ days), and in-app notifications.
 - **Claude AI (Replit AI Integrations, claude-sonnet-4-6)**: Used for the Install Sync feature for intelligent order matching.

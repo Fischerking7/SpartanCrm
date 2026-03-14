@@ -61,6 +61,7 @@ export const scheduler = {
     this.scheduleMidnightLogout();
     this.scheduleDailySalesReport();
     this.scheduleDailyInstallReport();
+    this.scheduleStaleArAlert();
 
     setTimeout(() => {
       this.checkScheduledPayRuns();
@@ -767,6 +768,41 @@ export const scheduler = {
         errorMessage: error.message,
       });
       console.error("[Scheduler] Low performance check failed:", error);
+    }
+  },
+
+  scheduleStaleArAlert() {
+    const ms = msUntilEasternTime(8, 0);
+    setTimeout(() => {
+      this.checkStaleAr();
+      setInterval(() => this.checkStaleAr(), 24 * 60 * 60 * 1000);
+    }, ms);
+    console.log(`[Scheduler] Stale AR alert scheduled in ${Math.round(ms / 60000)} minutes`);
+  },
+
+  async checkStaleAr() {
+    try {
+      const staleOrders = await storage.getStaleArOrders(30);
+      if (staleOrders.length === 0) return;
+
+      const adminUsers = await storage.getUsers();
+      const admins = adminUsers.filter(u => ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(u.role) && !u.deletedAt);
+
+      for (const admin of admins) {
+        const orderList = staleOrders.slice(0, 20).map(({ order, client }) =>
+          `• ${order.invoiceNumber || order.id} - ${client?.name || "Unknown"}`
+        ).join("\n");
+
+        emailService.queueEmail({
+          to: admin.email,
+          subject: `[Alert] ${staleOrders.length} Orders with Stale AR (30+ days)`,
+          text: `There are ${staleOrders.length} approved orders that have not received AR satisfaction for 30+ days:\n\n${orderList}`,
+          html: `<p>There are <strong>${staleOrders.length}</strong> approved orders that have not received AR satisfaction for 30+ days:</p><ul>${staleOrders.slice(0, 20).map(({ order, client }) => `<li>${order.invoiceNumber || order.id} - ${client?.name || "Unknown"}</li>`).join("")}</ul>`,
+        });
+      }
+      console.log(`[Scheduler] Stale AR alert: ${staleOrders.length} orders, notified ${admins.length} admins`);
+    } catch (error) {
+      console.error("[Scheduler] Stale AR check failed:", error);
     }
   },
 };

@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, sql, lte, gte, or, isNull, ilike, inArray, notInArray, ne, asc } from "drizzle-orm";
+import { eq, and, desc, sql, lte, gte, or, isNull, isNotNull, ilike, inArray, notInArray, ne, asc } from "drizzle-orm";
 
 export type TxDb = typeof db;
 import {
@@ -10,7 +10,7 @@ import {
   overrideDeductionPool, overrideDistributions, knowledgeDocuments,
   payrollSchedules, payRunApprovals, deductionTypes, userDeductions,
   advances, advanceRepayments, userTaxProfiles, userPaymentMethods,
-  payStatements, payStatementLineItems, payStatementDeductions,
+  payStatements, payStatementLineItems, payStatementDeductions, stubSequences,
   taxDocuments, userBankAccounts, achExports, achExportItems,
   paymentReconciliations, bonuses, drawAccounts, drawTransactions,
   splitCommissionAgreements, splitCommissionRecipients, splitCommissionLedger,
@@ -4559,5 +4559,226 @@ export const storage = {
         ),
       )
     );
+  },
+
+  async getPayrollReadyOrders(periodStart: string, periodEnd: string) {
+    return db.select({
+      order: salesOrders,
+      client: clients,
+      provider: providers,
+      service: services,
+    })
+    .from(salesOrders)
+    .leftJoin(clients, eq(salesOrders.clientId, clients.id))
+    .leftJoin(providers, eq(salesOrders.providerId, providers.id))
+    .leftJoin(services, eq(salesOrders.serviceId, services.id))
+    .where(and(
+      isNotNull(salesOrders.payrollReadyAt),
+      eq(salesOrders.isPayrollHeld, false),
+      isNull(salesOrders.payRunId),
+      eq(salesOrders.approvalStatus, "APPROVED"),
+      gte(salesOrders.payrollReadyAt, new Date(periodStart)),
+      lte(salesOrders.payrollReadyAt, new Date(periodEnd + "T23:59:59"))
+    ));
+  },
+
+  async getPayrollReadyOrdersForUser(userId: string, periodStart: string, periodEnd: string) {
+    return db.select({
+      order: salesOrders,
+      client: clients,
+      provider: providers,
+      service: services,
+    })
+    .from(salesOrders)
+    .leftJoin(clients, eq(salesOrders.clientId, clients.id))
+    .leftJoin(providers, eq(salesOrders.providerId, providers.id))
+    .leftJoin(services, eq(salesOrders.serviceId, services.id))
+    .where(and(
+      isNotNull(salesOrders.payrollReadyAt),
+      eq(salesOrders.isPayrollHeld, false),
+      isNull(salesOrders.payRunId),
+      eq(salesOrders.approvalStatus, "APPROVED"),
+      eq(salesOrders.userId, userId),
+      gte(salesOrders.payrollReadyAt, new Date(periodStart)),
+      lte(salesOrders.payrollReadyAt, new Date(periodEnd + "T23:59:59"))
+    ));
+  },
+
+  async setPayrollReady(orderId: string, triggeredBy: string) {
+    const [order] = await db.update(salesOrders)
+      .set({
+        payrollReadyAt: new Date(),
+        payrollReadyTriggeredBy: triggeredBy,
+        updatedAt: new Date(),
+      })
+      .where(eq(salesOrders.id, orderId))
+      .returning();
+    return order;
+  },
+
+  async setPayrollHold(orderId: string, reason: string) {
+    const [order] = await db.update(salesOrders)
+      .set({
+        isPayrollHeld: true,
+        payrollHoldReason: reason,
+        updatedAt: new Date(),
+      })
+      .where(eq(salesOrders.id, orderId))
+      .returning();
+    return order;
+  },
+
+  async releasePayrollHold(orderId: string) {
+    const [order] = await db.update(salesOrders)
+      .set({
+        isPayrollHeld: false,
+        payrollHoldReason: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(salesOrders.id, orderId))
+      .returning();
+    return order;
+  },
+
+  async getStaleArOrders(daysSinceApproval: number) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysSinceApproval);
+    return db.select({
+      order: salesOrders,
+      client: clients,
+    })
+    .from(salesOrders)
+    .leftJoin(clients, eq(salesOrders.clientId, clients.id))
+    .where(and(
+      eq(salesOrders.approvalStatus, "APPROVED"),
+      isNull(salesOrders.payrollReadyAt),
+      eq(salesOrders.isPayrollHeld, false),
+      lte(salesOrders.createdAt, cutoff)
+    ));
+  },
+
+  async getNextStubSequence(payRunId: string, txDb?: TxDb): Promise<number> {
+    const d = txDb ?? db;
+    const existing = await d.select().from(stubSequences)
+      .where(eq(stubSequences.payRunId, payRunId));
+    if (existing.length === 0) {
+      await d.insert(stubSequences).values({ payRunId, sequence: 1 });
+      return 1;
+    }
+    const next = existing[0].sequence + 1;
+    await d.update(stubSequences)
+      .set({ sequence: next })
+      .where(eq(stubSequences.payRunId, payRunId));
+    return next;
+  },
+
+  async createPayStatementLineItemFull(data: {
+    payStatementId: string; category: string; description: string;
+    sourceType?: string; sourceId?: string; salesOrderId?: string;
+    invoiceNumber?: string; customerName?: string; dateSold?: string;
+    serviceDescription?: string; providerName?: string; installDate?: string;
+    repRoleAtSale?: string; quantity?: number; rate?: string; amount: string;
+  }, txDb?: TxDb) {
+    const d = txDb ?? db;
+    const [item] = await d.insert(payStatementLineItems).values(data).returning();
+    return item;
+  },
+
+  async getApprovedOverrideEarningsForUser(userId: string, periodStart: string, periodEnd: string) {
+    return db.select()
+      .from(overrideEarnings)
+      .where(and(
+        eq(overrideEarnings.recipientUserId, userId),
+        eq(overrideEarnings.approvalStatus, "APPROVED"),
+        isNull(overrideEarnings.payRunId),
+        gte(overrideEarnings.createdAt, new Date(periodStart)),
+        lte(overrideEarnings.createdAt, new Date(periodEnd + "T23:59:59"))
+      ));
+  },
+
+  async getAccountingSummary(periodStart: string, periodEnd: string) {
+    const orders = await db.select({
+      totalCommission: sql<string>`COALESCE(SUM(CAST(${salesOrders.commissionAmount} AS DECIMAL)), 0)`,
+      totalRackRate: sql<string>`COALESCE(SUM(${salesOrders.ironCrestRackRateCents}), 0)`,
+      totalProfit: sql<string>`COALESCE(SUM(${salesOrders.ironCrestProfitCents}), 0)`,
+      totalDirectorOverride: sql<string>`COALESCE(SUM(${salesOrders.directorOverrideCents}), 0)`,
+      totalAdminOverride: sql<string>`COALESCE(SUM(${salesOrders.adminOverrideCents}), 0)`,
+      totalAccountingOverride: sql<string>`COALESCE(SUM(${salesOrders.accountingOverrideCents}), 0)`,
+      orderCount: sql<string>`COUNT(*)`,
+    })
+    .from(salesOrders)
+    .where(and(
+      isNotNull(salesOrders.payrollReadyAt),
+      gte(salesOrders.payrollReadyAt, new Date(periodStart)),
+      lte(salesOrders.payrollReadyAt, new Date(periodEnd + "T23:59:59"))
+    ));
+    return orders[0];
+  },
+
+  async getArPayrollReconciliation(periodStart: string, periodEnd: string) {
+    const arSatisfied = await db.select({
+      count: sql<string>`COUNT(*)`,
+      totalExpected: sql<string>`COALESCE(SUM(${arExpectations.expectedAmountCents}), 0)`,
+      totalActual: sql<string>`COALESCE(SUM(${arExpectations.actualAmountCents}), 0)`,
+    })
+    .from(arExpectations)
+    .where(and(
+      eq(arExpectations.status, "SATISFIED"),
+      gte(arExpectations.createdAt, new Date(periodStart)),
+      lte(arExpectations.createdAt, new Date(periodEnd + "T23:59:59"))
+    ));
+
+    const payrollReady = await db.select({
+      count: sql<string>`COUNT(*)`,
+      totalCommission: sql<string>`COALESCE(SUM(CAST(${salesOrders.commissionAmount} AS DECIMAL)), 0)`,
+    })
+    .from(salesOrders)
+    .where(and(
+      isNotNull(salesOrders.payrollReadyAt),
+      gte(salesOrders.payrollReadyAt, new Date(periodStart)),
+      lte(salesOrders.payrollReadyAt, new Date(periodEnd + "T23:59:59"))
+    ));
+
+    const payRunTotals = await db.select({
+      count: sql<string>`COUNT(*)`,
+      totalNetPay: sql<string>`COALESCE(SUM(CAST(${payStatements.netPay} AS DECIMAL)), 0)`,
+      totalGross: sql<string>`COALESCE(SUM(CAST(${payStatements.grossCommission} AS DECIMAL)), 0)`,
+    })
+    .from(payStatements)
+    .innerJoin(payRuns, eq(payStatements.payRunId, payRuns.id))
+    .where(and(
+      gte(payRuns.createdAt, new Date(periodStart)),
+      lte(payRuns.createdAt, new Date(periodEnd + "T23:59:59"))
+    ));
+
+    return {
+      arSatisfied: arSatisfied[0],
+      payrollReady: payrollReady[0],
+      payRunTotals: payRunTotals[0],
+    };
+  },
+
+  async getVarianceReport(periodStart: string, periodEnd: string) {
+    return db.select({
+      orderId: salesOrders.id,
+      invoiceNumber: salesOrders.invoiceNumber,
+      commissionAmount: salesOrders.commissionAmount,
+      rackRateCents: salesOrders.ironCrestRackRateCents,
+      profitCents: salesOrders.ironCrestProfitCents,
+      arExpectedCents: arExpectations.expectedAmountCents,
+      arActualCents: arExpectations.actualAmountCents,
+      arVarianceCents: arExpectations.varianceAmountCents,
+      arStatus: arExpectations.status,
+      payrollReadyAt: salesOrders.payrollReadyAt,
+      isPayrollHeld: salesOrders.isPayrollHeld,
+    })
+    .from(salesOrders)
+    .leftJoin(arExpectations, eq(salesOrders.id, arExpectations.orderId))
+    .where(and(
+      eq(salesOrders.approvalStatus, "APPROVED"),
+      gte(salesOrders.createdAt, new Date(periodStart)),
+      lte(salesOrders.createdAt, new Date(periodEnd + "T23:59:59"))
+    ))
+    .orderBy(desc(salesOrders.createdAt));
   },
 };
