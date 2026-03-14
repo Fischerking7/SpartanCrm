@@ -3,7 +3,7 @@ INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start,
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction, created_at, updated_at) VALUES
-('5be35b08-66e1-446b-877b-195c99b70a58', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', '2beb75b6-d64a-4a28-957b-e1d854afb4f4', '2026-01-01', true, 350.00, 80.00, 0.00, NULL, NULL, 125.00, 40.00, 0.00, '2026-01-07 02:42:50', '2026-01-07 06:47:53')
+('5be35b08-66e1-446b-877b-195c99b70a58', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', '2beb75b6-d64a-4a28-957b-e1d854afb4f4', '2026-01-01', true, 350.00, 80.00, 0.00, NULL, NULL, 150.00, 40.00, 0.00, '2026-01-07 02:42:50', '2026-01-07 06:47:53')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction, created_at, updated_at) VALUES
@@ -11,7 +11,7 @@ INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start,
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction, created_at, updated_at) VALUES
-('98fa5888-e2a1-4407-8767-64b25e32a872', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', '158b569d-52cc-42b3-b74e-283cc779a69d', '2026-01-01', true, 285.00, 80.00, 0.00, NULL, NULL, 125.00, 40.00, 0.00, '2026-01-07 02:42:16', '2026-01-07 06:48:21')
+('98fa5888-e2a1-4407-8767-64b25e32a872', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', '158b569d-52cc-42b3-b74e-283cc779a69d', '2026-01-01', true, 285.00, 80.00, 0.00, NULL, NULL, 150.00, 40.00, 0.00, '2026-01-07 02:42:16', '2026-01-07 06:48:21')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction, created_at, updated_at) VALUES
@@ -19,7 +19,7 @@ INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start,
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction, created_at, updated_at) VALUES
-('364b52c3-18b6-4165-af91-97e613b06f09', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', '57f47c58-21b0-4ce2-bc1a-528cc668cc10', '2026-01-01', true, 95.00, 80.00, 0.00, NULL, NULL, 75.00, 40.00, 0.00, '2026-01-07 01:34:10', '2026-01-07 06:52:36')
+('364b52c3-18b6-4165-af91-97e613b06f09', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', '57f47c58-21b0-4ce2-bc1a-528cc668cc10', '2026-01-01', true, 95.00, 80.00, 0.00, NULL, NULL, 70.00, 40.00, 0.00, '2026-01-07 01:34:10', '2026-01-07 06:52:36')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction, created_at, updated_at) VALUES
@@ -31,13 +31,13 @@ INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start,
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction, created_at, updated_at) VALUES
-('f9be96a0-b613-413c-84c8-3a871a24129a', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', '3285ddf1-5bd3-48cf-8d45-6b2eaef5841f', '2026-01-01', true, 390.00, 80.00, 0.00, NULL, NULL, 135.00, 40.00, 0.00, '2026-01-07 02:52:25', '2026-01-07 06:41:59')
+('f9be96a0-b613-413c-84c8-3a871a24129a', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', '3285ddf1-5bd3-48cf-8d45-6b2eaef5841f', '2026-01-01', true, 390.00, 80.00, 0.00, NULL, NULL, 165.00, 40.00, 0.00, '2026-01-07 02:52:25', '2026-01-07 06:41:59')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction, created_at, updated_at) VALUES
-('b0b02a1b-221a-43a3-87fe-61ac3c6facdf', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', '5922d7d1-336d-4209-aac0-92941994e6c9', '2026-01-01', true, 190.00, 80.00, 0.00, NULL, NULL, 100.00, 40.00, 0.00, '2026-01-07 02:34:32', '2026-01-07 06:54:04')
+('b0b02a1b-221a-43a3-87fe-61ac3c6facdf', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', '5922d7d1-336d-4209-aac0-92941994e6c9', '2026-01-01', true, 190.00, 80.00, 0.00, NULL, NULL, 130.00, 40.00, 0.00, '2026-01-07 02:34:32', '2026-01-07 06:54:04')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rate_cards (id, provider_id, client_id, service_id, effective_start, active, base_amount, tv_addon_amount, mobile_per_line_amount, mobile_product_type, mobile_ported_status, override_deduction, tv_override_deduction, mobile_override_deduction, created_at, updated_at) VALUES
-('8bd9ddaf-eddc-4206-a822-d6bff1f3f449', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', 'ba872cf2-e7dc-4d93-b9d6-fbc8d3ffd24a', '2026-01-01', true, 255.00, 80.00, 0.00, NULL, NULL, 125.00, 40.00, 0.00, '2026-01-07 02:41:47', '2026-01-07 06:54:17')
+('8bd9ddaf-eddc-4206-a822-d6bff1f3f449', '88a9321e-d805-4543-9e77-2116890d471b', '8cd17657-0a33-4c8d-81b2-5586ce8d770e', 'ba872cf2-e7dc-4d93-b9d6-fbc8d3ffd24a', '2026-01-01', true, 255.00, 80.00, 0.00, NULL, NULL, 130.00, 40.00, 0.00, '2026-01-07 02:41:47', '2026-01-07 06:54:17')
 ON CONFLICT (id) DO NOTHING;
