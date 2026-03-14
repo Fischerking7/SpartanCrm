@@ -12,6 +12,7 @@ import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { OpsNav } from "@/pages/ops/ops-layout";
 import { AcctNav } from "@/pages/accounting/acct-layout";
 import { DirNav } from "@/pages/director/dir-layout";
+import { ExecNav } from "@/pages/executive/exec-layout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActivityTracker } from "@/hooks/use-activity-tracker";
 
@@ -80,6 +81,11 @@ import DirProduction from "@/pages/director/dir-production";
 import DirAnalytics from "@/pages/director/dir-analytics";
 import DirApprovals from "@/pages/director/dir-approvals";
 import DirResources from "@/pages/director/dir-resources";
+import ExecHome from "@/pages/executive/exec-home";
+import ExecFinancials from "@/pages/executive/exec-financials";
+import ExecProduction from "@/pages/executive/exec-production";
+import ExecOverrides from "@/pages/executive/exec-overrides";
+import ExecSettings from "@/pages/executive/exec-settings";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -163,6 +169,11 @@ const routeTitles: Record<string, string> = {
   "/director/analytics": "Trends & Analytics",
   "/director/approvals": "Order Approvals",
   "/director/resources": "Knowledge & Goals",
+  "/executive": "Executive Home",
+  "/executive/financials": "Financials",
+  "/executive/production": "Production",
+  "/executive/overrides": "Override Approvals",
+  "/executive/settings": "Company Settings",
   "/ops": "Operations Center",
   "/ops/orders": "Order Management",
   "/ops/install-sync": "Install Sync",
@@ -195,6 +206,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const showOpsNav = ["OPERATIONS", "ADMIN", "EXECUTIVE"].includes(user.role) && location.startsWith("/ops");
   const showAcctNav = ["ACCOUNTING", "ADMIN", "EXECUTIVE"].includes(user.role) && location.startsWith("/accounting");
   const showDirNav = user.role === "EXECUTIVE" && location.startsWith("/director");
+  const showExecNav = user.role === "EXECUTIVE" && location.startsWith("/executive");
   const pageTitle = routeTitles[location] || routeTitles[location.split("/").slice(0, 2).join("/")] || "";
 
   return (
@@ -210,6 +222,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
           {showOpsNav && <OpsNav />}
           {showAcctNav && <AcctNav />}
           {showDirNav && <DirNav />}
+          {showExecNav && <ExecNav />}
           <main className={`flex-1 overflow-auto ${showBottomNav ? "pb-16 md:pb-0" : ""}`}>
             {children}
           </main>
@@ -310,6 +323,16 @@ function Router() {
             <Route path="/director/analytics" component={DirAnalytics} />
             <Route path="/director/approvals" component={DirApprovals} />
             <Route path="/director/resources" component={DirResources} />
+          </>
+        )}
+
+        {user.role === "EXECUTIVE" && (
+          <>
+            <Route path="/executive" component={ExecHome} />
+            <Route path="/executive/financials" component={ExecFinancials} />
+            <Route path="/executive/production" component={ExecProduction} />
+            <Route path="/executive/overrides" component={ExecOverrides} />
+            <Route path="/executive/settings" component={ExecSettings} />
           </>
         )}
 

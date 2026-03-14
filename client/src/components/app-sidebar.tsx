@@ -51,6 +51,8 @@ import {
   User,
   Activity,
   RefreshCw,
+  Crown,
+  Shield,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -98,6 +100,12 @@ const MENU = {
   dirAnalytics: { title: "Trends & Analytics", url: "/director/analytics", icon: TrendingUp },
   dirApprovals: { title: "Order Approvals", url: "/director/approvals", icon: ClipboardList },
   dirResources: { title: "Knowledge & Goals", url: "/director/resources", icon: BookOpen },
+
+  execHome: { title: "Executive Home", url: "/executive", icon: LayoutDashboard },
+  execFinancials: { title: "Financials", url: "/executive/financials", icon: DollarSign },
+  execProduction: { title: "Production", url: "/executive/production", icon: BarChart3 },
+  execOverrides: { title: "Override Approvals", url: "/executive/overrides", icon: Shield },
+  execSettings: { title: "Company Settings", url: "/executive/settings", icon: Cog },
   
   // Resources & Settings
   knowledge: { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
@@ -383,11 +391,19 @@ export function AppSidebar() {
       <>
         {isExec && (
           <CollapsibleSection 
+            title="Executive Center" 
+            icon={Crown} 
+            items={[MENU.execHome, MENU.execFinancials, MENU.execProduction, MENU.execOverrides, MENU.execSettings]} 
+            location={location}
+            defaultOpen={true}
+          />
+        )}
+        {isExec && (
+          <CollapsibleSection 
             title="Director Center" 
             icon={Target} 
             items={[MENU.dirHome, MENU.dirProduction, MENU.dirAnalytics, MENU.dirApprovals, MENU.dirResources]} 
             location={location}
-            defaultOpen={true}
           />
         )}
         <CollapsibleSection 
