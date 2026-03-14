@@ -81,6 +81,7 @@ import OpsOverrides from "@/pages/ops/ops-overrides";
 import OpsAdvances from "@/pages/ops/ops-advances";
 import OpsSettings from "@/pages/ops/ops-settings";
 import OpsLeadImport from "@/pages/ops/ops-lead-import";
+import OpsOrderTracker from "@/pages/ops/ops-order-tracker";
 import AcctHome from "@/pages/accounting/acct-home";
 import AcctPayRuns from "@/pages/accounting/acct-pay-runs";
 import AcctPayStubs from "@/pages/accounting/acct-pay-stubs";
@@ -206,6 +207,7 @@ const routeTitles: Record<string, string> = {
   "/ops/advances": "Advances",
   "/ops/settings": "Settings",
   "/accounting": "Accounting",
+  "/accounting/order-tracker": "Order Tracker",
   "/accounting/pay-runs": "Pay Runs",
   "/accounting/pay-stubs": "Pay Stubs",
   "/accounting/ar": "Accounts Receivable",
@@ -344,7 +346,7 @@ function Router() {
           <>
             <Route path="/ops">{() => <OpsLayout><OpsHome /></OpsLayout>}</Route>
             <Route path="/ops/orders">{() => <OpsLayout><OpsOrders /></OpsLayout>}</Route>
-            <Route path="/ops/order-tracker">{() => <OpsLayout><OrderTracker /></OpsLayout>}</Route>
+            <Route path="/ops/order-tracker">{() => <OpsLayout><OpsOrderTracker /></OpsLayout>}</Route>
             <Route path="/ops/install-sync">{() => <OpsLayout><OpsInstallSync /></OpsLayout>}</Route>
             <Route path="/ops/finance-imports">{() => <OpsLayout><OpsFinanceImports /></OpsLayout>}</Route>
             <Route path="/ops/reps">{() => <OpsLayout><OpsReps /></OpsLayout>}</Route>
@@ -382,6 +384,7 @@ function Router() {
         {(user.role === "ACCOUNTING" || user.role === "EXECUTIVE" || user.role === "OPERATIONS" || user.role === "DIRECTOR") && (
           <>
             <Route path="/accounting">{() => <AcctLayout><AcctHome /></AcctLayout>}</Route>
+            <Route path="/accounting/order-tracker">{() => <AcctLayout><OpsOrderTracker /></AcctLayout>}</Route>
             <Route path="/accounting/pay-runs">{() => <AcctLayout><AcctPayRuns /></AcctLayout>}</Route>
             <Route path="/accounting/pay-stubs">{() => <AcctLayout><AcctPayStubs /></AcctLayout>}</Route>
             <Route path="/accounting/ar">{() => <AcctLayout><AcctAR /></AcctLayout>}</Route>

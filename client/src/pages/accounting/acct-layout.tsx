@@ -2,12 +2,13 @@ import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, Wallet, FileText, CreditCard, Shield,
-  Landmark, BarChart3, FileSpreadsheet, Menu, X
+  Landmark, BarChart3, FileSpreadsheet, Menu, X, ListChecks
 } from "lucide-react";
 import { useState } from "react";
 
 const sidebarItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/accounting" },
+  { label: "Order Tracker", icon: ListChecks, path: "/accounting/order-tracker" },
   { label: "Pay Runs", icon: Wallet, path: "/accounting/pay-runs" },
   { label: "Pay Stubs", icon: FileText, path: "/accounting/pay-stubs" },
   { label: "AR Management", icon: CreditCard, path: "/accounting/ar" },
