@@ -111,6 +111,7 @@ export default function OpsOrderTracker() {
   const [dateFilterType, setDateFilterType] = useState<"sold" | "install">("sold");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [repFilter, setRepFilter] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, any>>({});
@@ -187,8 +188,11 @@ export default function OpsOrderTracker() {
         return true;
       });
     }
+    if (repFilter) {
+      orders = orders.filter((o: any) => o.repId === repFilter);
+    }
     return orders;
-  }, [buckets, activeTab, searchTerm, dateFrom, dateTo, dateFilterType]);
+  }, [buckets, activeTab, searchTerm, dateFrom, dateTo, dateFilterType, repFilter]);
 
   const totalPages = Math.ceil(filteredOrders.length / limit);
   const paginatedOrders = filteredOrders.slice((page - 1) * limit, page * limit);
@@ -642,18 +646,35 @@ export default function OpsOrderTracker() {
             data-testid="input-date-to"
           />
         </div>
-        {(dateFrom || dateTo) && (
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">Rep</Label>
+          <Select value={repFilter} onValueChange={v => { setRepFilter(v === "__all__" ? "" : v); setPage(1); }}>
+            <SelectTrigger className="w-[180px] h-9" data-testid="select-rep-filter">
+              <User className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder="All Reps" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All Reps</SelectItem>
+              {activeReps.map((r: any) => (
+                <SelectItem key={r.repId} value={r.repId}>
+                  {r.firstName} {r.lastName} ({r.repId})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {(dateFrom || dateTo || repFilter) && (
           <Button
             size="sm"
             variant="ghost"
             className="h-9 text-muted-foreground"
-            onClick={() => { setDateFrom(""); setDateTo(""); setPage(1); }}
-            data-testid="btn-clear-dates"
+            onClick={() => { setDateFrom(""); setDateTo(""); setRepFilter(""); setPage(1); }}
+            data-testid="btn-clear-filters"
           >
-            <X className="h-3.5 w-3.5 mr-1" /> Clear
+            <X className="h-3.5 w-3.5 mr-1" /> Clear All
           </Button>
         )}
-        {(dateFrom || dateTo) && (
+        {(dateFrom || dateTo || repFilter) && (
           <span className="text-xs text-muted-foreground ml-auto self-center">
             {filteredOrders.length} orders match
           </span>
