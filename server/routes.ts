@@ -3,8 +3,8 @@ import { createServer, type Server } from "http";
 import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
-import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments } from "@shared/schema";
+import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or, desc } from "drizzle-orm";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -1333,6 +1333,277 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Dashboard summary error:", error);
       res.status(500).json({ message: "Failed to get dashboard summary" });
+    }
+  });
+
+  app.get("/api/my/summary", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!user.repId) return res.status(400).json({ message: "No rep ID associated" });
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const formatDate = (d: Date) => d.toISOString().split("T")[0];
+
+      const mtdStart = new Date(nyNow.getFullYear(), nyNow.getMonth(), 1);
+      const personalRepIds = await storage.getRepIdsForScope(user.id, user.role, "personal");
+      const mtdMetrics = await storage.getProductionMetrics(personalRepIds, formatDate(mtdStart), formatDate(nyNow));
+
+      const recentOrders = await db.select().from(salesOrders)
+        .where(eq(salesOrders.repId, user.repId))
+        .orderBy(desc(salesOrders.createdAt))
+        .limit(5);
+
+      const payrollReadyOrders = await db.select().from(salesOrders)
+        .where(and(
+          eq(salesOrders.repId, user.repId),
+          sql`${salesOrders.payrollReadyAt} IS NOT NULL`,
+          isNull(salesOrders.payRunId)
+        ));
+      let payrollReadyAmount = 0;
+      for (const o of payrollReadyOrders) {
+        payrollReadyAmount += parseFloat(o.commissionAmount || "0");
+      }
+
+      const activeChargebacks = await db.select().from(chargebacks)
+        .where(eq(chargebacks.repId, user.repId))
+        .orderBy(desc(chargebacks.createdAt))
+        .limit(5);
+
+      const myStatements = await db.select().from(payStatements)
+        .where(and(
+          eq(payStatements.userId, user.id),
+          eq(payStatements.isViewableByRep, true)
+        ))
+        .orderBy(desc(payStatements.createdAt))
+        .limit(1);
+
+      const todayInstalls = await db.select().from(salesOrders)
+        .where(and(
+          eq(salesOrders.repId, user.repId),
+          eq(salesOrders.installDate, formatDate(nyNow)),
+          ne(salesOrders.jobStatus, "COMPLETED")
+        ));
+
+      const alerts: Array<{ type: string; severity: string; message: string; link?: string }> = [];
+
+      for (const cb of activeChargebacks) {
+        if (new Date(cb.createdAt).getTime() > now.getTime() - 30 * 24 * 60 * 60 * 1000) {
+          alerts.push({
+            type: "chargeback",
+            severity: "red",
+            message: `Chargeback: $${parseFloat(cb.amount).toFixed(2)} on ${cb.invoiceNumber}`,
+            link: "/my-orders"
+          });
+        }
+      }
+
+      for (const inst of todayInstalls) {
+        alerts.push({
+          type: "install",
+          severity: "yellow",
+          message: `Install today: ${inst.customerName}`,
+          link: "/my-orders"
+        });
+      }
+
+      if (myStatements.length > 0) {
+        const stmt = myStatements[0];
+        const stmtAge = now.getTime() - new Date(stmt.createdAt).getTime();
+        if (stmtAge < 7 * 24 * 60 * 60 * 1000) {
+          alerts.push({
+            type: "paystub",
+            severity: "blue",
+            message: `Pay stub ready: ${stmt.stubNumber}`,
+            link: "/my-earnings"
+          });
+        }
+      }
+
+      const connectRate = mtdMetrics.soldCount > 0
+        ? Math.round((mtdMetrics.connectedCount / mtdMetrics.soldCount) * 100)
+        : 0;
+
+      const hour = nyNow.getHours();
+      const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+      res.json({
+        greeting,
+        userName: user.name,
+        period: {
+          label: nyNow.toLocaleString("en-US", { month: "long", year: "numeric" }),
+          startDate: formatDate(mtdStart),
+          endDate: formatDate(nyNow),
+          soldCount: mtdMetrics.soldCount,
+          connectedCount: mtdMetrics.connectedCount,
+          connectRate,
+          earnedDollars: mtdMetrics.earnedDollars,
+          payrollReadyAmount: Math.round(payrollReadyAmount * 100) / 100,
+        },
+        alerts,
+        recentOrders: recentOrders.map(o => ({
+          id: o.id,
+          invoiceNumber: o.invoiceNumber,
+          customerName: o.customerName,
+          dateSold: o.dateSold,
+          serviceName: o.serviceId,
+          approvalStatus: o.approvalStatus,
+          jobStatus: o.jobStatus,
+          paymentStatus: o.paymentStatus,
+          commissionAmount: o.commissionAmount,
+        })),
+      });
+    } catch (error) {
+      console.error("My summary error:", error);
+      res.status(500).json({ message: "Failed to get summary" });
+    }
+  });
+
+  app.get("/api/my/orders", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!user.repId) return res.status(400).json({ message: "No rep ID associated" });
+      const { status, page = "1", limit = "20" } = req.query;
+      const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
+
+      let conditions = [eq(salesOrders.repId, user.repId)];
+      if (status && status !== "all") {
+        const statusMap: Record<string, any> = {
+          pending: eq(salesOrders.approvalStatus, "PENDING"),
+          installed: eq(salesOrders.jobStatus, "COMPLETED"),
+          approved: eq(salesOrders.approvalStatus, "APPROVED"),
+          paid: eq(salesOrders.paymentStatus, "PAID"),
+          chargeback: eq(salesOrders.paymentStatus, "CHARGEBACK"),
+        };
+        if (statusMap[status as string]) {
+          conditions.push(statusMap[status as string]);
+        }
+      }
+
+      const orders = await db.select().from(salesOrders)
+        .where(and(...conditions))
+        .orderBy(desc(salesOrders.dateSold))
+        .limit(parseInt(limit as string))
+        .offset(offset);
+
+      const countResult = await db.select({ count: sql<number>`count(*)` }).from(salesOrders)
+        .where(and(...conditions));
+
+      res.json({
+        orders: orders.map(o => ({
+          id: o.id,
+          invoiceNumber: o.invoiceNumber,
+          customerName: o.customerName,
+          customerPhone: o.customerPhone,
+          customerEmail: o.customerEmail,
+          customerAddress: o.customerAddress,
+          dateSold: o.dateSold,
+          installDate: o.installDate,
+          approvalStatus: o.approvalStatus,
+          jobStatus: o.jobStatus,
+          paymentStatus: o.paymentStatus,
+          commissionAmount: o.commissionAmount,
+          tvSold: o.tvSold,
+          mobileSold: o.mobileSold,
+          mobileLinesQty: o.mobileLinesQty,
+          payrollReadyAt: o.payrollReadyAt,
+          approvedAt: o.approvedAt,
+          createdAt: o.createdAt,
+        })),
+        total: Number(countResult[0]?.count || 0),
+        page: parseInt(page as string),
+        limit: parseInt(limit as string),
+      });
+    } catch (error) {
+      console.error("My orders error:", error);
+      res.status(500).json({ message: "Failed to get orders" });
+    }
+  });
+
+  app.get("/api/my/earnings", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!user.repId) return res.status(400).json({ message: "No rep ID associated" });
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const formatDate = (d: Date) => d.toISOString().split("T")[0];
+
+      const mtdStart = new Date(nyNow.getFullYear(), nyNow.getMonth(), 1);
+
+      const periodOrders = await db.select().from(salesOrders)
+        .where(and(
+          eq(salesOrders.repId, user.repId),
+          gte(salesOrders.dateSold, formatDate(mtdStart)),
+          eq(salesOrders.approvalStatus, "APPROVED")
+        ));
+
+      let grossCommission = 0;
+      for (const o of periodOrders) {
+        grossCommission += parseFloat(o.commissionAmount || "0");
+      }
+
+      const periodOverrides = await db.select().from(overrideEarnings)
+        .where(and(
+          eq(overrideEarnings.recipientUserId, user.id),
+          eq(overrideEarnings.approvalStatus, "APPROVED"),
+          gte(overrideEarnings.createdAt, mtdStart)
+        ));
+      let overridesEarned = 0;
+      for (const oe of periodOverrides) {
+        overridesEarned += (oe.amountCents || 0) / 100;
+      }
+
+      const periodChargebacks = await db.select().from(chargebacks)
+        .where(and(
+          eq(chargebacks.repId, user.repId),
+          gte(chargebacks.createdAt, mtdStart)
+        ));
+      let chargebackTotal = 0;
+      for (const cb of periodChargebacks) {
+        chargebackTotal += parseFloat(cb.amount || "0");
+      }
+
+      const monthlyHistory: Array<{ month: string; orders: number; connects: number; netPaid: number }> = [];
+      for (let i = 11; i >= 0; i--) {
+        const mStart = new Date(nyNow.getFullYear(), nyNow.getMonth() - i, 1);
+        const mEnd = new Date(nyNow.getFullYear(), nyNow.getMonth() - i + 1, 0);
+        const monthOrders = await db.select().from(salesOrders)
+          .where(and(
+            eq(salesOrders.repId, user.repId),
+            gte(salesOrders.dateSold, formatDate(mStart)),
+            sql`${salesOrders.dateSold} <= ${formatDate(mEnd)}`
+          ));
+        let netPaid = 0;
+        let connects = 0;
+        for (const o of monthOrders) {
+          if (o.paymentStatus === "PAID") netPaid += parseFloat(o.commissionAmount || "0");
+          if (o.jobStatus === "COMPLETED") connects++;
+        }
+        monthlyHistory.push({
+          month: mStart.toLocaleString("en-US", { month: "short", year: "numeric" }),
+          orders: monthOrders.length,
+          connects,
+          netPaid: Math.round(netPaid * 100) / 100,
+        });
+      }
+
+      res.json({
+        period: {
+          label: nyNow.toLocaleString("en-US", { month: "long", year: "numeric" }),
+          startDate: formatDate(mtdStart),
+          endDate: formatDate(nyNow),
+        },
+        currentPeriod: {
+          grossCommission: Math.round(grossCommission * 100) / 100,
+          overridesEarned: Math.round(overridesEarned * 100) / 100,
+          chargebacks: Math.round(chargebackTotal * 100) / 100,
+          estimatedNet: Math.round((grossCommission + overridesEarned - chargebackTotal) * 100) / 100,
+          orderCount: periodOrders.length,
+        },
+        monthlyHistory,
+      });
+    } catch (error) {
+      console.error("My earnings error:", error);
+      res.status(500).json({ message: "Failed to get earnings" });
     }
   });
 

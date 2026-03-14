@@ -1,0 +1,228 @@
+PHASE 2 PROMPT:
+
+Build the Operations interface. Operations is the system 
+administrator for field operations. Their interface must 
+surface exceptions first and make routine tasks one-click.
+
+===================================================================
+SCREEN 1 — OPERATIONS HOME (Exception-First Dashboard)
+===================================================================
+
+Route: /ops (default landing for OPERATIONS)
+Source: GET /api/admin/exceptions/queue (operational types only)
+
+LAYOUT:
+
+TOP BAR: 
+  "Operations Center" title
+  Last synced timestamp + refresh button
+  
+EXCEPTION QUEUE (primary content, 70% of screen):
+  
+  URGENT section (red header):
+    Each exception as an action card:
+    ┌─────────────────────────────────────────┐
+    │ 🔴 Order Approval Overdue               │
+    │ 3 completed orders awaiting approval    │
+    │ Waiting 4 days | Est. impact: $625      │
+    │ [Review Orders]              [Dismiss]  │
+    └─────────────────────────────────────────┘
+    
+  HIGH section (orange header): same card format
+  MEDIUM section (yellow header): condensed list format
+  
+  Empty state: 
+    Green checkmark + "No exceptions. All systems clear."
+
+STATUS STRIPS (below exception queue):
+  Four horizontal metric strips:
+  
+  Strip 1: Today's Activity
+    Orders submitted today | Approvals pending | 
+    Auto-approvals fired | Manual reviews needed
+    
+  Strip 2: Install Sync
+    Last sync: {timestamp} | Matched: {n} | 
+    Approved: {n} | Unmatched: {n}
+    [Run Sync] button
+    
+  Strip 3: Finance Imports
+    Pending imports: {n} | Unmatched rows: {n} |
+    Ready to post: {n}
+    [View Imports] button
+    
+  Strip 4: Background Jobs
+    Last job: {type} {timestamp} | Status: {status}
+    Any failed jobs shown in red
+
+===================================================================
+SCREEN 2 — ORDER MANAGEMENT
+===================================================================
+
+Route: /ops/orders
+
+TWO-PANEL LAYOUT (desktop) / TABS (mobile):
+
+LEFT PANEL — Approval Queue:
+  Title: "Needs Approval ({count})"
+  Filter: All | Auto-flagged | Manual review needed
+  
+  Each order row:
+    Rep name + role badge
+    Customer name + service
+    Commission amount
+    Days since completed
+    Auto-approval result (if evaluated):
+      ✓ Clean (green) — no blockers found
+      ⚠ Flagged (yellow) — shows blocker reasons
+    [Approve] [Reject] buttons inline
+    
+  Batch select + [Approve Selected] button
+  
+RIGHT PANEL — All Orders:
+  Full searchable order table
+  All filters: status, rep, service, provider, date range
+  Click order → side panel with full detail
+  Edit capability (OPERATIONS can edit order fields)
+
+===================================================================
+SCREEN 3 — INSTALL SYNC
+===================================================================
+
+Route: /ops/install-sync
+
+LAST SYNC SUMMARY CARD:
+  Run date/time, rows processed, matched, approved, unmatched
+  Email sent to: {address}
+  
+RUN SYNC PANEL:
+  Upload CSV option (drag-drop area)
+  Google Sheet URL option
+  Auto-approve toggle (default on)
+  Email results to: (pre-filled)
+  [Run Install Sync] button
+  
+  While running: progress bar with live status updates
+  
+RESULTS PANEL (appears after sync):
+  Tabs: Matched ({n}) | Approved ({n}) | Unmatched ({n})
+  
+  MATCHED tab: table of matched orders with confidence scores
+  APPROVED tab: table of approved orders with commission amounts
+  UNMATCHED tab: 
+    Table of unmatched sheet rows
+    Each row has: [Find Order] button → opens order search modal
+                  [Ignore] button
+
+SYNC HISTORY:
+  Table of past sync runs
+  Click any run → see full match details
+
+===================================================================
+SCREEN 4 — FINANCE IMPORTS
+===================================================================
+
+Route: /ops/finance-imports
+
+UPLOAD AREA:
+  Drag and drop zone for CSV/XLSX
+  Client selector (required)
+  Period start/end (optional)
+  [Upload and Import] button
+
+IMPORTS LIST:
+  Each import as a row:
+    Client | File name | Date | Rows | Match rate | Status
+    Status badge: 
+      IMPORTED (gray) → MAPPED (blue) → MATCHED (yellow) 
+      → POSTED (green) → LOCKED (dark)
+  
+  Click import → IMPORT DETAIL:
+  
+    MATCH RATE GAUGE:
+      Large circular gauge showing match percentage
+      Green >= 90% (auto-post eligible)
+      Yellow 70-89%
+      Red < 70%
+    
+    TABS: All Rows | Matched | Unmatched | Ambiguous | Ignored
+    
+    MATCHED TAB: table showing matched order details
+    
+    UNMATCHED TAB:
+      Each row with customer name, date, amount
+      [Find Match] → opens order search
+      [Create Order] → opens order creation pre-filled
+      [Ignore] → mark as ignored with reason
+    
+    AMBIGUOUS TAB:
+      Each row shows top 3 candidate orders with scores
+      [Select] button per candidate
+    
+    ACTIONS BAR:
+      [Run Auto-Match] [Map Columns] 
+      [Post Import] (only if ACCOUNTING — OPERATIONS cannot post)
+
+===================================================================
+SCREEN 5 — REP MANAGEMENT
+===================================================================
+
+Route: /ops/reps
+
+REP ROSTER TABLE:
+  Columns: Name | Rep ID | Role | Manager | Status | 
+           Last Sale | Last Login | Actions
+  
+  Filters: Role | Manager | Status | Search by name
+  
+  [+ Add Rep] button → opens creation form
+  
+  Click rep → REP DETAIL PAGE:
+    Tabs: Profile | Orders | Credentials | Goals | Activity
+    
+    PROFILE TAB:
+      Edit form for all rep fields
+      Hierarchy display: Who they report to
+      [Deactivate] button (with confirmation modal)
+    
+    ORDERS TAB:
+      Rep's full order history (OPERATIONS can see dollars)
+      Summary stats: total sold, connects, commission
+    
+    CREDENTIALS TAB:
+      Employee credentials manager
+      Multiple credential entries support
+      [Add Credential Set] button
+    
+    GOALS TAB:
+      Current period goals vs actuals
+      Goal history
+      [Set New Goal] button
+    
+    ACTIVITY TAB:
+      Last login, last active, device type
+      Recent page views (activity log)
+
+===================================================================
+SCREEN 6 — REPORTS
+===================================================================
+
+Route: /ops/reports
+
+SAVED REPORTS (top section):
+  Cards for each saved report configuration
+  [Run] button per card
+  Last run date shown
+
+REPORT BUILDER:
+  Report type dropdown (production types only for OPERATIONS)
+  Date range picker
+  Group by selector
+  Rep filter (optional)
+  [Preview] → shows first 20 rows inline
+  [Download CSV] → full export
+
+SCHEDULED REPORTS:
+  List of active scheduled reports
+  [+ Schedule Report] button
+  Toggle active/inactive per report

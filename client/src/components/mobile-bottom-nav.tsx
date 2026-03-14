@@ -1,7 +1,7 @@
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
-import { LayoutDashboard, ShoppingCart, Zap, Users } from "lucide-react";
+import { Home, ShoppingCart, Plus, DollarSign, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const fieldRoles = ["REP", "MDU", "LEAD"];
@@ -22,9 +22,10 @@ export function MobileBottomNav() {
   }
 
   const navItems: NavItem[] = [
-    { label: "Dashboard", icon: <LayoutDashboard className="h-5 w-5" />, path: "/" },
-    { label: "Orders", icon: <ShoppingCart className="h-5 w-5" />, path: "/orders" },
-    { label: "Quick Entry", icon: <Zap className="h-5 w-5" />, path: "/mobile-entry" },
+    { label: "Home", icon: <Home className="h-5 w-5" />, path: "/dashboard" },
+    { label: "Orders", icon: <ShoppingCart className="h-5 w-5" />, path: "/my-orders" },
+    { label: "New", icon: <Plus className="h-5 w-5" />, path: "/orders/new" },
+    { label: "Earnings", icon: <DollarSign className="h-5 w-5" />, path: "/my-earnings" },
     { label: "Leads", icon: <Users className="h-5 w-5" />, path: "/leads" },
   ];
 

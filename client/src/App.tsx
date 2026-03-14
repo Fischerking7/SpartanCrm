@@ -51,6 +51,10 @@ import AdminMduReview from "@/pages/admin/mdu-review";
 import SalesPipeline from "@/pages/sales-pipeline";
 import Notifications from "@/pages/notifications";
 import MobileOrderEntry from "@/pages/mobile-order-entry";
+import RepHome from "@/pages/rep-home";
+import NewOrder from "@/pages/new-order";
+import MyOrders from "@/pages/my-orders";
+import MyEarnings from "@/pages/my-earnings";
 import MyDisputes from "@/pages/my-disputes";
 import AdminDisputes from "@/pages/admin-disputes";
 import OrderTracker from "@/pages/order-tracker";
@@ -68,6 +72,10 @@ function Dashboard() {
       return <AdminDashboard />;
     case "EXECUTIVE":
       return <ExecutiveDashboard />;
+    case "REP":
+    case "MDU":
+    case "LEAD":
+      return <RepHome />;
     default:
       return <SalesDashboard />;
   }
@@ -99,6 +107,10 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
 const routeTitles: Record<string, string> = {
   "/": "Dashboard",
   "/dashboard": "Dashboard",
+  "/rep-home": "Home",
+  "/orders/new": "New Order",
+  "/my-orders": "My Orders",
+  "/my-earnings": "My Earnings",
   "/orders": "Orders",
   "/order-tracker": "Order Tracker",
   "/mobile-entry": "Quick Entry",
@@ -207,6 +219,10 @@ function Router() {
     <AuthenticatedLayout>
       <Switch>
         <Route path="/dashboard" component={Dashboard} />
+        <Route path="/rep-home" component={RepHome} />
+        <Route path="/orders/new" component={NewOrder} />
+        <Route path="/my-orders" component={MyOrders} />
+        <Route path="/my-earnings" component={MyEarnings} />
         <Route path="/orders" component={Orders} />
         <Route path="/order-tracker" component={OrderTracker} />
         <Route path="/leads" component={Leads} />
