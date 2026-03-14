@@ -1,0 +1,62 @@
+COMPENSATION, RATE CARD & OVERRIDE CODE EXPORT
+  ================================================
+  Generated: March 14, 2026
+
+  FILES INCLUDED:
+  ===============
+
+  schema/schema.ts
+    - Full database schema (Drizzle ORM) including:
+      rate_cards, rate_card_lead_overrides, rate_card_role_overrides,
+      override_agreements, override_earnings, override_deduction_pool,
+      override_distributions, commission_line_items, commission_tiers,
+      commission_tier_levels, rep_tier_assignments, commission_forecasts,
+      split_commission_agreements, commission_disputes, sales_orders
+      (with commission fields)
+
+  reference-data/reference-data.json
+    - Seed/reference data for all rate cards (providers, services, amounts,
+      override deductions, TV/mobile addons)
+
+  migrations/4-rate-cards.sql
+    - Database migration for rate card seed data
+
+  server/routes-comp-ratecard-override.ts
+    - 40 extracted API route handlers for:
+      GET/POST/PATCH/DELETE rate cards, overrides, commissions,
+      recalculation, override agreements, override distributions
+
+  server/storage.ts
+    - Full storage layer with CRUD methods for rate cards, overrides,
+      commissions, override pools, distributions
+
+  server/payStubGenerator.ts
+    - Pay stub generation with commission calculation logic
+
+  frontend/rate-cards.tsx
+    - Admin rate card management UI
+
+  frontend/overrides.tsx
+    - Admin override agreements management UI
+
+  frontend/commissions.tsx
+    - Commission tracking page
+
+  frontend/ops-overrides.tsx
+    - Operations override approvals UI
+
+  frontend/acct-overrides.tsx
+    - Accounting override approvals UI
+
+  frontend/exec-overrides.tsx
+    - Executive override approvals UI
+
+  frontend/my-earnings.tsx
+    - Rep earnings/commission view
+
+  frontend/recalculate.tsx
+    - Commission recalculation tool
+
+  frontend/commission-forecast.tsx
+    - Commission forecasting page
+  

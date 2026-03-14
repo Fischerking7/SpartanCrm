@@ -1,0 +1,59 @@
+{
+  "users": [
+    {"id":"b1a2c3d4-e5f6-4a5b-8c9d-1234567890ab","name":"Test Rep 1","repId":"R01","role":"REP","status":"ACTIVE","passwordHash":"$2b$10$Eza64wF9nJxKkMDIEpGjl.T79gH8Mkr7idnH3b/DWmbpX.FuAXpQ2","mustChangePassword":false},
+    {"id":"c2b3d4e5-f6a7-5b6c-9d0e-2345678901bc","name":"Test Rep 2","repId":"R02","role":"REP","status":"ACTIVE","passwordHash":"$2b$10$Eza64wF9nJxKkMDIEpGjl.T79gH8Mkr7idnH3b/DWmbpX.FuAXpQ2","mustChangePassword":false},
+    {"id":"d3c4e5f6-a7b8-6c7d-0e1f-3456789012cd","name":"Test Supervisor","repId":"S01","role":"SUPERVISOR","status":"ACTIVE","passwordHash":"$2b$10$Eza64wF9nJxKkMDIEpGjl.T79gH8Mkr7idnH3b/DWmbpX.FuAXpQ2","mustChangePassword":false},
+    {"id":"e4d5f6a7-b8c9-7d8e-1f20-4567890123de","name":"Test Manager","repId":"M01","role":"MANAGER","status":"ACTIVE","passwordHash":"$2b$10$Eza64wF9nJxKkMDIEpGjl.T79gH8Mkr7idnH3b/DWmbpX.FuAXpQ2","mustChangePassword":false},
+    {"id":"f5e6a7b8-c9d0-8e9f-2031-5678901234ef","name":"Test Executive","repId":"X01","role":"EXECUTIVE","status":"ACTIVE","passwordHash":"$2b$10$Eza64wF9nJxKkMDIEpGjl.T79gH8Mkr7idnH3b/DWmbpX.FuAXpQ2","mustChangePassword":false}
+  ],
+  "providers": [
+    {"id":"521e9835-f812-46c9-b355-2a6a96a64d9f","name":"Verizon","active":false},
+    {"id":"f4dabdc0-d0cd-4e05-8b3c-e2592b1005ff","name":"AT&T","active":false},
+    {"id":"76a072a3-7b15-4d07-883b-bd64a0aef393","name":"Comcast","active":false},
+    {"id":"88a9321e-d805-4543-9e77-2116890d471b","name":"Astound","active":true},
+    {"id":"212025c9-50f6-4828-a3d3-102f320bbee9","name":"Optimum","active":true}
+  ],
+  "clients": [
+    {"id":"35ca9e42-12d8-4680-a8cf-061b0948b92c","name":"Online Channel","active":false},
+    {"id":"2494ad55-f14b-4118-af39-f6bdaf05e0b6","name":"Corporate Sales","active":false},
+    {"id":"1ee87bc9-f683-4b86-a70b-ba02b30d51d9","name":"Retail Partner A","active":false},
+    {"id":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","name":"PMG","active":true}
+  ],
+  "services": [
+    {"id":"4c4dc893-cac5-4458-a150-f86c9a3fbe44","code":"INTERNET","name":"Internet Service","category":"Connectivity","unitType":null,"active":false},
+    {"id":"df8bdb16-195d-4cee-a0a8-15c4d1d1ec06","code":"MOBILE","name":"Mobile Line","category":"Wireless","unitType":null,"active":false},
+    {"id":"61f96e8f-1759-4724-9929-bb28d8e38c21","code":"BUNDLE","name":"Triple Play Bundle","category":"Bundle","unitType":null,"active":false},
+    {"id":"27b365cd-7dd3-43dc-9061-2218c2fc7995","code":"TV","name":"Television Package","category":"Entertainment","unitType":null,"active":false},
+    {"id":"2beb75b6-d64a-4a28-957b-e1d854afb4f4","code":"1_GIG","name":"1 Gig","category":"Internet","unitType":"Speed","active":true},
+    {"id":"22f0a223-6306-43a0-aaea-2d3143921735","code":"2_GIG","name":"2 Gig","category":"Internet","unitType":"Speed","active":true},
+    {"id":"2de3acb5-8c57-4680-977a-32783eb66dd6","code":"5_GIG","name":"5 Gig","category":"Internet","unitType":"Speed","active":true},
+    {"id":"531ed465-2766-4d71-8116-b7c1b17347e6","code":"150","name":"150","category":null,"unitType":null,"active":false},
+    {"id":"7d0f083f-825e-4909-a69a-11fbdc95d912","code":"300","name":"300","category":null,"unitType":null,"active":false},
+    {"id":"eb1025eb-d713-4de1-a094-b2904e9affab","code":"200","name":"200","category":null,"unitType":null,"active":false},
+    {"id":"ea58ceb0-b9e9-4e04-b8f6-f1babdfb37b3","code":"500","name":"500","category":null,"unitType":null,"active":false},
+    {"id":"57f47c58-21b0-4ce2-bc1a-528cc668cc10","code":"50_MBPS","name":"50 MBPS","category":"Internet","unitType":"Speed","active":true},
+    {"id":"5922d7d1-336d-4209-aac0-92941994e6c9","code":"150_MBPS","name":"150 MBPS","category":"Internet","unitType":"Speed","active":true},
+    {"id":"158b569d-52cc-42b3-b74e-283cc779a69d","code":"600_MBPS","name":"600 MPBS","category":"Internet","unitType":"Speed","active":true},
+    {"id":"ba872cf2-e7dc-4d93-b9d6-fbc8d3ffd24a","code":"300_MBPS","name":"300 MBPS","category":"Internet","unitType":"Speed","active":true},
+    {"id":"f96671c3-061c-4a45-9bea-fe7d1ff7b2b1","code":"Multi-Gig","name":"Multi-Gig","category":"Internet","unitType":"Speed","active":true},
+    {"id":"7a1a8522-e76a-4bea-9012-9848fbda1265","code":"Gen Internet","name":"Gen Internet","category":"Internet","unitType":"Speed","active":true},
+    {"id":"3285ddf1-5bd3-48cf-8d45-6b2eaef5841f","code":"GiG_PLUS","name":"GIG+","category":"Internet","unitType":"Speed","active":true}
+  ],
+  "rateCards": [
+    {"id":"cd2832c4-6aff-4dbe-9de8-cb38a136205d","providerId":"212025c9-50f6-4828-a3d3-102f320bbee9","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":"2beb75b6-d64a-4a28-957b-e1d854afb4f4","effectiveStart":"2026-01-05","active":false,"baseAmount":380.00,"tvAddonAmount":40.00,"mobilePerLineAmount":40.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":0.00,"tvOverrideDeduction":0.00,"mobileOverrideDeduction":0.00},
+    {"id":"f83f7e01-6be0-4978-b738-4a2054b24cc6","providerId":"212025c9-50f6-4828-a3d3-102f320bbee9","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":"7d0f083f-825e-4909-a69a-11fbdc95d912","effectiveStart":"2026-01-05","active":false,"baseAmount":340.00,"tvAddonAmount":40.00,"mobilePerLineAmount":40.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":0.00,"tvOverrideDeduction":0.00,"mobileOverrideDeduction":0.00},
+    {"id":"40ac693c-76c5-4875-a2fb-e1cacfdea454","providerId":"212025c9-50f6-4828-a3d3-102f320bbee9","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":"eb1025eb-d713-4de1-a094-b2904e9affab","effectiveStart":"2026-01-05","active":false,"baseAmount":300.00,"tvAddonAmount":40.00,"mobilePerLineAmount":40.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":0.00,"tvOverrideDeduction":0.00,"mobileOverrideDeduction":0.00},
+    {"id":"2ec857a4-788c-408e-b06a-ce9644be5821","providerId":"212025c9-50f6-4828-a3d3-102f320bbee9","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":null,"effectiveStart":"2026-01-01","active":true,"baseAmount":0.00,"tvAddonAmount":0.00,"mobilePerLineAmount":130.00,"mobileProductType":null,"mobilePortedStatus":"PORTED","overrideDeduction":50.00,"tvOverrideDeduction":0.00,"mobileOverrideDeduction":0.00},
+    {"id":"63fd4a12-ecea-4324-93a0-99a4227e90da","providerId":"212025c9-50f6-4828-a3d3-102f320bbee9","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":null,"effectiveStart":"2026-01-01","active":true,"baseAmount":0.00,"tvAddonAmount":0.00,"mobilePerLineAmount":55.00,"mobileProductType":null,"mobilePortedStatus":"NON_PORTED","overrideDeduction":0.00,"tvOverrideDeduction":0.00,"mobileOverrideDeduction":55.00},
+    {"id":"364b52c3-18b6-4165-af91-97e613b06f09","providerId":"88a9321e-d805-4543-9e77-2116890d471b","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":"57f47c58-21b0-4ce2-bc1a-528cc668cc10","effectiveStart":"2026-01-01","active":true,"baseAmount":95.00,"tvAddonAmount":80.00,"mobilePerLineAmount":0.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":70.00,"tvOverrideDeduction":40.00,"mobileOverrideDeduction":0.00},
+    {"id":"b0b02a1b-221a-43a3-87fe-61ac3c6facdf","providerId":"88a9321e-d805-4543-9e77-2116890d471b","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":"5922d7d1-336d-4209-aac0-92941994e6c9","effectiveStart":"2026-01-01","active":true,"baseAmount":190.00,"tvAddonAmount":80.00,"mobilePerLineAmount":0.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":130.00,"tvOverrideDeduction":40.00,"mobileOverrideDeduction":0.00},
+    {"id":"00fcd9f2-7a03-4ca9-b74c-c8321c5d1423","providerId":"88a9321e-d805-4543-9e77-2116890d471b","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":null,"effectiveStart":"2026-01-01","active":true,"baseAmount":0.00,"tvAddonAmount":0.00,"mobilePerLineAmount":30.00,"mobileProductType":"3_GIG","mobilePortedStatus":null,"overrideDeduction":0.00,"tvOverrideDeduction":0.00,"mobileOverrideDeduction":0.00},
+    {"id":"a2064308-3f12-460d-80b5-9a6252aa2b03","providerId":"88a9321e-d805-4543-9e77-2116890d471b","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":null,"effectiveStart":"2026-01-01","active":true,"baseAmount":0.00,"tvAddonAmount":0.00,"mobilePerLineAmount":15.00,"mobileProductType":"1_GIG","mobilePortedStatus":null,"overrideDeduction":0.00,"tvOverrideDeduction":0.00,"mobileOverrideDeduction":0.00},
+    {"id":"8bd9ddaf-eddc-4206-a822-d6bff1f3f449","providerId":"88a9321e-d805-4543-9e77-2116890d471b","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":"ba872cf2-e7dc-4d93-b9d6-fbc8d3ffd24a","effectiveStart":"2026-01-01","active":true,"baseAmount":255.00,"tvAddonAmount":80.00,"mobilePerLineAmount":0.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":130.00,"tvOverrideDeduction":40.00,"mobileOverrideDeduction":0.00},
+    {"id":"98fa5888-e2a1-4407-8767-64b25e32a872","providerId":"88a9321e-d805-4543-9e77-2116890d471b","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":"158b569d-52cc-42b3-b74e-283cc779a69d","effectiveStart":"2026-01-01","active":true,"baseAmount":285.00,"tvAddonAmount":80.00,"mobilePerLineAmount":0.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":150.00,"tvOverrideDeduction":40.00,"mobileOverrideDeduction":0.00},
+    {"id":"5be35b08-66e1-446b-877b-195c99b70a58","providerId":"88a9321e-d805-4543-9e77-2116890d471b","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":"2beb75b6-d64a-4a28-957b-e1d854afb4f4","effectiveStart":"2026-01-01","active":true,"baseAmount":350.00,"tvAddonAmount":80.00,"mobilePerLineAmount":0.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":150.00,"tvOverrideDeduction":40.00,"mobileOverrideDeduction":0.00},
+    {"id":"0b44aafd-74f9-4b97-b5ee-9a6b4638013a","providerId":"88a9321e-d805-4543-9e77-2116890d471b","clientId":null,"serviceId":"3285ddf1-5bd3-48cf-8d45-6b2eaef5841f","effectiveStart":"2026-01-01","active":false,"baseAmount":380.00,"tvAddonAmount":80.00,"mobilePerLineAmount":0.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":0.00,"tvOverrideDeduction":0.00,"mobileOverrideDeduction":0.00},
+    {"id":"f9be96a0-b613-413c-84c8-3a871a24129a","providerId":"88a9321e-d805-4543-9e77-2116890d471b","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":"3285ddf1-5bd3-48cf-8d45-6b2eaef5841f","effectiveStart":"2026-01-01","active":true,"baseAmount":390.00,"tvAddonAmount":80.00,"mobilePerLineAmount":0.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":165.00,"tvOverrideDeduction":40.00,"mobileOverrideDeduction":0.00},
+    {"id":"c56c5242-1a68-4133-8990-8dfac8625aed","providerId":"212025c9-50f6-4828-a3d3-102f320bbee9","clientId":"8cd17657-0a33-4c8d-81b2-5586ce8d770e","serviceId":"7a1a8522-e76a-4bea-9012-9848fbda1265","effectiveStart":"2026-01-01","active":true,"baseAmount":350.00,"tvAddonAmount":40.00,"mobilePerLineAmount":0.00,"mobileProductType":null,"mobilePortedStatus":null,"overrideDeduction":125.00,"tvOverrideDeduction":20.00,"mobileOverrideDeduction":0.00}
+  ]
+}

@@ -6,3 +6,9 @@ id = "Wh5k1LG7iSjRVeN0aryew"
 uri = "file://exports/comp-plan-export.csv"
 type = "table"
 title = "Compensation Plan & Rate Card Export"
+
+[[outputs]]
+id = "k62MgAV9GFFOKPp5Kiabz"
+uri = "file://exports/comp-code-export.tar.gz"
+type = "unspecified"
+title = "Compensation, Rate Card & Override - Source Code Export"
