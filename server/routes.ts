@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or, desc } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -1859,7 +1859,7 @@ export async function registerRoutes(
   });
 
   // Admin: Manage sales goals
-  app.get("/api/admin/sales-goals", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/sales-goals", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const goals = await storage.getAllSalesGoals();
       const users = await storage.getUsers();
@@ -1874,7 +1874,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/sales-goals", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.post("/api/admin/sales-goals", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
       const goalData = {
@@ -1889,7 +1889,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/sales-goals/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/sales-goals/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const updatedGoal = await storage.updateSalesGoal(id, req.body);
@@ -1903,7 +1903,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/admin/sales-goals/:id", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/sales-goals/:id", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       await storage.deleteSalesGoal(id);
@@ -15813,6 +15813,8 @@ export async function registerRoutes(
     }
   });
 
+  registerDirectorRoutes(app, storage, auth);
+
   return httpServer;
 }
 
@@ -15853,4 +15855,400 @@ function calculateNextRunFromNow(frequency: string, dayOfWeek?: number | null, d
   }
   
   return next;
+}
+
+function stripFinancialFields(order: any) {
+  const { baseCommissionEarned, incentiveEarned, commissionAmount, overrideDeduction,
+    ironCrestRackRateCents, ironCrestProfitCents, directorOverrideCents, adminOverrideCents,
+    accountingOverrideCents, ...safe } = order;
+  return safe;
+}
+
+function registerDirectorRoutes(app: Express, storage: any, auth: any) {
+  const directorAccess = requireRoles("EXECUTIVE");
+
+  app.get("/api/director/scoreboard", auth, directorAccess, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const formatDate = (d: Date) => d.toISOString().split("T")[0];
+      const today = formatDate(nyNow);
+      const scope = await storage.getExecutiveScope(user.id);
+      const allRepIds = scope.allRepRepIds;
+
+      const allOrders = await db.query.salesOrders.findMany({
+        where: and(
+          inArray(salesOrders.repId, allRepIds.length > 0 ? allRepIds : [""]),
+          gte(salesOrders.dateSold, new Date(nyNow.getFullYear(), nyNow.getMonth(), 1).toISOString().split("T")[0])
+        )
+      });
+
+      const todayOrders = allOrders.filter(o => o.dateSold === today);
+      const todaySales = todayOrders.length;
+      const todayConnects = todayOrders.filter(o => o.jobStatus === "COMPLETED").length;
+      const todayConnectRate = todaySales > 0 ? Math.round((todayConnects / todaySales) * 100) : 0;
+
+      const weekStart = new Date(nyNow);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      const weekStartStr = formatDate(weekStart);
+      const thisWeekOrders = allOrders.filter(o => o.dateSold >= weekStartStr);
+      const thisWeekSales = thisWeekOrders.length;
+      const thisWeekConnects = thisWeekOrders.filter(o => o.jobStatus === "COMPLETED").length;
+
+      const prevWeekStart = new Date(weekStart);
+      prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+      const prevWeekEnd = new Date(weekStart);
+      prevWeekEnd.setDate(prevWeekEnd.getDate() - 1);
+      const prevWeekOrders = await db.query.salesOrders.findMany({
+        where: and(
+          inArray(salesOrders.repId, allRepIds.length > 0 ? allRepIds : [""]),
+          gte(salesOrders.dateSold, formatDate(prevWeekStart)),
+          lte(salesOrders.dateSold, formatDate(prevWeekEnd))
+        )
+      });
+      const lastWeekSales = prevWeekOrders.length;
+      const lastWeekConnects = prevWeekOrders.filter(o => o.jobStatus === "COMPLETED").length;
+
+      const mtdSales = allOrders.length;
+      const mtdConnects = allOrders.filter(o => o.jobStatus === "COMPLETED").length;
+
+      const goals = await db.query.salesGoals.findMany({
+        where: and(
+          eq(salesGoals.userId, user.id),
+          lte(salesGoals.periodStart, today),
+          gte(salesGoals.periodEnd, today)
+        )
+      });
+      const goal = goals[0];
+      const salesTarget = goal?.salesTarget || 0;
+      const connectsTarget = goal?.connectsTarget || 0;
+
+      const managers = await db.query.users.findMany({
+        where: and(
+          eq(users.assignedExecutiveId, user.id),
+          eq(users.role, "MANAGER"),
+          eq(users.status, "ACTIVE"),
+          isNull(users.deletedAt)
+        )
+      });
+
+      const managerLeaderboard = [];
+      for (const mgr of managers) {
+        const mgrScope = await storage.getManagerScope(mgr.id);
+        const mgrRepIds = mgrScope.allRepRepIds;
+        const mgrOrders = allOrders.filter(o => mgrRepIds.includes(o.repId));
+        const mgrSales = mgrOrders.length;
+        const mgrConnects = mgrOrders.filter(o => o.jobStatus === "COMPLETED").length;
+        const rate = mgrSales > 0 ? Math.round((mgrConnects / mgrSales) * 100) : 0;
+
+        const last7Start = formatDate(new Date(nyNow.getTime() - 7 * 24 * 60 * 60 * 1000));
+        const dailySeries = await storage.getDailyProductionSeries(mgrRepIds.length > 0 ? mgrRepIds : [""], last7Start, today);
+
+        managerLeaderboard.push({
+          id: mgr.id,
+          name: mgr.name,
+          teamSize: mgrRepIds.length,
+          sales: mgrSales,
+          connects: mgrConnects,
+          rate,
+          sparkline: dailySeries.map((d: any) => d.connectedCount),
+        });
+      }
+      managerLeaderboard.sort((a, b) => b.connects - a.connects);
+
+      const sevenDaysAgo = new Date(nyNow.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const allUsers = await storage.getUsers();
+      const teamReps = allUsers.filter((u: any) => allRepIds.includes(u.repId) && u.role === "REP" && u.status === "ACTIVE" && !u.deletedAt);
+
+      const alerts: any[] = [];
+      for (const rep of teamReps) {
+        const repOrders = allOrders.filter(o => o.repId === rep.repId);
+        const lastSaleDate = repOrders.length > 0 ? repOrders.sort((a: any, b: any) => b.dateSold.localeCompare(a.dateSold))[0].dateSold : null;
+        const daysSinceLastSale = lastSaleDate ? Math.floor((nyNow.getTime() - new Date(lastSaleDate).getTime()) / (24 * 60 * 60 * 1000)) : 999;
+
+        const mgr = allUsers.find((u: any) => u.id === rep.assignedManagerId);
+
+        if (daysSinceLastSale >= 7) {
+          alerts.push({ type: "no_sales", repName: rep.name, managerName: mgr?.name || "Unassigned", daysSinceLastSale, repId: rep.id });
+        }
+
+        const weekRepOrders = repOrders.filter(o => o.dateSold >= weekStartStr);
+        const weekSales = weekRepOrders.length;
+        const weekConnects = weekRepOrders.filter(o => o.jobStatus === "COMPLETED").length;
+        const weekRate = weekSales > 0 ? Math.round((weekConnects / weekSales) * 100) : 0;
+        if (weekSales >= 2 && weekRate < 50) {
+          alerts.push({ type: "low_connect_rate", repName: rep.name, managerName: mgr?.name || "Unassigned", rate: weekRate, repId: rep.id });
+        }
+      }
+
+      const chargebackReps = await db.query.chargebacks.findMany({
+        where: and(
+          inArray(chargebacks.repId, allRepIds.length > 0 ? allRepIds : [""]),
+          gte(chargebacks.createdAt, sevenDaysAgo)
+        )
+      });
+      for (const cb of chargebackReps) {
+        const rep = teamReps.find((r: any) => r.repId === cb.repId);
+        const mgr = rep ? allUsers.find((u: any) => u.id === rep.assignedManagerId) : null;
+        alerts.push({ type: "chargeback", repName: rep?.name || cb.repId, managerName: mgr?.name || "Unassigned", repId: rep?.id });
+      }
+
+      res.json({
+        today: { sales: todaySales, connects: todayConnects, connectRate: todayConnectRate },
+        thisWeek: { sales: thisWeekSales, connects: thisWeekConnects, lastWeekSales, lastWeekConnects },
+        thisMonth: { sales: mtdSales, connects: mtdConnects, salesTarget, connectsTarget, salesGap: salesTarget - mtdSales, connectsGap: connectsTarget - mtdConnects },
+        managerLeaderboard,
+        alerts,
+      });
+    } catch (error: any) {
+      console.error("Director scoreboard error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/director/production", auth, directorAccess, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const formatDate = (d: Date) => d.toISOString().split("T")[0];
+
+      const startDate = (req.query.startDate as string) || new Date(nyNow.getFullYear(), nyNow.getMonth(), 1).toISOString().split("T")[0];
+      const endDate = (req.query.endDate as string) || formatDate(nyNow);
+      const scope = await storage.getExecutiveScope(user.id);
+      const allRepIds = scope.allRepRepIds;
+
+      const orders = await db.query.salesOrders.findMany({
+        where: and(
+          inArray(salesOrders.repId, allRepIds.length > 0 ? allRepIds : [""]),
+          gte(salesOrders.dateSold, startDate),
+          lte(salesOrders.dateSold, endDate)
+        )
+      });
+
+      const allUsers = await storage.getUsers();
+      const servicesList = await storage.getServices();
+      const serviceMap = new Map(servicesList.map((s: any) => [s.id, s]));
+
+      const managers = await db.query.users.findMany({
+        where: and(eq(users.assignedExecutiveId, user.id), eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"), isNull(users.deletedAt))
+      });
+
+      const byManager = [];
+      for (const mgr of managers) {
+        const mgrScope = await storage.getManagerScope(mgr.id);
+        const mgrRepIds = mgrScope.allRepRepIds;
+        const mgrOrders = orders.filter(o => mgrRepIds.includes(o.repId));
+        const sales = mgrOrders.length;
+        const connects = mgrOrders.filter(o => o.jobStatus === "COMPLETED").length;
+        const rate = sales > 0 ? Math.round((connects / sales) * 100) : 0;
+
+        const teamReps = allUsers.filter((u: any) => mgrRepIds.includes(u.repId) && u.role === "REP" && u.status === "ACTIVE" && !u.deletedAt);
+        let bestRep = null, bestRepConnects = -1;
+        let needsAttention = 0;
+        const reps = [];
+
+        for (const rep of teamReps) {
+          const repOrders = mgrOrders.filter(o => o.repId === rep.repId);
+          const repSales = repOrders.length;
+          const repConnects = repOrders.filter(o => o.jobStatus === "COMPLETED").length;
+          const repRate = repSales > 0 ? Math.round((repConnects / repSales) * 100) : 0;
+          const lastSale = repOrders.length > 0 ? repOrders.sort((a: any, b: any) => b.dateSold.localeCompare(a.dateSold))[0].dateSold : null;
+
+          if (repConnects > bestRepConnects) {
+            bestRepConnects = repConnects;
+            bestRep = rep.name;
+          }
+          if (repSales === 0 || repRate < 50) needsAttention++;
+
+          reps.push({ id: rep.id, name: rep.name, repId: rep.repId, role: rep.role, sales: repSales, connects: repConnects, rate: repRate, lastSale });
+        }
+
+        byManager.push({
+          id: mgr.id, name: mgr.name, teamSize: teamReps.length,
+          sales, connects, rate, bestRep, needsAttention, reps,
+        });
+      }
+
+      const teamReps = allUsers.filter((u: any) => allRepIds.includes(u.repId) && ["REP", "LEAD"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
+      const byRep = teamReps.map((rep: any) => {
+        const repOrders = orders.filter(o => o.repId === rep.repId);
+        const sales = repOrders.length;
+        const connects = repOrders.filter(o => o.jobStatus === "COMPLETED").length;
+        const rate = sales > 0 ? Math.round((connects / sales) * 100) : 0;
+        const lastSale = repOrders.length > 0 ? repOrders.sort((a: any, b: any) => b.dateSold.localeCompare(a.dateSold))[0].dateSold : null;
+        const mgr = allUsers.find((u: any) => u.id === rep.assignedManagerId);
+        return { id: rep.id, name: rep.name, repId: rep.repId, role: rep.role, manager: mgr?.name || "Unassigned", sales, connects, rate, lastSale };
+      }).sort((a: any, b: any) => b.connects - a.connects);
+
+      const byService: any[] = [];
+      const serviceGroups = new Map<string, { serviceId: string; name: string; orders: any[] }>();
+      for (const o of orders) {
+        const svc = serviceMap.get(o.serviceId) || { name: "Unknown" };
+        if (!serviceGroups.has(o.serviceId)) {
+          serviceGroups.set(o.serviceId, { serviceId: o.serviceId, name: svc.name, orders: [] });
+        }
+        serviceGroups.get(o.serviceId)!.orders.push(o);
+      }
+      for (const [, group] of serviceGroups) {
+        const total = group.orders.length;
+        const connects = group.orders.filter(o => o.jobStatus === "COMPLETED").length;
+        const rate = total > 0 ? Math.round((connects / total) * 100) : 0;
+
+        let bestMgr = null, bestMgrConnects = -1;
+        for (const mgr of managers) {
+          const mgrScope = await storage.getManagerScope(mgr.id);
+          const mgrConnects = group.orders.filter(o => mgrScope.allRepRepIds.includes(o.repId) && o.jobStatus === "COMPLETED").length;
+          if (mgrConnects > bestMgrConnects) {
+            bestMgrConnects = mgrConnects;
+            bestMgr = mgr.name;
+          }
+        }
+        byService.push({ serviceId: group.serviceId, name: group.name, totalOrders: total, connects, rate, bestManager: bestMgr });
+      }
+      byService.sort((a, b) => b.totalOrders - a.totalOrders);
+
+      res.json({ byManager, byRep, byService });
+    } catch (error: any) {
+      console.error("Director production error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/director/analytics", auth, directorAccess, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const formatDate = (d: Date) => d.toISOString().split("T")[0];
+      const scope = await storage.getExecutiveScope(user.id);
+      const allRepIds = scope.allRepRepIds;
+
+      const ninetyDaysAgo = new Date(nyNow.getTime() - 90 * 24 * 60 * 60 * 1000);
+      const startDate = formatDate(ninetyDaysAgo);
+      const endDate = formatDate(nyNow);
+
+      const dailySeries = await storage.getDailyProductionSeries(
+        allRepIds.length > 0 ? allRepIds : [""],
+        startDate,
+        endDate
+      );
+
+      const trendData = dailySeries.map((d: any) => ({
+        date: d.date,
+        sales: d.soldCount,
+        connects: d.connectedCount,
+      }));
+
+      const managers = await db.query.users.findMany({
+        where: and(eq(users.assignedExecutiveId, user.id), eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"), isNull(users.deletedAt))
+      });
+
+      const orders = await db.query.salesOrders.findMany({
+        where: and(
+          inArray(salesOrders.repId, allRepIds.length > 0 ? allRepIds : [""]),
+          gte(salesOrders.dateSold, startDate),
+          lte(salesOrders.dateSold, endDate)
+        )
+      });
+
+      const connectRateByManager = [];
+      for (const mgr of managers) {
+        const mgrScope = await storage.getManagerScope(mgr.id);
+        const mgrOrders = orders.filter(o => mgrScope.allRepRepIds.includes(o.repId));
+        const sales = mgrOrders.length;
+        const connects = mgrOrders.filter(o => o.jobStatus === "COMPLETED").length;
+        const rate = sales > 0 ? Math.round((connects / sales) * 100) : 0;
+        connectRateByManager.push({ name: mgr.name, id: mgr.id, sales, connects, rate });
+      }
+
+      const servicesList = await storage.getServices();
+      const serviceMap = new Map(servicesList.map((s: any) => [s.id, s]));
+      const serviceMix: any[] = [];
+      const svcGroups = new Map<string, number>();
+      for (const o of orders) {
+        const name = serviceMap.get(o.serviceId)?.name || "Unknown";
+        svcGroups.set(name, (svcGroups.get(name) || 0) + 1);
+      }
+      for (const [name, count] of svcGroups) {
+        serviceMix.push({ name, count, percent: orders.length > 0 ? Math.round((count / orders.length) * 100) : 0 });
+      }
+      serviceMix.sort((a, b) => b.count - a.count);
+
+      const dayOfWeek = [0, 0, 0, 0, 0, 0, 0];
+      const dayOfWeekConnects = [0, 0, 0, 0, 0, 0, 0];
+      for (const o of orders) {
+        const day = new Date(o.dateSold + "T12:00:00").getDay();
+        dayOfWeek[day]++;
+        if (o.jobStatus === "COMPLETED") dayOfWeekConnects[day]++;
+      }
+      const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const dayAnalysis = dayNames.map((name, i) => ({ day: name, sales: dayOfWeek[i], connects: dayOfWeekConnects[i] }));
+
+      res.json({ trendData, connectRateByManager, serviceMix, dayAnalysis });
+    } catch (error: any) {
+      console.error("Director analytics error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/director/approvals", auth, directorAccess, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const scope = await storage.getExecutiveScope(user.id);
+      const allRepIds = scope.allRepRepIds;
+
+      const pendingOrders = await db.query.salesOrders.findMany({
+        where: and(
+          inArray(salesOrders.repId, allRepIds.length > 0 ? allRepIds : [""]),
+          eq(salesOrders.approvalStatus, "UNAPPROVED")
+        )
+      });
+
+      const allUsers = await storage.getUsers();
+      const servicesList = await storage.getServices();
+      const serviceMap = new Map(servicesList.map((s: any) => [s.id, s]));
+      const now = new Date();
+
+      const queue = pendingOrders.map(o => {
+        const rep = allUsers.find((u: any) => u.repId === o.repId);
+        const svc = serviceMap.get(o.serviceId);
+        const daysWaiting = Math.floor((now.getTime() - new Date(o.createdAt).getTime()) / (24 * 60 * 60 * 1000));
+        return {
+          id: o.id,
+          repName: rep?.name || o.repId,
+          customerName: o.customerName,
+          serviceName: svc?.name || "Unknown",
+          dateSold: o.dateSold,
+          daysWaiting,
+          accountNumber: o.accountNumber,
+        };
+      }).sort((a, b) => b.daysWaiting - a.daysWaiting);
+
+      const approvedByMe = await db.query.salesOrders.findMany({
+        where: and(
+          eq(salesOrders.approvedByUserId, user.id),
+          eq(salesOrders.approvalStatus, "APPROVED")
+        ),
+        orderBy: [desc(salesOrders.approvedAt)],
+        limit: 50
+      });
+
+      const history = approvedByMe.map(o => {
+        const rep = allUsers.find((u: any) => u.repId === o.repId);
+        return {
+          id: o.id,
+          repName: rep?.name || o.repId,
+          approvedAt: o.approvedAt,
+          customerName: o.customerName,
+        };
+      });
+
+      res.json({ queue, history });
+    } catch (error: any) {
+      console.error("Director approvals error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
 }

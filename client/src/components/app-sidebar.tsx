@@ -92,6 +92,13 @@ const MENU = {
   queues: { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
   audit: { title: "Audit Log", url: "/audit", icon: History },
   
+  // Director Center
+  dirHome: { title: "Director Home", url: "/director", icon: LayoutDashboard },
+  dirProduction: { title: "Team Production", url: "/director/production", icon: BarChart3 },
+  dirAnalytics: { title: "Trends & Analytics", url: "/director/analytics", icon: TrendingUp },
+  dirApprovals: { title: "Order Approvals", url: "/director/approvals", icon: ClipboardList },
+  dirResources: { title: "Knowledge & Goals", url: "/director/resources", icon: BookOpen },
+  
   // Resources & Settings
   knowledge: { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   credentials: { title: "My Credentials", url: "/my-credentials", icon: Key },
@@ -374,12 +381,21 @@ export function AppSidebar() {
 
     return (
       <>
+        {isExec && (
+          <CollapsibleSection 
+            title="Director Center" 
+            icon={Target} 
+            items={[MENU.dirHome, MENU.dirProduction, MENU.dirAnalytics, MENU.dirApprovals, MENU.dirResources]} 
+            location={location}
+            defaultOpen={true}
+          />
+        )}
         <CollapsibleSection 
           title="Operations" 
           icon={Briefcase} 
           items={opsItems} 
           location={location}
-          defaultOpen={true}
+          defaultOpen={!isExec}
         />
         {isExec ? (
           <CollapsibleSection 

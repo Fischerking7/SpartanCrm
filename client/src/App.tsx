@@ -11,6 +11,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { OpsNav } from "@/pages/ops/ops-layout";
 import { AcctNav } from "@/pages/accounting/acct-layout";
+import { DirNav } from "@/pages/director/dir-layout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActivityTracker } from "@/hooks/use-activity-tracker";
 
@@ -18,7 +19,6 @@ import Login from "@/pages/login";
 import ChangePassword from "@/pages/change-password";
 import SalesDashboard from "@/pages/sales-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
-import ExecutiveDashboard from "@/pages/executive-dashboard";
 import Orders from "@/pages/orders";
 import Leads from "@/pages/leads";
 import Commissions from "@/pages/commissions";
@@ -75,6 +75,11 @@ import AcctAR from "@/pages/accounting/acct-ar";
 import AcctOverrides from "@/pages/accounting/acct-overrides";
 import AcctAdvances from "@/pages/accounting/acct-advances";
 import AcctReports from "@/pages/accounting/acct-reports";
+import DirHome from "@/pages/director/dir-home";
+import DirProduction from "@/pages/director/dir-production";
+import DirAnalytics from "@/pages/director/dir-analytics";
+import DirApprovals from "@/pages/director/dir-approvals";
+import DirResources from "@/pages/director/dir-resources";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -89,7 +94,7 @@ function Dashboard() {
     case "ADMIN":
       return <AdminDashboard />;
     case "EXECUTIVE":
-      return <ExecutiveDashboard />;
+      return <DirHome />;
     case "REP":
     case "MDU":
     case "LEAD":
@@ -153,6 +158,11 @@ const routeTitles: Record<string, string> = {
   "/export-history": "Exports",
   "/recalculate": "Recalculate",
   "/admin/user-activity": "User Activity",
+  "/director": "Director Home",
+  "/director/production": "Team Production",
+  "/director/analytics": "Trends & Analytics",
+  "/director/approvals": "Order Approvals",
+  "/director/resources": "Knowledge & Goals",
   "/ops": "Operations Center",
   "/ops/orders": "Order Management",
   "/ops/install-sync": "Install Sync",
@@ -184,6 +194,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const showBottomNav = fieldRoles.includes(user.role);
   const showOpsNav = ["OPERATIONS", "ADMIN", "EXECUTIVE"].includes(user.role) && location.startsWith("/ops");
   const showAcctNav = ["ACCOUNTING", "ADMIN", "EXECUTIVE"].includes(user.role) && location.startsWith("/accounting");
+  const showDirNav = user.role === "EXECUTIVE" && location.startsWith("/director");
   const pageTitle = routeTitles[location] || routeTitles[location.split("/").slice(0, 2).join("/")] || "";
 
   return (
@@ -198,6 +209,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
           </header>
           {showOpsNav && <OpsNav />}
           {showAcctNav && <AcctNav />}
+          {showDirNav && <DirNav />}
           <main className={`flex-1 overflow-auto ${showBottomNav ? "pb-16 md:pb-0" : ""}`}>
             {children}
           </main>
@@ -291,6 +303,16 @@ function Router() {
           </>
         )}
         
+        {user.role === "EXECUTIVE" && (
+          <>
+            <Route path="/director" component={DirHome} />
+            <Route path="/director/production" component={DirProduction} />
+            <Route path="/director/analytics" component={DirAnalytics} />
+            <Route path="/director/approvals" component={DirApprovals} />
+            <Route path="/director/resources" component={DirResources} />
+          </>
+        )}
+
         {(user.role === "ACCOUNTING" || user.role === "ADMIN" || user.role === "EXECUTIVE") && (
           <>
             <Route path="/accounting" component={AcctHome} />
