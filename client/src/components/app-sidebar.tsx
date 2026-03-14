@@ -82,6 +82,8 @@ const MENU = {
   forecast: { title: "Forecast", url: "/commission-forecast", icon: Target },
   myPay: { title: "Pay History", url: "/my-pay", icon: Calendar },
   myDisputes: { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
+  myReserve: { title: "My Reserve", url: "/reserve", icon: Shield },
+  myAccount: { title: "Account", url: "/account", icon: User },
   
   // Operations
   mduReview: { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
@@ -141,8 +143,10 @@ const personalItems: MenuItem[] = [
   MENU.commissions,
   MENU.forecast,
   MENU.myPay,
+  MENU.myReserve,
   MENU.myDisputes,
   MENU.credentials,
+  MENU.myAccount,
 ];
 
 // Alerts & Settings - common to all

@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
-import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or, desc } from "drizzle-orm";
+import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc } from "drizzle-orm";
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
@@ -1517,6 +1517,7 @@ export async function registerRoutes(
           pending: eq(salesOrders.approvalStatus, "PENDING"),
           installed: eq(salesOrders.jobStatus, "COMPLETED"),
           approved: eq(salesOrders.approvalStatus, "APPROVED"),
+          payready: isNotNull(salesOrders.payrollReadyAt),
           paid: eq(salesOrders.paymentStatus, "PAID"),
           chargeback: eq(salesOrders.paymentStatus, "CHARGEBACK"),
         };

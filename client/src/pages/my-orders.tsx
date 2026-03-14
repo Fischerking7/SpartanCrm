@@ -6,20 +6,31 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronLeft, CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { ChevronLeft, CheckCircle2, Circle, Loader2, Shield } from "lucide-react";
 
 const statusFilters = [
   { key: "all", label: "All" },
   { key: "pending", label: "Pending" },
   { key: "installed", label: "Installed" },
   { key: "approved", label: "Approved" },
+  { key: "payready", label: "Pay Ready" },
   { key: "paid", label: "Paid" },
   { key: "chargeback", label: "Chargeback" },
 ];
 
+function formatCurrency(v: number) {
+  return "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatDate(d: string | Date | null) {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+}
+
 function getStatusColor(order: any) {
   if (order.paymentStatus === "PAID") return "bg-emerald-500";
   if (order.paymentStatus === "CHARGEBACK") return "bg-red-500";
+  if (order.payrollReadyAt) return "bg-violet-500";
   if (order.approvalStatus === "APPROVED") return "bg-blue-500";
   if (order.jobStatus === "COMPLETED") return "bg-sky-500";
   return "bg-amber-500";
@@ -28,12 +39,13 @@ function getStatusColor(order: any) {
 function getStatusLabel(order: any) {
   if (order.paymentStatus === "PAID") return "Paid";
   if (order.paymentStatus === "CHARGEBACK") return "Chargeback";
+  if (order.payrollReadyAt) return "Pay Ready";
   if (order.approvalStatus === "APPROVED") return "Approved";
   if (order.jobStatus === "COMPLETED") return "Installed";
   return "Pending";
 }
 
-function TimelineStep({ label, date, done }: { label: string; date?: string; done: boolean }) {
+function TimelineStep({ label, date, done }: { label: string; date?: string | null; done: boolean }) {
   return (
     <div className="flex items-start gap-3">
       {done ? (
@@ -43,11 +55,9 @@ function TimelineStep({ label, date, done }: { label: string; date?: string; don
       )}
       <div>
         <p className={`text-sm font-medium ${done ? "" : "text-muted-foreground"}`}>{label}</p>
-        {date ? (
-          <p className="text-xs text-muted-foreground">{new Date(date).toLocaleDateString()}</p>
-        ) : (
-          <p className="text-xs text-muted-foreground">Pending</p>
-        )}
+        <p className="text-xs text-muted-foreground">
+          {done && date ? formatDate(date) : "Pending"}
+        </p>
       </div>
     </div>
   );
@@ -60,7 +70,7 @@ export default function MyOrders() {
   const [, setLocation] = useLocation();
   const search = useSearch();
 
-  const { data, isLoading, isFetching } = useQuery<any>({
+  const { data, isLoading, isFetching, refetch } = useQuery<any>({
     queryKey: ["/api/my/orders", `?status=${filter}&page=${page}&limit=20`],
   });
 
@@ -75,10 +85,14 @@ export default function MyOrders() {
     }
   }, [data, search]);
 
+  const { data: reserveData } = useQuery<any>({
+    queryKey: ["/api/my/reserve"],
+  });
+
   return (
     <div className="p-4 max-w-lg mx-auto pb-20" data-testid="my-orders-page">
       <div className="flex items-center gap-3 mb-4">
-        <button onClick={() => setLocation("/")} className="p-1" data-testid="button-back">
+        <button onClick={() => setLocation("/dashboard")} className="p-1" data-testid="button-back">
           <ChevronLeft className="h-5 w-5" />
         </button>
         <h1 className="text-lg font-bold">My Orders</h1>
@@ -92,7 +106,7 @@ export default function MyOrders() {
             onClick={() => { setFilter(f.key); setPage(1); }}
             className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
               filter === f.key
-                ? "bg-foreground text-background"
+                ? "bg-[#1B2A4A] text-white dark:bg-[#C9A84C] dark:text-[#1B2A4A]"
                 : "bg-muted text-muted-foreground"
             }`}
             data-testid={`filter-${f.key}`}
@@ -105,7 +119,7 @@ export default function MyOrders() {
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4, 5].map(i => (
-            <Skeleton key={i} className="h-20 w-full rounded-xl" />
+            <Skeleton key={i} className="h-20 w-full rounded-2xl" />
           ))}
         </div>
       ) : !data?.orders?.length ? (
@@ -121,21 +135,23 @@ export default function MyOrders() {
               className="w-full text-left"
               data-testid={`order-row-${order.id}`}
             >
-              <Card className="rounded-xl hover:shadow-md transition-shadow">
+              <Card className="rounded-2xl hover:shadow-md transition-shadow">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium truncate">{order.customerName}</p>
-                      <p className="text-xs text-muted-foreground">{order.invoiceNumber}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {order.invoiceNumber}
+                      </p>
                     </div>
-                    <Badge variant="secondary" className={`text-white text-[10px] px-2 ${getStatusColor(order)}`}>
+                    <Badge variant="secondary" className={`text-white text-[10px] px-2 ml-2 ${getStatusColor(order)}`}>
                       {getStatusLabel(order)}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between mt-2">
-                    <p className="text-xs text-muted-foreground">{order.dateSold}</p>
+                    <p className="text-xs text-muted-foreground">{formatDate(order.dateSold)}</p>
                     {order.commissionAmount && (
-                      <p className="text-sm font-semibold">${parseFloat(order.commissionAmount).toFixed(2)}</p>
+                      <p className="text-sm font-semibold text-[#C9A84C]">{formatCurrency(parseFloat(order.commissionAmount))}</p>
                     )}
                   </div>
                 </CardContent>
@@ -173,7 +189,7 @@ export default function MyOrders() {
 
       {isFetching && !isLoading && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50">
-          <div className="bg-foreground text-background px-3 py-1 rounded-full text-xs flex items-center gap-2">
+          <div className="bg-[#1B2A4A] text-white px-3 py-1 rounded-full text-xs flex items-center gap-2">
             <Loader2 className="h-3 w-3 animate-spin" /> Loading...
           </div>
         </div>
@@ -186,10 +202,16 @@ export default function MyOrders() {
           </DialogHeader>
           {selectedOrder && (
             <div className="space-y-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Invoice</p>
-                <p className="font-medium" data-testid="text-detail-invoice">{selectedOrder.invoiceNumber}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Invoice</p>
+                  <p className="font-medium" data-testid="text-detail-invoice">{selectedOrder.invoiceNumber}</p>
+                </div>
+                <Badge variant="secondary" className={`text-white ${getStatusColor(selectedOrder)}`}>
+                  {getStatusLabel(selectedOrder)}
+                </Badge>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs text-muted-foreground">Customer</p>
@@ -197,15 +219,9 @@ export default function MyOrders() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Date Sold</p>
-                  <p className="text-sm">{selectedOrder.dateSold}</p>
+                  <p className="text-sm">{formatDate(selectedOrder.dateSold)}</p>
                 </div>
               </div>
-              {selectedOrder.commissionAmount && (
-                <div className="bg-muted/50 rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground">Commission</p>
-                  <p className="text-xl font-bold">${parseFloat(selectedOrder.commissionAmount).toFixed(2)}</p>
-                </div>
-              )}
 
               {(selectedOrder.tvSold || selectedOrder.mobileSold) && (
                 <div>
@@ -216,12 +232,19 @@ export default function MyOrders() {
                 </div>
               )}
 
+              {selectedOrder.commissionAmount && (
+                <div className="bg-[#C9A84C]/5 border border-[#C9A84C]/20 rounded-xl p-3">
+                  <p className="text-xs text-[#C9A84C] font-medium">Commission</p>
+                  <p className="text-xl font-bold text-[#C9A84C]">{formatCurrency(parseFloat(selectedOrder.commissionAmount))}</p>
+                </div>
+              )}
+
               <div className="space-y-3 pt-2">
-                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Timeline</p>
+                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Status Timeline</p>
                 <TimelineStep label="Sold" date={selectedOrder.dateSold || selectedOrder.createdAt} done={true} />
                 <TimelineStep
                   label="Installed"
-                  date={selectedOrder.jobStatus === "COMPLETED" ? selectedOrder.installDate : undefined}
+                  date={selectedOrder.jobStatus === "COMPLETED" ? (selectedOrder.installDate || selectedOrder.installedAt) : null}
                   done={selectedOrder.jobStatus === "COMPLETED"}
                 />
                 <TimelineStep
@@ -230,19 +253,38 @@ export default function MyOrders() {
                   done={selectedOrder.approvalStatus === "APPROVED"}
                 />
                 <TimelineStep
-                  label="Payroll Ready"
+                  label="Pay Ready"
                   date={selectedOrder.payrollReadyAt}
                   done={!!selectedOrder.payrollReadyAt}
                 />
                 <TimelineStep
                   label="Paid"
-                  date={selectedOrder.paymentStatus === "PAID" ? undefined : undefined}
+                  date={selectedOrder.paidAt}
                   done={selectedOrder.paymentStatus === "PAID"}
                 />
               </div>
 
+              {reserveData?.eligible && (
+                <div className="pt-2">
+                  <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-2">Rolling Reserve</p>
+                  <Card className="rounded-xl">
+                    <CardContent className="p-3 flex items-center gap-3">
+                      <Shield className="h-5 w-5 text-[#C9A84C]" />
+                      <div className="flex-1">
+                        <p className="text-sm">Current balance: <span className="font-semibold">{formatCurrency(reserveData.currentBalance || 0)}</span></p>
+                        <p className="text-xs text-muted-foreground">
+                          {reserveData.percentFull >= 100
+                            ? "Cap reached"
+                            : `Withholding ${reserveData.withholdingPercent || 15}%`}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
               {selectedOrder.paymentStatus === "CHARGEBACK" && (
-                <div className="bg-red-500/10 rounded-lg p-3">
+                <div className="bg-red-500/10 rounded-xl p-3">
                   <p className="text-sm font-medium text-red-700 dark:text-red-400">Chargeback Applied</p>
                 </div>
               )}

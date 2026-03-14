@@ -61,6 +61,9 @@ import NewOrder from "@/pages/new-order";
 import MyOrders from "@/pages/my-orders";
 import MyEarnings from "@/pages/my-earnings";
 import MyDisputes from "@/pages/my-disputes";
+import MyReserve from "@/pages/my-reserve";
+import AccountSettings from "@/pages/account-settings";
+import OnboardingPortal from "@/pages/onboarding";
 import AdminDisputes from "@/pages/admin-disputes";
 import OrderTracker from "@/pages/order-tracker";
 import UserActivityPage from "@/pages/admin/user-activity";
@@ -142,6 +145,9 @@ const routeTitles: Record<string, string> = {
   "/orders/new": "New Order",
   "/my-orders": "My Orders",
   "/my-earnings": "My Earnings",
+  "/reserve": "My Reserve",
+  "/account": "Account",
+  "/onboarding": "Onboarding",
   "/orders": "Orders",
   "/order-tracker": "Order Tracker",
   "/mobile-entry": "Quick Entry",
@@ -254,6 +260,7 @@ function Router() {
     return (
       <Switch>
         <Route path="/login" component={Login} />
+        <Route path="/onboarding" component={OnboardingPortal} />
         <Route>
           <Redirect to="/login" />
         </Route>
@@ -285,6 +292,9 @@ function Router() {
         <Route path="/orders/new" component={NewOrder} />
         <Route path="/my-orders" component={MyOrders} />
         <Route path="/my-earnings" component={MyEarnings} />
+        <Route path="/reserve" component={MyReserve} />
+        <Route path="/account" component={AccountSettings} />
+        <Route path="/onboarding" component={OnboardingPortal} />
         <Route path="/orders" component={Orders} />
         <Route path="/order-tracker" component={OrderTracker} />
         <Route path="/leads" component={Leads} />
