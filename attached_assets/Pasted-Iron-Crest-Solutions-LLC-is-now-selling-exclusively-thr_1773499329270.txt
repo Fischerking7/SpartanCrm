@@ -1,0 +1,189 @@
+Iron Crest Solutions LLC is now selling exclusively through 
+Astound. Optimum has been discontinued. 
+
+Make the following changes in exact order. Show me what 
+you plan to do before each step. Wait for me to type 
+APPROVE before executing. Never batch multiple steps.
+
+===================================================================
+STEP 1 — DEACTIVATE ALL OPTIMUM RATE CARDS
+===================================================================
+
+Optimum provider ID: 212025c9-50f6-4828-a3d3-102f320bbee9
+
+First show me what will be affected:
+
+  SELECT 
+    rc.id,
+    rc.active,
+    s.name as service,
+    rc.base_amount,
+    rc.effective_start,
+    COUNT(so.id) as orders_using_this_card
+  FROM rate_cards rc
+  LEFT JOIN services s ON s.id = rc.service_id
+  LEFT JOIN sales_orders so ON so.applied_rate_card_id = rc.id
+  WHERE rc.provider_id = '212025c9-50f6-4828-a3d3-102f320bbee9'
+  GROUP BY rc.id, rc.active, s.name, rc.base_amount, 
+           rc.effective_start
+  ORDER BY rc.active DESC, rc.base_amount DESC;
+
+Then show me the count of historical Optimum orders:
+
+  SELECT 
+    COUNT(*) as total_optimum_orders,
+    COUNT(CASE WHEN approval_status = 'APPROVED' 
+          THEN 1 END) as approved,
+    COUNT(CASE WHEN payment_status = 'PAID' 
+          THEN 1 END) as paid,
+    COUNT(CASE WHEN payment_status != 'PAID' 
+          AND approval_status = 'APPROVED'
+          THEN 1 END) as approved_unpaid
+  FROM sales_orders
+  WHERE provider_id = '212025c9-50f6-4828-a3d3-102f320bbee9';
+
+Wait for APPROVE before continuing.
+
+After approval run:
+
+  -- Deactivate all Optimum rate cards
+  UPDATE rate_cards 
+  SET 
+    active = false,
+    effective_end = CURRENT_DATE,
+    updated_at = NOW()
+  WHERE provider_id = '212025c9-50f6-4828-a3d3-102f320bbee9'
+  AND active = true;
+
+  -- Deactivate the Optimum provider itself
+  UPDATE providers
+  SET 
+    active = false,
+    updated_at = NOW()
+  WHERE id = '212025c9-50f6-4828-a3d3-102f320bbee9';
+
+DO NOT delete anything. Historical orders referencing 
+Optimum must remain intact for reporting and payroll 
+history. Only deactivate going forward.
+
+Verify after running:
+  SELECT COUNT(*) as still_active_optimum_cards
+  FROM rate_cards
+  WHERE provider_id = '212025c9-50f6-4828-a3d3-102f320bbee9'
+  AND active = true;
+  
+  Expected: 0
+
+===================================================================
+STEP 2 — VERIFY ASTOUND RATE CARDS ARE COMPLETE AND CORRECT
+===================================================================
+
+Astound provider ID: 88a9321e-d805-4543-9e77-2116890d471b
+Active client: PMG (id: 8cd17657-0a33-4c8d-81b2-5586ce8d770e)
+
+Run this query and show me all results:
+
+  SELECT 
+    s.name as service,
+    s.code,
+    rc.id,
+    rc.base_amount as rack_rate,
+    rc.override_deduction as total_override_pool,
+    (rc.base_amount - rc.override_deduction) as rep_payout_rep_role,
+    rc.tv_addon_amount,
+    rc.mobile_per_line_amount,
+    rc.mobile_product_type,
+    rc.mobile_ported_status,
+    rc.active,
+    rc.effective_start,
+    rc.effective_end
+  FROM rate_cards rc
+  LEFT JOIN services s ON s.id = rc.service_id
+  WHERE rc.provider_id = '88a9321e-d805-4543-9e77-2116890d471b'
+  ORDER BY rc.active DESC, rc.base_amount DESC;
+
+Cross-reference against the Iron Crest rate table.
+Expected active Astound rate cards:
+
+  Service      | Rack  | Override | Rep Payout
+  50 Mbps      | $95   | $70      | $25
+  150 Mbps     | $190  | $130     | $60
+  300 Mbps     | $255  | $130     | $125
+  600 Mbps     | $285  | $150     | $135
+  1 Gig        | $350  | $150     | $200
+  1 Gig+       | $390  | $165     | $225
+  Mobile 1G    | varies per line
+  Mobile 3G    | varies per line
+
+Report any discrepancies between what exists and 
+what the rate table says. Wait for APPROVE before 
+making any rate card corrections.
+
+===================================================================
+STEP 3 — CLEAN UP SERVICES TABLE
+===================================================================
+
+Remove or deactivate services that are Optimum-specific 
+or have no active rate cards after Step 1.
+
+First show me:
+
+  SELECT 
+    s.id,
+    s.name,
+    s.code,
+    s.active,
+    COUNT(rc.id) as active_rate_cards,
+    COUNT(so.id) as orders_total
+  FROM services s
+  LEFT JOIN rate_cards rc ON rc.service_id = s.id 
+    AND rc.active = true
+  LEFT JOIN sales_orders so ON so.service_id = s.id
+  GROUP BY s.id, s.name, s.code, s.active
+  ORDER BY active_rate_cards DESC, orders_total DESC;
+
+After showing results, identify:
+  - Services with active Astound rate cards: KEEP active
+  - Services with only Optimum rate cards (now all inactive): 
+    Set service active = false
+  - Services with no rate cards at all and no orders: 
+    Set service active = false
+  - Services with historical orders but no active cards:
+    Set service active = false (they still exist for 
+    historical reporting, just not selectable for new orders)
+
+Show me the UPDATE statements before running.
+Wait for APPROVE.
+
+===================================================================
+STEP 4 — UPDATE ORDER CREATION FORM TO SHOW ASTOUND ONLY
+===================================================================
+
+In the new order form (and any order creation component), 
+the provider dropdown should only show active providers.
+
+Verify the existing query for the provider dropdown uses:
+  WHERE active = true
+
+If it does, Astound will automatically be the only 
+option after Step 1 deactivates Optimum.
+
+Check the new order form component and the API endpoint:
+  GET /api/providers
+
+Verify this returns only active providers:
+
+  SELECT name, active FROM providers ORDER BY active DESC, name;
+
+After Step 1 this should return:
+  Astound | true
+  Optimum | false  (not shown in dropdown)
+  Others  | false
+
+If the API returns inactive providers, update the 
+storage method getProviders() or the route to filter 
+by active = true for the order creation context.
+
+Create a separate endpoint if needed:
+  GET /api/providers/active
+  Returns only active = tru
