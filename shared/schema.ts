@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums
-export const userRoleEnum = pgEnum("user_role", ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS", "ACCOUNTING"]);
+export const userRoleEnum = pgEnum("user_role", ["REP", "MDU", "LEAD", "MANAGER", "DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS", "ACCOUNTING"]);
 export const userStatusEnum = pgEnum("user_status", ["ACTIVE", "DEACTIVATED"]);
 export const jobStatusEnum = pgEnum("job_status", ["PENDING", "COMPLETED", "CANCELED"]);
 export const approvalStatusEnum = pgEnum("approval_status", ["UNAPPROVED", "APPROVED", "REJECTED"]);
@@ -26,6 +26,10 @@ export const mobilePortedStatusEnum = pgEnum("mobile_ported_status", ["PORTED", 
 export const serviceCategoryEnum = pgEnum("service_category", ["INTERNET", "MOBILE", "VIDEO"]);
 export const installTypeEnum = pgEnum("install_type", ["AGENT_INSTALL", "DIRECT_SHIP", "TECH_INSTALL"]);
 export const mduOrderStatusEnum = pgEnum("mdu_order_status", ["PENDING", "APPROVED", "REJECTED"]);
+
+export const reserveStatusEnum = pgEnum("reserve_status", ["ACTIVE", "SUSPENDED", "CLOSED"]);
+export const reserveTransactionTypeEnum = pgEnum("reserve_transaction_type", ["WITHHOLDING", "RELEASE", "FORFEITURE", "CHARGEBACK_OFFSET", "ADJUSTMENT"]);
+export const reserveReleaseEligibilityEnum = pgEnum("reserve_release_eligibility", ["PENDING", "ELIGIBLE", "RELEASED", "FORFEITED", "OFFSET"]);
 
 // Finance module enums
 export const financeImportStatusEnum = pgEnum("finance_import_status", ["IMPORTED", "MAPPED", "MATCHED", "POSTED", "LOCKED"]);
@@ -304,6 +308,10 @@ export const salesOrders = pgTable("sales_orders", {
   isPayrollHeld: boolean("is_payroll_held").notNull().default(false),
   chargebackRiskScore: integer("chargeback_risk_score"),
   chargebackRiskFactors: text("chargeback_risk_factors"),
+  reserveWithheldCents: integer("reserve_withheld_cents").notNull().default(0),
+  reserveReleasedCents: integer("reserve_released_cents").notNull().default(0),
+  reserveReleaseEligibility: reserveReleaseEligibilityEnum("reserve_release_eligibility"),
+  reserveReleaseEligibleDate: date("reserve_release_eligible_date"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -530,6 +538,8 @@ export const chargebacks = pgTable("chargebacks", {
   quickbooksRefId: text("quickbooks_ref_id"),
   payRunId: varchar("pay_run_id").references(() => payRuns.id),
   notes: text("notes"),
+  reserveOffsetCents: integer("reserve_offset_cents").notNull().default(0),
+  reserveOffsetApplied: boolean("reserve_offset_applied").notNull().default(false),
   createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -1162,6 +1172,8 @@ export const payStatements = pgTable("pay_statements", {
   totalMobileLines: integer("total_mobile_lines").default(0),
   isViewableByRep: boolean("is_viewable_by_rep").notNull().default(false),
   companyName: varchar("company_name").default("Iron Crest"),
+  reserveWithheldCents: integer("reserve_withheld_cents").notNull().default(0),
+  reserveReleasedCents: integer("reserve_released_cents").notNull().default(0),
   ytdGross: decimal("ytd_gross", { precision: 12, scale: 2 }).notNull().default("0"),
   ytdDeductions: decimal("ytd_deductions", { precision: 12, scale: 2 }).notNull().default("0"),
   ytdNetPay: decimal("ytd_net_pay", { precision: 12, scale: 2 }).notNull().default("0"),
@@ -2280,3 +2292,80 @@ export const onboardingDrafts = pgTable("onboarding_drafts", {
 ]);
 
 export type OnboardingDraft = typeof onboardingDrafts.$inferSelect;
+
+export const rollingReserves = pgTable("rolling_reserves", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  repId: text("rep_id").notNull(),
+  balanceCents: integer("balance_cents").notNull().default(0),
+  lifetimeWithheldCents: integer("lifetime_withheld_cents").notNull().default(0),
+  lifetimeReleasedCents: integer("lifetime_released_cents").notNull().default(0),
+  lifetimeForfeitedCents: integer("lifetime_forfeited_cents").notNull().default(0),
+  lifetimeOffsetCents: integer("lifetime_offset_cents").notNull().default(0),
+  reserveRateBps: integer("reserve_rate_bps").notNull().default(1000),
+  holdbackDays: integer("holdback_days").notNull().default(90),
+  status: reserveStatusEnum("status").notNull().default("ACTIVE"),
+  suspendedAt: timestamp("suspended_at"),
+  suspendedReason: text("suspended_reason"),
+  closedAt: timestamp("closed_at"),
+  closedByUserId: varchar("closed_by_user_id").references(() => users.id),
+  closedReason: text("closed_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("rolling_reserves_user_id_unique").on(table.userId),
+  index("rolling_reserves_rep_id_idx").on(table.repId),
+  index("rolling_reserves_status_idx").on(table.status),
+]);
+
+export const rollingReservesRelations = relations(rollingReserves, ({ one, many }) => ({
+  user: one(users, { fields: [rollingReserves.userId], references: [users.id] }),
+  transactions: many(reserveTransactions),
+}));
+
+export const insertRollingReserveSchema = createInsertSchema(rollingReserves).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type RollingReserve = typeof rollingReserves.$inferSelect;
+export type InsertRollingReserve = z.infer<typeof insertRollingReserveSchema>;
+
+export const reserveTransactions = pgTable("reserve_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  rollingReserveId: varchar("rolling_reserve_id").notNull().references(() => rollingReserves.id),
+  transactionType: reserveTransactionTypeEnum("transaction_type").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  balanceAfterCents: integer("balance_after_cents").notNull(),
+  reserveRateBpsAtTime: integer("reserve_rate_bps_at_time"),
+  salesOrderId: varchar("sales_order_id").references(() => salesOrders.id),
+  chargebackId: varchar("chargeback_id").references(() => chargebacks.id),
+  payRunId: varchar("pay_run_id").references(() => payRuns.id),
+  payStatementId: varchar("pay_statement_id").references(() => payStatements.id),
+  releaseEligibleDate: date("release_eligible_date"),
+  releaseActualDate: date("release_actual_date"),
+  eligibility: reserveReleaseEligibilityEnum("eligibility").notNull().default("PENDING"),
+  description: text("description"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("reserve_txn_reserve_id_idx").on(table.rollingReserveId),
+  index("reserve_txn_type_idx").on(table.transactionType),
+  index("reserve_txn_order_id_idx").on(table.salesOrderId),
+  index("reserve_txn_chargeback_id_idx").on(table.chargebackId),
+  index("reserve_txn_eligibility_idx").on(table.eligibility),
+  index("reserve_txn_release_date_idx").on(table.releaseEligibleDate),
+]);
+
+export const reserveTransactionsRelations = relations(reserveTransactions, ({ one }) => ({
+  rollingReserve: one(rollingReserves, { fields: [reserveTransactions.rollingReserveId], references: [rollingReserves.id] }),
+  salesOrder: one(salesOrders, { fields: [reserveTransactions.salesOrderId], references: [salesOrders.id] }),
+  chargeback: one(chargebacks, { fields: [reserveTransactions.chargebackId], references: [chargebacks.id] }),
+  payRun: one(payRuns, { fields: [reserveTransactions.payRunId], references: [payRuns.id] }),
+  payStatement: one(payStatements, { fields: [reserveTransactions.payStatementId], references: [payStatements.id] }),
+  createdBy: one(users, { fields: [reserveTransactions.createdByUserId], references: [users.id] }),
+}));
+
+export const insertReserveTransactionSchema = createInsertSchema(reserveTransactions).omit({
+  id: true, createdAt: true,
+});
+export type ReserveTransaction = typeof reserveTransactions.$inferSelect;
+export type InsertReserveTransaction = z.infer<typeof insertReserveTransactionSchema>;

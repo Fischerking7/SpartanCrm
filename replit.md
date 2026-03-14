@@ -19,7 +19,7 @@ Preferred communication style: Simple, everyday language.
 The application uses a monorepo structure with `client/` for the React frontend, `server/` for the Express backend API, `shared/` for common TypeScript types and Drizzle schema, and `migrations/` for database migration files.
 
 ### Core Architectural Decisions
-- **Role-Based Access Control**: Implements eight distinct user roles with granular permissions and data isolation, including an EXECUTIVE view mode toggle.
+- **Role-Based Access Control**: Implements nine distinct user roles (REP, MDU, LEAD, MANAGER, DIRECTOR, EXECUTIVE, ADMIN, OPERATIONS, ACCOUNTING) with granular permissions and data isolation, including an EXECUTIVE view mode toggle.
 - **Commission Management**: Differentiates between Earned and Paid Commissions, handles Chargebacks, enforces immutability for approved orders, and supports role-based override amounts.
 - **Iron Crest Commission Extension**: Full compensation plan with role-tiered payouts, four override tiers, dynamic profit tracking, profit flooring, and an override approval workflow with role-specific approvals and in-app notifications.
 - **Payroll System**: Comprehensive system for managing pay statements, deductions, advances, year-to-date tracking, and a multi-stage pay run approval workflow. Includes 1099-NEC generation, ACH/Direct Deposit exports, bonuses, SPIFFs, draw against commission, split commission agreements, tiers, caps, scheduled pay runs, forecasting, and a payroll reports dashboard.
@@ -41,6 +41,7 @@ The application uses a monorepo structure with `client/` for the React frontend,
 - **Predictive Intelligence**: Integrates five intelligence features: Chargeback Risk Scoring, Rep Performance Prediction, AR Collection Prediction, Profit Anomaly Detection, and Pay Run Cash Flow Projection.
 - **External Integration Points**: Provides admin management UI for carrier file automation (email webhooks, SFTP polling), ACH payment processing (NACHA generation, submission, settlement), calendar integration (Google Calendar sync), and reporting webhooks & API keys. Also includes an integration activity log.
 - **Contractor Onboarding System**: OTP-gated onboarding portal for 1099 independent contractors. Includes 6 legal documents (background check, chargeback policy, contractor application, direct deposit, drug test consent, NDA), e-signature capture with E-SIGN Act compliance, encrypted SSN/bank info storage, PDF generation via pdf-lib, admin review queue with approve/reject workflow, compliance tracking (background check and drug test statuses), SMS notifications via Twilio (optional), and a full append-only audit log.
+- **Rolling Reserve System**: Per-rep rolling reserves with configurable withholding rate (basis points) and holdback period (days). Tables: `rolling_reserves` (one per rep, tracks balance + lifetime totals) and `reserve_transactions` (individual withholdings, releases, forfeitures, chargeback offsets, adjustments). Reserve columns added to `sales_orders`, `chargebacks`, and `pay_statements` for tracking at the order/pay level. Schema only — no service logic yet.
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
