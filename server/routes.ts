@@ -2037,7 +2037,20 @@ export async function registerRoutes(
 
       if (search && search.length >= 2 && (user.role === "ADMIN" || user.role === "OPERATIONS")) {
         const results = await storage.searchOrders(search, limit || 20);
-        return res.json(results);
+        const [svcList, prvList, cltList, usrList] = await Promise.all([
+          storage.getServices(), storage.getProviders(), storage.getClients(), storage.getUsers()
+        ]);
+        const svcMap = new Map(svcList.map((s: any) => [s.id, s.name]));
+        const prvMap = new Map(prvList.map((p: any) => [p.id, p.name]));
+        const cltMap = new Map(cltList.map((c: any) => [c.id, c.name]));
+        const usrMap = new Map(usrList.map((u: any) => [u.repId, u.name]));
+        return res.json(results.map((r: any) => ({
+          ...r,
+          repName: usrMap.get(r.repId) || r.repId,
+          serviceName: svcMap.get(r.serviceId) || r.serviceId,
+          providerName: prvMap.get(r.providerId) || r.providerId,
+          clientName: cltMap.get(r.clientId) || r.clientId,
+        })));
       }
 
       let orders;
@@ -2080,16 +2093,29 @@ export async function registerRoutes(
 
       // Get mobile and gross commission totals for all orders
       const orderIds = orders.map((o: any) => o.id);
-      const [mobileCommissionTotals, grossCommissionTotals] = await Promise.all([
+      const [mobileCommissionTotals, grossCommissionTotals, allServices, allProviders, allClients, allUsersForOrders] = await Promise.all([
         storage.getMobileCommissionTotalsByOrderIds(orderIds),
         storage.getGrossCommissionTotalsByOrderIds(orderIds),
+        storage.getServices(),
+        storage.getProviders(),
+        storage.getClients(),
+        storage.getUsers(),
       ]);
+
+      const serviceMap = new Map(allServices.map((s: any) => [s.id, s.name]));
+      const providerMap = new Map(allProviders.map((p: any) => [p.id, p.name]));
+      const clientMap = new Map(allClients.map((c: any) => [c.id, c.name]));
+      const repMap = new Map(allUsersForOrders.map((u: any) => [u.repId, u.name]));
       
-      // Attach commission totals to each order
+      // Attach commission totals and resolved names to each order
       const ordersWithCommissions = orders.map((order: any) => ({
         ...order,
         mobileCommissionTotal: mobileCommissionTotals.get(order.id) || "0",
         grossCommissionTotal: grossCommissionTotals.get(order.id) || "0",
+        repName: repMap.get(order.repId) || order.repId,
+        serviceName: serviceMap.get(order.serviceId) || order.serviceId,
+        providerName: providerMap.get(order.providerId) || order.providerId,
+        clientName: clientMap.get(order.clientId) || order.clientId,
       }));
 
       res.json(ordersWithCommissions);
@@ -2530,14 +2556,14 @@ export async function registerRoutes(
       
       // Define strict whitelists based on approval status and role
       const statusFields = ["jobStatus", "installDate", "installTime", "installType"];
-      const customerFields = ["customerName", "customerPhone", "customerEmail", "customerAddress", "accountNumber"];
+      const customerFields = ["customerName", "customerPhone", "customerEmail", "customerAddress", "houseNumber", "streetName", "aptUnit", "city", "zipCode", "accountNumber"];
       const orderFields = ["clientId", "providerId", "serviceId", "dateSold", "tvSold", "mobileSold", "mobileProductType", "mobilePortedStatus", "mobileLinesQty", "notes"];
       
       let allowedFields: string[] = [];
       
       if (order.jobStatus === "COMPLETED") {
         // Completed orders: limit editable fields for compliance
-        allowedFields = [...statusFields, "customerPhone", "customerEmail", "customerAddress", "accountNumber", "notes"];
+        allowedFields = [...statusFields, "customerPhone", "customerEmail", "customerAddress", "houseNumber", "streetName", "aptUnit", "city", "zipCode", "accountNumber", "notes"];
         // ADMIN/EXECUTIVE/OPERATIONS can also change repId, provider, client, service, and customerName on completed orders
         if (isAdminLevel) {
           allowedFields.push("repId", "providerId", "clientId", "serviceId", "customerName");

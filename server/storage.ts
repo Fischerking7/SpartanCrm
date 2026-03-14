@@ -872,30 +872,19 @@ export const storage = {
     const words = searchTerm.trim().split(/\s+/).filter(w => w.length > 0);
     const fullTerm = `%${searchTerm}%`;
     const wordConditions = words.map(w => ilike(salesOrders.customerName, `%${w}%`));
-    return db.select({
-      id: salesOrders.id,
-      customerName: salesOrders.customerName,
-      invoiceNumber: salesOrders.invoiceNumber,
-      accountNumber: salesOrders.accountNumber,
-      dateSold: salesOrders.dateSold,
-      approvalStatus: salesOrders.approvalStatus,
-      jobStatus: salesOrders.jobStatus,
-      repId: salesOrders.repId,
-      baseCommissionEarned: salesOrders.baseCommissionEarned,
-      incentiveEarned: salesOrders.incentiveEarned,
-      overrideDeduction: salesOrders.overrideDeduction,
-    })
-      .from(salesOrders)
-      .where(and(
+    return db.query.salesOrders.findMany({
+      where: and(
         ne(salesOrders.approvalStatus, 'REJECTED'),
         or(
           and(...wordConditions),
           ilike(salesOrders.invoiceNumber, fullTerm),
-          ilike(salesOrders.accountNumber, fullTerm)
+          ilike(salesOrders.accountNumber, fullTerm),
+          ilike(salesOrders.repId, fullTerm)
         )
-      ))
-      .orderBy(desc(salesOrders.dateSold))
-      .limit(limit);
+      ),
+      orderBy: [desc(salesOrders.dateSold)],
+      limit,
+    });
   },
 
   async getOrderById(id: string) {
