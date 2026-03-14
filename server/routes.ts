@@ -1812,13 +1812,22 @@ export async function registerRoutes(
         }
       }
       
+      const hideOthersEarnings = ["REP", "LEAD", "MANAGER"].includes(role);
+      const sanitizedResults = hideOthersEarnings
+        ? rankedResults.slice(0, 10).map(r => ({
+            ...r,
+            earnedDollars: r.isCurrentUser ? r.earnedDollars : 0,
+          }))
+        : rankedResults.slice(0, 10);
+
       res.json({
         period,
         startDate: formatDate(startDate),
         endDate: formatDate(endDate),
-        leaderboard: rankedResults.slice(0, 10), // Top 10
+        leaderboard: sanitizedResults,
         myRanking,
         totalParticipants: rankings.length,
+        hideOthersEarnings,
       });
     } catch (error) {
       console.error("Leaderboard error:", error);

@@ -27,6 +27,7 @@ interface LeaderboardData {
   leaderboard: LeaderboardEntry[];
   myRanking: LeaderboardEntry | null;
   totalParticipants: number;
+  hideOthersEarnings?: boolean;
 }
 
 function getRankIcon(rank: number) {
@@ -146,11 +147,13 @@ export function Leaderboard() {
                       {entry.soldCount} sales • {entry.connectsCount} connects
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-mono font-semibold text-sm">
-                      ${entry.earnedDollars.toFixed(0)}
-                    </span>
-                  </div>
+                  {(!data?.hideOthersEarnings || entry.isCurrentUser) && (
+                    <div className="text-right">
+                      <span className="font-mono font-semibold text-sm">
+                        ${entry.earnedDollars.toFixed(0)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
