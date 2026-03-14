@@ -63,9 +63,12 @@ export default function OpsPayRuns() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      const periodEnd = new Date().toISOString().split("T")[0];
       const res = await apiRequest("POST", "/api/admin/payruns", {
         periodStart: new Date(Date.now() - 14 * 86400000).toISOString().split("T")[0],
-        periodEnd: new Date().toISOString().split("T")[0],
+        periodEnd,
+        weekEndingDate: periodEnd,
+        name: `Pay Run ${periodEnd}`,
       });
       return res.json();
     },
