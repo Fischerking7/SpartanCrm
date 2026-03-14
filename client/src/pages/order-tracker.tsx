@@ -511,7 +511,7 @@ function OrderCard({
 export default function OrderTracker() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const canSeeCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
+  const canSeeCommissions = ["EXECUTIVE", "OPERATIONS"].includes(user?.role || "");
   const hasViewModeToggle = ["LEAD", "MANAGER", "EXECUTIVE"].includes(user?.role || "");
   const [viewMode, setViewMode] = useState<"own" | "team" | "global">("own");
   const [searchTerm, setSearchTerm] = useState("");
@@ -522,7 +522,7 @@ export default function OrderTracker() {
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
-  const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
+  const isAdmin = ["OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
   const isTouchDevice = useIsTouchDevice();
   const isPaidTab = activeTab === "paid";
 
@@ -609,7 +609,7 @@ export default function OrderTracker() {
     });
   };
 
-  const effectiveViewMode = hasViewModeToggle ? viewMode : (["ADMIN", "OPERATIONS"].includes(user?.role || "") ? undefined : "own");
+  const effectiveViewMode = hasViewModeToggle ? viewMode : (["OPERATIONS"].includes(user?.role || "") ? undefined : "own");
   const { data: orders, isLoading } = useQuery<SalesOrder[]>({
     queryKey: ["/api/orders", "tracker", effectiveViewMode || "all"],
     queryFn: async () => {

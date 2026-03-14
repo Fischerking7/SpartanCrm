@@ -29,7 +29,7 @@ export default function Adjustments() {
     adjustmentDate: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })(),
   });
 
-  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS";
+  const isAdmin = user?.role === "OPERATIONS";
   const canApprove = isAdmin || user?.role === "EXECUTIVE";
 
   const { data: adjustments, isLoading } = useQuery<Adjustment[]>({

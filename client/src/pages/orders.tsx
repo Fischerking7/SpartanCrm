@@ -144,9 +144,12 @@ export default function Orders() {
     });
   };
 
-  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE";
+  const isAdmin = user?.role === "OPERATIONS" || user?.role === "EXECUTIVE";
   const isOperations = user?.role === "OPERATIONS";
   const isExecutive = user?.role === "EXECUTIVE";
+  const isDirector = user?.role === "DIRECTOR";
+  const showDollars = !isDirector;
+  const fmtCurrency = (val: string | number) => showDollars ? `$${parseFloat(String(val || "0")).toFixed(2)}` : "—";
   const isTouchDevice = useIsTouchDevice();
   const isMobile = useIsMobile();
 
@@ -402,7 +405,7 @@ export default function Orders() {
   });
 
   // Fetch rate cards for commission calculation (all users need this for accurate net display)
-  const isAdminOrExec = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE";
+  const isAdminOrExec = user?.role === "OPERATIONS" || user?.role === "EXECUTIVE";
   const { data: rateCards } = useQuery<RateCard[]>({
     queryKey: ["/api/rate-cards/for-overrides"],
     queryFn: async () => {
@@ -1016,7 +1019,7 @@ export default function Orders() {
   });
 
   const columns = [
-    ...((user?.role === "ADMIN" || user?.role === "OPERATIONS") ? [{
+    ...((user?.role === "OPERATIONS") ? [{
       key: "select",
       header: () => (
         <Checkbox
@@ -1122,6 +1125,7 @@ export default function Orders() {
       key: "baseCommissionEarned",
       header: "Commission",
       cell: (row: SalesOrder) => {
+        if (isDirector) return <span className="font-mono text-right block">—</span>;
         const grossCommission = parseFloat((row as any).grossCommissionTotal || "0");
         const netCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
         
@@ -1167,6 +1171,7 @@ export default function Orders() {
       key: "mobileCommission",
       header: "Mobile Commission",
       cell: (row: SalesOrder) => {
+        if (isDirector) return <span className="font-mono text-right block">—</span>;
         const mobileCommission = parseFloat((row as any).mobileCommissionTotal || "0");
         if (isAdminOrExec) {
           return (
@@ -1231,7 +1236,7 @@ export default function Orders() {
       cell: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
     },
     // Payment status only visible to ADMIN and OPERATIONS
-    ...((user?.role === "ADMIN" || user?.role === "OPERATIONS") ? [{
+    ...((user?.role === "OPERATIONS") ? [{
       key: "paymentStatus",
       header: "Payment",
       cell: (row: SalesOrder) => <PaymentStatusBadge status={row.paymentStatus} />,
@@ -1317,7 +1322,7 @@ export default function Orders() {
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && selectedOrderIds.size > 0 && (
+          {user?.role === "OPERATIONS" && selectedOrderIds.size > 0 && (
             <>
               <Button 
                 variant="default"
@@ -1488,7 +1493,7 @@ export default function Orders() {
                     <span className="text-xs text-muted-foreground">Net Earned</span>
                     <DollarSign className="h-3.5 w-3.5 text-primary" />
                   </div>
-                  <p className="text-xl font-bold font-mono">${totalEarned.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                  <p className="text-xl font-bold font-mono">{showDollars ? `$${totalEarned.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "—"}</p>
                 </CardContent>
               </Card>
               <Card data-testid="insight-total-paid">
@@ -1497,7 +1502,7 @@ export default function Orders() {
                     <span className="text-xs text-muted-foreground">Total Paid</span>
                     <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
                   </div>
-                  <p className="text-xl font-bold font-mono">${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                  <p className="text-xl font-bold font-mono">{showDollars ? `$${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "—"}</p>
                 </CardContent>
               </Card>
             </div>
@@ -1683,6 +1688,7 @@ export default function Orders() {
                 {
                   label: "Commission",
                   render: (row: SalesOrder) => {
+                    if (isDirector) return <span className="font-mono">—</span>;
                     const netCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
                     return <span className="font-mono">${netCommission.toFixed(2)}</span>;
                   },
@@ -2159,7 +2165,7 @@ export default function Orders() {
                               return (
                                 <div key={idx} className="flex justify-between gap-2">
                                   <span>{label}{detail}</span>
-                                  <span className="font-mono">${netAmount.toFixed(2)}</span>
+                                  <span className="font-mono">{showDollars ? `$${netAmount.toFixed(2)}` : "—"}</span>
                                 </div>
                               );
                             })}
@@ -2167,13 +2173,13 @@ export default function Orders() {
                         ) : (
                           <div className="flex justify-between gap-2">
                             <span>Base Commission</span>
-                            <span className="font-mono">${parseFloat(selectedOrder.baseCommissionEarned).toFixed(2)}</span>
+                            <span className="font-mono">{fmtCurrency(selectedOrder.baseCommissionEarned)}</span>
                           </div>
                         )}
                         {parseFloat(selectedOrder.incentiveEarned) > 0 && (
                           <div className="flex justify-between gap-2">
                             <span>Incentives</span>
-                            <span className="font-mono">${parseFloat(selectedOrder.incentiveEarned).toFixed(2)}</span>
+                            <span className="font-mono">{fmtCurrency(selectedOrder.incentiveEarned)}</span>
                           </div>
                         )}
                         <div className="flex justify-between gap-2 border-t pt-2 font-semibold">
@@ -2184,7 +2190,7 @@ export default function Orders() {
                               const gross = parseFloat((selectedOrder as any).grossCommissionTotal || "0");
                               // Net is baseCommissionEarned (already has override deducted) + incentive
                               const net = parseFloat(selectedOrder.baseCommissionEarned) + parseFloat(selectedOrder.incentiveEarned);
-                              // Admin/Exec see gross, REPs see net
+                              if (!showDollars) return "—";
                               if (isAdminOrExec) {
                                 return `$${gross.toFixed(2)}`;
                               }
@@ -2250,7 +2256,7 @@ export default function Orders() {
               </Button>
             )}
             {/* Mark as Paid only visible to ADMIN and OPERATIONS */}
-            {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && selectedOrder && selectedOrder.paymentStatus !== "PAID" && (
+            {user?.role === "OPERATIONS" && selectedOrder && selectedOrder.paymentStatus !== "PAID" && (
               <Button 
                 onClick={() => markPaidMutation.mutate(selectedOrder.id)}
                 disabled={markPaidMutation.isPending}

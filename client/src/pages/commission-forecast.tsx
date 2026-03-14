@@ -22,7 +22,7 @@ export default function CommissionForecast() {
   const [selectedUserId, setSelectedUserId] = useState<string>("__self__");
   
   // Check if current user can view other users' forecasts
-  const canViewOthers = Boolean(currentUser && ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(currentUser.role));
+  const canViewOthers = Boolean(currentUser && ["OPERATIONS", "EXECUTIVE"].includes(currentUser.role));
   
   // Fetch users list for admin/operator/executive to select from
   const { data: users = [] } = useQuery<UserType[]>({

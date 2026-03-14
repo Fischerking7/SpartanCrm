@@ -484,7 +484,7 @@ function UserRow({ user, users, onEdit, onResetPassword, onDeactivate, onDelete 
   const getInitials = (name: string) => name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
-      case "ADMIN": case "OPERATIONS": case "EXECUTIVE": return "default";
+      case "OPERATIONS": case "EXECUTIVE": return "default";
       case "MANAGER": case "LEAD": return "secondary";
       default: return "outline";
     }
@@ -891,7 +891,6 @@ export default function AdminUsers() {
                   <SelectItem value="LEAD">Supervisor</SelectItem>
                   <SelectItem value="MANAGER">Manager</SelectItem>
                   <SelectItem value="EXECUTIVE">Executive</SelectItem>
-                  <SelectItem value="ADMIN">Admin</SelectItem>
                   <SelectItem value="OPERATIONS">Operations</SelectItem>
                 </SelectContent>
               </Select>

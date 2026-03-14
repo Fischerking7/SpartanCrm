@@ -76,7 +76,7 @@ export default function SalesPipeline() {
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(false);
 
   const canExport = ["OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
-  const canBulkDelete = ["OPERATIONS", "EXECUTIVE", "ADMIN"].includes(user?.role || "");
+  const canBulkDelete = ["OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
 
   // Reset to page 1 when filters change
   const handleFilterChange = (setter: (v: string) => void, value: string) => {

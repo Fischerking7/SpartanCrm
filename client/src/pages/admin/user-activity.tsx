@@ -128,7 +128,7 @@ export default function UserActivity() {
     refetchInterval: 30000,
   });
 
-  if (!["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user?.role || "")) {
+  if (!["OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user?.role || "")) {
     return <div className="p-8 text-center text-muted-foreground">Access denied</div>;
   }
 

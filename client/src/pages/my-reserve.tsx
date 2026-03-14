@@ -208,7 +208,7 @@ export default function MyReserve() {
               </p>
               <p>
                 Once you separate from the company, your reserve balance is released back to you after
-                a maturity period (120-180 days depending on provider and separation type).
+                the carrier's maturity period (120 days for Astound). No early release is permitted per policy.
               </p>
               <p className="text-xs">
                 For the full policy, refer to the Chargeback & Rolling Reserve Policy signed during onboarding.

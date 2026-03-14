@@ -115,7 +115,7 @@ export default function AdminOverrides() {
   });
 
   const eligibleRecipients = users?.filter((u) =>
-    ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt
+    ["LEAD", "MANAGER", "EXECUTIVE", "OPERATIONS"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt
   ) || [];
 
   const getUserName = (userId: string) => users?.find((u) => u.id === userId)?.name || userId;
@@ -253,7 +253,6 @@ export default function AdminOverrides() {
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
       case "OPERATIONS": return "default";
-      case "ADMIN": return "default";
       case "EXECUTIVE": return "secondary";
       case "MANAGER": return "secondary";
       case "LEAD": return "outline";
@@ -363,7 +362,7 @@ export default function AdminOverrides() {
                 {selectedRecipient?.role === "LEAD" && "Gets overrides on sales from assigned reps"}
                 {selectedRecipient?.role === "MANAGER" && "Gets overrides on sales from assigned leads and their reps"}
                 {selectedRecipient?.role === "EXECUTIVE" && "Gets overrides on sales from all team members in division"}
-                {selectedRecipient?.role === "ADMIN" && "Gets overrides on all sales company-wide"}
+                {selectedRecipient?.role === "OPERATIONS" && "Gets overrides on all sales company-wide"}
               </p>
               <Button onClick={() => startWizard()} data-testid="button-add-override">
                 <Plus className="h-4 w-4 mr-2" />

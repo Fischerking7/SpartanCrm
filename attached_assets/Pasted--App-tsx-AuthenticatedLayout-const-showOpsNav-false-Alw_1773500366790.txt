@@ -1,0 +1,273 @@
+// App.tsx AuthenticatedLayout
+const showOpsNav = false;   // Always false — never shows
+const showAcctNav = false;  // Always false — never shows  
+const showDirNav = false;   // Always false — never shows
+```
+
+These were meant to show role-specific top navigation strips but are hardcoded off.
+
+---
+
+## 🟡 Gaps Against the Plan
+
+| Planned Feature | Status |
+|---|---|
+| DIRECTOR role has its own routes | ❌ Missing |
+| MANAGER gets manager dashboard | ❌ Gets SalesDashboard |
+| Financial fields stripped for DIRECTOR | ❌ No stripping implemented in frontend |
+| My-reserve policy text says 120-180 days | ⚠️ Correct but mentions Optimum implicitly |
+| New order provider filter uses active=true | ✅ Done |
+| Onboarding app access gate (redirect to /onboarding) | ⚠️ Portal exists but gate enforcement needs backend verification |
+
+---
+
+## The Fix Prompt
+```
+Fix the following critical issues in the Iron Crest frontend.
+Fix each one completely before moving to the next.
+Show me the change before making it each time.
+
+===================================================================
+FIX 1 — Correct the Dashboard() role routing
+===================================================================
+
+In client/src/App.tsx, replace the Dashboard() function with:
+
+  function Dashboard() {
+    const { user } = useAuth();
+    if (!user) return null;
+    
+    switch (user.role) {
+      case "EXECUTIVE":
+        return <ExecHome />;
+      case "DIRECTOR":
+        return <DirHome />;
+      case "OPERATIONS":
+        return <OpsHome />;
+      case "ACCOUNTING":
+        return <AcctHome />;
+      case "MANAGER":
+        return <SalesDashboard />;
+      case "REP":
+      case "MDU":
+      case "LEAD":
+        return <RepHome />;
+      default:
+        return <SalesDashboard />;
+    }
+  }
+
+===================================================================
+FIX 2 — Add DIRECTOR routes to App.tsx
+===================================================================
+
+DIRECTOR users need their own routes.
+Currently director routes only render for EXECUTIVE.
+
+Add a separate block for DIRECTOR:
+
+  {user.role === "DIRECTOR" && (
+    <>
+      <Route path="/director">
+        {() => <DirLayout><DirHome /></DirLayout>}
+      </Route>
+      <Route path="/director/production">
+        {() => <DirLayout><DirProduction /></DirLayout>}
+      </Route>
+      <Route path="/director/analytics">
+        {() => <DirLayout><DirAnalytics /></DirLayout>}
+      </Route>
+      <Route path="/director/approvals">
+        {() => <DirLayout><DirApprovals /></DirLayout>}
+      </Route>
+      <Route path="/director/resources">
+        {() => <DirLayout><DirResources /></DirLayout>}
+      </Route>
+    </>
+  )}
+
+Keep the existing EXECUTIVE block unchanged.
+
+Also give DIRECTOR access to order approval routes:
+  {(user.role === "DIRECTOR" || user.role === "OPERATIONS" 
+    || user.role === "EXECUTIVE") && (
+    <Route path="/ops/orders">
+      {() => <OpsLayout><OpsOrders /></OpsLayout>}
+    </Route>
+  )}
+
+===================================================================
+FIX 3 — Fix accounting sidebar to show all menu items
+===================================================================
+
+In app-sidebar.tsx, replace renderAccountingSidebar() with:
+
+  const renderAccountingSidebar = () => (
+    <>
+      <CollapsibleSection
+        title="Accounting Center"
+        icon={Wallet}
+        items={[
+          MENU.acctHome,
+          MENU.acctPayRuns,
+          MENU.acctPayStubs,
+          MENU.acctAR,
+          MENU.acctOverrides,
+          MENU.acctAdvances,
+          MENU.acctReports,
+          MENU.acct1099,
+        ]}
+        location={location}
+        defaultOpen={true}
+      />
+      <CollapsibleSection
+        title="My Account"
+        icon={User}
+        items={[...personalItems, ...preferencesItems]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="Resources"
+        icon={BookOpen}
+        items={[MENU.knowledge]}
+        location={location}
+      />
+    </>
+  );
+
+===================================================================
+FIX 4 — Add DIRECTOR sidebar
+===================================================================
+
+In app-sidebar.tsx, add a renderDirectorSidebar() function:
+
+  const renderDirectorSidebar = () => (
+    <>
+      <CollapsibleSection
+        title="Director Center"
+        icon={Target}
+        items={[
+          MENU.dirHome,
+          MENU.dirProduction,
+          MENU.dirAnalytics,
+          MENU.dirApprovals,
+          MENU.dirResources,
+        ]}
+        location={location}
+        defaultOpen={true}
+      />
+      <CollapsibleSection
+        title="My Account"
+        icon={User}
+        items={[...personalItems, ...preferencesItems]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="Resources"
+        icon={BookOpen}
+        items={[MENU.knowledge]}
+        location={location}
+      />
+    </>
+  );
+
+Then in renderSidebar() add:
+  if (user.role === "DIRECTOR") return renderDirectorSidebar();
+
+Place this BEFORE the accounting check.
+
+===================================================================
+FIX 5 — Remove all ADMIN role references from frontend
+===================================================================
+
+Search every file for 'role === "ADMIN"' and 
+'"ADMIN"' in role arrays.
+
+Replace every instance:
+  role === "ADMIN" → role === "OPERATIONS"
+  "ADMIN" in arrays → "OPERATIONS"
+  case "ADMIN": → case "OPERATIONS":
+
+Exception: Do NOT remove ADMIN from any list that also 
+contains OPERATIONS. In those cases just remove the 
+redundant ADMIN entry.
+
+Verify after replacement:
+  grep -r '"ADMIN"' client/src/ --include="*.tsx"
+  Expected: zero results
+
+===================================================================
+FIX 6 — Fix the DIRECTOR financial data stripping
+===================================================================
+
+In any component that displays order commission amounts,
+add a check: if the current user is DIRECTOR, show 
+dashes instead of dollar amounts.
+
+In commissions.tsx, orders.tsx, and any order table:
+
+  const { user } = useAuth();
+  const showDollars = user?.role !== "DIRECTOR";
+
+  // Then in the render:
+  {showDollars ? formatCurrency(order.commission) : "—"}
+
+This enforces the design rule that DIRECTOR never 
+sees dollar amounts.
+
+===================================================================
+FIX 7 — Fix reserve policy text to remove Optimum reference
+===================================================================
+
+In my-reserve.tsx, find this text:
+  "Once you separate from the company, your reserve 
+   balance is released back to you after a maturity 
+   period (120-180 days depending on provider and 
+   separation type)."
+
+Replace with:
+  "Once you separate from the company, your reserve 
+   balance is released back to you after the carrier's 
+   maturity period (120 days for Astound). No early 
+   release is permitted per policy."
+
+===================================================================
+FIX 8 — Give DIRECTOR access to accounting routes (read only)
+===================================================================
+
+DIRECTOR should be able to view the accounting section
+but with financial amounts visible (DIRECTOR sees 
+production numbers, not company margin).
+
+In App.tsx, update the accounting routes block to 
+include DIRECTOR:
+
+  {(user.role === "ACCOUNTING" || user.role === "ADMIN" 
+    || user.role === "EXECUTIVE" || user.role === "OPERATIONS"
+    || user.role === "DIRECTOR") && (
+    <>
+      <Route path="/accounting">...
+      ...
+    </>
+  )}
+
+Note: DIRECTOR sees AR status and pay run status 
+but the Iron Crest profit fields are stripped 
+server-side already, so no additional frontend 
+changes are needed beyond giving them route access.
+
+===================================================================
+After all fixes:
+
+Run: npx tsc --noEmit
+Fix every TypeScript error before finishing.
+
+Verify:
+1. A DIRECTOR user lands on DirHome at /dashboard
+2. A DIRECTOR user can navigate to /director/production
+3. A DIRECTOR user sees — instead of dollar amounts
+4. ACCOUNTING user sees all 8 menu items in sidebar
+5. No "ADMIN" string remains in any role check
+6. Reserve page shows Astound maturity text only
+
+Report results for each verification check.

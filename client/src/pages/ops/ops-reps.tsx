@@ -15,7 +15,7 @@ import {
   Search, Plus, ArrowLeft, Users, Shield, Key, Target, Activity, UserX
 } from "lucide-react";
 
-const roleOptions = ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE", "OPERATIONS", "ADMIN", "ACCOUNTING"];
+const roleOptions = ["REP", "MDU", "LEAD", "MANAGER", "DIRECTOR", "EXECUTIVE", "OPERATIONS", "ACCOUNTING"];
 const statusOptions = ["ACTIVE", "INACTIVE"];
 
 const roleColors: Record<string, string> = {

@@ -105,14 +105,16 @@ function Dashboard() {
   if (!user) return null;
   
   switch (user.role) {
+    case "EXECUTIVE":
+      return <ExecHome />;
+    case "DIRECTOR":
+      return <DirHome />;
     case "OPERATIONS":
       return <OpsHome />;
     case "ACCOUNTING":
       return <AcctHome />;
-    case "ADMIN":
-      return <AdminDashboard />;
-    case "EXECUTIVE":
-      return <DirHome />;
+    case "MANAGER":
+      return <SalesDashboard />;
     case "REP":
     case "MDU":
     case "LEAD":
@@ -138,7 +140,7 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
     return <Redirect to="/login" />;
   }
   
-  if (adminOnly && user.role !== "ADMIN" && user.role !== "OPERATIONS" && user.role !== "EXECUTIVE") {
+  if (adminOnly && user.role !== "OPERATIONS" && user.role !== "EXECUTIVE") {
     return <Redirect to="/" />;
   }
   
@@ -294,8 +296,8 @@ function Router() {
     );
   }
 
-  const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE";
-  const canReviewMdu = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE";
+  const isAdmin = user.role === "OPERATIONS" || user.role === "EXECUTIVE";
+  const canReviewMdu = user.role === "OPERATIONS" || user.role === "EXECUTIVE";
   const canViewReports = user.role !== "REP";
 
   return (
@@ -332,7 +334,11 @@ function Router() {
         
         {canReviewMdu && <Route path="/admin/mdu-review" component={AdminMduReview} />}
 
-        {(user.role === "OPERATIONS" || user.role === "ADMIN" || user.role === "EXECUTIVE") && (
+        {user.role === "DIRECTOR" && (
+          <Route path="/ops/orders">{() => <OpsLayout><OpsOrders /></OpsLayout>}</Route>
+        )}
+
+        {(user.role === "OPERATIONS" || user.role === "EXECUTIVE") && (
           <>
             <Route path="/ops">{() => <OpsLayout><OpsHome /></OpsLayout>}</Route>
             <Route path="/ops/orders">{() => <OpsLayout><OpsOrders /></OpsLayout>}</Route>
@@ -349,7 +355,7 @@ function Router() {
           </>
         )}
         
-        {user.role === "EXECUTIVE" && (
+        {(user.role === "EXECUTIVE" || user.role === "DIRECTOR") && (
           <>
             <Route path="/director">{() => <DirLayout><DirHome /></DirLayout>}</Route>
             <Route path="/director/production">{() => <DirLayout><DirProduction /></DirLayout>}</Route>
@@ -369,7 +375,7 @@ function Router() {
           </>
         )}
 
-        {(user.role === "ACCOUNTING" || user.role === "ADMIN" || user.role === "EXECUTIVE" || user.role === "OPERATIONS") && (
+        {(user.role === "ACCOUNTING" || user.role === "EXECUTIVE" || user.role === "OPERATIONS" || user.role === "DIRECTOR") && (
           <>
             <Route path="/accounting">{() => <AcctLayout><AcctHome /></AcctLayout>}</Route>
             <Route path="/accounting/pay-runs">{() => <AcctLayout><AcctPayRuns /></AcctLayout>}</Route>
@@ -413,7 +419,7 @@ function Router() {
           </>
         )}
         
-        {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role) && (
+        {["OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role) && (
           <Route path="/admin/user-activity" component={UserActivityPage} />
         )}
         

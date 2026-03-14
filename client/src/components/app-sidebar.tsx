@@ -335,7 +335,7 @@ export function AppSidebar() {
 
   if (!user) return null;
 
-  const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE";
+  const isAdmin = user.role === "OPERATIONS" || user.role === "EXECUTIVE";
 
   const getInitials = (name: string) => {
     return name
@@ -348,7 +348,6 @@ export function AppSidebar() {
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
-      case "ADMIN":
       case "OPERATIONS":
         return "default";
       case "EXECUTIVE":
@@ -496,7 +495,16 @@ export function AppSidebar() {
       <CollapsibleSection 
         title="Accounting Center" 
         icon={Wallet} 
-        items={[MENU.acctHome]} 
+        items={[
+          MENU.acctHome,
+          MENU.acctPayRuns,
+          MENU.acctPayStubs,
+          MENU.acctAR,
+          MENU.acctOverrides,
+          MENU.acctAdvances,
+          MENU.acctReports,
+          MENU.acct1099,
+        ]} 
         location={location}
         defaultOpen={true}
       />
@@ -515,9 +523,39 @@ export function AppSidebar() {
     </>
   );
 
+  const renderDirectorSidebar = () => (
+    <>
+      <CollapsibleSection
+        title="Director Center"
+        icon={Target}
+        items={[
+          MENU.dirHome,
+          MENU.dirProduction,
+          MENU.dirAnalytics,
+          MENU.dirApprovals,
+          MENU.dirResources,
+        ]}
+        location={location}
+        defaultOpen={true}
+      />
+      <CollapsibleSection
+        title="My Account"
+        icon={User}
+        items={[...personalItems, ...preferencesItems]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="Resources"
+        icon={BookOpen}
+        items={[MENU.knowledge]}
+        location={location}
+      />
+    </>
+  );
+
   const renderSidebar = () => {
     if (user.role === "EXECUTIVE" || user.role === "OPERATIONS") return renderExecutiveSidebar();
-    if (user.role === "ADMIN") return renderAdminSidebar();
+    if (user.role === "DIRECTOR") return renderDirectorSidebar();
     if (user.role === "ACCOUNTING") return renderAccountingSidebar();
     return renderNonAdminSidebar();
   };
