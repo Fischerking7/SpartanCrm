@@ -76,6 +76,10 @@ export function authMiddleware(db: any) {
       return res.status(401).json({ message: "Invalid token" });
     }
 
+    if ((payload as any).purpose === "onboarding") {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
     if (forceLogoutTimestamp > 0 && payload.iat && payload.iat < forceLogoutTimestamp) {
       return res.status(401).json({ message: "Session expired. Please log in again.", forceLogout: true });
     }

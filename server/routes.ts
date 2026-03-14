@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or, desc } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -3265,7 +3265,7 @@ export async function registerRoutes(
       }
       
       const passwordHash = await hashPassword(password);
-      const user = await storage.createUser({ ...userData, passwordHash });
+      const user = await storage.createUser({ ...userData, passwordHash, email: req.body.email || null, phone: req.body.phone || null });
       
       // Detailed audit log for hierarchy
       await storage.createAuditLog({ 
@@ -3283,6 +3283,16 @@ export async function registerRoutes(
         }), 
         userId: req.user!.id 
       });
+
+      if (["REP", "LEAD", "MANAGER"].includes(userRole) && req.body.phone) {
+        try {
+          const { generateAndSendOtp } = await import("./onboarding/otpService");
+          await generateAndSendOtp(user.id, req.body.phone, name);
+        } catch (otpErr: any) {
+          console.error("[Onboarding] Auto OTP send failed (non-fatal):", otpErr.message);
+        }
+      }
+
       res.json({ ...user, passwordHash: undefined });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to create user" });
@@ -17198,6 +17208,617 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // =====================================================
+  // ONBOARDING PORTAL ROUTES
+  // =====================================================
+
+  const onboardingOtpLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    message: { message: "Too many verification attempts. Try again in an hour." },
+    keyGenerator: (req) => (req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "unknown"),
+  });
+
+  const onboardingAuth = async (req: any, res: Response, next: NextFunction) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ message: "Missing token" });
+    try {
+      const jwt = (await import("jsonwebtoken")).default;
+      const secret = process.env.JWT_SECRET || process.env.SESSION_SECRET || "fallback-secret";
+      const payload = jwt.verify(authHeader.split(" ")[1], secret) as any;
+      if (payload.purpose !== "onboarding") return res.status(401).json({ message: "Invalid token purpose" });
+      req.onboardingUserId = payload.userId;
+      next();
+    } catch {
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
+  };
+
+  app.post("/api/onboarding/verify-otp", onboardingOtpLimiter, async (req: Request, res: Response) => {
+    try {
+      const { repId, otp } = req.body;
+      if (!repId || !otp) return res.status(400).json({ message: "Missing repId or otp" });
+
+      const [user] = await db.select().from(users).where(eq(users.repId, repId));
+      if (!user) return res.status(404).json({ message: "Rep ID not found" });
+
+      if (!["OTP_SENT", "OTP_VERIFIED", "IN_PROGRESS"].includes(user.onboardingStatus)) {
+        return res.status(400).json({ message: "Onboarding not available for this account" });
+      }
+
+      const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "unknown";
+      const ua = req.headers["user-agent"] || "unknown";
+
+      const { verifyOtp } = await import("./onboarding/verifyOtp");
+      const result = await verifyOtp(user.id, otp, ip, ua);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/onboarding/rep-info", onboardingAuth as any, async (req: any, res: Response) => {
+    try {
+      const userId = req.onboardingUserId;
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      let managerName: string | null = null;
+      if (user.assignedManagerId) {
+        const [mgr] = await db.select({ name: users.name }).from(users).where(eq(users.id, user.assignedManagerId));
+        managerName = mgr?.name || null;
+      }
+
+      const [existingSub] = await db.select().from(onboardingSubmissions)
+        .where(eq(onboardingSubmissions.userId, userId))
+        .orderBy(desc(onboardingSubmissions.createdAt))
+        .limit(1);
+
+      const drafts = await db.select({ documentType: onboardingDrafts.documentType })
+        .from(onboardingDrafts).where(eq(onboardingDrafts.userId, userId));
+
+      res.json({
+        repId: user.repId,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        managerName,
+        onboardingStatus: user.onboardingStatus,
+        completedDocuments: {
+          backgroundCheck: existingSub?.backgroundCheckCompleted || false,
+          chargebackPolicy: existingSub?.chargebackPolicyCompleted || false,
+          contractorApp: existingSub?.contractorAppCompleted || false,
+          directDeposit: existingSub?.directDepositCompleted || false,
+          drugTest: existingSub?.drugTestCompleted || false,
+          nda: existingSub?.ndaCompleted || false,
+        },
+        drafts: drafts.map(d => d.documentType),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  const validDocTypes = ["background_check", "chargeback_policy", "contractor_app", "direct_deposit", "drug_test", "nda"];
+
+  app.post("/api/onboarding/draft/:documentType", onboardingAuth as any, async (req: any, res: Response) => {
+    try {
+      const userId = req.onboardingUserId;
+      const { documentType } = req.params;
+      if (!validDocTypes.includes(documentType)) return res.status(400).json({ message: "Invalid document type" });
+
+      let draftData = { ...req.body };
+      if (documentType === "direct_deposit") {
+        delete draftData.ssn;
+        delete draftData.routingNumber;
+        delete draftData.accountNumber;
+      }
+
+      const existing = await db.select().from(onboardingDrafts)
+        .where(and(eq(onboardingDrafts.userId, userId), eq(onboardingDrafts.documentType, documentType)));
+
+      if (existing.length > 0) {
+        await db.update(onboardingDrafts).set({
+          draftJson: JSON.stringify(draftData),
+          lastSavedAt: new Date(),
+        }).where(eq(onboardingDrafts.id, existing[0].id));
+      } else {
+        await db.insert(onboardingDrafts).values({
+          userId, documentType,
+          draftJson: JSON.stringify(draftData),
+        });
+      }
+
+      await db.insert(onboardingAuditLog).values({
+        userId, action: "DOCUMENT_SAVED",
+        detail: JSON.stringify({ documentType }),
+      });
+
+      await db.update(users).set({ onboardingStatus: "IN_PROGRESS", updatedAt: new Date() })
+        .where(and(eq(users.id, userId), inArray(users.onboardingStatus, ["OTP_VERIFIED", "IN_PROGRESS"])));
+
+      res.json({ saved: true, lastSavedAt: new Date() });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/onboarding/draft/:documentType", onboardingAuth as any, async (req: any, res: Response) => {
+    try {
+      const userId = req.onboardingUserId;
+      const { documentType } = req.params;
+      if (!validDocTypes.includes(documentType)) return res.status(400).json({ message: "Invalid document type" });
+
+      const [draft] = await db.select().from(onboardingDrafts)
+        .where(and(eq(onboardingDrafts.userId, userId), eq(onboardingDrafts.documentType, documentType)));
+
+      if (!draft) return res.json({ draft: null });
+      res.json({ draft: JSON.parse(draft.draftJson), lastSavedAt: draft.lastSavedAt });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  const onboardingUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+  app.post("/api/onboarding/submit", onboardingAuth as any, onboardingUpload.fields([
+    { name: "photoId", maxCount: 1 },
+    { name: "voidedCheck", maxCount: 1 },
+    { name: "drugTestPhoto", maxCount: 1 },
+  ]), async (req: any, res: Response) => {
+    try {
+      const userId = req.onboardingUserId;
+      const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "unknown";
+      const ua = req.headers["user-agent"] || "unknown";
+      const formData = typeof req.body.data === "string" ? JSON.parse(req.body.data) : req.body;
+
+      const requiredSigs = ["backgroundCheckSignature", "chargebackPolicySignature", "contractorAppSignature", "directDepositSignature", "drugTestSignature", "ndaSignature"];
+      const missing = requiredSigs.filter(s => !formData[s]);
+      if (missing.length > 0) return res.status(400).json({ message: "Missing signatures", missing });
+
+      if (!formData.repName) return res.status(400).json({ message: "Missing repName" });
+
+      const ssnEncrypted = formData.ssn ? encryptSsn(formData.ssn) : null;
+      const ssnLast4 = formData.ssn ? extractSsnLast4(formData.ssn) : null;
+      const routingNumberEncrypted = formData.routingNumber ? encryptSsn(formData.routingNumber) : null;
+      const accountNumberEncrypted = formData.accountNumber ? encryptSsn(formData.accountNumber) : null;
+      const accountNumberLast4 = formData.accountNumber ? formData.accountNumber.slice(-4) : null;
+
+      let photoIdS3Key: string | null = null;
+      let voidedCheckS3Key: string | null = null;
+      let drugTestPhotoS3Key: string | null = null;
+
+      const files = req.files as { [key: string]: Express.Multer.File[] } | undefined;
+      if (files?.photoId?.[0]) photoIdS3Key = `onboarding/${userId}/photo-id-${Date.now()}.jpg`;
+      if (files?.voidedCheck?.[0]) voidedCheckS3Key = `onboarding/${userId}/voided-check-${Date.now()}.jpg`;
+      if (files?.drugTestPhoto?.[0]) drugTestPhotoS3Key = `onboarding/${userId}/drug-test-${Date.now()}.jpg`;
+
+      const now = new Date();
+      const payloadForHash = {
+        userId,
+        repName: formData.repName,
+        submittedAt: now.toISOString(),
+        ipAddress: ip,
+        userAgent: ua,
+        documentsCompleted: validDocTypes,
+      };
+      const payloadHash = crypto.createHash("sha256").update(JSON.stringify(payloadForHash)).digest("hex");
+
+      const [submission] = await db.insert(onboardingSubmissions).values({
+        userId,
+        repName: formData.repName,
+        repEmail: formData.repEmail || null,
+        repPhone: formData.repPhone || null,
+        ipAddress: ip,
+        userAgent: ua,
+        submittedAt: now,
+        payloadHash,
+        backgroundCheckCompleted: true,
+        backgroundCheckSignedAt: now,
+        chargebackPolicyCompleted: true,
+        chargebackPolicySignedAt: now,
+        contractorAppCompleted: true,
+        contractorAppSignedAt: now,
+        directDepositCompleted: true,
+        directDepositSignedAt: now,
+        drugTestCompleted: true,
+        drugTestSignedAt: now,
+        ndaCompleted: true,
+        ndaSignedAt: now,
+        backgroundCheckSignature: formData.backgroundCheckSignature,
+        chargebackPolicySignature: formData.chargebackPolicySignature,
+        contractorAppSignature: formData.contractorAppSignature,
+        directDepositSignature: formData.directDepositSignature,
+        drugTestSignature: formData.drugTestSignature,
+        ndaSignature: formData.ndaSignature,
+        ssnEncrypted,
+        ssnLast4,
+        routingNumberEncrypted,
+        accountNumberEncrypted,
+        accountNumberLast4,
+        bankName: formData.bankName || null,
+        accountType: formData.accountType || null,
+        photoIdS3Key,
+        voidedCheckS3Key,
+        drugTestPhotoS3Key,
+        status: "PENDING",
+      }).returning();
+
+      await db.update(users).set({
+        onboardingStatus: "SUBMITTED",
+        onboardingSubmittedAt: now,
+        email: formData.repEmail || undefined,
+        phone: formData.repPhone || undefined,
+        emergencyContactName: formData.emergencyContactName || undefined,
+        emergencyContactPhone: formData.emergencyContactPhone || undefined,
+        dateOfBirth: formData.dateOfBirth || undefined,
+        ndaSignedAt: now,
+        contractorAgreementSignedAt: now,
+        updatedAt: now,
+      }).where(eq(users.id, userId));
+
+      if (formData.bankName && accountNumberEncrypted) {
+        try {
+          await storage.createUserBankAccount({
+            userId,
+            bankName: formData.bankName,
+            accountType: formData.accountType || "checking",
+            accountNumberLast4: accountNumberLast4 || "",
+            routingNumberLast4: formData.routingNumber ? formData.routingNumber.slice(-4) : "",
+            accountNumberEncrypted: accountNumberEncrypted || "",
+            routingNumberEncrypted: routingNumberEncrypted || "",
+            isPrimary: true,
+            isActive: true,
+            verificationStatus: "PENDING",
+            voidedCheckS3Key,
+          });
+        } catch (bankErr: any) {
+          console.error("[Onboarding] Bank account creation failed:", bankErr.message);
+        }
+      }
+
+      if (ssnEncrypted && ssnLast4) {
+        try {
+          await storage.updateUserTaxProfile(userId, {
+            ssnLast4,
+            ssnEncrypted,
+            taxFilingName: formData.repName,
+            contractorType: "1099",
+          });
+        } catch (taxErr: any) {
+          console.error("[Onboarding] Tax profile update failed:", taxErr.message);
+        }
+      }
+
+      try {
+        const { generateOnboardingPdfs } = await import("./onboarding/pdfGenerator");
+        await generateOnboardingPdfs(submission.id);
+      } catch (pdfErr: any) {
+        console.error("[Onboarding] PDF generation failed (non-fatal):", pdfErr.message);
+      }
+
+      try {
+        const { sendOnboardingEmails, notifyOpsAndExec } = await import("./onboarding/emailService");
+        await sendOnboardingEmails(submission.id);
+        await notifyOpsAndExec(
+          userId,
+          "ONBOARDING_SUBMITTED",
+          "New Contractor Onboarding Submitted",
+          `${formData.repName} has completed all 6 onboarding documents and is ready for review.`
+        );
+      } catch (emailErr: any) {
+        console.error("[Onboarding] Email notification failed (non-fatal):", emailErr.message);
+      }
+
+      await db.delete(onboardingDrafts).where(eq(onboardingDrafts.userId, userId));
+
+      await db.insert(onboardingAuditLog).values({
+        userId, action: "ONBOARDING_SUBMITTED", ipAddress: ip, userAgent: ua,
+        detail: JSON.stringify({ payloadHash, documentsCompleted: 6, submissionId: submission.id }),
+      });
+
+      res.json({
+        success: true,
+        submissionId: submission.id,
+        message: "Your onboarding is complete. You will receive a confirmation email shortly.",
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  const opsOrExec = requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE");
+
+  app.post("/api/admin/onboarding/:userId/send-otp", auth, opsOrExec, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (!user.phone) return res.status(400).json({ message: "User has no phone number on file" });
+
+      if (user.onboardingOtpLockedAt) {
+        await db.update(users).set({
+          onboardingOtpLockedAt: null,
+          onboardingOtpAttempts: 0,
+          updatedAt: new Date(),
+        }).where(eq(users.id, userId));
+      }
+
+      const { generateAndSendOtp } = await import("./onboarding/otpService");
+      await generateAndSendOtp(userId, user.phone, user.name);
+
+      await storage.createAuditLog({
+        action: "onboarding_otp_sent", tableName: "users", recordId: userId,
+        afterJson: JSON.stringify({ sentTo: user.phone.slice(-4) }),
+        userId: req.user!.id,
+      });
+
+      res.json({ success: true, sentTo: user.phone.slice(-4) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/onboarding/submissions", auth, opsOrExec, async (req: AuthRequest, res) => {
+    try {
+      const statusFilter = req.query.status as string | undefined;
+      const search = req.query.search as string | undefined;
+
+      let subs = await db.select().from(onboardingSubmissions)
+        .orderBy(desc(onboardingSubmissions.createdAt));
+
+      if (statusFilter) {
+        subs = subs.filter(s => s.status === statusFilter);
+      }
+
+      if (search) {
+        const term = search.toLowerCase();
+        const userList = await db.select({ id: users.id, repId: users.repId }).from(users);
+        const repIdMap = new Map(userList.map(u => [u.id, u.repId]));
+        subs = subs.filter(s =>
+          s.repName.toLowerCase().includes(term) ||
+          (repIdMap.get(s.userId) || "").toLowerCase().includes(term)
+        );
+      }
+
+      const reviewerIds = [...new Set(subs.filter(s => s.reviewedByUserId).map(s => s.reviewedByUserId!))];
+      const reviewers = reviewerIds.length > 0
+        ? await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, reviewerIds))
+        : [];
+      const reviewerMap = new Map(reviewers.map(r => [r.id, r.name]));
+
+      const userIds = [...new Set(subs.map(s => s.userId))];
+      const userList = userIds.length > 0
+        ? await db.select({ id: users.id, repId: users.repId }).from(users).where(inArray(users.id, userIds))
+        : [];
+      const repIdMap = new Map(userList.map(u => [u.id, u.repId]));
+
+      const result = subs.map(s => ({
+        id: s.id,
+        userId: s.userId,
+        repId: repIdMap.get(s.userId) || "N/A",
+        repName: s.repName,
+        repEmail: s.repEmail,
+        submittedAt: s.submittedAt,
+        status: s.status,
+        documentsCompleted: [
+          s.backgroundCheckCompleted, s.chargebackPolicyCompleted, s.contractorAppCompleted,
+          s.directDepositCompleted, s.drugTestCompleted, s.ndaCompleted,
+        ].filter(Boolean).length,
+        reviewedBy: s.reviewedByUserId ? reviewerMap.get(s.reviewedByUserId) : null,
+        reviewedAt: s.reviewedAt,
+      }));
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/onboarding/submissions/:id", auth, opsOrExec, async (req: AuthRequest, res) => {
+    try {
+      const [sub] = await db.select().from(onboardingSubmissions).where(eq(onboardingSubmissions.id, req.params.id));
+      if (!sub) return res.status(404).json({ message: "Submission not found" });
+
+      const [user] = await db.select().from(users).where(eq(users.id, sub.userId));
+      const auditEntries = await db.select().from(onboardingAuditLog)
+        .where(eq(onboardingAuditLog.userId, sub.userId))
+        .orderBy(desc(onboardingAuditLog.createdAt));
+
+      res.json({
+        ...sub,
+        ssnEncrypted: undefined,
+        routingNumberEncrypted: undefined,
+        accountNumberEncrypted: undefined,
+        repId: user?.repId,
+        userRole: user?.role,
+        userStatus: user?.status,
+        backgroundCheckStatus: user?.backgroundCheckStatus,
+        drugTestStatus: user?.drugTestStatus,
+        onboardingStatus: user?.onboardingStatus,
+        auditLog: auditEntries,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/onboarding/submissions/:id/approve", auth, opsOrExec, async (req: AuthRequest, res) => {
+    try {
+      const [sub] = await db.select().from(onboardingSubmissions).where(eq(onboardingSubmissions.id, req.params.id));
+      if (!sub) return res.status(404).json({ message: "Submission not found" });
+      if (sub.status !== "PENDING") return res.status(400).json({ message: `Cannot approve submission with status ${sub.status}` });
+
+      const now = new Date();
+
+      await db.update(onboardingSubmissions).set({
+        status: "APPROVED",
+        reviewedByUserId: req.user!.id,
+        reviewedAt: now,
+        reviewNotes: req.body.notes || null,
+        updatedAt: now,
+      }).where(eq(onboardingSubmissions.id, sub.id));
+
+      await db.update(users).set({
+        onboardingStatus: "APPROVED",
+        onboardingApprovedAt: now,
+        onboardingApprovedByUserId: req.user!.id,
+        status: "ACTIVE",
+        appAccessGrantedAt: now,
+        appAccessGrantedByUserId: req.user!.id,
+        updatedAt: now,
+      }).where(eq(users.id, sub.userId));
+
+      await db.insert(emailNotifications).values({
+        userId: sub.userId,
+        notificationType: "ONBOARDING_APPROVED",
+        subject: "Your onboarding has been approved",
+        body: "Congratulations! Your Iron Crest onboarding has been approved. You now have full access to the rep portal.",
+        recipientEmail: sub.repEmail || "",
+        status: "PENDING",
+        isRead: false,
+      });
+
+      if (sub.repPhone && process.env.TWILIO_ACCOUNT_SID) {
+        try {
+          const twilio = (await import("twilio")).default;
+          const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+          const appUrl = process.env.APP_URL || process.env.FRONTEND_URL || "";
+          await client.messages.create({
+            body: `Congratulations! Your Iron Crest onboarding has been approved. You now have full access to the rep portal. Log in at: ${appUrl}`,
+            from: process.env.TWILIO_FROM_NUMBER!,
+            to: sub.repPhone,
+          });
+        } catch (smsErr: any) {
+          console.error("[Onboarding] Approval SMS failed (non-fatal):", smsErr.message);
+        }
+      }
+
+      await db.insert(onboardingAuditLog).values({
+        userId: sub.userId, action: "ONBOARDING_APPROVED",
+        detail: JSON.stringify({ approvedBy: req.user!.id, submissionId: sub.id }),
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/onboarding/submissions/:id/reject", auth, opsOrExec, async (req: AuthRequest, res) => {
+    try {
+      const [sub] = await db.select().from(onboardingSubmissions).where(eq(onboardingSubmissions.id, req.params.id));
+      if (!sub) return res.status(404).json({ message: "Submission not found" });
+      if (sub.status !== "PENDING") return res.status(400).json({ message: `Cannot reject submission with status ${sub.status}` });
+
+      const { reason, requestedDocuments } = req.body;
+      if (!reason) return res.status(400).json({ message: "Rejection reason required" });
+
+      const now = new Date();
+
+      await db.update(onboardingSubmissions).set({
+        status: "REJECTED",
+        reviewedByUserId: req.user!.id,
+        reviewedAt: now,
+        reviewNotes: reason,
+        updatedAt: now,
+      }).where(eq(onboardingSubmissions.id, sub.id));
+
+      await db.update(users).set({
+        onboardingStatus: "REJECTED",
+        onboardingRejectedAt: now,
+        onboardingRejectionReason: reason,
+        updatedAt: now,
+      }).where(eq(users.id, sub.userId));
+
+      await db.insert(emailNotifications).values({
+        userId: sub.userId,
+        notificationType: "ONBOARDING_REJECTED",
+        subject: "Onboarding requires attention",
+        body: `Your Iron Crest onboarding requires attention. Reason: ${reason}. Please contact your manager.`,
+        recipientEmail: sub.repEmail || "",
+        status: "PENDING",
+        isRead: false,
+      });
+
+      const [user] = await db.select().from(users).where(eq(users.id, sub.userId));
+      if (user?.assignedManagerId) {
+        await db.insert(emailNotifications).values({
+          userId: user.assignedManagerId,
+          notificationType: "ONBOARDING_REJECTED",
+          subject: `${sub.repName}'s onboarding was rejected`,
+          body: `${sub.repName}'s onboarding has been rejected. Reason: ${reason}`,
+          recipientEmail: "",
+          status: "PENDING",
+          isRead: false,
+        });
+      }
+
+      if (sub.repPhone && process.env.TWILIO_ACCOUNT_SID) {
+        try {
+          const twilio = (await import("twilio")).default;
+          const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+          await client.messages.create({
+            body: `Your Iron Crest onboarding requires attention. Reason: ${reason}. Please contact your manager.`,
+            from: process.env.TWILIO_FROM_NUMBER!,
+            to: sub.repPhone,
+          });
+        } catch (smsErr: any) {
+          console.error("[Onboarding] Rejection SMS failed (non-fatal):", smsErr.message);
+        }
+      }
+
+      await db.insert(onboardingAuditLog).values({
+        userId: sub.userId, action: "ONBOARDING_REJECTED",
+        detail: JSON.stringify({ rejectedBy: req.user!.id, reason, requestedDocuments }),
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/onboarding/:userId/update-compliance", auth, opsOrExec, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const { backgroundCheckStatus, drugTestStatus, notes } = req.body;
+
+      const updates: any = { updatedAt: new Date() };
+      if (backgroundCheckStatus) updates.backgroundCheckStatus = backgroundCheckStatus;
+      if (drugTestStatus) updates.drugTestStatus = drugTestStatus;
+
+      await db.update(users).set(updates).where(eq(users.id, userId));
+
+      await db.insert(onboardingAuditLog).values({
+        userId, action: backgroundCheckStatus ? "BACKGROUND_CHECK_UPDATED" : "DRUG_TEST_UPDATED",
+        detail: JSON.stringify({ backgroundCheckStatus, drugTestStatus, notes, updatedBy: req.user!.id }),
+      });
+
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (user && user.backgroundCheckStatus === "CLEARED" && user.drugTestStatus === "CLEARED" && user.onboardingStatus === "APPROVED") {
+        const { notifyOpsAndExec } = await import("./onboarding/emailService");
+        await notifyOpsAndExec(userId, "COMPLIANCE_CLEARED", "Contractor Fully Cleared", `${user.name} is fully cleared and compliant.`);
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/onboarding/audit/:userId", auth, opsOrExec, async (req: AuthRequest, res) => {
+    try {
+      const entries = await db.select().from(onboardingAuditLog)
+        .where(eq(onboardingAuditLog.userId, req.params.userId))
+        .orderBy(desc(onboardingAuditLog.createdAt));
+      res.json(entries);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
     }
   });
 

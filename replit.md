@@ -40,6 +40,7 @@ The application uses a monorepo structure with `client/` for the React frontend,
 - **Executive Interface**: A 5-screen executive center for the EXECUTIVE role, focusing on financial metrics (revenue, profit, margin), production, override approvals, and company settings.
 - **Predictive Intelligence**: Integrates five intelligence features: Chargeback Risk Scoring, Rep Performance Prediction, AR Collection Prediction, Profit Anomaly Detection, and Pay Run Cash Flow Projection.
 - **External Integration Points**: Provides admin management UI for carrier file automation (email webhooks, SFTP polling), ACH payment processing (NACHA generation, submission, settlement), calendar integration (Google Calendar sync), and reporting webhooks & API keys. Also includes an integration activity log.
+- **Contractor Onboarding System**: OTP-gated onboarding portal for 1099 independent contractors. Includes 6 legal documents (background check, chargeback policy, contractor application, direct deposit, drug test consent, NDA), e-signature capture with E-SIGN Act compliance, encrypted SSN/bank info storage, PDF generation via pdf-lib, admin review queue with approve/reject workflow, compliance tracking (background check and drug test statuses), SMS notifications via Twilio (optional), and a full append-only audit log.
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
@@ -50,7 +51,8 @@ The application uses a monorepo structure with `client/` for the React frontend,
 - **@radix-ui/*, tailwindcss, class-variance-authority, lucide-react**: UI development.
 - **@tanstack/react-query, react-hook-form, zod**: State management, forms, and validation.
 - **QuickBooks Online Integration**: Deep OAuth 2.0 integration for payment sync, account mapping, reconciliation, and monitoring.
-- **pdfkit**: PDF generation.
+- **pdfkit**: PDF generation (pay stubs).
+- **pdf-lib**: PDF generation (onboarding documents).
 - **archiver**: ZIP archive generation.
 - **Background Scheduler**: Manages automated tasks.
 - **Email Notifications**: Queue-based system for user notifications via SMTP.

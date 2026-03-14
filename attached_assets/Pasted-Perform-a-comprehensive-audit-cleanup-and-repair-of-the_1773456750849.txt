@@ -1,0 +1,1073 @@
+Perform a comprehensive audit, cleanup, and repair of the entire 
+Iron Crest application. This is not a feature build — it is a 
+quality assurance pass that validates every system works as 
+intended, removes dead code, fixes bugs, and ensures the entire 
+codebase coheres around the Iron Crest vision.
+
+THE VISION IN ONE SENTENCE:
+A fully automated field sales operating system where each role 
+sees exactly what their job requires, routine tasks are invisible 
+and automatic, and humans only intervene for exceptions.
+
+Work through every section below in order. Do not skip sections.
+For every issue found: fix it immediately before moving on.
+Log every fix in a CHANGES.md file at the root of the project.
+
+===================================================================
+PHASE 1 — DEPENDENCY AND ENVIRONMENT AUDIT
+===================================================================
+
+### 1.1 — Package audit
+
+Run: npm audit
+Fix all critical and high severity vulnerabilities.
+
+Run: npx depcheck
+Remove every package listed as unused from package.json.
+Remove corresponding imports from all files that referenced 
+the unused packages.
+
+Verify these required packages are installed and at 
+current stable versions:
+  -- Core
+  express, typescript, drizzle-orm, pg
+  -- Auth
+  bcryptjs, jsonwebtoken, express-rate-limit
+  -- Comms
+  twilio, @sendgrid/mail
+  -- Files
+  pdf-lib, multer, aws-sdk
+  -- Utilities
+  crypto (built-in Node), xlsx, csv-parse
+  -- Dev
+  @types/node, @types/express, tsx, drizzle-kit
+
+If any required package is missing: install it.
+If any package has a known breaking change in its 
+current version: pin to the last stable compatible version.
+
+### 1.2 — Environment variable audit
+
+Scan every file in the codebase for process.env references.
+Build a complete list of every environment variable used.
+
+Check each one:
+  - Is it documented in .env.example?
+  - Is there a fallback or does the app crash if missing?
+  - Is it used more than once without a central config?
+
+Create server/config.ts that centralizes all env vars:
+
+  export const config = {
+    database: {
+      url: requireEnv('DATABASE_URL'),
+    },
+    auth: {
+      jwtSecret: requireEnv('JWT_SECRET'),
+      webhookSecret: process.env.WEBHOOK_SECRET || '',
+    },
+    twilio: {
+      accountSid: process.env.TWILIO_ACCOUNT_SID || '',
+      authToken: process.env.TWILIO_AUTH_TOKEN || '',
+      fromNumber: process.env.TWILIO_FROM_NUMBER || '',
+    },
+    sendgrid: {
+      apiKey: process.env.SENDGRID_API_KEY || '',
+      opsEmail: process.env.OPS_EMAIL || 
+                'ironcrestoperations@ironcrestai.com',
+    },
+    aws: {
+      bucket: process.env.S3_BUCKET || '',
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+      region: process.env.AWS_REGION || 'us-east-1',
+    },
+    app: {
+      frontendUrl: process.env.FRONTEND_URL || '',
+      onboardingUrl: process.env.ONBOARDING_URL || '',
+      appUrl: process.env.APP_URL || '',
+      adminApiKey: requireEnv('ADMIN_API_KEY'),
+    },
+  } as const;
+
+  function requireEnv(key: string): string {
+    const value = process.env[key];
+    if (!value) {
+      throw new Error(
+        `Required environment variable ${key} is not set. ` +
+        `Check .env.example for required variables.`
+      );
+    }
+    return value;
+  }
+
+Replace all direct process.env references throughout 
+the codebase with imports from config.ts.
+
+Update .env.example with every variable, grouped by 
+category, with a comment explaining each one.
+
+### 1.3 — TypeScript strict mode audit
+
+Check tsconfig.json. If strict mode is not enabled:
+  Enable: "strict": true
+
+Fix every TypeScript error that appears after enabling 
+strict mode. Common fixes needed:
+  - Add explicit return types to all exported functions
+  - Remove implicit any types
+  - Add null checks where values may be undefined
+  - Fix type mismatches in storage method return types
+
+Do NOT use type assertions (as any) to silence errors — 
+fix the underlying type issue.
+
+===================================================================
+PHASE 2 — DATABASE AND SCHEMA AUDIT
+===================================================================
+
+### 2.1 — Migration state audit
+
+Run: npx drizzle-kit check
+Verify all migrations have been applied cleanly.
+If any migration is in a failed or partial state: fix it.
+
+Run: npx drizzle-kit generate
+If any pending schema changes exist that have not been 
+migrated: generate the migration and apply it.
+
+Verify these tables exist with correct columns:
+  Core: users, providers, clients, services, rateCards
+  Orders: salesOrders, commissionLineItems, mobileLineItems
+  Overrides: overrideAgreements, overrideEarnings,
+             overrideDeductionPool, overrideDistributions
+  Payroll: payRuns, payStatements, payStatementLineItems,
+           payStatementDeductions, advances, advanceRepayments,
+           userDeductions, deductionTypes, userTaxProfiles,
+           userPaymentMethods, userBankAccounts
+  Finance: financeImports, financeImportRowsRaw, 
+           financeImportRows, arExpectations, arPayments,
+           clientColumnMappings
+  Onboarding: onboarding_submissions, onboarding_audit_log,
+              onboarding_drafts
+  Roles: Users table has role enum with exactly these values:
+         EXECUTIVE, DIRECTOR, OPERATIONS, ACCOUNTING,
+         MANAGER, LEAD, REP, MDU
+  Settings: system_settings, automation_rules, saved_reports,
+            exception_dismissals, match_corrections,
+            finance_import_schedules
+  Commission: rateCardRoleOverrides has isAdditive boolean,
+              salesOrders has repRoleAtSale,
+              salesOrders has ironCrestRackRateCents,
+              salesOrders has ironCrestProfitCents,
+              salesOrders has directorOverrideCents,
+              salesOrders has adminOverrideCents,
+              salesOrders has accountingOverrideCents,
+              salesOrders has payrollReadyAt,
+              salesOrders has isPayrollHeld,
+              salesOrders has autoApprovalResult
+  Onboarding fields on users: onboardingStatus,
+              appAccessGrantedAt, backgroundCheckStatus,
+              drugTestStatus, onboardingOtpHash
+
+For any missing table or column: create and apply 
+the Drizzle migration immediately.
+
+### 2.2 — Index audit
+
+Check for missing indexes on high-traffic query patterns.
+Add indexes if missing:
+
+  salesOrders: repId, approvalStatus, jobStatus, 
+               paymentStatus, payrollReadyAt, dateSold,
+               clientId, providerId
+  
+  overrideEarnings: recipientUserId, salesOrderId, 
+                    approvalStatus, payRunId
+  
+  arExpectations: orderId, clientId, status, hasVariance
+  
+  financeImportRows: financeImportId, matchStatus, 
+                     matchedOrderId
+  
+  users: repId, role, status, assignedManagerId,
+         onboardingStatus
+  
+  payStatements: userId, payRunId, status
+  
+  onboarding_submissions: userId, status
+  
+  onboarding_audit_log: userId, action, createdAt
+
+Use Drizzle's index() syntax. Generate and apply migration.
+
+### 2.3 — Data integrity audit
+
+Run these queries and fix any data integrity issues found:
+
+  -- Users with invalid roles (should be zero after migration)
+  SELECT id, role FROM users 
+  WHERE role NOT IN (
+    'EXECUTIVE','DIRECTOR','OPERATIONS','ACCOUNTING',
+    'MANAGER','LEAD','REP','MDU'
+  );
+
+  -- Orders with missing repId
+  SELECT id FROM sales_orders WHERE rep_id IS NULL;
+
+  -- Override earnings with no linked order
+  SELECT id FROM override_earnings 
+  WHERE sales_order_id NOT IN (SELECT id FROM sales_orders);
+
+  -- Pay statements with no linked user
+  SELECT id FROM pay_statements 
+  WHERE user_id NOT IN (SELECT id FROM users);
+
+  -- AR expectations with no linked order
+  SELECT id FROM ar_expectations 
+  WHERE order_id NOT IN (SELECT id FROM sales_orders);
+
+  -- Finance import rows marked MATCHED but no matchedOrderId
+  SELECT id FROM finance_import_rows 
+  WHERE match_status = 'MATCHED' 
+  AND matched_order_id IS NULL;
+
+For each integrity issue found:
+  - If the record is orphaned with no recoverable reference: 
+    log it to CHANGES.md and soft-delete or null the reference
+  - If the record has a fixable reference: fix it
+  - Never hard delete without logging
+
+===================================================================
+PHASE 3 — ROLE AND PERMISSION SYSTEM AUDIT
+===================================================================
+
+### 3.1 — Role enum verification
+
+Scan every file in the codebase for hardcoded role strings.
+Search for: 'ADMIN', 'FOUNDER', 'admin', 'founder'
+
+For every occurrence found:
+  - Replace 'ADMIN' with 'OPERATIONS' (operational context)
+    or 'EXECUTIVE' (financial/ownership context)
+    based on what the check is protecting
+  - Replace 'FOUNDER' with 'EXECUTIVE'
+  - Log each replacement in CHANGES.md
+
+After replacement: verify no occurrences of 'ADMIN' or 
+'FOUNDER' remain in role checks, middleware, or conditions.
+
+### 3.2 — Permission coverage audit
+
+Load the PERMISSIONS object from server/permissions.ts.
+
+For every route in routes.ts:
+  1. Verify it has a permission check 
+     (requirePermission or inline hasPermission)
+  2. Verify the permission check uses the correct permission key
+  3. Verify no route is accidentally using adminOnly 
+     when it should use a more specific permission
+
+Build and log a complete route permission matrix:
+  METHOD | PATH | PERMISSION REQUIRED | ROLES ALLOWED
+
+Flag any route that has NO permission check (public routes 
+are valid exceptions — flag them explicitly as intentionally 
+public with a comment).
+
+### 3.3 — DIRECTOR financial field stripping audit
+
+Verify that stripFinancialFields() is called on every 
+endpoint that returns order data when req.user.role === 'DIRECTOR'.
+
+Test this by checking every route that returns order objects:
+  GET /api/orders (any variant)
+  GET /api/admin/rep-listing
+  GET /api/admin/orders/:id
+  Any report endpoint that includes order data
+
+If any endpoint returns financial fields to a DIRECTOR:
+  Add the stripFinancialFields() call.
+
+### 3.4 — Self-approval prohibition audit
+
+Search the codebase for every location where an approval 
+action can be taken:
+  - Override earning approval
+  - Pay run approval
+  - Advance approval
+  - Bonus approval
+  - Commission dispute resolution
+
+For each: verify the self-approval check exists at BOTH 
+the route level AND the storage method level.
+
+If either check is missing: add it.
+If the check only exists at one level: add it to the other.
+
+Pattern to use at route level:
+  if (overrideEarning.recipientUserId === req.user.id) {
+    return res.status(403).json({ 
+      message: 'Cannot approve your own override earning' 
+    });
+  }
+
+Pattern to use at storage level:
+  if (data.approvedByUserId === existingRecord.recipientUserId) {
+    throw new Error('Self-approval is not permitted');
+  }
+
+===================================================================
+PHASE 4 — COMMISSION CALCULATION AUDIT
+===================================================================
+
+### 4.1 — Rate card calculation verification
+
+For each speed tier, verify the commission calculation 
+produces the correct output. Create a test function:
+
+  async function verifyCommissionCalculations(): Promise<{
+    passed: number,
+    failed: number,
+    failures: Array<{ tier: string, role: string, 
+                      expected: number, actual: number }>
+  }>
+
+Test matrix (expected values from the Iron Crest rate table):
+
+  Speed     | Role    | Expected Commission
+  50 Mbps   | REP     | $25.00
+  50 Mbps   | LEAD    | $25.00
+  50 Mbps   | MANAGER | $25.00
+  150 Mbps  | REP     | $60.00
+  150 Mbps  | LEAD    | $60.00
+  150 Mbps  | MANAGER | $60.00
+  300 Mbps  | REP     | $125.00
+  300 Mbps  | LEAD    | $130.00
+  300 Mbps  | MANAGER | $135.00
+  600 Mbps  | REP     | $135.00
+  600 Mbps  | LEAD    | $145.00
+  600 Mbps  | MANAGER | $155.00
+  1 Gig     | REP     | $200.00
+  1 Gig     | LEAD    | $210.00
+  1 Gig     | MANAGER | $220.00
+  1 Gig+    | REP     | $225.00
+  1 Gig+    | LEAD    | $235.00
+  1 Gig+    | MANAGER | $245.00
+  Mobile    | REP     | $40.00 per line
+  Mobile    | LEAD    | $45.00 per line
+  Mobile    | MANAGER | $45.00 per line
+  TV        | REP     | $40.00
+  TV        | LEAD    | $50.00
+  TV        | MANAGER | $50.00
+
+For each test case that fails:
+  - Log the failure to CHANGES.md
+  - Trace the calculation path to find where it diverges
+  - Fix the calculation
+  - Re-run the test to confirm fix
+
+### 4.2 — Override earning verification
+
+For each tier with non-zero overrides, verify the correct 
+override amounts are generated when an order is approved:
+
+  Speed     | Director | Admin | Accounting
+  50 Mbps   | $0       | $0    | $0
+  150 Mbps  | $0       | $10   | $5
+  300 Mbps  | $25      | $10   | $5
+  600 Mbps  | $30      | $10   | $5
+  1 Gig     | $30      | $10   | $5
+  1 Gig+    | $35      | $10   | $5
+  Mobile    | $0       | $0    | $0
+  TV        | $0       | $0    | $0
+
+Verify:
+  1. Director override is created for DIRECTOR role users
+     NOT for EXECUTIVE users
+  2. Admin override is created for OPERATIONS role users
+  3. Accounting override is created for ACCOUNTING role users
+  4. All overrides are created with approvalStatus = 'PENDING_APPROVAL'
+  5. Zero-amount overrides do NOT create records
+
+Fix any discrepancy found.
+
+### 4.3 — Iron Crest profit calculation verification
+
+For each tier, verify ironCrestProfitCents is calculated 
+correctly using the formula:
+
+  profit = rackRate - repPayout - directorOverride 
+           - adminOverride - accountingOverride
+
+  Speed     | Rack  | REP profit | LEAD profit | MGR profit
+  50 Mbps   | $95   | $70        | $70         | $70
+  150 Mbps  | $190  | $115       | $115        | $115
+  300 Mbps  | $255  | $90        | $85         | $80
+  600 Mbps  | $285  | $105       | $95         | $85
+  1 Gig     | $350  | $105       | $95         | $85
+  1 Gig+    | $380  | $105       | $95         | $85
+  Mobile    | $60   | $20        | $15         | $15
+  TV        | $80   | $40        | $30         | $30
+
+If any profit calculation is wrong: fix it.
+
+Verify that negative profit triggers:
+  1. A rateIssue record with type 'NEGATIVE_MARGIN'
+  2. An URGENT exception in the exception queue
+  3. An in-app notification to EXECUTIVE and ACCOUNTING
+  4. The order still processes (not blocked)
+
+### 4.4 — calcGrossCommission utility audit
+
+Search the codebase for every instance of:
+  parseFloat(order.baseCommissionEarned || '0') +
+  parseFloat(order.incentiveEarned || '0')
+
+Every instance must use the calcGrossCommission() utility 
+function instead. If the utility doesn't exist: create it.
+If instances exist that bypass it: replace them.
+
+===================================================================
+PHASE 5 — AR AND PAYROLL PIPELINE AUDIT
+===================================================================
+
+### 5.1 — payrollReadyAt trigger audit
+
+Verify payrollReadyAt is set in ALL of these locations:
+  
+  LOCATION 1: POST /api/finance/ar/:id/payments
+    When newStatus becomes 'SATISFIED':
+    → payrollReadyAt must be set with 
+      payrollReadyTriggeredBy = 'AR_SATISFIED'
+  
+  LOCATION 2: POST /api/finance/imports/:id/post
+    When AR is created as 'SATISFIED':
+    → payrollReadyAt must be set with
+      payrollReadyTriggeredBy = 'AUTO_IMPORT'
+  
+  LOCATION 3: POST /api/admin/orders/:id/payroll-ready
+    Manual trigger endpoint must exist and set
+    payrollReadyTriggeredBy = 'MANUAL_OVERRIDE'
+
+  LOCATION 4: Advance AR payment deletion
+    When a payment is deleted and AR drops from SATISFIED:
+    → payrollReadyAt must be CLEARED (set to null)
+    → payrollReadyTriggeredBy must be CLEARED
+    → paymentStatus must revert appropriately
+
+For any location where the trigger is missing: add it.
+For any location where it is not cleared on reversal: fix it.
+
+### 5.2 — Pay run builder audit
+
+Verify getPayrollReadyOrders returns orders where:
+  payrollReadyAt IS NOT NULL
+  AND isPayrollHeld = false
+  AND approvalStatus = 'APPROVED'
+  AND jobStatus = 'COMPLETED'
+  AND paymentStatus != 'PAID'
+  AND payRunId IS NULL
+
+If any condition is missing from the query: add it.
+
+Verify the pay run builder does NOT include:
+  - Orders with isPayrollHeld = true
+  - Override earnings with approvalStatus != 'APPROVED'
+  - Advances that are not in REPAYING or APPROVED status
+
+### 5.3 — Pay stub line item audit
+
+Verify every pay statement line item has:
+  - salesOrderId populated for commission line items
+  - invoiceNumber populated (denormalized)
+  - customerName populated (denormalized)
+  - dateSold populated (denormalized)
+  - amount is a valid positive decimal string
+  - category is one of: 
+    'Commission' | 'Override' | 'Bonus' | 
+    'Chargeback' | 'Deduction' | 'Advance Repayment'
+
+If any line items are missing required fields: 
+  Run a backfill using the linked salesOrderId to 
+  populate the denormalized fields.
+
+===================================================================
+PHASE 6 — AUTO-APPROVAL ENGINE AUDIT
+===================================================================
+
+### 6.1 — Auto-approval criteria verification
+
+Verify the auto-approval engine checks ALL of these:
+  ✓ jobStatus = 'COMPLETED'
+  ✓ approvalStatus = 'UNAPPROVED'
+  ✓ appliedRateCardId IS NOT NULL
+  ✓ baseCommissionEarned > 0
+  ✓ ironCrestProfitCents >= 0
+  ✓ No active commission dispute for this order
+  ✓ No active chargeback for this order
+  ✓ Rep's isPayrollHeld = false
+  ✓ Order amount <= system_settings auto_approval_max_amount_cents
+  ✓ customerName is not blank
+  ✓ invoiceNumber is unique
+  ✓ dateSold is within 180 days
+  ✓ Rep is not within first N days 
+    (N from system_settings auto_approval_new_rep_days)
+  ✓ auto_approval_enabled = 'true' in system_settings
+
+For any missing check: add it.
+
+### 6.2 — Auto-approval scheduler audit
+
+Verify the auto-approval sweep:
+  - Runs on schedule (every 15 minutes)
+  - Filters to only orders where autoApprovalAttemptedAt IS NULL
+  - Sets autoApprovalAttemptedAt on EVERY evaluated order
+    (prevents re-evaluation of same order)
+  - Creates audit log for every auto-approval action
+  - Calls generateOverrideEarnings after approving
+  - Sets payrollReadyAt if AR is already satisfied
+
+If any step is missing: add it.
+
+===================================================================
+PHASE 7 — EXCEPTION QUEUE AUDIT
+===================================================================
+
+### 7.1 — Exception type coverage audit
+
+Verify every exception type listed below is fully 
+implemented (query exists, priority is correct, 
+dollar impact is populated where applicable):
+
+  URGENT:
+    ORDER_APPROVAL_OVERDUE (3+ days, dollar impact = commission)
+    NEGATIVE_MARGIN_DETECTED (any negative profit order)
+    PAY_RUN_FINALIZATION_DUE (draft run past pay date)
+    CHARGEBACK_REQUIRES_ACTION (48hr no response)
+    AR_PAYMENT_OVERDUE (45+ days open)
+
+  HIGH:
+    OVERRIDE_PENDING_APPROVAL (>24 hours waiting)
+    DISPUTE_UNRESPONDED (48hr no admin response)
+    ADVANCE_OVERDUE (no repayment in 2 periods)
+    AR_VARIANCE_LARGE (>$50 variance unresolved)
+    RATE_CARD_MISSING (approved order, no rate card)
+
+  MEDIUM:
+    REP_MISSING_TAX_PROFILE (in active pay run)
+    AR_PARTIAL_PAYMENT (14+ days partial)
+    FINANCE_IMPORT_UNMATCHED (7+ days old)
+    ADVANCE_AWAITING_APPROVAL (>3 days)
+    ONBOARDING_OVERDUE (rep created 7+ days, not submitted)
+
+  LOW:
+    STALE_AR_NO_EXPECTATION (approved 30+ days, no AR)
+    REP_NO_SALES_7_DAYS (active rep)
+    RATE_CARD_EXPIRING_SOON (within 14 days)
+
+For any exception type not implemented: implement it.
+For any type with wrong priority: fix it.
+For any type missing dollar impact: add it.
+
+### 7.2 — Role-filtered exception queue audit
+
+Verify the exception queue filters correctly by role:
+
+  DIRECTOR sees only:
+    ORDER_APPROVAL_OVERDUE, REP_NO_SALES_7_DAYS,
+    RATE_CARD_MISSING, FINANCE_IMPORT_UNMATCHED
+
+  OPERATIONS sees only operational exceptions (no financial)
+  ACCOUNTING sees only financial exceptions (no operational)
+  EXECUTIVE sees everything
+
+Test each role filter and fix any leakage.
+
+===================================================================
+PHASE 8 — ONBOARDING SYSTEM AUDIT
+===================================================================
+
+### 8.1 — OTP flow audit
+
+Verify:
+  1. OTP is generated with crypto.randomInt(100000, 999999)
+     NOT Math.random() — fix if wrong
+  2. OTP is stored as bcrypt hash ONLY — never plaintext
+  3. OTP verification uses bcrypt.compare()
+  4. OTP is cleared from the record after successful use
+  5. Failed attempts increment onboardingOtpAttempts
+  6. Lock triggers at exactly 5 failed attempts
+  7. Lock notifies the manager via in-app notification
+  8. OTP expires after 48 hours
+  9. Expired OTP returns a clear error message
+
+Fix any step that is not correctly implemented.
+
+### 8.2 — App access gate audit
+
+Verify that users with onboardingStatus != 'APPROVED' 
+and appAccessGrantedAt IS NULL are blocked from all 
+routes except:
+  /api/onboarding/*
+  /api/auth/* (login, refresh)
+  /api/my/profile
+
+Test this by simulating a REP user with onboardingStatus = 'IN_PROGRESS'
+attempting to access /api/orders — should return 403 with:
+  { message: 'Onboarding not complete', 
+    onboardingStatus: 'IN_PROGRESS',
+    redirectTo: '/onboarding' }
+
+If the gate is missing or incomplete: implement it fully.
+
+### 8.3 — Sensitive data audit for onboarding
+
+Scan the onboarding submission flow for any location 
+where these values could be logged or stored in plaintext:
+  - SSN
+  - Routing number
+  - Account number
+
+For each occurrence:
+  - If it's a console.log: remove it
+  - If it's stored in a non-encrypted field: 
+    encrypt it using the existing encryptSsn/encryptField 
+    utilities
+  - If it's returned in an API response unmasked:
+    mask it (show only last 4 digits)
+
+Verify the onboarding_drafts table never stores SSN, 
+routing numbers, or account numbers.
+
+===================================================================
+PHASE 9 — CODE QUALITY CLEANUP
+===================================================================
+
+### 9.1 — Dead code removal
+
+Search for and remove:
+  
+  1. Any function that is defined but never called:
+     Use TypeScript's "noUnusedLocals" compiler option 
+     to identify unused functions and variables.
+  
+  2. Any route that has been superseded by a new route 
+     but not removed. Look for:
+     - Duplicate route paths
+     - Routes with the comment // deprecated or // old
+     - Routes that call storage methods that no longer exist
+  
+  3. Any storage method that is defined but never called 
+     from routes.ts or any service file.
+  
+  4. Any commented-out code blocks longer than 5 lines:
+     If it is not needed: delete it
+     If it might be needed: move to a FUTURE.md file 
+     with explanation
+  
+  5. Any console.log statements that are not in:
+     - Error handlers (console.error only)
+     - Startup/shutdown messages
+     - Development-only debug blocks wrapped in 
+       if (process.env.NODE_ENV === 'development')
+
+### 9.2 — Duplicate logic consolidation
+
+Search for these specific patterns that should be unified:
+
+  PATTERN 1: Period range calculation
+  The WEEK/MONTH/QUARTER switch block that calculates 
+  date ranges. Must exist ONLY in the getPeriodRange() 
+  utility. Find all other instances and replace with 
+  the utility call.
+
+  PATTERN 2: Commission calculation
+  The pattern: 
+    parseFloat(order.baseCommissionEarned || '0') + 
+    parseFloat(order.incentiveEarned || '0')
+  Must use calcGrossCommission(order) everywhere.
+
+  PATTERN 3: Role-based scope resolution
+  Any code that manually checks role and calls 
+  getManagerScope or getExecutiveScope should use 
+  the unified getScopeForUser(userId, role) method.
+  If this method does not exist: create it.
+
+  PATTERN 4: Notification creation
+  Any place that creates both an email notification 
+  AND an in-app notification for the same event should 
+  use a unified notifyUser() helper.
+  If this helper does not exist: create it.
+
+### 9.3 — Error handling audit
+
+Verify every route has a try-catch block that:
+  1. Catches the error
+  2. Returns a structured JSON error response:
+     { message: string, code?: string }
+  3. Logs to console.error with context:
+     console.error(`[ROUTE_NAME] Error:`, error.message)
+  4. Does NOT expose stack traces in production:
+     Never return error.stack in production responses
+
+  Add a global error handler as a final middleware 
+  in routes.ts:
+  
+  app.use((err: any, req: Request, res: Response, 
+           next: NextFunction) => {
+    console.error('[UNHANDLED ERROR]', err.message, 
+                  req.method, req.path);
+    res.status(500).json({
+      message: process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
+        : err.message,
+    });
+  });
+
+### 9.4 — SQL injection audit
+
+Search for every occurrence of sql.raw() in storage.ts.
+Replace each one with Drizzle's inArray() operator.
+
+If any raw string interpolation exists in SQL queries 
+outside of sql.raw() (e.g., template literals in db.execute()):
+  Parameterize them immediately.
+
+After replacement: verify no sql.raw() calls remain 
+except for legitimate use cases (e.g., raw identifier 
+names that cannot be parameterized). Document any 
+remaining sql.raw() with an explanatory comment.
+
+### 9.5 — N+1 query elimination
+
+Search for these anti-patterns:
+
+  PATTERN: forEach or for loop with await db.query inside
+  for (const item of items) {
+    const related = await db.query.something...  // N+1
+  }
+
+  Fix each occurrence by:
+  1. Collecting all IDs before the loop
+  2. Fetching all related records in one query using inArray
+  3. Building a Map for O(1) lookup inside the loop
+
+  Target locations (from previous analysis):
+    - getTeamBreakdownByManager (one query per manager)
+    - getRepHierarchy (up to 5 sequential queries)
+    - install sync email builder (one query per order)
+    - AR enrichment (one query per AR record)
+    - Any new code added since the previous analysis
+
+  For each fix: verify the output is identical to 
+  the pre-fix version (same data, just fewer queries).
+
+===================================================================
+PHASE 10 — SCHEDULER AND BACKGROUND JOBS AUDIT
+===================================================================
+
+### 10.1 — Scheduler job inventory
+
+List every scheduled job and verify:
+  1. It is registered in the scheduler
+  2. It has a backgroundJobs log entry on each run
+  3. It handles errors gracefully 
+     (logs failure, does not crash the scheduler)
+  4. It does not run more than once concurrently
+     (add a simple lock: if a job is already running, skip)
+
+Expected jobs:
+  Every 15 min: Auto-approval sweep
+  Daily: Stale AR alert check
+  Daily: Commission integrity check
+  Daily: Rep performance prediction
+  Daily: Orphaned record check
+  Daily: Finance import schedule check
+  Weekly: Orphaned record cleanup
+
+If any job is missing from the scheduler: add it.
+If any job has no error handling: add it.
+
+### 10.2 — Scheduler concurrency protection
+
+Add a simple in-memory lock to each scheduled job:
+
+  const runningJobs = new Set<string>();
+  
+  async function runJobWithLock(
+    jobName: string, 
+    fn: () => Promise<void>
+  ): Promise<void> {
+    if (runningJobs.has(jobName)) {
+      console.log(`[SCHEDULER] ${jobName} already running, skipping`);
+      return;
+    }
+    runningJobs.add(jobName);
+    try {
+      await fn();
+    } finally {
+      runningJobs.delete(jobName);
+    }
+  }
+
+Wrap every scheduled job function with runJobWithLock.
+
+===================================================================
+PHASE 11 — SECURITY AUDIT
+===================================================================
+
+### 11.1 — Authentication audit
+
+Verify:
+  1. Every non-public route has the auth middleware
+  2. The onboarding JWT (purpose: 'onboarding') is 
+     REJECTED by the main auth middleware
+  3. The main app JWT is REJECTED by the onboarding 
+     auth middleware
+  4. JWT expiry is enforced (4-hour main, 4-hour onboarding)
+  5. No route accidentally uses the wrong auth middleware
+
+### 11.2 — Rate limiting audit
+
+Verify rate limiting exists on:
+  POST /api/onboarding/verify-otp (10/hour per IP)
+  POST /api/auth/login (20/hour per IP)
+  POST /api/auth/forgot-password (5/hour per IP — if exists)
+  Any other authentication endpoint
+
+If rate limiting is missing on any auth endpoint: add it.
+
+### 11.3 — Sensitive data exposure audit
+
+Scan all API responses for accidental sensitive data exposure:
+  
+  Search response objects for these field names:
+    passwordHash, ssnEncrypted, routingNumberEncrypted,
+    accountNumberEncrypted, customerSsnEncrypted,
+    onboardingOtpHash, jwtSecret
+  
+  If any of these fields are returned in any API response:
+    Remove them immediately.
+  
+  Verify the existing pattern from MDU orders 
+  (destructuring encrypted fields before returning) 
+  is applied everywhere encrypted data is fetched.
+
+### 11.4 — File upload security audit
+
+Verify all file upload endpoints:
+  1. Validate file type (MIME type check, not just extension)
+  2. Validate file size (max 10MB per file)
+  3. Store in S3 with private ACL
+  4. Never serve files directly — only pre-signed URLs
+  5. Pre-signed URLs expire in 15 minutes (API) or 7 days (email)
+
+If any check is missing: add it.
+
+===================================================================
+PHASE 12 — INTEGRATION POINT DOCUMENTATION
+===================================================================
+
+### 12.1 — Add INTEGRATION_POINT comments
+
+Scan the codebase for locations where external integrations 
+would connect and add standardized comments:
+
+  // INTEGRATION_POINT: Twilio SMS
+  // Called when: OTP generation, approval notifications
+  // Fallback: log failure, do not crash flow
+  // Config: config.twilio.*
+
+  // INTEGRATION_POINT: SendGrid Email
+  // Called when: onboarding submission, pay stub issuance
+  // Fallback: log failure, queue for retry
+  // Config: config.sendgrid.*
+
+  // INTEGRATION_POINT: AWS S3
+  // Called when: file uploads, PDF storage, pre-signed URLs
+  // Fallback: return error to user, do not store metadata
+  // Config: config.aws.*
+
+  // INTEGRATION_POINT: Carrier SFTP (future)
+  // Called when: scheduled finance import check
+  // Status: not yet implemented, placeholder only
+  // Config: finance_import_schedules table
+
+  // INTEGRATION_POINT: ACH Banking API (future)
+  // Called when: pay run finalization
+  // Status: NACHA file generation implemented, 
+  //         direct submission pending banking relationship
+  // Config: TBD
+
+===================================================================
+PHASE 13 — CHANGES LOG AND STARTUP VERIFICATION
+===================================================================
+
+### 13.1 — Generate CHANGES.md
+
+Throughout all phases above, every change made must be 
+logged to CHANGES.md in this format:
+
+  ## Phase N — Section Name
+  
+  ### [FIXED] Short description
+  File: server/path/to/file.ts
+  Issue: What was wrong
+  Fix: What was changed
+  Impact: What this affects
+  
+  ### [REMOVED] Short description
+  File: server/path/to/file.ts
+  Reason: Why it was removed
+  
+  ### [ADDED] Short description
+  File: server/path/to/file.ts
+  Reason: Why it was added
+
+### 13.2 — Startup health check
+
+Add a startup verification function that runs when 
+the server starts:
+
+  async function runStartupChecks(): Promise<void> {
+    console.log('[STARTUP] Running Iron Crest health checks...');
+    
+    const checks = [
+      // Database
+      { name: 'Database connection', 
+        fn: () => db.execute(sql`SELECT 1`) },
+      
+      // Required env vars
+      { name: 'JWT_SECRET configured', 
+        fn: () => { if (!config.auth.jwtSecret) 
+          throw new Error('Missing') } },
+      
+      // Role system
+      { name: 'No legacy ADMIN/FOUNDER roles',
+        fn: async () => {
+          const legacy = await db.select()
+            .from(users)
+            .where(inArray(users.role, 
+              ['ADMIN', 'FOUNDER'] as any[]));
+          if (legacy.length > 0) 
+            throw new Error(
+              `${legacy.length} users have legacy roles`
+            );
+        }},
+      
+      // Commission system
+      { name: 'Rate cards configured',
+        fn: async () => {
+          const cards = await storage.getActiveRateCards();
+          if (cards.length === 0) 
+            console.warn('[STARTUP] WARNING: No active rate cards');
+        }},
+      
+      // Required roles exist
+      { name: 'ACCOUNTING user exists',
+        fn: async () => {
+          const accounting = await storage.getUsersByRole(
+            'ACCOUNTING'
+          );
+          if (accounting.length === 0)
+            console.warn(
+              '[STARTUP] WARNING: No ACCOUNTING users. ' +
+              'Accounting overrides cannot be distributed.'
+            );
+        }},
+      
+      { name: 'DIRECTOR user exists',
+        fn: async () => {
+          const directors = await storage.getUsersByRole(
+            'DIRECTOR'
+          );
+          if (directors.length === 0)
+            console.warn(
+              '[STARTUP] WARNING: No DIRECTOR users. ' +
+              'Director overrides cannot be distributed.'
+            );
+        }},
+      
+      // Scheduler
+      { name: 'Scheduler running',
+        fn: () => { /* verify scheduler is initialized */ }},
+    ];
+    
+    let passed = 0;
+    let warned = 0;
+    let failed = 0;
+    
+    for (const check of checks) {
+      try {
+        await check.fn();
+        console.log(`[STARTUP] ✓ ${check.name}`);
+        passed++;
+      } catch (err: any) {
+        console.error(`[STARTUP] ✗ ${check.name}: ${err.message}`);
+        failed++;
+      }
+    }
+    
+    console.log(
+      `[STARTUP] Health check complete: ` +
+      `${passed} passed, ${warned} warnings, ${failed} failed`
+    );
+    
+    if (failed > 0) {
+      console.error(
+        '[STARTUP] Critical checks failed. ' +
+        'Review errors above before processing live data.'
+      );
+      // Do NOT crash the server — warn and continue
+      // The app should still start so issues can be debugged
+    }
+  }
+
+Call runStartupChecks() when the server starts, 
+after the database connection is established.
+
+===================================================================
+FINAL INSTRUCTIONS
+===================================================================
+
+After completing all phases:
+
+1. Run the full TypeScript compiler with strict mode:
+   npx tsc --noEmit
+   Fix every error before finishing.
+
+2. Verify the server starts without errors:
+   npm run dev
+   The startup health checks should all pass.
+
+3. Final CHANGES.md summary:
+   Add a summary section at the top of CHANGES.md:
+   
+   ## Summary
+   - Total issues found: N
+   - Total fixes applied: N
+   - Total lines of dead code removed: N
+   - Total N+1 queries fixed: N
+   - Total security issues fixed: N
+   - Phases completed: N/13
+   - Estimated performance improvement: narrative description
+   - Outstanding issues requiring manual review: list
+
+4. If any issue cannot be automatically fixed 
+   (requires business decision, missing external config, 
+   or needs stakeholder input): add it to a section 
+   in CHANGES.md titled "REQUIRES MANUAL REVIEW" with 
+   a clear description of what decision is needed 
+   and why.
+
+Do not mark the audit as complete until:
+  ✓ npm run dev starts without errors
+  ✓ npx tsc --noEmit returns zero errors
+  ✓ All startup health checks pass or have warnings only
+  ✓ CHANGES.md is complete with every fix documented
+  ✓ No sql.raw() injection patterns remain
+  ✓ No legacy ADMIN or FOUNDER role references remain
+  ✓ No plaintext SSN, routing, or account numbers anywhere
+  ✓ Every route has a permission check
+  ✓ Commission calculations match the rate table exactly

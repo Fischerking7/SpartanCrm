@@ -41,6 +41,8 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   repId: text("rep_id").notNull().unique(),
+  email: text("email"),
+  phone: text("phone"),
   role: userRoleEnum("role").notNull().default("REP"),
   status: userStatusEnum("status").notNull().default("ACTIVE"),
   passwordHash: text("password_hash").notNull(),
@@ -56,6 +58,26 @@ export const users = pgTable("users", {
   lastActiveAt: timestamp("last_active_at"),
   deletedAt: timestamp("deleted_at"),
   deletedByUserId: varchar("deleted_by_user_id"),
+  emergencyContactName: text("emergency_contact_name"),
+  emergencyContactPhone: text("emergency_contact_phone"),
+  dateOfBirth: text("date_of_birth"),
+  onboardingStatus: varchar("onboarding_status", { length: 30 }).notNull().default("NOT_STARTED"),
+  onboardingStartedAt: timestamp("onboarding_started_at"),
+  onboardingSubmittedAt: timestamp("onboarding_submitted_at"),
+  onboardingApprovedAt: timestamp("onboarding_approved_at"),
+  onboardingApprovedByUserId: varchar("onboarding_approved_by_user_id"),
+  onboardingRejectedAt: timestamp("onboarding_rejected_at"),
+  onboardingRejectionReason: text("onboarding_rejection_reason"),
+  backgroundCheckStatus: varchar("background_check_status", { length: 20 }).notNull().default("PENDING"),
+  drugTestStatus: varchar("drug_test_status", { length: 20 }).notNull().default("PENDING"),
+  ndaSignedAt: timestamp("nda_signed_at"),
+  contractorAgreementSignedAt: timestamp("contractor_agreement_signed_at"),
+  appAccessGrantedAt: timestamp("app_access_granted_at"),
+  appAccessGrantedByUserId: varchar("app_access_granted_by_user_id"),
+  onboardingOtpHash: varchar("onboarding_otp_hash"),
+  onboardingOtpExpiresAt: timestamp("onboarding_otp_expires_at"),
+  onboardingOtpAttempts: integer("onboarding_otp_attempts").notNull().default(0),
+  onboardingOtpLockedAt: timestamp("onboarding_otp_locked_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1631,7 +1653,12 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "GENERAL",
   "OVERRIDE_PENDING_APPROVAL",
   "OVERRIDE_APPROVED",
-  "OVERRIDE_REJECTED"
+  "OVERRIDE_REJECTED",
+  "ONBOARDING_APPROVED",
+  "ONBOARDING_REJECTED",
+  "ONBOARDING_SUBMITTED",
+  "ONBOARDING_OTP_LOCKED",
+  "COMPLIANCE_CLEARED"
 ]);
 
 export const notificationStatusEnum = pgEnum("notification_status", [
@@ -2177,3 +2204,79 @@ export const calendarSyncConfig = pgTable("calendar_sync_config", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+export const onboardingSubmissions = pgTable("onboarding_submissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  repName: varchar("rep_name").notNull(),
+  repEmail: varchar("rep_email"),
+  repPhone: varchar("rep_phone"),
+  ipAddress: varchar("ip_address").notNull(),
+  userAgent: text("user_agent").notNull(),
+  submittedAt: timestamp("submitted_at").defaultNow().notNull(),
+  payloadHash: varchar("payload_hash").notNull(),
+  backgroundCheckCompleted: boolean("background_check_completed").notNull().default(false),
+  backgroundCheckSignedAt: timestamp("background_check_signed_at"),
+  chargebackPolicyCompleted: boolean("chargeback_policy_completed").notNull().default(false),
+  chargebackPolicySignedAt: timestamp("chargeback_policy_signed_at"),
+  contractorAppCompleted: boolean("contractor_app_completed").notNull().default(false),
+  contractorAppSignedAt: timestamp("contractor_app_signed_at"),
+  directDepositCompleted: boolean("direct_deposit_completed").notNull().default(false),
+  directDepositSignedAt: timestamp("direct_deposit_signed_at"),
+  drugTestCompleted: boolean("drug_test_completed").notNull().default(false),
+  drugTestSignedAt: timestamp("drug_test_signed_at"),
+  ndaCompleted: boolean("nda_completed").notNull().default(false),
+  ndaSignedAt: timestamp("nda_signed_at"),
+  backgroundCheckSignature: text("background_check_signature"),
+  chargebackPolicySignature: text("chargeback_policy_signature"),
+  contractorAppSignature: text("contractor_app_signature"),
+  directDepositSignature: text("direct_deposit_signature"),
+  drugTestSignature: text("drug_test_signature"),
+  ndaSignature: text("nda_signature"),
+  ssnEncrypted: text("ssn_encrypted"),
+  ssnLast4: varchar("ssn_last4", { length: 4 }),
+  routingNumberEncrypted: text("routing_number_encrypted"),
+  accountNumberEncrypted: text("account_number_encrypted"),
+  accountNumberLast4: varchar("account_number_last4", { length: 4 }),
+  bankName: varchar("bank_name"),
+  accountType: varchar("account_type", { length: 10 }),
+  photoIdS3Key: varchar("photo_id_s3_key"),
+  voidedCheckS3Key: varchar("voided_check_s3_key"),
+  drugTestPhotoS3Key: varchar("drug_test_photo_s3_key"),
+  reviewedByUserId: varchar("reviewed_by_user_id").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  status: varchar("status", { length: 20 }).notNull().default("PENDING"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertOnboardingSubmissionSchema = createInsertSchema(onboardingSubmissions).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type OnboardingSubmission = typeof onboardingSubmissions.$inferSelect;
+export type InsertOnboardingSubmission = z.infer<typeof insertOnboardingSubmissionSchema>;
+
+export const onboardingAuditLog = pgTable("onboarding_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  action: varchar("action").notNull(),
+  detail: text("detail"),
+  ipAddress: varchar("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type OnboardingAuditEntry = typeof onboardingAuditLog.$inferSelect;
+
+export const onboardingDrafts = pgTable("onboarding_drafts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  documentType: varchar("document_type").notNull(),
+  draftJson: text("draft_json").notNull(),
+  lastSavedAt: timestamp("last_saved_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("onboarding_drafts_user_doc_unique").on(table.userId, table.documentType),
+]);
+
+export type OnboardingDraft = typeof onboardingDrafts.$inferSelect;
