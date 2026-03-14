@@ -47,6 +47,7 @@ import {
   BellRing,
   Settings2,
   Smartphone,
+  ShoppingCart,
   MessageSquareWarning,
   User,
   Activity,
@@ -89,6 +90,17 @@ const MENU = {
   mduReview: { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
   payRuns: { title: "Pay Runs", url: "/payruns", icon: Calendar },
   adjustments: { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
+  
+  // Ops Center
+  opsHome: { title: "Ops Home", url: "/ops", icon: LayoutDashboard },
+  opsOrders: { title: "Order Mgmt", url: "/ops/orders", icon: ShoppingCart },
+  opsReps: { title: "Rep Mgmt", url: "/ops/reps", icon: Users },
+  opsPayRuns: { title: "Pay Runs", url: "/ops/pay-runs", icon: Calendar },
+  opsPayStubs: { title: "Pay Stubs", url: "/ops/pay-stubs", icon: FileSpreadsheet },
+  opsAR: { title: "AR Management", url: "/ops/ar", icon: DollarSign },
+  opsOverrides: { title: "Overrides", url: "/ops/overrides", icon: Shield },
+  opsAdvances: { title: "Advances", url: "/ops/advances", icon: DollarSign },
+  opsReports: { title: "Ops Reports", url: "/ops/reports", icon: BarChart3 },
   
   // Accounting & Audit
   accounting: { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
@@ -417,9 +429,9 @@ export function AppSidebar() {
           />
         )}
         <CollapsibleSection 
-          title="Operations" 
+          title="Ops Center" 
           icon={Briefcase} 
-          items={opsItems} 
+          items={[MENU.opsHome, MENU.opsOrders, MENU.opsReps, MENU.opsPayRuns, MENU.opsPayStubs, MENU.opsAR, MENU.opsOverrides, MENU.opsAdvances, MENU.opsReports]} 
           location={location}
           defaultOpen={!isExec}
         />

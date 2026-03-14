@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
-import { OpsNav } from "@/pages/ops/ops-layout";
+import { OpsNav, OpsLayout } from "@/pages/ops/ops-layout";
 import { AcctNav } from "@/pages/accounting/acct-layout";
 import { DirNav } from "@/pages/director/dir-layout";
 import { ExecNav } from "@/pages/executive/exec-layout";
@@ -74,6 +74,12 @@ import OpsInstallSync from "@/pages/ops/ops-install-sync";
 import OpsFinanceImports from "@/pages/ops/ops-finance-imports";
 import OpsReps from "@/pages/ops/ops-reps";
 import OpsReports from "@/pages/ops/ops-reports";
+import OpsPayRuns from "@/pages/ops/ops-payruns";
+import OpsPayStubs from "@/pages/ops/ops-paystubs";
+import OpsAR from "@/pages/ops/ops-ar";
+import OpsOverrides from "@/pages/ops/ops-overrides";
+import OpsAdvances from "@/pages/ops/ops-advances";
+import OpsSettings from "@/pages/ops/ops-settings";
 import AcctHome from "@/pages/accounting/acct-home";
 import AcctPayRuns from "@/pages/accounting/acct-pay-runs";
 import AcctPayStubs from "@/pages/accounting/acct-pay-stubs";
@@ -188,6 +194,12 @@ const routeTitles: Record<string, string> = {
   "/ops/finance-imports": "Finance Imports",
   "/ops/reps": "Rep Management",
   "/ops/reports": "Reports",
+  "/ops/pay-runs": "Pay Runs",
+  "/ops/pay-stubs": "Pay Stubs",
+  "/ops/ar": "AR Management",
+  "/ops/overrides": "Overrides",
+  "/ops/advances": "Advances",
+  "/ops/settings": "Settings",
   "/accounting": "Accounting",
   "/accounting/pay-runs": "Pay Runs",
   "/accounting/pay-stubs": "Pay Stubs",
@@ -212,7 +224,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 
   const fieldRoles = ["REP", "MDU", "LEAD"];
   const showBottomNav = fieldRoles.includes(user.role);
-  const showOpsNav = ["OPERATIONS", "ADMIN", "EXECUTIVE"].includes(user.role) && location.startsWith("/ops");
+  const showOpsNav = false;
   const showAcctNav = ["ACCOUNTING", "ADMIN", "EXECUTIVE"].includes(user.role) && location.startsWith("/accounting");
   const showDirNav = user.role === "EXECUTIVE" && location.startsWith("/director");
   const showExecNav = user.role === "EXECUTIVE" && location.startsWith("/executive");
@@ -320,12 +332,18 @@ function Router() {
 
         {(user.role === "OPERATIONS" || user.role === "ADMIN" || user.role === "EXECUTIVE") && (
           <>
-            <Route path="/ops" component={OpsHome} />
-            <Route path="/ops/orders" component={OpsOrders} />
-            <Route path="/ops/install-sync" component={OpsInstallSync} />
-            <Route path="/ops/finance-imports" component={OpsFinanceImports} />
-            <Route path="/ops/reps" component={OpsReps} />
-            <Route path="/ops/reports" component={OpsReports} />
+            <Route path="/ops">{() => <OpsLayout><OpsHome /></OpsLayout>}</Route>
+            <Route path="/ops/orders">{() => <OpsLayout><OpsOrders /></OpsLayout>}</Route>
+            <Route path="/ops/install-sync">{() => <OpsLayout><OpsInstallSync /></OpsLayout>}</Route>
+            <Route path="/ops/finance-imports">{() => <OpsLayout><OpsFinanceImports /></OpsLayout>}</Route>
+            <Route path="/ops/reps">{() => <OpsLayout><OpsReps /></OpsLayout>}</Route>
+            <Route path="/ops/pay-runs">{() => <OpsLayout><OpsPayRuns /></OpsLayout>}</Route>
+            <Route path="/ops/pay-stubs">{() => <OpsLayout><OpsPayStubs /></OpsLayout>}</Route>
+            <Route path="/ops/ar">{() => <OpsLayout><OpsAR /></OpsLayout>}</Route>
+            <Route path="/ops/overrides">{() => <OpsLayout><OpsOverrides /></OpsLayout>}</Route>
+            <Route path="/ops/advances">{() => <OpsLayout><OpsAdvances /></OpsLayout>}</Route>
+            <Route path="/ops/reports">{() => <OpsLayout><OpsReports /></OpsLayout>}</Route>
+            <Route path="/ops/settings">{() => <OpsLayout><OpsSettings /></OpsLayout>}</Route>
           </>
         )}
         

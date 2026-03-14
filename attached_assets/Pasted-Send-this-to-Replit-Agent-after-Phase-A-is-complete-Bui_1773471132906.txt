@@ -1,0 +1,100 @@
+Send this to Replit Agent after Phase A is complete:
+
+Build the Operations dashboard. Desktop-first layout 
+with mobile responsiveness as secondary priority.
+
+Use the same design system as the Rep frontend 
+(navy, gold, Inter font).
+
+The Operations interface is a full admin panel. 
+Use a sidebar navigation layout on desktop.
+
+SIDEBAR NAVIGATION:
+  🏠 Home (Exception Queue)
+  📋 Orders
+  👥 Reps
+  📥 Install Sync
+  📊 Finance Imports
+  💰 Pay Runs
+  🧾 Pay Stubs
+  📈 AR Management
+  ⚖️ Overrides
+  💳 Advances
+  📑 Reports
+  ⚙️ Settings
+
+SCREEN 1 — Home (Exception Queue)
+  Full-width exception queue
+  URGENT items as prominent red cards
+  HIGH items as orange cards  
+  MEDIUM as yellow condensed list
+  LOW as gray condensed list
+  
+  System health strip at top:
+    Database ● | Twilio ● | SendGrid ● | S3 ●
+    Each dot: green=ok, red=error, gray=not tested
+  
+  Quick stats row:
+    Pending approvals | Draft pay runs | 
+    Open AR | Onboarding pending
+
+SCREEN 2 — Orders
+  Split panel:
+    Left: Approval queue (orders needing approval)
+    Right: Full order table with search and filters
+  
+  Bulk approve button for clean orders
+  Individual order detail with full edit capability
+  Commission breakdown visible
+  Reserve withholding visible
+
+SCREEN 3 — Rep Management
+  Full rep roster table
+  Search, filter by role/manager/status
+  [+ Add Rep] button
+  
+  Rep detail page with all tabs:
+    Profile | Orders | Onboarding | Credentials | 
+    Goals | Reserve | Activity
+
+SCREEN 4 — Install Sync
+  Upload area (drag and drop)
+  Google Sheets URL input
+  Auto-approve toggle
+  [Run Sync] button with live progress
+  Results tabs: Matched | Approved | Unmatched
+
+SCREEN 5 — Finance Imports  
+  Upload area
+  Imports list with match rate gauges
+  Per-import: match results, manual match interface
+  Post button (for OPERATIONS — now available)
+
+SCREEN 6 — Pay Runs
+  6-step progress workflow UI
+  Preview before committing
+  Rep-by-rep breakdown
+  [Finalize] with typed confirmation
+
+SCREEN 7 — Pay Stubs
+  All reps table
+  Individual stub view (mirrors PDF)
+  Bulk PDF export
+
+SCREEN 8 — AR Management
+  Summary cards (Open/Partial/Satisfied/Overdue)
+  AR table with flag indicators
+  Record payment modal
+  AR-Payroll reconciliation view
+
+SCREEN 9 — Override Approvals
+  Tabbed by type
+  Action cards with approve/reject
+  Bulk approve button
+  Self-owned overrides grayed with explanation
+
+SCREEN 10 — Reports
+  Report cards grid
+  Date range picker
+  Download CSV
+  Schedule report functionality
