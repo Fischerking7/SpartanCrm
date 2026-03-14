@@ -75,6 +75,7 @@ export default function NewOrder() {
   const selectedService = services?.find((s: any) => s.id === formData.serviceId);
 
   const filteredServices = services?.filter((s: any) => {
+    if (!s.active) return false;
     if (formData.providerId && s.providerId && s.providerId !== formData.providerId) return false;
     return true;
   });
@@ -290,7 +291,7 @@ export default function NewOrder() {
                 <SelectValue placeholder="Select provider" />
               </SelectTrigger>
               <SelectContent>
-                {providers?.map((p: any) => (
+                {providers?.filter((p: any) => p.active).map((p: any) => (
                   <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                 ))}
               </SelectContent>
