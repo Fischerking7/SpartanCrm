@@ -38,7 +38,7 @@ export const PERMISSIONS = {
   'production:view:all': ['DIRECTOR', 'OPERATIONS', 'EXECUTIVE'],
   'production:view:dollars': ['REP', 'LEAD', 'MANAGER', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 
-  'users:view': ['MANAGER', 'DIRECTOR', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+  'users:view': ['ADMIN', 'MANAGER', 'DIRECTOR', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'users:create': ['OPERATIONS', 'EXECUTIVE'],
   'users:edit': ['OPERATIONS', 'EXECUTIVE'],
   'users:deactivate': ['OPERATIONS', 'EXECUTIVE'],
@@ -57,8 +57,8 @@ export const PERMISSIONS = {
   'system:settings:operational': ['OPERATIONS', 'EXECUTIVE'],
   'system:settings:financial': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'system:settings:all': ['OPERATIONS', 'EXECUTIVE'],
-  'system:ratecards:view': ['DIRECTOR', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
-  'system:ratecards:edit': ['EXECUTIVE'],
+  'system:ratecards:view': ['ADMIN', 'DIRECTOR', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+  'system:ratecards:edit': ['ADMIN', 'EXECUTIVE'],
   'system:automation': ['OPERATIONS', 'EXECUTIVE'],
 
   'exceptions:operational': ['DIRECTOR', 'OPERATIONS', 'EXECUTIVE'],
@@ -105,9 +105,9 @@ export const PERMISSIONS = {
   'banking:export': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'banking:manage:accounts': ['ACCOUNTING', 'EXECUTIVE'],
 
-  'admin:providers': ['OPERATIONS', 'EXECUTIVE'],
-  'admin:clients': ['OPERATIONS', 'EXECUTIVE'],
-  'admin:services': ['OPERATIONS', 'EXECUTIVE'],
+  'admin:providers': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
+  'admin:clients': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
+  'admin:services': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
   'admin:incentives': ['OPERATIONS', 'EXECUTIVE'],
   'admin:overrides:manage': ['OPERATIONS', 'EXECUTIVE'],
   'admin:overridepool': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],

@@ -241,7 +241,10 @@ export const storage = {
 
   // Rate Cards
   async getRateCards() {
-    return db.query.rateCards.findMany({ orderBy: [desc(rateCards.createdAt)] });
+    return db.query.rateCards.findMany({ 
+      where: isNull(rateCards.deletedAt),
+      orderBy: [desc(rateCards.createdAt)] 
+    });
   },
   async getRateCardById(id: string) {
     return db.query.rateCards.findFirst({ where: eq(rateCards.id, id) });
