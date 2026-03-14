@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or, desc } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -15047,7 +15047,7 @@ export async function registerRoutes(
     }
   });
 
-  const overrideApprovalAccess = requireRoles("EXECUTIVE", "OPERATIONS");
+  const overrideApprovalAccess = requireRoles("EXECUTIVE", "OPERATIONS", "ACCOUNTING");
 
   function canApproveOverrideType(userRole: string, overrideType: string): boolean {
     if (userRole === "EXECUTIVE") return ["DIRECTOR_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
@@ -15640,7 +15640,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/payroll/pdf-zip/:payRunId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/payroll/pdf-zip/:payRunId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.payRunId);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
@@ -15700,6 +15700,103 @@ export async function registerRoutes(
       const report = await storage.getVarianceReport(periodStart as string, periodEnd as string);
       res.json(report);
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== ACCOUNTING HOME DASHBOARD =====
+
+  app.get("/api/accounting/home-summary", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+    try {
+      const now = new Date();
+      const periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+      const periodEnd = now.toISOString().split("T")[0];
+
+      const arOpen = await db.select({
+        count: sql<number>`count(*)`,
+        totalExpected: sql<string>`COALESCE(SUM("expected_amount_cents"), 0)`,
+        totalActual: sql<string>`COALESCE(SUM("actual_amount_cents"), 0)`,
+      }).from(arExpectations).where(sql`"status" IN ('OPEN', 'PARTIAL')`);
+
+      const arOverdue = await db.select({
+        count: sql<number>`count(*)`,
+      }).from(arExpectations).where(sql`"status" IN ('OPEN', 'PARTIAL') AND "created_at" < NOW() - INTERVAL '30 days'`);
+
+      const arSatisfied = await db.select({
+        count: sql<number>`count(*)`,
+        totalActual: sql<string>`COALESCE(SUM("actual_amount_cents"), 0)`,
+      }).from(arExpectations).where(sql`"status" = 'SATISFIED' AND "created_at" >= ${periodStart}::date`);
+
+      const payrollReady = await db.select({
+        count: sql<number>`count(*)`,
+        totalCommission: sql<string>`COALESCE(SUM(CAST("base_commission_earned" AS DECIMAL) * 100), 0)`,
+      }).from(salesOrders).where(sql`"payroll_ready_at" IS NOT NULL AND "pay_run_id" IS NULL`);
+
+      const pendingOverrides = await db.select({
+        count: sql<number>`count(*)`,
+        totalAmount: sql<string>`COALESCE(SUM(CAST("amount" AS DECIMAL) * 100), 0)`,
+      }).from(overrideEarnings).where(sql`"approval_status" = 'PENDING_APPROVAL'`);
+
+      const draftPayRuns = await db.select({ count: sql<number>`count(*)` })
+        .from(payRuns).where(eq(payRuns.status, "DRAFT"));
+
+      const scheduledRuns = await db.select().from(scheduledPayRuns)
+        .where(eq(scheduledPayRuns.isActive, true))
+        .orderBy(scheduledPayRuns.nextRunAt).limit(1);
+
+      const pendingAdvances = await db.select({ count: sql<number>`count(*)` })
+        .from(advances).where(sql`"status" = 'PENDING'`);
+
+      const payrollProcessed = await db.select({
+        totalNet: sql<string>`COALESCE(SUM(CAST("net_pay" AS DECIMAL) * 100), 0)`,
+      }).from(payStatements)
+        .innerJoin(payRuns, eq(payStatements.payRunId, payRuns.id))
+        .where(sql`"pay_runs"."created_at" >= ${periodStart}::date`);
+
+      const profitData = await db.select({
+        totalProfit: sql<string>`COALESCE(SUM("iron_crest_profit_cents"), 0)`,
+        totalRackRate: sql<string>`COALESCE(SUM("iron_crest_rack_rate_cents"), 0)`,
+      }).from(salesOrders).where(sql`"approved_at" >= ${periodStart}::date`);
+
+      const missingTax = await db.select({ count: sql<number>`count(*)` })
+        .from(users).where(sql`"role" IN ('REP', 'LEAD', 'MANAGER') AND "deleted_at" IS NULL AND "id" NOT IN (SELECT DISTINCT "user_id" FROM "tax_documents")`);
+
+      const expectedTotal = parseInt(arOpen[0]?.totalExpected || "0");
+      const receivedTotal = parseInt(arSatisfied[0]?.totalActual || "0") + parseInt(arOpen[0]?.totalActual || "0");
+      const cashReceived = receivedTotal;
+      const payrollOut = parseInt(payrollProcessed[0]?.totalNet || "0");
+      const profit = parseInt(profitData[0]?.totalProfit || "0");
+      const rackRate = parseInt(profitData[0]?.totalRackRate || "0");
+
+      res.json({
+        moneyIn: {
+          totalExpectedCents: expectedTotal,
+          totalReceivedCents: receivedTotal,
+          outstandingCents: Math.max(0, expectedTotal - receivedTotal),
+          collectionRate: expectedTotal > 0 ? Math.round((receivedTotal / expectedTotal) * 100) : 100,
+          overdueCount: arOverdue[0]?.count || 0,
+        },
+        moneyOut: {
+          payrollReadyOrders: payrollReady[0]?.count || 0,
+          payrollReadyTotalCents: parseInt(payrollReady[0]?.totalCommission || "0"),
+          pendingOverrides: pendingOverrides[0]?.count || 0,
+          pendingOverrideTotalCents: parseInt(pendingOverrides[0]?.totalAmount || "0"),
+          nextScheduledRun: scheduledRuns[0]?.nextRunAt || null,
+          draftPayRuns: draftPayRuns[0]?.count || 0,
+        },
+        netPosition: {
+          cashReceivedCents: cashReceived,
+          payrollProcessedCents: payrollOut,
+          netPositionCents: cashReceived - payrollOut,
+          profitMtdCents: profit,
+          profitMargin: rackRate > 0 ? Math.round((profit / rackRate) * 100) : 0,
+          pendingOverrides: pendingOverrides[0]?.count || 0,
+          pendingAdvances: pendingAdvances[0]?.count || 0,
+          missingTaxProfiles: missingTax[0]?.count || 0,
+        },
+      });
+    } catch (error: any) {
+      console.error("Failed to get accounting home summary:", error);
       res.status(500).json({ message: error.message });
     }
   });

@@ -94,14 +94,14 @@ export function authMiddleware(db: any) {
 }
 
 export function adminOnly(req: AuthRequest, res: Response, next: NextFunction) {
-  if (req.user?.role !== "ADMIN" && req.user?.role !== "OPERATIONS") {
+  if (req.user?.role !== "ADMIN" && req.user?.role !== "OPERATIONS" && req.user?.role !== "ACCOUNTING") {
     return res.status(403).json({ message: "Admin access required" });
   }
   next();
 }
 
 export function executiveOrAdmin(req: AuthRequest, res: Response, next: NextFunction) {
-  const allowedRoles = ["ADMIN", "OPERATIONS", "EXECUTIVE"];
+  const allowedRoles = ["ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"];
   if (!req.user?.role || !allowedRoles.includes(req.user.role)) {
     return res.status(403).json({ message: "Executive or admin access required" });
   }

@@ -1,0 +1,158 @@
+PHASE 4 PROMPT:
+
+Build the Director interface. Directors see production volume, 
+connect rates, and performance trends. They never see dollar 
+amounts. Their job is to drive behavior, not manage compensation.
+
+===================================================================
+SCREEN 1 — DIRECTOR HOME
+===================================================================
+
+Route: /director (default landing for DIRECTOR)
+Source: GET /api/my/team-health + production metrics
+
+THE SCOREBOARD (full width, the most prominent element):
+
+  TODAY'S NUMBERS (large, real-time):
+    Sales: {n}    Connects: {n}    Connect Rate: {n}%
+    
+    Connect rate color:
+      >= 75%: green
+      60-74%: yellow
+      < 60%: red
+  
+  THIS WEEK:
+    Sales: {n} vs last week: {n} ({+/-n}%)
+    Connects: {n} vs last week: {n}
+    
+  THIS MONTH:
+    Sales: {n} | Target: {n} | Gap: {n}
+    Connects: {n} | Target: {n} | Gap: {n}
+    Progress bar toward monthly target
+
+MANAGER LEADERBOARD (below scoreboard):
+  Ranked by connects (NOT commission):
+  
+  Rank | Manager | Team Size | Sales | Connects | Rate | Trend
+  
+  Trend: sparkline for last 7 days connects
+  Color coding by connect rate
+  Click manager → drill into their team
+
+REP ALERT PANEL (right side / below on mobile):
+  Reps needing attention:
+    "No sales in 7+ days" (list of rep names)
+    "Connect rate < 50% this week" (list)
+    "Open chargeback" (list)
+  
+  Each alert: rep name, manager name, days since last sale
+  [Notify Manager] button per alert
+
+===================================================================
+SCREEN 2 — TEAM PRODUCTION
+===================================================================
+
+Route: /director/production
+
+FILTER BAR:
+  Manager filter | Service filter | Date range
+  View: [By Manager] [By Rep] [By Service]
+
+BY MANAGER VIEW:
+  Table showing each manager's team performance:
+  Manager | Team Size | MTD Sales | MTD Connects | Rate | 
+  Best Rep | Needs Attention
+  
+  Expandable → shows each rep under that manager
+
+BY REP VIEW:
+  All reps in the organization ranked by connects:
+  Rank | Rep | Manager | Role | Sales | Connects | Rate | 
+  Last Sale
+
+BY SERVICE VIEW:
+  Production breakdown by service type:
+  Service | Total Orders | Connects | Rate | 
+  Best Performing Manager
+
+NO DOLLAR AMOUNTS ANYWHERE ON THIS SCREEN.
+If a dollar amount field accidentally appears, it must be 
+blocked at the API level (stripFinancialFields applied 
+to all responses for DIRECTOR role).
+
+===================================================================
+SCREEN 3 — TRENDS AND ANALYTICS
+===================================================================
+
+Route: /director/analytics
+
+PRODUCTION TREND CHART:
+  Line chart: Sales vs Connects over last 90 days
+  Toggle: Daily | Weekly | Monthly view
+  Overlay: Target connect rate line
+
+CONNECT RATE BY MANAGER (bar chart):
+  Each manager as a bar
+  Target line overlay
+  Color coded (green/yellow/red)
+
+SERVICE MIX (pie/donut chart):
+  What percentage of sales are each service tier
+  Click segment → shows which managers/reps drive that service
+
+DAY OF WEEK ANALYSIS:
+  Which days generate most sales
+  Which days generate most connects
+  Heatmap view
+
+COHORT ANALYSIS (rep performance over time):
+  New reps: sales in first 30/60/90 days
+  Trend lines for cohort groups
+  Identifies training effectiveness
+
+===================================================================
+SCREEN 4 — ORDER APPROVALS
+===================================================================
+
+Route: /director/approvals
+
+Directors can approve orders. This is their operational 
+contribution — keeping the approval pipeline moving.
+
+APPROVAL QUEUE:
+  Orders needing approval (all teams visible to DIRECTOR)
+  
+  Each row:
+    Rep | Customer | Service | Date | Days waiting
+    Auto-approval result: Clean ✓ or Flagged ⚠ (with reasons)
+    NO commission amount shown
+  
+  [Approve] [Reject] [Skip for now] per row
+  [Approve All Clean] batch button
+
+APPROVAL HISTORY:
+  Director's own approval history
+  Date | Order | Rep | Decision | Time to approve
+
+===================================================================
+SCREEN 5 — KNOWLEDGE AND GOALS
+===================================================================
+
+Route: /director/resources
+
+KNOWLEDGE DOCUMENTS:
+  Read + write access
+  Organized by category
+  [+ Add Document] button
+  Used to share training materials, product updates, 
+  field strategies with the team
+
+SALES GOALS:
+  Set goals for any manager or rep
+  Goal type: sales count | connect rate | specific service
+  Period: weekly | monthly
+  
+  Goal tracking table:
+    Rep/Manager | Goal | Current | % Complete | Days Left
+  
+  [Set New Goal] button → opens goal creation form

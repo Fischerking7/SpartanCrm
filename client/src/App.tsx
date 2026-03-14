@@ -10,6 +10,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { OpsNav } from "@/pages/ops/ops-layout";
+import { AcctNav } from "@/pages/accounting/acct-layout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActivityTracker } from "@/hooks/use-activity-tracker";
 
@@ -67,6 +68,13 @@ import OpsInstallSync from "@/pages/ops/ops-install-sync";
 import OpsFinanceImports from "@/pages/ops/ops-finance-imports";
 import OpsReps from "@/pages/ops/ops-reps";
 import OpsReports from "@/pages/ops/ops-reports";
+import AcctHome from "@/pages/accounting/acct-home";
+import AcctPayRuns from "@/pages/accounting/acct-pay-runs";
+import AcctPayStubs from "@/pages/accounting/acct-pay-stubs";
+import AcctAR from "@/pages/accounting/acct-ar";
+import AcctOverrides from "@/pages/accounting/acct-overrides";
+import AcctAdvances from "@/pages/accounting/acct-advances";
+import AcctReports from "@/pages/accounting/acct-reports";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -76,6 +84,8 @@ function Dashboard() {
   switch (user.role) {
     case "OPERATIONS":
       return <OpsHome />;
+    case "ACCOUNTING":
+      return <AcctHome />;
     case "ADMIN":
       return <AdminDashboard />;
     case "EXECUTIVE":
@@ -137,7 +147,6 @@ const routeTitles: Record<string, string> = {
   "/change-password": "Settings",
   "/my-credentials": "My Credentials",
   "/payruns": "Pay Runs",
-  "/accounting": "Accounting",
   "/finance": "Finance",
   "/audit": "Audit Log",
   "/queues": "Queues",
@@ -150,6 +159,13 @@ const routeTitles: Record<string, string> = {
   "/ops/finance-imports": "Finance Imports",
   "/ops/reps": "Rep Management",
   "/ops/reports": "Reports",
+  "/accounting": "Accounting",
+  "/accounting/pay-runs": "Pay Runs",
+  "/accounting/pay-stubs": "Pay Stubs",
+  "/accounting/ar": "Accounts Receivable",
+  "/accounting/overrides": "Override Approvals",
+  "/accounting/advances": "Advances & Deductions",
+  "/accounting/reports": "Financial Reports",
 };
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -167,6 +183,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const fieldRoles = ["REP", "MDU", "LEAD"];
   const showBottomNav = fieldRoles.includes(user.role);
   const showOpsNav = ["OPERATIONS", "ADMIN", "EXECUTIVE"].includes(user.role) && location.startsWith("/ops");
+  const showAcctNav = ["ACCOUNTING", "ADMIN", "EXECUTIVE"].includes(user.role) && location.startsWith("/accounting");
   const pageTitle = routeTitles[location] || routeTitles[location.split("/").slice(0, 2).join("/")] || "";
 
   return (
@@ -180,6 +197,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
             <ThemeToggle />
           </header>
           {showOpsNav && <OpsNav />}
+          {showAcctNav && <AcctNav />}
           <main className={`flex-1 overflow-auto ${showBottomNav ? "pb-16 md:pb-0" : ""}`}>
             {children}
           </main>
@@ -273,6 +291,18 @@ function Router() {
           </>
         )}
         
+        {(user.role === "ACCOUNTING" || user.role === "ADMIN" || user.role === "EXECUTIVE") && (
+          <>
+            <Route path="/accounting" component={AcctHome} />
+            <Route path="/accounting/pay-runs" component={AcctPayRuns} />
+            <Route path="/accounting/pay-stubs" component={AcctPayStubs} />
+            <Route path="/accounting/ar" component={AcctAR} />
+            <Route path="/accounting/overrides" component={AcctOverrides} />
+            <Route path="/accounting/advances" component={AcctAdvances} />
+            <Route path="/accounting/reports" component={AcctReports} />
+          </>
+        )}
+        
         {(isAdmin || user.role === "EXECUTIVE") && (
           <>
             <Route path="/payruns" component={PayRuns} />
@@ -285,7 +315,6 @@ function Router() {
         
         {isAdmin && (
           <>
-            <Route path="/accounting" component={Accounting} />
             <Route path="/finance" component={Finance} />
             <Route path="/recalculate" component={Recalculate} />
             <Route path="/admin/providers" component={AdminProviders} />
