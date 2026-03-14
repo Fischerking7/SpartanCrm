@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, ne, asc, or, desc } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, adminOnly, executiveOrAdmin, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
@@ -4925,6 +4925,144 @@ export async function registerRoutes(
       const orders = await storage.getExportedOrders();
       res.json(orders);
     } catch (error) { res.status(500).json({ message: "Failed to get exported orders" }); }
+  });
+
+  // Operations Center - Aggregated Exception Queue
+  app.get("/api/ops/exceptions", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const [unmatchedPayments, unmatchedChargebacks, rateIssues, orderExceptions] = await Promise.all([
+        storage.getUnmatchedPayments(),
+        storage.getUnmatchedChargebacks(),
+        storage.getRateIssues(),
+        storage.getOrderExceptions(),
+      ]);
+
+      const exceptions: any[] = [];
+
+      for (const p of unmatchedPayments as any[]) {
+        exceptions.push({
+          id: p.id, type: "UNMATCHED_PAYMENT", severity: "HIGH",
+          title: "Unmatched Payment",
+          description: `Payment of $${parseFloat(p.amount || "0").toFixed(2)} could not be matched to an order`,
+          details: p, createdAt: p.createdAt,
+        });
+      }
+      for (const c of unmatchedChargebacks as any[]) {
+        exceptions.push({
+          id: c.id, type: "UNMATCHED_CHARGEBACK", severity: "HIGH",
+          title: "Unmatched Chargeback",
+          description: `Chargeback of $${parseFloat(c.amount || "0").toFixed(2)} could not be matched`,
+          details: c, createdAt: c.createdAt,
+        });
+      }
+      for (const r of rateIssues as any[]) {
+        exceptions.push({
+          id: r.id, type: "RATE_ISSUE", severity: r.type === "MISSING_RATE" ? "URGENT" : "MEDIUM",
+          title: r.type === "MISSING_RATE" ? "Missing Rate Card" : "Rate Conflict",
+          description: r.details || "Rate card issue detected",
+          details: r, createdAt: r.createdAt, orderId: r.salesOrderId,
+        });
+      }
+      for (const e of orderExceptions as any[]) {
+        const order = await storage.getOrderById(e.salesOrderId);
+        exceptions.push({
+          id: e.id, type: "ORDER_EXCEPTION", severity: "HIGH",
+          title: "Flagged Order",
+          description: `${order?.customerName || "Unknown"} - ${e.reason}`,
+          details: { ...e, invoiceNumber: order?.invoiceNumber },
+          createdAt: e.createdAt, orderId: e.salesOrderId,
+        });
+      }
+
+      // Check for overdue approvals
+      const pendingOrders = await db.select({
+        id: salesOrders.id,
+        customerName: salesOrders.customerName,
+        invoiceNumber: salesOrders.invoiceNumber,
+        repId: salesOrders.repId,
+        completionDate: salesOrders.completionDate,
+        createdAt: salesOrders.createdAt,
+        baseCommissionEarned: salesOrders.baseCommissionEarned,
+      }).from(salesOrders)
+        .where(sql`"sales_orders"."job_status" = 'COMPLETED' AND "sales_orders"."approved_at" IS NULL`);
+      for (const o of pendingOrders) {
+        const completedAt = o.completionDate ? new Date(o.completionDate) : new Date(o.createdAt);
+        const daysPending = Math.floor((Date.now() - completedAt.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysPending >= 3) {
+          exceptions.push({
+            id: `approval-overdue-${o.id}`, type: "APPROVAL_OVERDUE", severity: daysPending >= 5 ? "URGENT" : "HIGH",
+            title: "Order Approval Overdue",
+            description: `${o.customerName} - waiting ${daysPending} days for approval`,
+            details: { orderId: o.id, invoiceNumber: o.invoiceNumber, repId: o.repId, daysPending,
+              estimatedCommission: o.baseCommissionEarned ? parseFloat(o.baseCommissionEarned) : 0 },
+            createdAt: completedAt.toISOString(), orderId: o.id,
+          });
+        }
+      }
+
+      exceptions.sort((a, b) => {
+        const sevOrder: Record<string, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+        return (sevOrder[a.severity] || 3) - (sevOrder[b.severity] || 3);
+      });
+
+      res.json({ exceptions, counts: {
+        urgent: exceptions.filter(e => e.severity === "URGENT").length,
+        high: exceptions.filter(e => e.severity === "HIGH").length,
+        medium: exceptions.filter(e => e.severity === "MEDIUM").length,
+      }});
+    } catch (error) {
+      console.error("Failed to get ops exceptions:", error);
+      res.status(500).json({ message: "Failed to get exceptions" });
+    }
+  });
+
+  // Operations Center - Activity Summary
+  app.get("/api/ops/activity-summary", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const today = new Date().toISOString().split("T")[0];
+
+      const todayOrders = await db.select({ count: sql<number>`count(*)` }).from(salesOrders)
+        .where(sql`"sales_orders"."created_at"::date = ${today}::date`);
+
+      const pendingApprovals = await db.select({ count: sql<number>`count(*)` }).from(salesOrders)
+        .where(sql`"sales_orders"."job_status" = 'COMPLETED' AND "sales_orders"."approved_at" IS NULL`);
+
+      const autoApproved = await db.select({ count: sql<number>`count(*)` }).from(salesOrders)
+        .where(sql`"sales_orders"."approved_at"::date = ${today}::date`);
+
+      // Install sync info
+      const lastSync = await db.select().from(installSyncRuns)
+        .orderBy(desc(installSyncRuns.createdAt)).limit(1);
+
+      // Finance import info
+      const pendingImports = await db.select({ count: sql<number>`count(*)` }).from(financeImports)
+        .where(or(eq(financeImports.status, "IMPORTED"), eq(financeImports.status, "MAPPED")));
+
+      const unmatchedRows = await db.select({ count: sql<number>`count(*)` }).from(financeImportRows)
+        .where(eq(financeImportRows.matchStatus, "UNMATCHED"));
+
+      res.json({
+        today: {
+          ordersSubmitted: Number(todayOrders[0]?.count || 0),
+          approvalsPending: Number(pendingApprovals[0]?.count || 0),
+          autoApprovals: Number(autoApproved[0]?.count || 0),
+          manualReviewNeeded: Number(pendingApprovals[0]?.count || 0),
+        },
+        installSync: lastSync[0] ? {
+          lastRun: lastSync[0].createdAt,
+          matched: lastSync[0].matchedCount || 0,
+          approved: lastSync[0].approvedCount || 0,
+          unmatched: lastSync[0].unmatchedCount || 0,
+        } : null,
+        financeImports: {
+          pendingImports: Number(pendingImports[0]?.count || 0),
+          unmatchedRows: Number(unmatchedRows[0]?.count || 0),
+        },
+      });
+    } catch (error) {
+      console.error("Failed to get ops activity summary:", error);
+      res.status(500).json({ message: "Failed to get activity summary" });
+    }
   });
 
   // Exception Queues

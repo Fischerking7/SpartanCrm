@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { OpsNav } from "@/pages/ops/ops-layout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActivityTracker } from "@/hooks/use-activity-tracker";
 
@@ -60,6 +61,12 @@ import AdminDisputes from "@/pages/admin-disputes";
 import OrderTracker from "@/pages/order-tracker";
 import UserActivityPage from "@/pages/admin/user-activity";
 import InstallSync from "@/pages/admin/install-sync";
+import OpsHome from "@/pages/ops/ops-home";
+import OpsOrders from "@/pages/ops/ops-orders";
+import OpsInstallSync from "@/pages/ops/ops-install-sync";
+import OpsFinanceImports from "@/pages/ops/ops-finance-imports";
+import OpsReps from "@/pages/ops/ops-reps";
+import OpsReports from "@/pages/ops/ops-reports";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -68,6 +75,7 @@ function Dashboard() {
   
   switch (user.role) {
     case "OPERATIONS":
+      return <OpsHome />;
     case "ADMIN":
       return <AdminDashboard />;
     case "EXECUTIVE":
@@ -136,6 +144,12 @@ const routeTitles: Record<string, string> = {
   "/export-history": "Exports",
   "/recalculate": "Recalculate",
   "/admin/user-activity": "User Activity",
+  "/ops": "Operations Center",
+  "/ops/orders": "Order Management",
+  "/ops/install-sync": "Install Sync",
+  "/ops/finance-imports": "Finance Imports",
+  "/ops/reps": "Rep Management",
+  "/ops/reports": "Reports",
 };
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -152,6 +166,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 
   const fieldRoles = ["REP", "MDU", "LEAD"];
   const showBottomNav = fieldRoles.includes(user.role);
+  const showOpsNav = ["OPERATIONS", "ADMIN", "EXECUTIVE"].includes(user.role) && location.startsWith("/ops");
   const pageTitle = routeTitles[location] || routeTitles[location.split("/").slice(0, 2).join("/")] || "";
 
   return (
@@ -164,6 +179,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
             <span className="text-sm font-medium md:hidden truncate flex-1" data-testid="text-page-title">{pageTitle}</span>
             <ThemeToggle />
           </header>
+          {showOpsNav && <OpsNav />}
           <main className={`flex-1 overflow-auto ${showBottomNav ? "pb-16 md:pb-0" : ""}`}>
             {children}
           </main>
@@ -245,6 +261,17 @@ function Router() {
         {canViewReports && <Route path="/sales-pipeline" component={SalesPipeline} />}
         
         {canReviewMdu && <Route path="/admin/mdu-review" component={AdminMduReview} />}
+
+        {(user.role === "OPERATIONS" || user.role === "ADMIN" || user.role === "EXECUTIVE") && (
+          <>
+            <Route path="/ops" component={OpsHome} />
+            <Route path="/ops/orders" component={OpsOrders} />
+            <Route path="/ops/install-sync" component={OpsInstallSync} />
+            <Route path="/ops/finance-imports" component={OpsFinanceImports} />
+            <Route path="/ops/reps" component={OpsReps} />
+            <Route path="/ops/reports" component={OpsReports} />
+          </>
+        )}
         
         {(isAdmin || user.role === "EXECUTIVE") && (
           <>

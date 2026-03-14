@@ -1,0 +1,305 @@
+PHASE 3 PROMPT:
+
+Build the Accounting interface. Accounting's job is money in 
+(AR) and money out (payroll). Their interface connects these 
+two flows and makes payroll processing a guided workflow.
+
+===================================================================
+SCREEN 1 — ACCOUNTING HOME
+===================================================================
+
+Route: /accounting (default landing for ACCOUNTING)
+Source: GET /api/admin/accounting/summary
+
+LAYOUT: Three-column dashboard (desktop), tabs (mobile)
+
+COLUMN 1 — Money In (AR):
+  Title: "Carrier Payments"
+  
+  Total expected this period: $X
+  Total received: $X  
+  Outstanding balance: $X (red if > 0)
+  
+  Collection rate: {n}% (gauge)
+  Avg days to collection: {n}
+  
+  Overdue expectations: {count}
+  [View AR] button
+  
+COLUMN 2 — Money Out (Payroll):
+  Title: "Payroll Obligations"
+  
+  Payroll-ready orders: {count} orders / $X total
+  Overrides pending approval: {count} / $X
+  Next scheduled pay run: {date}
+  Draft pay runs: {count}
+  
+  [Build Pay Run] button (primary CTA)
+  [View Pay Runs] button
+
+COLUMN 3 — Net Position:
+  Title: "Period Health"
+  
+  Cash received: $X
+  Payroll processed: $X
+  Net position: $X (green if positive)
+  
+  Iron Crest profit MTD: $X
+  Profit margin: {n}%
+  
+  Pending actions:
+    {n} overrides awaiting approval
+    {n} advances awaiting approval  
+    {n} disputes unresolved
+    {n} tax profiles missing
+
+===================================================================
+SCREEN 2 — PAY RUNS (The Core Accounting Workflow)
+===================================================================
+
+Route: /accounting/pay-runs
+
+This screen guides accounting through the entire pay cycle 
+as a step-by-step workflow.
+
+PAY CYCLE PROGRESS BAR (top of screen):
+  Step 1: Build ──── Step 2: Review ──── Step 3: Approve 
+  ──── Step 4: Generate Stubs ──── Step 5: Finalize ──── 
+  Step 6: Export
+
+ACTIVE PAY RUN SECTION:
+  If a draft pay run exists:
+    Shows current step in the workflow
+    Shows what's needed to advance to next step
+    CTA button for current step
+  
+  If no active pay run:
+    [Auto-Build Pay Run] button (primary)
+    Period date range picker
+    Dry run toggle (default on for first preview)
+
+PAY RUN DETAIL (when a run is selected):
+  
+  SUMMARY CARD:
+    Period, rep count, order count
+    Total gross: $X
+    Total overrides: $X
+    Total deductions: -$X
+    Total net pay: $X
+    Iron Crest profit this run: $X
+  
+  TABS: By Rep | By Service | Exceptions
+
+  BY REP TAB:
+    One row per rep:
+      Name | Orders | Gross | Overrides | Deductions | Net Pay
+    Expandable → shows all orders for that rep
+    Flag icon if any exceptions (chargeback, dispute, hold)
+    [View Stub] button per rep
+    
+  BY SERVICE TAB:
+    One row per service type:
+      Service | Orders | Total Commission | Total Overrides
+    Shows where money is concentrated
+    
+  EXCEPTIONS TAB:
+    Any orders/reps with issues:
+      Held orders, active chargebacks, missing tax profiles
+      Each with action button to resolve
+
+  ACTION BUTTONS (context-aware):
+    DRAFT: [Preview Stubs] [Generate Stubs] [Cancel Run]
+    STUBS GENERATED: [Review All Stubs] [Finalize Pay Run]
+    FINALIZED: [Export ACH] [Download All PDFs] [Lock Run]
+
+===================================================================
+SCREEN 3 — PAY STUBS
+===================================================================
+
+Route: /accounting/pay-stubs
+
+SEARCH BAR: search by rep name, stub number, period
+
+FILTER BAR: All | Draft | Issued | Paid
+
+STUBS TABLE:
+  Rep Name | Stub # | Period | Gross | Net Pay | Status | Actions
+  
+  [Download PDF] per row
+  [View Detail] per row → opens stub detail modal
+
+STUB DETAIL MODAL:
+  Replicates the PDF layout on screen:
+  
+  Header: Iron Crest | Stub # | Period
+  Rep info: Name, Rep ID, Role, Email
+  
+  ORDERS TABLE:
+    Invoice # | Customer | Date | Service | Install Date | 
+    Role at Sale | Commission
+    Subtotal row
+  
+  EARNINGS SECTION:
+    Override earnings (if any) with source order
+    Bonuses/SPIFFs (if any)
+    Total earnings
+  
+  DEDUCTIONS SECTION:
+    Chargebacks (with original order reference)
+    User deductions
+    Advance repayment (with advance ID)
+    Tax withheld
+    Total deductions
+  
+  NET PAY: large, prominent
+  
+  [Download PDF] [Mark Paid] [Void] buttons
+
+BATCH EXPORT:
+  Select pay run → [Export All PDFs as ZIP]
+  Select pay run → [Export ACH File]
+
+===================================================================
+SCREEN 4 — AR MANAGEMENT
+===================================================================
+
+Route: /accounting/ar
+
+SUMMARY STRIPS (horizontal):
+  Open: {count} / $X | Partial: {count} / $X | 
+  Satisfied: {count} / $X | Overdue: {count} / $X
+
+RECONCILIATION VIEW TOGGLE:
+  [AR Table] [AR-Payroll Reconciliation] [Variance Report]
+
+AR TABLE VIEW:
+  Columns: Client | Invoice # | Customer | Expected | 
+           Received | Balance | Status | Days Open
+  
+  Color coding:
+    Green: satisfied
+    Yellow: partial
+    Red: open > 30 days
+    Dark red: open > 45 days
+  
+  Click row → AR DETAIL:
+    Order info, AR expectation details
+    Payment history timeline
+    [Record Payment] button → modal with amount, date, reference
+    [Write Off] button (with reason)
+    [View Reconciliation] button
+
+AR-PAYROLL RECONCILIATION VIEW:
+  Source: GET /api/admin/accounting/ar-payroll-reconciliation
+  
+  Each order as a row with two-sided status:
+  
+  LEFT SIDE (AR): Expected | Received | Balance | Status
+  RIGHT SIDE (Payroll): Ready At | Pay Run | Status | Stub #
+  
+  FLAG COLUMN:
+    Icons for each flag type with tooltips
+    Filter by flag type
+  
+  Rows with 'AR_UNSATISFIED_BUT_PAYROLL_READY' highlighted red
+  — this means money went out before it came in
+
+VARIANCE REPORT VIEW:
+  Source: GET /api/admin/accounting/variance-report
+  Grouped by: AR Variance | Commission Variance | Negative Margin
+  Each group collapsible
+  Export CSV per group
+
+===================================================================
+SCREEN 5 — OVERRIDE APPROVALS
+===================================================================
+
+Route: /accounting/overrides
+
+TABS: 
+  Admin Overrides ({pending count})
+  Accounting Overrides ({pending count})
+
+Each tab:
+  PENDING SECTION:
+    Each override as an action card:
+    ┌─────────────────────────────────────────┐
+    │ Admin Override — $10.00                 │
+    │ Rep: John Smith | 1 Gig Internet        │
+    │ Customer: Jane Doe | Inv: INV-0325-00142│
+    │ Waiting: 2 days                         │
+    │ Recipient: Mike Johnson (OPERATIONS)    │
+    │ [Approve] [Reject]          [$10 Impact]│
+    └─────────────────────────────────────────┘
+    
+    Self-owned overrides greyed out:
+    "You are the recipient — cannot self-approve"
+  
+  [Bulk Approve All Eligible] button
+  
+  APPROVED HISTORY:
+    Table of recently approved overrides
+    Approved by | Date | Amount | Rep | Order
+
+===================================================================
+SCREEN 6 — ADVANCES AND DEDUCTIONS
+===================================================================
+
+Route: /accounting/advances
+
+TABS: Pending Approval | Active | Repayment History
+
+PENDING TAB:
+  Each advance request as a card:
+    Rep name + amount requested + reason
+    [Approve] [Reject] buttons
+    Approve → opens modal with:
+      Approved amount (editable)
+      Repayment schedule
+      [Confirm Approval] button
+
+ACTIVE TAB:
+  Table: Rep | Original | Remaining | Per Period | Status
+  Each row expandable → payment history
+  [Apply Manual Payment] button per advance
+
+DEDUCTIONS (separate section on same screen):
+  [+ Add Deduction] button
+  Rep selector, deduction type, amount, frequency
+  Active deductions table per rep
+
+===================================================================
+SCREEN 7 — FINANCIAL REPORTS
+===================================================================
+
+Route: /accounting/reports
+
+REPORT CARDS (grid):
+  
+  [Iron Crest Profit Report]
+    By service type | By rep | By day
+    Shows rack rate, all payouts, margin
+    
+  [Commission Variance Report]
+    Orders where payout differs from rate card
+    
+  [AR Aging Report]
+    Open expectations by age bucket
+    0-30 | 30-60 | 60-90 | 90+ days
+    
+  [Payroll Summary]
+    Period over period comparison
+    By rep, by service, by pay run
+    
+  [YTD Earnings by Rep]
+    All reps, full year, all payment components
+    
+  [1099 Preparation]
+    Year selector → generates 1099 data
+    Threshold: $600 minimum
+    Export for tax filing
+
+Each report card:
+  Last run date
+  [Run Report] → preview + download CSV
+  [Schedule] → add to scheduled reports
