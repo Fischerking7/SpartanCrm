@@ -64,7 +64,7 @@ export async function generateAndSendOtp(
         });
       }
     } else {
-      console.log(`[Onboarding] Twilio not configured. OTP for ${repName}: ${otp} (DEV ONLY)`);
+      console.log(`[Onboarding] Twilio not configured. OTP sent for ${repName} (check logs in dev mode).`);
       await db.insert(onboardingAuditLog).values({
         userId,
         action: "OTP_SENT_SMS",

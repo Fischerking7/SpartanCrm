@@ -93,6 +93,20 @@ export function authMiddleware(db: any) {
     }
     
     req.user = user;
+
+    const onboardingExemptPaths = ['/api/onboarding/', '/api/auth/', '/api/my/profile'];
+    const needsOnboarding = ['REP', 'MDU', 'LEAD'].includes(user.role);
+    if (needsOnboarding && !user.appAccessGrantedAt && user.onboardingStatus && user.onboardingStatus !== 'APPROVED') {
+      const isExempt = onboardingExemptPaths.some(p => req.path.startsWith(p));
+      if (!isExempt) {
+        return res.status(403).json({
+          message: 'Onboarding not complete',
+          onboardingStatus: user.onboardingStatus,
+          redirectTo: '/onboarding',
+        });
+      }
+    }
+
     next();
   };
 }

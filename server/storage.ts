@@ -2215,8 +2215,7 @@ export const storage = {
       }
 
       case "EXECUTIVE":
-      case "ADMIN":
-      case "FOUNDER": {
+      case "ADMIN": {
         // All active reps company-wide
         const allReps = await db.query.users.findMany({
           where: and(eq(users.role, "REP"), eq(users.status, "ACTIVE"))

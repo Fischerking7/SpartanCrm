@@ -118,6 +118,31 @@ app.use((req, res, next) => {
     },
     async () => {
       log(`serving on port ${port}`);
+
+      try {
+        console.log('[STARTUP] Running Iron Crest health checks...');
+        const { db: dbConn } = await import("./db");
+        const { sql: sqlTag } = await import("drizzle-orm");
+        
+        const checks: { name: string; fn: () => Promise<void> }[] = [
+          { name: 'Database connection', fn: async () => { await dbConn.execute(sqlTag`SELECT 1`); } },
+          { name: 'JWT_SECRET configured', fn: async () => { if (!process.env.SESSION_SECRET && !process.env.JWT_SECRET) throw new Error('Missing'); } },
+          { name: 'Rate cards configured', fn: async () => {
+            const cards = await storage.getActiveRateCards();
+            if (cards.length === 0) console.warn('[STARTUP] WARNING: No active rate cards');
+          }},
+        ];
+
+        let passed = 0, failed = 0;
+        for (const check of checks) {
+          try { await check.fn(); console.log(`[STARTUP] ✓ ${check.name}`); passed++; }
+          catch (err: any) { console.error(`[STARTUP] ✗ ${check.name}: ${err.message}`); failed++; }
+        }
+        console.log(`[STARTUP] Health check complete: ${passed} passed, ${failed} failed`);
+      } catch (err: any) {
+        console.error('[STARTUP] Health check error:', err.message);
+      }
+
       await initForceLogoutFromDb(storage);
       scheduler.start();
     },

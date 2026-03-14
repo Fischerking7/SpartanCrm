@@ -58,3 +58,13 @@ The application uses a monorepo structure with `client/` for the React frontend,
 - **Email Notifications**: Queue-based system for user notifications via SMTP.
 - **Automated Alerts System**: Sends alerts for various events.
 - **Claude AI (Replit AI Integrations, claude-sonnet-4-6)**: Used for intelligent order matching in the Install Sync feature.
+
+## Quality Assurance
+- **Centralized Config**: `server/config.ts` centralizes all environment variables with required/optional patterns.
+- **Database Indexes**: 26 indexes on high-traffic columns (sales_orders, override_earnings, ar_expectations, users, pay_statements, onboarding tables).
+- **Startup Health Checks**: Server verifies DB connection, JWT configuration, and rate card availability on boot.
+- **Scheduler Concurrency**: All scheduled jobs wrapped in `runJobWithLock()` to prevent concurrent execution.
+- **Onboarding Access Gate**: REP/MDU/LEAD users without completed onboarding are blocked from app routes (403 with redirect).
+- **Auth Isolation**: Main auth middleware rejects onboarding-purpose JWTs; onboarding auth rejects main app JWTs.
+- **Sensitive Data Stripping**: All user-returning endpoints strip passwordHash and onboardingOtpHash; encrypted fields stripped from submission detail responses.
+- **Global Error Handler**: Catches unhandled errors, returns structured JSON, hides stack traces in production.

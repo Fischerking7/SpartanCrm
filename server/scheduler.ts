@@ -31,6 +31,23 @@ function msUntilEasternTime(targetHour: number, targetMinute = 0): number {
   return diffMinutes * 60 * 1000;
 }
 
+const runningJobs = new Set<string>();
+
+async function runJobWithLock(jobName: string, fn: () => Promise<void>): Promise<void> {
+  if (runningJobs.has(jobName)) {
+    console.log(`[Scheduler] ${jobName} already running, skipping`);
+    return;
+  }
+  runningJobs.add(jobName);
+  try {
+    await fn();
+  } catch (err: any) {
+    console.error(`[Scheduler] ${jobName} failed:`, err.message);
+  } finally {
+    runningJobs.delete(jobName);
+  }
+}
+
 export const scheduler = {
   intervalIds: [] as NodeJS.Timeout[],
   midnightTimeout: null as NodeJS.Timeout | null,
@@ -44,21 +61,19 @@ export const scheduler = {
     this.isRunning = true;
     console.log("[Scheduler] Starting background job scheduler...");
 
-    const scheduleInterval = setInterval(() => this.checkScheduledPayRuns(), 60000);
+    const scheduleInterval = setInterval(() => runJobWithLock('checkScheduledPayRuns', () => this.checkScheduledPayRuns()), 60000);
     this.intervalIds.push(scheduleInterval);
 
-    const chargebackInterval = setInterval(() => this.processChargebacks(), 300000);
+    const chargebackInterval = setInterval(() => runJobWithLock('processChargebacks', () => this.processChargebacks()), 300000);
     this.intervalIds.push(chargebackInterval);
 
-    const emailInterval = setInterval(() => emailService.sendPendingEmails(), 60000);
+    const emailInterval = setInterval(() => runJobWithLock('sendPendingEmails', () => emailService.sendPendingEmails()), 60000);
     this.intervalIds.push(emailInterval);
 
-    // Run pending approval alerts every 6 hours
-    const pendingApprovalInterval = setInterval(() => this.checkPendingApprovalAlerts(), 6 * 60 * 60 * 1000);
+    const pendingApprovalInterval = setInterval(() => runJobWithLock('checkPendingApprovalAlerts', () => this.checkPendingApprovalAlerts()), 6 * 60 * 60 * 1000);
     this.intervalIds.push(pendingApprovalInterval);
 
-    // Run low performance checks daily
-    const performanceInterval = setInterval(() => this.checkLowPerformance(), 24 * 60 * 60 * 1000);
+    const performanceInterval = setInterval(() => runJobWithLock('checkLowPerformance', () => this.checkLowPerformance()), 24 * 60 * 60 * 1000);
     this.intervalIds.push(performanceInterval);
 
     this.scheduleMidnightLogout();
@@ -71,9 +86,9 @@ export const scheduler = {
     this.scheduleCarrierSftpPoll();
 
     setTimeout(() => {
-      this.checkScheduledPayRuns();
-      this.processChargebacks();
-      emailService.sendPendingEmails();
+      runJobWithLock('checkScheduledPayRuns', () => this.checkScheduledPayRuns());
+      runJobWithLock('processChargebacks', () => this.processChargebacks());
+      runJobWithLock('sendPendingEmails', () => emailService.sendPendingEmails());
     }, 5000);
 
     console.log("[Scheduler] Background jobs scheduled");

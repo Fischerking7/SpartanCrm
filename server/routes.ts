@@ -973,7 +973,7 @@ export async function registerRoutes(
 
       res.json({ 
         token, 
-        user: { ...user, passwordHash: undefined },
+        user: { ...user, passwordHash: undefined, onboardingOtpHash: undefined },
         mustChangePassword: user.mustChangePassword
       });
     } catch (error) {
@@ -1071,7 +1071,7 @@ export async function registerRoutes(
 
   app.get("/api/auth/me", auth, async (req: AuthRequest, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
-    res.json({ user: { ...req.user, passwordHash: undefined } });
+    res.json({ user: { ...req.user, passwordHash: undefined, onboardingOtpHash: undefined } });
   });
 
   // Profile endpoints - users can view their own credentials and banking info (read-only)
@@ -1941,7 +1941,7 @@ export async function registerRoutes(
       const membersWithStats = teamMembers.map(member => {
         const memberOrders = orders.filter(o => o.repId === member.repId && new Date(o.createdAt) >= monthStart);
         const earnedMTD = memberOrders.filter(o => o.paymentStatus === "PAID").reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned), 0);
-        return { ...member, passwordHash: undefined, earnedMTD, orderCount: memberOrders.length };
+        return { ...member, passwordHash: undefined, onboardingOtpHash: undefined, earnedMTD, orderCount: memberOrders.length };
       });
 
       res.json(membersWithStats);
@@ -3183,7 +3183,7 @@ export async function registerRoutes(
   app.get("/api/admin/users", auth, executiveOrAdmin, async (req, res) => {
     try {
       const users = await storage.getUsers();
-      res.json(users.map(u => ({ ...u, passwordHash: undefined })));
+      res.json(users.map(u => ({ ...u, passwordHash: undefined, onboardingOtpHash: undefined })));
     } catch (error) {
       res.status(500).json({ message: "Failed to get users" });
     }
@@ -3192,7 +3192,7 @@ export async function registerRoutes(
   app.get("/api/users", auth, executiveOrAdmin, async (req, res) => {
     try {
       const users = await storage.getUsers();
-      res.json(users.map(u => ({ ...u, passwordHash: undefined })));
+      res.json(users.map(u => ({ ...u, passwordHash: undefined, onboardingOtpHash: undefined })));
     } catch (error) {
       res.status(500).json({ message: "Failed to get users" });
     }
@@ -3274,7 +3274,7 @@ export async function registerRoutes(
         recordId: user.id, 
         afterJson: JSON.stringify({ 
           ...user, 
-          passwordHash: undefined,
+          passwordHash: undefined, onboardingOtpHash: undefined,
           hierarchyAssignments: { 
             supervisorId: user.assignedSupervisorId,
             managerId: user.assignedManagerId,
@@ -3293,7 +3293,7 @@ export async function registerRoutes(
         }
       }
 
-      res.json({ ...user, passwordHash: undefined });
+      res.json({ ...user, passwordHash: undefined, onboardingOtpHash: undefined });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to create user" });
     }
@@ -3368,7 +3368,7 @@ export async function registerRoutes(
         }) : undefined,
         afterJson: JSON.stringify({ 
           ...user, 
-          passwordHash: undefined,
+          passwordHash: undefined, onboardingOtpHash: undefined,
           hierarchyAssignments: hierarchyChanged ? { 
             supervisorId: user.assignedSupervisorId,
             managerId: user.assignedManagerId,
@@ -3377,7 +3377,7 @@ export async function registerRoutes(
         }), 
         userId: req.user!.id 
       });
-      res.json({ ...user, passwordHash: undefined });
+      res.json({ ...user, passwordHash: undefined, onboardingOtpHash: undefined });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to update user" });
     }
@@ -3388,7 +3388,7 @@ export async function registerRoutes(
       const { id } = req.params;
       const user = await storage.updateUser(id, { status: "DEACTIVATED" });
       await storage.createAuditLog({ action: "deactivate_user", tableName: "users", recordId: id, userId: req.user!.id });
-      res.json({ ...user, passwordHash: undefined });
+      res.json({ ...user, passwordHash: undefined, onboardingOtpHash: undefined });
     } catch (error) {
       res.status(500).json({ message: "Failed to deactivate user" });
     }
@@ -3406,8 +3406,8 @@ export async function registerRoutes(
         action: "USER_REMOVED", 
         tableName: "users", 
         recordId: id, 
-        beforeJson: JSON.stringify({ ...targetUser, passwordHash: undefined }),
-        afterJson: JSON.stringify({ ...user, passwordHash: undefined }),
+        beforeJson: JSON.stringify({ ...targetUser, passwordHash: undefined, onboardingOtpHash: undefined }),
+        afterJson: JSON.stringify({ ...user, passwordHash: undefined, onboardingOtpHash: undefined }),
         userId: req.user!.id 
       });
       res.json({ success: true, archived: true });
@@ -12370,7 +12370,7 @@ export async function registerRoutes(
       }
 
       const credentials = await storage.getEmployeeCredentialsByUser(userId);
-      res.json({ user: targetUser, credentials });
+      res.json({ user: { ...targetUser, passwordHash: undefined, onboardingOtpHash: undefined }, credentials });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -17837,5 +17837,14 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
+  });
+
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+    console.error('[UNHANDLED ERROR]', err.message, req.method, req.path);
+    res.status(500).json({
+      message: process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
+        : err.message,
+    });
   });
 }
