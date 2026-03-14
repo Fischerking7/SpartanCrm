@@ -1,0 +1,242 @@
+Send this to Replit Agent:
+
+Build the Rep mobile-first frontend. Use React with 
+Vite. All screens must work on a 375px wide mobile screen. 
+Desktop layout is secondary.
+
+Read the frontend-design skill at 
+/mnt/skills/public/frontend-design/SKILL.md before 
+starting any UI work.
+
+Design system:
+  Primary color: Navy blue (#1B2A4A)
+  Accent color: Gold (#C9A84C)  
+  Font: Inter
+  Border radius: 8px standard, 16px cards
+  All monetary values: always show 2 decimal places
+  All dates: MM/DD/YYYY format
+
+SCREEN 1 — Onboarding Portal (first thing new reps see)
+Route: /onboarding
+No auth required — just Rep ID and OTP
+
+  Step 1 of 4: Enter Rep ID and 6-digit OTP
+    - Large centered input for OTP
+    - Numeric keyboard on mobile
+    - Clear error messages for wrong code
+    - Countdown showing OTP expiry time remaining
+    - "Contact your manager" link if locked out
+
+  Step 2 of 4: Document completion progress
+    - Six document cards in a list
+    - Each shows: document name, status (Complete/Incomplete),
+      estimated completion time
+    - Progress bar at top showing overall completion
+    - Tap any document to open its form
+
+  Step 3 of 4: Document forms (one at a time)
+    Each document form on its own screen with:
+    - Document title and brief explanation
+    - Form fields pre-filled where possible
+    - Signature capture pad (touch-friendly)
+    - Save Draft button (saves progress)
+    - Next Document button (only enabled when complete)
+    
+  Step 4 of 4: Review and Submit
+    - Summary of all 6 documents with completion timestamps
+    - Final submission button
+    - Confirmation screen after submit
+
+SCREEN 2 — Rep Dashboard (main home screen after login)
+Route: /dashboard
+Auth required
+
+  Layout (top to bottom on mobile):
+  
+  HEADER: "Good morning, {firstName}" + notification bell
+  
+  THREE STAT CARDS (horizontal scroll):
+    Card 1 — This Period
+      Large number: {connectsCount} connects
+      Subtitle: {salesCount} sold · {connectRate}% rate
+      Color: green/yellow/red based on rate
+    
+    Card 2 — Earned
+      Large number: ${earnedAmount}
+      Subtitle: ${payrollReadyAmount} payroll ready
+    
+    Card 3 — Next Pay
+      Large number: {estimatedDate}
+      Subtitle: ~${estimatedAmount}
+      Tap: expands to show breakdown
+  
+  ALERT BANNER (only if alerts exist):
+    One banner per alert type, stacked
+    Red: chargeback applied
+    Yellow: pending install today
+    Blue: pay stub ready
+    Orange: reserve deficit
+    
+  RECENT ORDERS (last 5):
+    Each as a card:
+      Customer name + invoice number
+      Service + date sold
+      Status badge (color coded per simplifiedStatus)
+      Commission amount (right aligned)
+      Tap: goes to order detail
+  
+  BOTTOM NAV BAR (fixed):
+    Home | Orders | Earnings | Leads | Account
+
+SCREEN 3 — New Order Form
+Route: /orders/new
+
+  Progressive disclosure — show fields one step at a time
+  
+  STEP 1 — Customer Info:
+    Customer Name (required, large input)
+    Phone number (with formatting)
+    Email
+    Address (split into: House #, Street, Apt/Unit, City, Zip)
+    [Next →] button
+  
+  STEP 2 — Service:
+    Provider (pre-selected if only one)
+    Service/Speed (large tappable cards, not dropdown)
+    Each card shows: speed name + commission amount in gold
+    Date Sold (defaults to today)
+    Install Date (date picker)
+    Install Time (time picker)
+    [Next →] button
+  
+  STEP 3 — Add-Ons:
+    TV sold? (large toggle)
+    Mobile sold? (large toggle)
+    If mobile: number of lines slider (1-5)
+    For each mobile line: product type + ported status
+    [Next →] button
+  
+  STEP 4 — Review:
+    Summary card showing all entered info
+    COMMISSION SUMMARY (gold highlighted box):
+      Base: $XXX
+      TV: $XX (if applicable)
+      Mobile (Nx): $XX (if applicable)
+      TOTAL: $XXX
+    [Submit Order] button (large, gold)
+    
+  Success screen:
+    Green checkmark
+    "Order submitted!"
+    Invoice number
+    Expected commission amount
+    [Submit Another] and [View My Orders] buttons
+
+SCREEN 4 — My Orders
+Route: /orders
+
+  FILTER CHIPS (horizontal scroll):
+    All | Pending | Installed | Approved | Pay Ready | Paid
+  
+  ORDER LIST:
+    Each order row:
+      Customer name (bold)
+      Service + provider (smaller)
+      Date sold (right side)
+      Status badge (below customer name)
+      Commission (right side, gold)
+    
+    Pull to refresh
+    Load more on scroll
+  
+  ORDER DETAIL (full screen):
+    Invoice number + status badge
+    Customer info
+    Service details
+    Commission breakdown
+    Status timeline:
+      ● Sold {date}
+      ○ Installed {date or "Pending"}
+      ○ Approved {date or "Pending"}
+      ○ Pay Ready {date or "Pending"}
+      ○ Paid {date or "Pending"}
+    
+    Rolling Reserve section:
+      Amount withheld for this order
+      Current reserve balance
+      Reserve status
+
+SCREEN 5 — My Earnings
+Route: /earnings
+
+  TABS: This Period | History | Pay Stubs
+  
+  THIS PERIOD TAB:
+    Gross Commission: $X,XXX
+    Reserve Withheld: -$XXX
+    Chargebacks: -$XXX (if any, red)
+    Deductions: -$XXX (if any)
+    Estimated Net: $X,XXX (large, bold)
+    
+    "Estimated until pay stub is issued" disclaimer
+    
+    Orders list contributing this period
+  
+  HISTORY TAB:
+    Bar chart: net paid per month (last 6 months)
+    Tap any bar: shows that month detail
+    
+    Month table:
+      Month | Orders | Connects | Net Paid
+  
+  PAY STUBS TAB:
+    List of all issued stubs:
+      Period | Stub # | Net Pay | Status
+      [Download PDF] button per stub
+
+SCREEN 6 — My Reserve
+Route: /reserve
+(Accessible from Account or Earnings)
+
+  RESERVE BALANCE CARD:
+    Large circular gauge: current / cap ($2,500)
+    Color: 
+      Green if approaching cap (witholding ending soon)
+      Blue if at cap (paused)
+      Orange if in deficit
+    
+    Status label: "Withholding 15% per pay period"
+    or "Cap reached — withholding paused"
+    or "Deficit — withholding resumed"
+  
+  STATS ROW:
+    Total Withheld | Total Chargebacks | Total Released
+  
+  TRANSACTION HISTORY:
+    Each transaction as a row:
+      Date + description
+      Amount (green if credit, red if debit)
+      Balance after
+  
+  INFO SECTION (collapsible):
+    Plain English explanation of how the reserve works
+    Links to the full policy document
+
+SCREEN 7 — Account Settings
+Route: /account
+
+  Rep info (read only):
+    Name, Rep ID, Role, Manager
+  
+  My Documents:
+    List of 6 onboarding documents
+    Each shows: signed date, [View PDF] button
+  
+  My Bank Account:
+    Bank name, account type, last 4 digits
+    Note: "To change bank info, contact Operations"
+  
+  Notifications:
+    Toggle for each notification type
+  
+  App version + support contact
