@@ -14,7 +14,7 @@ import { useAuth } from "@/lib/auth";
 import {
   Search, Clock, CheckCircle2, ShieldCheck, DollarSign, XCircle,
   ChevronLeft, ChevronRight, Package, User, Truck, FileCheck, CreditCard,
-  ShieldAlert, Pencil, Save
+  ShieldAlert, Pencil, Save, Calendar, X
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -108,6 +108,9 @@ export default function OpsOrderTracker() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [dateFilterType, setDateFilterType] = useState<"sold" | "install">("sold");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, any>>({});
@@ -174,8 +177,18 @@ export default function OpsOrderTracker() {
         (o.clientName || "").toLowerCase().includes(q)
       );
     }
+    if (dateFrom || dateTo) {
+      orders = orders.filter((o: any) => {
+        const dateVal = dateFilterType === "sold" ? o.dateSold : o.installDate;
+        if (!dateVal) return false;
+        const d = dateVal.substring(0, 10);
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        return true;
+      });
+    }
     return orders;
-  }, [buckets, activeTab, searchTerm]);
+  }, [buckets, activeTab, searchTerm, dateFrom, dateTo, dateFilterType]);
 
   const totalPages = Math.ceil(filteredOrders.length / limit);
   const paginatedOrders = filteredOrders.slice((page - 1) * limit, page * limit);
@@ -593,6 +606,58 @@ export default function OpsOrderTracker() {
             data-testid="input-search-orders"
           />
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 bg-muted/30 border rounded-lg p-3">
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">Filter By</Label>
+          <Select value={dateFilterType} onValueChange={(v: "sold" | "install") => { setDateFilterType(v); setPage(1); }}>
+            <SelectTrigger className="w-[140px] h-9" data-testid="select-date-filter-type">
+              <Calendar className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sold">Date Sold</SelectItem>
+              <SelectItem value="install">Install Date</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">From</Label>
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={e => { setDateFrom(e.target.value); setPage(1); }}
+            className="w-[150px] h-9"
+            data-testid="input-date-from"
+          />
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">To</Label>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={e => { setDateTo(e.target.value); setPage(1); }}
+            className="w-[150px] h-9"
+            data-testid="input-date-to"
+          />
+        </div>
+        {(dateFrom || dateTo) && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-9 text-muted-foreground"
+            onClick={() => { setDateFrom(""); setDateTo(""); setPage(1); }}
+            data-testid="btn-clear-dates"
+          >
+            <X className="h-3.5 w-3.5 mr-1" /> Clear
+          </Button>
+        )}
+        {(dateFrom || dateTo) && (
+          <span className="text-xs text-muted-foreground ml-auto self-center">
+            {filteredOrders.length} orders match
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-5 gap-2 sm:gap-3">
