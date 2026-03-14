@@ -14672,6 +14672,56 @@ export async function registerRoutes(
     }
   });
 
+  // Manually mark an AR expectation as satisfied
+  app.post("/api/finance/ar/:id/mark-satisfied", auth, requirePermission("financial:edit:ar"), async (req: AuthRequest, res) => {
+    try {
+      const { reason } = req.body;
+      if (!reason) return res.status(400).json({ message: "Reason is required" });
+
+      const ar = await storage.getArExpectationById(req.params.id);
+      if (!ar) return res.status(404).json({ message: "AR expectation not found" });
+
+      if (ar.status === 'SATISFIED') {
+        return res.status(400).json({ message: "AR is already satisfied" });
+      }
+      if (ar.status === 'WRITTEN_OFF') {
+        return res.status(400).json({ message: "Cannot satisfy a written-off AR" });
+      }
+
+      const oldStatus = ar.status;
+      const updated = await storage.updateArExpectation(req.params.id, {
+        status: 'SATISFIED',
+        satisfiedAt: new Date(),
+      });
+
+      if (ar.orderId) {
+        const order = await storage.getOrderById(ar.orderId);
+        if (order) {
+          const orderUpdate: Record<string, any> = {
+            paymentStatus: 'PAID',
+            paidDate: new Date().toISOString().split('T')[0],
+          };
+          if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+          if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+          await storage.updateOrder(ar.orderId, orderUpdate);
+        }
+      }
+
+      await storage.createAuditLog({
+        action: "ar_manually_satisfied",
+        tableName: "ar_expectations",
+        recordId: req.params.id,
+        beforeJson: JSON.stringify({ status: oldStatus }),
+        afterJson: JSON.stringify({ status: 'SATISFIED', reason }),
+        userId: req.user!.id,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to mark AR as satisfied" });
+    }
+  });
+
   // Write off an AR expectation
   app.post("/api/finance/ar/:id/write-off", auth, requirePermission("financial:edit:ar"), async (req: AuthRequest, res) => {
     try {

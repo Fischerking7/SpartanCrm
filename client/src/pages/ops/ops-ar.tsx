@@ -61,6 +61,8 @@ export default function OpsAR() {
   const [editDialog, setEditDialog] = useState<any>(null);
   const [editAmount, setEditAmount] = useState("");
   const [editReason, setEditReason] = useState("");
+  const [satisfyDialog, setSatisfyDialog] = useState<any>(null);
+  const [satisfyReason, setSatisfyReason] = useState("");
 
   const { data: arData, isLoading: arLoading } = useQuery<any>({
     queryKey: ["/api/finance/ar"],
@@ -99,6 +101,23 @@ export default function OpsAR() {
       setEditDialog(null);
       setEditAmount("");
       setEditReason("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const markSatisfiedMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const res = await apiRequest("POST", `/api/finance/ar/${id}/mark-satisfied`, { reason });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar/summary"] });
+      toast({ title: "AR marked as satisfied" });
+      setSatisfyDialog(null);
+      setSatisfyReason("");
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -250,7 +269,7 @@ export default function OpsAR() {
                         </Badge>
                       </td>
                       <td className="p-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-1 flex-wrap">
                           {ar.status !== "SATISFIED" && ar.status !== "WRITTEN_OFF" && (
                             <>
                               <Button size="sm" variant="outline" className="h-7 text-xs"
@@ -260,6 +279,10 @@ export default function OpsAR() {
                               <Button size="sm" variant="outline" className="h-7 text-xs"
                                 onClick={() => setPaymentDialog(ar)} data-testid={`btn-record-payment-${ar.id}`}>
                                 <DollarSign className="h-3 w-3 mr-1" /> Record
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-7 text-xs text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+                                onClick={() => { setSatisfyDialog(ar); setSatisfyReason(""); }} data-testid={`btn-mark-satisfied-${ar.id}`}>
+                                <CheckCircle2 className="h-3 w-3 mr-1" /> Satisfy
                               </Button>
                             </>
                           )}
@@ -392,6 +415,63 @@ export default function OpsAR() {
               data-testid="btn-save-expected"
             >
               {editExpectedMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!satisfyDialog} onOpenChange={() => { setSatisfyDialog(null); setSatisfyReason(""); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mark as Satisfied</DialogTitle>
+            <DialogDescription>
+              {satisfyDialog?.order?.invoiceNumber || satisfyDialog?.invoiceNumber || `AR-${satisfyDialog?.id}`}
+              {satisfyDialog?.order?.customerName ? ` — ${satisfyDialog.order.customerName}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div>
+                <p className="text-muted-foreground">Expected</p>
+                <p className="font-medium">{formatCurrency(satisfyDialog?.expectedAmountCents || 0)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Received</p>
+                <p className="font-medium text-emerald-600">{formatCurrency(satisfyDialog?.actualAmountCents || 0)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Balance</p>
+                <p className="font-medium">{formatCurrency((satisfyDialog?.expectedAmountCents || 0) - (satisfyDialog?.actualAmountCents || 0))}</p>
+              </div>
+            </div>
+            <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-300">
+              This will mark the AR as satisfied regardless of the current balance. The linked order will also be updated to Paid status.
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">Reason for manual satisfaction</p>
+              <Textarea
+                value={satisfyReason}
+                onChange={(e) => setSatisfyReason(e.target.value)}
+                placeholder="e.g., Payment confirmed outside system, credit applied..."
+                rows={2}
+                data-testid="input-satisfy-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setSatisfyDialog(null); setSatisfyReason(""); }}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!satisfyReason.trim() || markSatisfiedMutation.isPending}
+              onClick={() => markSatisfiedMutation.mutate({
+                id: satisfyDialog.id,
+                reason: satisfyReason.trim(),
+              })}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              data-testid="btn-confirm-satisfy"
+            >
+              {markSatisfiedMutation.isPending ? "Saving..." : "Mark Satisfied"}
             </Button>
           </DialogFooter>
         </DialogContent>
