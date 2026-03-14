@@ -2,13 +2,14 @@ import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import {
   Home, ShoppingCart, Users, Zap, FileText, DollarSign,
-  Receipt, BarChart3, Scale, CreditCard, ClipboardList, Settings, Menu, X, Upload
+  Receipt, BarChart3, Scale, CreditCard, ClipboardList, Settings, Menu, X, Upload, ListChecks
 } from "lucide-react";
 import { useState } from "react";
 
 const sidebarItems = [
   { label: "Home", icon: Home, path: "/ops" },
   { label: "Orders", icon: ShoppingCart, path: "/ops/orders" },
+  { label: "Order Tracker", icon: ListChecks, path: "/ops/order-tracker" },
   { label: "Reps", icon: Users, path: "/ops/reps" },
   { label: "Leads", icon: Upload, path: "/ops/lead-import" },
   { label: "Install Sync", icon: Zap, path: "/ops/install-sync" },

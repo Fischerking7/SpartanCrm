@@ -194,6 +194,7 @@ const routeTitles: Record<string, string> = {
   "/executive/settings": "Company Settings",
   "/ops": "Operations Center",
   "/ops/orders": "Order Management",
+  "/ops/order-tracker": "Order Tracker",
   "/ops/install-sync": "Install Sync",
   "/ops/finance-imports": "Finance Imports",
   "/ops/reps": "Rep Management",
@@ -343,6 +344,7 @@ function Router() {
           <>
             <Route path="/ops">{() => <OpsLayout><OpsHome /></OpsLayout>}</Route>
             <Route path="/ops/orders">{() => <OpsLayout><OpsOrders /></OpsLayout>}</Route>
+            <Route path="/ops/order-tracker">{() => <OpsLayout><OrderTracker /></OpsLayout>}</Route>
             <Route path="/ops/install-sync">{() => <OpsLayout><OpsInstallSync /></OpsLayout>}</Route>
             <Route path="/ops/finance-imports">{() => <OpsLayout><OpsFinanceImports /></OpsLayout>}</Route>
             <Route path="/ops/reps">{() => <OpsLayout><OpsReps /></OpsLayout>}</Route>
