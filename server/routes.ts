@@ -14581,17 +14581,19 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/reports/iron-crest-profit", auth, adminOnly, async (req: AuthRequest, res) => {
+  app.get("/api/admin/reports/iron-crest-profit", auth, executiveOrAdmin, async (req: AuthRequest, res) => {
     try {
       const { startDate, endDate } = req.query;
       const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(new Date().getDate() - 90));
       const end = endDate ? new Date(endDate as string) : new Date();
 
-      const allOrders = await storage.getSalesOrders();
-      const filtered = allOrders.filter(o => {
-        const sold = new Date(o.dateSold);
-        return sold >= start && sold <= end && o.approvalStatus === "APPROVED";
-      });
+      const filtered = await db.select().from(salesOrders).where(
+        and(
+          eq(salesOrders.approvalStatus, "APPROVED"),
+          gte(salesOrders.dateSold, start.toISOString().split("T")[0]),
+          sql`${salesOrders.dateSold} <= ${end.toISOString().split("T")[0]}`
+        )
+      );
 
       let totalRepPayout = 0;
       let totalDirectorOverride = 0;

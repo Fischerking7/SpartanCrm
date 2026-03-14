@@ -1,0 +1,72 @@
+PHASE 0 PROMPT:
+
+Before any new development, validate the entire existing 
+backend with a comprehensive test suite.
+
+===================================================================
+VALIDATION SUITE
+===================================================================
+
+Create server/tests/validation.ts
+
+Run each test and report PASS/FAIL with actual vs expected values.
+
+TEST GROUP 1 — Role and Permission System
+  1.1 Verify every role can access only its permitted routes
+  1.2 Verify DIRECTOR receives no dollar amounts in any response
+  1.3 Verify EXECUTIVE can access everything
+  1.4 Verify OPERATIONS cannot finalize pay runs
+  1.5 Verify ACCOUNTING cannot create or edit orders
+  1.6 Verify self-approval is blocked for all override types
+  1.7 Verify user creation hierarchy rules are enforced
+  1.8 Verify no ADMIN or FOUNDER roles remain after migration
+
+TEST GROUP 2 — Commission Calculation
+  For each speed tier, create a test order for REP, LEAD, MANAGER:
+  2.1 Verify baseCommissionEarned matches rate table exactly
+  2.2 Verify override earnings are created with correct amounts
+  2.3 Verify ironCrestProfitCents matches expected value
+  2.4 Verify Director override routes to DIRECTOR role users
+  2.5 Verify Admin override routes to OPERATIONS role users
+  2.6 Verify Accounting override routes to ACCOUNTING role users
+  2.7 Verify bundle calculation (internet + TV + 2 mobile lines)
+  2.8 Verify negative margin triggers exception and rateIssue
+
+TEST GROUP 3 — AR to Payroll Pipeline
+  3.1 Create order → approve → verify payrollReadyAt is null
+  3.2 Create AR expectation → record payment → 
+      verify payrollReadyAt is set automatically
+  3.3 Verify payrollReadyTriggeredBy = 'AR_SATISFIED'
+  3.4 Verify order enters pay run via getPayrollReadyOrders
+  3.5 Verify isPayrollHeld blocks pay run inclusion
+  3.6 Verify finance import post triggers payrollReadyAt
+
+TEST GROUP 4 — Pay Stub Generation
+  4.1 Generate stub for rep with 5 orders, 1 chargeback, 
+      1 override, 1 advance repayment, 1 deduction
+  4.2 Verify every order appears as a line item
+  4.3 Verify net pay = gross - chargebacks - deductions 
+      - advance repayment
+  4.4 Verify stub is NOT viewable by rep until finalized
+  4.5 Verify PDF generates without errors
+  4.6 Verify stub number format: STUB-YYYYMM-{repId}-{seq}
+
+TEST GROUP 5 — Auto-Approval Engine
+  5.1 Order with all criteria met → verify auto-approved
+  5.2 Order with missing rate card → verify FLAGGED
+  5.3 Order with negative margin → verify FLAGGED
+  5.4 Order from rep in first 90 days → verify FLAGGED
+  5.5 Order above max amount → verify FLAGGED
+  5.6 Verify audit log created for every auto-approval
+  5.7 Verify confidence score logged on every evaluation
+
+TEST GROUP 6 — Exception Queue
+  6.1 Verify each exception type triggers correctly
+  6.2 Verify DIRECTOR only sees production exceptions
+  6.3 Verify ACCOUNTING only sees financial exceptions
+  6.4 Verify EXECUTIVE sees all exception types
+  6.5 Verify dollar impact is populated on urgent exceptions
+  6.6 Verify dismissal respects snoozeDays
+
+Report all failures as a prioritized bug list before 
+proceeding to Phase 1.

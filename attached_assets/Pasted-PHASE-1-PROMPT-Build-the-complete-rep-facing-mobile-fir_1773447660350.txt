@@ -1,0 +1,210 @@
+PHASE 1 PROMPT:
+
+Build the complete rep-facing mobile-first interface.
+Reps are in the field. Every screen must work perfectly 
+on a phone. Desktop is secondary.
+
+===================================================================
+SCREEN 1 — REP HOME (the only screen most reps need daily)
+===================================================================
+
+Route: / (default landing for REP, LEAD, MANAGER)
+Source: GET /api/my/summary
+
+Mobile layout (single column, thumb-friendly):
+
+HEADER BAR:
+  Left: Greeting "Good morning, {firstName}"
+  Right: Notification bell with unread count badge
+  
+TODAY STRIP (horizontal scroll cards):
+  Card 1: "This Period"
+    Large number: connects count
+    Subtitle: "{sold} sold, {connectRate}% connect rate"
+    Color: green if >= target, yellow if close, red if below
+    
+  Card 2: "Earned"
+    Large number: $X,XXX
+    Subtitle: "payroll ready: ${payrollReadyAmount}"
+    
+  Card 3: "Next Pay"
+    Large number: estimated date
+    Subtitle: "~${estimatedAmount}"
+    Tap: shows breakdown modal
+
+ALERT BANNER (only shows if alerts exist):
+  Red banner for: chargeback applied, advance overdue
+  Yellow banner for: pending install today, missing info on order
+  Blue banner for: pay stub ready to view
+  Each alert is tappable and deep-links to the relevant screen
+
+RECENT ORDERS (last 5):
+  Each order as a card:
+    Top line: Customer name + invoice number
+    Middle: Service type + date sold
+    Bottom left: simplified status badge (color coded)
+    Bottom right: commission amount (only if APPROVED or PAID)
+    Tap: opens order detail
+
+QUICK ACTION BUTTONS (bottom of screen, large tap targets):
+  [+ New Order]    [View All Orders]    [My Pay Stubs]
+
+===================================================================
+SCREEN 2 — NEW ORDER (most critical screen in the app)
+===================================================================
+
+Route: /orders/new
+This screen is used multiple times per day in the field.
+It must be fast, forgiving, and smart.
+
+SMART FORM DESIGN:
+  - Fields appear progressively — don't show all fields at once
+  - Required fields are clearly marked
+  - Smart defaults where possible
+  - Address autocomplete using existing address fields
+  - Service selection shows the rep's commission amount 
+    immediately when a service is selected (motivational)
+  
+  STEP 1 — Customer Info:
+    Customer Name (required, autocapitalize)
+    Customer Phone
+    Customer Email
+    Customer Address (house number, street, apt, city, zip)
+    
+  STEP 2 — Order Details:
+    Provider (dropdown, most recently used shown first)
+    Service/Speed (dropdown, shows rep's commission next to each)
+    Date Sold (default today)
+    Install Date (date picker)
+    Install Time (time picker)
+    
+  STEP 3 — Add-Ons:
+    TV sold? (toggle — reveals add-on details)
+    Mobile sold? (toggle — reveals mobile form)
+      If mobile: number of lines, product type per line, ported?
+    
+  STEP 4 — Review:
+    Summary of all entered info
+    "Your commission: ${amount}" displayed prominently
+    Submit button
+
+  ON SUBMIT:
+    Optimistic UI — show success immediately
+    Background API call
+    If error: show specific error, allow correction
+    Never lose entered data on error
+
+===================================================================
+SCREEN 3 — MY ORDERS
+===================================================================
+
+Route: /orders
+
+FILTER BAR (horizontal scroll chips):
+  All | Pending | Installed | Approved | Paid | Charged Back
+
+ORDER LIST:
+  Sorted by date sold descending
+  Each row: Customer | Service | Status | Commission
+  
+  Pull to refresh
+  Infinite scroll (20 per page)
+  
+  Tap order → ORDER DETAIL MODAL:
+    Invoice number, customer info, service details
+    Commission breakdown (what they earned and why)
+    Status timeline:
+      ○ Sold {date}
+      ○ Installed {date} or pending
+      ○ Approved {date} or pending
+      ○ Payroll Ready {date} or pending
+      ○ Paid {date} or pending
+    Any active chargeback shown with red banner
+    Any active dispute shown with yellow banner
+
+===================================================================
+SCREEN 4 — MY EARNINGS
+===================================================================
+
+Route: /earnings
+
+TABS: This Period | History | Pay Stubs
+
+THIS PERIOD TAB:
+  Period label and date range
+  Earnings breakdown:
+    Gross Commission: $X
+    Overrides Earned: $X (if applicable)
+    Chargebacks: -$X (if any, red)
+    Deductions: -$X (if any)
+    Advance Repayment: -$X (if any)
+    ─────────────
+    Estimated Net: $X
+  
+  Orders contributing this period (list)
+  "These are estimates until your pay stub is issued"
+
+HISTORY TAB:
+  Monthly bar chart (last 12 months)
+    Bars show net paid per month
+    Tap a bar: shows that month's breakdown
+  
+  Month-by-month table below chart:
+    Month | Orders | Connects | Net Paid
+
+PAY STUBS TAB:
+  List of all issued pay stubs:
+    Period | Stub # | Net Pay | Status
+    Download PDF button per stub
+    
+  Draft stubs show as "Processing" with no dollar amount
+  Issued stubs show full detail and PDF link
+
+===================================================================
+SCREEN 5 — MY LEADS (if leads module is active for this rep)
+===================================================================
+
+Route: /leads
+
+PIPELINE VIEW (kanban-style, horizontal scroll):
+  Columns: New | Contacted | Interested | Follow Up | Won | Lost
+  
+  Each lead card:
+    Name, address, phone
+    Days since last contact
+    Follow-up date (if set)
+    Tap: opens lead detail
+  
+  + Add Lead button (floating action button)
+  
+  LEAD DETAIL:
+    Contact info
+    Disposition history timeline
+    Notes field (tap to edit inline)
+    Schedule Follow Up button (opens date/time picker)
+    Convert to Order button (pre-fills new order form)
+    Disposition buttons: Interested | Not Home | No Answer | 
+                         Not Interested | Sold
+
+===================================================================
+MOBILE TECHNICAL REQUIREMENTS
+===================================================================
+
+All five screens must:
+  - Render correctly on screens 375px wide and up
+  - Work with one hand (critical actions reachable by thumb)
+  - Load in under 2 seconds on a 4G connection
+  - Work offline for viewing (cache last-fetched data)
+  - Show skeleton loading states, never blank screens
+  - Handle API errors gracefully with retry options
+  - Never lose user input on navigation or error
+  
+Progressive Web App (PWA) configuration:
+  - Add manifest.json for home screen install
+  - Add service worker for offline caching of:
+    Last loaded dashboard data
+    Pending order submissions (sync when online)
+  - Push notification support for:
+    Pay stub ready
+    Chargeback applied
+    Override earning approved

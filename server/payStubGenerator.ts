@@ -43,7 +43,7 @@ export async function generatePayStub(
     grossCommissionCents += Math.round(commAmount * 100);
     totalOrders++;
     if (order.jobStatus === "COMPLETED") totalConnects++;
-    if (order.mobileLineCount) totalMobileLines += order.mobileLineCount;
+    if (order.mobileLinesQty) totalMobileLines += order.mobileLinesQty;
   }
 
   const overrideEarnings = await storage.getApprovedOverrideEarningsForUser(userId, periodStart, periodEnd);
@@ -60,10 +60,12 @@ export async function generatePayStub(
   }
 
   const chargebacks = await storage.getChargebacksByPayRun(payRunId);
-  const userChargebacks = chargebacks.filter(c => {
-    return false;
-  });
+  const userOrderIds = readyOrders.map(r => r.order.id);
+  const userChargebacks = chargebacks.filter(c => c.salesOrderId && userOrderIds.includes(c.salesOrderId));
   let chargebackTotalCents = 0;
+  for (const cb of userChargebacks) {
+    chargebackTotalCents += Math.round(parseFloat(cb.amount || "0") * 100);
+  }
 
   const deductions = await storage.getActiveUserDeductions(userId);
   let deductionTotalCents = 0;
@@ -98,10 +100,10 @@ export async function generatePayStub(
     advancesApplied: (advanceTotalCents / 100).toFixed(2),
     taxWithheld: "0",
     netPay: (netPayCents / 100).toFixed(2),
-    repName: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+    repName: user.name || "",
     repId: user.id,
     repRole: user.role,
-    repEmail: user.email,
+    repEmail: "",
     stubNumber,
     totalOrders,
     totalConnects,
@@ -248,7 +250,7 @@ async function generatePayStubFromPayRun(
     grossCommissionCents += Math.round(commAmount * 100);
     totalOrders++;
     if (order.jobStatus === "COMPLETED") totalConnects++;
-    if (order.mobileLineCount) totalMobileLines += order.mobileLineCount;
+    if (order.mobileLinesQty) totalMobileLines += order.mobileLinesQty;
   }
 
   const overrideEarnings = await storage.getApprovedOverrideEarningsForUser(userId, periodStart, periodEnd);
@@ -269,7 +271,7 @@ async function generatePayStubFromPayRun(
   for (const cb of chargebacksByRun) {
     const cbOrder = userOrders.find(o => o.id === cb.salesOrderId);
     if (cbOrder) {
-      chargebackTotalCents += cb.amountCents || 0;
+      chargebackTotalCents += Math.round(parseFloat(cb.amount || "0") * 100);
     }
   }
 
@@ -306,10 +308,10 @@ async function generatePayStubFromPayRun(
     advancesApplied: (advanceTotalCents / 100).toFixed(2),
     taxWithheld: "0",
     netPay: (netPayCents / 100).toFixed(2),
-    repName: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+    repName: user.name || "",
     repId: user.id,
     repRole: user.role,
-    repEmail: user.email,
+    repEmail: "",
     stubNumber,
     totalOrders,
     totalConnects,
