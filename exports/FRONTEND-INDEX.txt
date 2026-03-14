@@ -1,0 +1,219 @@
+IRON CREST CRM — FULL FRONTEND CODE EXPORT
+  =============================================
+  Generated: March 14, 2026
+
+  Total files: 163
+  Total lines: 52,371
+
+  CONTENTS BY DIRECTORY:
+  ======================
+
+📁 client/src (3 files, 742 lines)
+   App.tsx                                  447 lines
+   index.css                                289 lines
+   main.tsx                                 6 lines
+
+📁 client/src/components (15 files, 2,308 lines)
+   app-sidebar.tsx                          567 lines
+   dashboard-charts.tsx                     257 lines
+   data-table.tsx                           173 lines
+   leaderboard.tsx                          192 lines
+   mobile-bottom-nav.tsx                    61 lines
+   mobile-filter-drawer.tsx                 49 lines
+   next-day-installs.tsx                    115 lines
+   ObjectUploader.tsx                       104 lines
+   production-metrics-card.tsx              196 lines
+   quota-progress.tsx                       227 lines
+   stats-card.tsx                           72 lines
+   status-badge.tsx                         64 lines
+   team-breakdown-table.tsx                 164 lines
+   theme-provider.tsx                       48 lines
+   theme-toggle.tsx                         19 lines
+
+📁 client/src/components/ui (47 files, 4,877 lines)
+   accordion.tsx                            57 lines
+   alert-dialog.tsx                         140 lines
+   alert.tsx                                60 lines
+   aspect-ratio.tsx                         6 lines
+   avatar.tsx                               52 lines
+   badge.tsx                                39 lines
+   breadcrumb.tsx                           116 lines
+   button.tsx                               63 lines
+   calendar.tsx                             69 lines
+   card.tsx                                 86 lines
+   carousel.tsx                             261 lines
+   chart.tsx                                366 lines
+   checkbox.tsx                             29 lines
+   collapsible.tsx                          12 lines
+   command.tsx                              152 lines
+   context-menu.tsx                         199 lines
+   dialog.tsx                               124 lines
+   drawer.tsx                               119 lines
+   dropdown-menu.tsx                        199 lines
+   form.tsx                                 179 lines
+   hover-card.tsx                           30 lines
+   input-otp.tsx                            70 lines
+   input.tsx                                24 lines
+   label.tsx                                25 lines
+   menubar.tsx                              257 lines
+   navigation-menu.tsx                      129 lines
+   pagination.tsx                           118 lines
+   popover.tsx                              30 lines
+   progress.tsx                             29 lines
+   radio-group.tsx                          43 lines
+   resizable.tsx                            46 lines
+   scroll-area.tsx                          47 lines
+   select.tsx                               237 lines
+   separator.tsx                            30 lines
+   sheet.tsx                                141 lines
+   sidebar.tsx                              728 lines
+   skeleton.tsx                             16 lines
+   slider.tsx                               27 lines
+   switch.tsx                               28 lines
+   table.tsx                                118 lines
+   tabs.tsx                                 54 lines
+   textarea.tsx                             23 lines
+   toast.tsx                                128 lines
+   toaster.tsx                              34 lines
+   toggle-group.tsx                         62 lines
+   toggle.tsx                               44 lines
+   tooltip.tsx                              31 lines
+
+📁 client/src/hooks (4 files, 433 lines)
+   use-activity-tracker.ts                  21 lines
+   use-mobile.tsx                           20 lines
+   use-toast.ts                             192 lines
+   use-upload.ts                            200 lines
+
+📁 client/src/lib (3 files, 230 lines)
+   auth.tsx                                 131 lines
+   queryClient.ts                           92 lines
+   utils.ts                                 7 lines
+
+📁 client/src/pages (41 files, 25,814 lines)
+   account-settings.tsx                     202 lines
+   accounting.tsx                           613 lines
+   adjustments.tsx                          346 lines
+   admin-dashboard.tsx                      314 lines
+   admin-disputes.tsx                       471 lines
+   audit.tsx                                338 lines
+   change-password.tsx                      174 lines
+   commission-forecast.tsx                  243 lines
+   commissions.tsx                          516 lines
+   executive-dashboard.tsx                  392 lines
+   executive-reports.tsx                    491 lines
+   export-history.tsx                       229 lines
+   finance.tsx                              2497 lines
+   knowledge.tsx                            720 lines
+   leads.tsx                                1808 lines
+   login.tsx                                142 lines
+   manager-dashboard.tsx                    337 lines
+   mdu-orders.tsx                           508 lines
+   mobile-order-entry.tsx                   472 lines
+   my-credentials.tsx                       253 lines
+   my-disputes.tsx                          431 lines
+   my-earnings.tsx                          256 lines
+   my-orders.tsx                            298 lines
+   my-pay-history.tsx                       587 lines
+   my-reserve.tsx                           223 lines
+   new-order.tsx                            569 lines
+   not-found.tsx                            22 lines
+   notification-settings.tsx                152 lines
+   notifications.tsx                        205 lines
+   onboarding.tsx                           674 lines
+   order-tracker.tsx                        2114 lines
+   orders.tsx                               2898 lines
+   payruns.tsx                              1490 lines
+   queues.tsx                               461 lines
+   recalculate.tsx                          242 lines
+   rep-dashboard.tsx                        252 lines
+   rep-home.tsx                             276 lines
+   reports.tsx                              2718 lines
+   sales-dashboard.tsx                      193 lines
+   sales-pipeline.tsx                       549 lines
+   supervisor-dashboard.tsx                 138 lines
+
+📁 client/src/pages/accounting (9 files, 2,311 lines)
+   acct-1099.tsx                            300 lines
+   acct-advances.tsx                        268 lines
+   acct-ar.tsx                              330 lines
+   acct-home.tsx                            197 lines
+   acct-layout.tsx                          97 lines
+   acct-overrides.tsx                       177 lines
+   acct-pay-runs.tsx                        507 lines
+   acct-pay-stubs.tsx                       230 lines
+   acct-reports.tsx                         205 lines
+
+📁 client/src/pages/admin (16 files, 10,180 lines)
+   clients.tsx                              206 lines
+   employee-credentials.tsx                 665 lines
+   incentives.tsx                           487 lines
+   install-sync.tsx                         432 lines
+   integrations.tsx                         429 lines
+   mdu-review.tsx                           373 lines
+   onboarding-review.tsx                    402 lines
+   overrides.tsx                            607 lines
+   payroll-advanced.tsx                     1349 lines
+   payroll.tsx                              1229 lines
+   providers.tsx                            206 lines
+   quickbooks.tsx                           1092 lines
+   rate-cards.tsx                           776 lines
+   services.tsx                             232 lines
+   user-activity.tsx                        601 lines
+   users.tsx                                1094 lines
+
+📁 client/src/pages/director (6 files, 1,291 lines)
+   dir-analytics.tsx                        218 lines
+   dir-approvals.tsx                        232 lines
+   dir-home.tsx                             258 lines
+   dir-layout.tsx                           93 lines
+   dir-production.tsx                       210 lines
+   dir-resources.tsx                        280 lines
+
+📁 client/src/pages/executive (6 files, 826 lines)
+   exec-financials.tsx                      201 lines
+   exec-home.tsx                            170 lines
+   exec-layout.tsx                          40 lines
+   exec-overrides.tsx                       159 lines
+   exec-production.tsx                      176 lines
+   exec-settings.tsx                        80 lines
+
+📁 client/src/pages/ops (13 files, 3,359 lines)
+   ops-advances.tsx                         202 lines
+   ops-ar.tsx                               254 lines
+   ops-finance-imports.tsx                  307 lines
+   ops-home.tsx                             253 lines
+   ops-install-sync.tsx                     337 lines
+   ops-layout.tsx                           101 lines
+   ops-orders.tsx                           413 lines
+   ops-overrides.tsx                        189 lines
+   ops-payruns.tsx                          287 lines
+   ops-paystubs.tsx                         199 lines
+   ops-reports.tsx                          257 lines
+   ops-reps.tsx                             478 lines
+   ops-settings.tsx                         82 lines
+
+
+KEY DIRECTORIES:
+  ================
+  client/src/App.tsx              — Main router, all page routes
+  client/src/components/          — Shared components (sidebar, charts, UI kit)
+  client/src/components/ui/       — shadcn/ui component library
+  client/src/hooks/               — Custom React hooks (auth, toast, mobile, upload)
+  client/src/lib/                 — Auth context, API client, utilities
+  client/src/pages/               — All page components
+  client/src/pages/admin/         — Admin panel pages (rate cards, overrides, payroll, users)
+  client/src/pages/accounting/    — Accounting center (8 screens, AcctLayout)
+  client/src/pages/director/      — Director center (5 screens, DirLayout)
+  client/src/pages/executive/     — Executive center (5 screens, ExecLayout)
+  client/src/pages/ops/           — Operations center (12 screens, OpsLayout)
+
+  ALSO INCLUDED:
+  ==============
+  vite.config.ts                  — Vite build configuration
+  tailwind.config.ts              — Tailwind CSS configuration
+  postcss.config.js               — PostCSS configuration
+  tsconfig.json                   — TypeScript configuration
+  theme.json                      — Theme settings
+  client/index.html               — HTML entry point
+  

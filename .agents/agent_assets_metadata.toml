@@ -12,3 +12,15 @@ id = "k62MgAV9GFFOKPp5Kiabz"
 uri = "file://exports/comp-code-export.tar.gz"
 type = "unspecified"
 title = "Compensation, Rate Card & Override - Source Code Export"
+
+[[outputs]]
+id = "ahLuTUmsPuNIVVvRslzE3"
+uri = "file://exports/frontend-code-export.tar.gz"
+type = "unspecified"
+title = "Iron Crest CRM — Full Frontend Source Code"
+
+[[outputs]]
+id = "WWVZGRgQ6MWP6V5LHg186"
+uri = "file://exports/FRONTEND-INDEX.txt"
+type = "text"
+title = "Frontend File Index & Directory Guide"
