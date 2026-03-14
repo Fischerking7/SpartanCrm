@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
-  DollarSign, AlertTriangle, CheckCircle2, Clock, Search, BarChart3, TrendingUp
+  DollarSign, AlertTriangle, CheckCircle2, Clock, Search, BarChart3, TrendingUp, Pencil
 } from "lucide-react";
 
 function centsToStr(cents: number) {
@@ -57,6 +58,9 @@ export default function OpsAR() {
   const [tab, setTab] = useState("all");
   const [paymentDialog, setPaymentDialog] = useState<any>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [editDialog, setEditDialog] = useState<any>(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editReason, setEditReason] = useState("");
 
   const { data: arData, isLoading: arLoading } = useQuery<any>({
     queryKey: ["/api/finance/ar"],
@@ -77,6 +81,24 @@ export default function OpsAR() {
       toast({ title: "Payment recorded" });
       setPaymentDialog(null);
       setPaymentAmount("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const editExpectedMutation = useMutation({
+    mutationFn: async ({ id, expectedAmountCents, reason }: { id: string; expectedAmountCents: number; reason: string }) => {
+      const res = await apiRequest("PATCH", `/api/finance/ar/${id}/expected-amount`, { expectedAmountCents, reason });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/ar/summary"] });
+      toast({ title: "Expected amount updated" });
+      setEditDialog(null);
+      setEditAmount("");
+      setEditReason("");
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -109,6 +131,12 @@ export default function OpsAR() {
   const dialogExpectedCents = paymentDialog?.expectedAmountCents || 0;
   const dialogReceivedCents = paymentDialog?.actualAmountCents || 0;
   const dialogBalanceCents = dialogExpectedCents - dialogReceivedCents;
+
+  const openEditDialog = (ar: any) => {
+    setEditDialog(ar);
+    setEditAmount(((ar.expectedAmountCents || 0) / 100).toFixed(2));
+    setEditReason("");
+  };
 
   return (
     <div className="p-4 md:p-6 space-y-6" data-testid="ops-ar">
@@ -222,12 +250,20 @@ export default function OpsAR() {
                         </Badge>
                       </td>
                       <td className="p-3 text-center">
-                        {ar.status !== "SATISFIED" && ar.status !== "WRITTEN_OFF" && (
-                          <Button size="sm" variant="outline" className="h-7 text-xs"
-                            onClick={() => setPaymentDialog(ar)} data-testid={`btn-record-payment-${ar.id}`}>
-                            <DollarSign className="h-3 w-3 mr-1" /> Record
-                          </Button>
-                        )}
+                        <div className="flex items-center justify-center gap-1">
+                          {ar.status !== "SATISFIED" && ar.status !== "WRITTEN_OFF" && (
+                            <>
+                              <Button size="sm" variant="outline" className="h-7 text-xs"
+                                onClick={() => openEditDialog(ar)} data-testid={`btn-edit-expected-${ar.id}`}>
+                                <Pencil className="h-3 w-3 mr-1" /> Edit
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-7 text-xs"
+                                onClick={() => setPaymentDialog(ar)} data-testid={`btn-record-payment-${ar.id}`}>
+                                <DollarSign className="h-3 w-3 mr-1" /> Record
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -288,6 +324,74 @@ export default function OpsAR() {
               data-testid="btn-submit-payment"
             >
               Record Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editDialog} onOpenChange={() => { setEditDialog(null); setEditAmount(""); setEditReason(""); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Expected Amount</DialogTitle>
+            <DialogDescription>
+              {editDialog?.order?.invoiceNumber || editDialog?.invoiceNumber || `AR-${editDialog?.id}`}
+              {editDialog?.order?.customerName ? ` — ${editDialog.order.customerName}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div>
+                <p className="text-muted-foreground">Current Expected</p>
+                <p className="font-medium">{formatCurrency(editDialog?.expectedAmountCents || 0)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Received</p>
+                <p className="font-medium text-emerald-600">{formatCurrency(editDialog?.actualAmountCents || 0)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Status</p>
+                <Badge className={`text-xs ${statusColors[editDialog?.status] || ""}`}>
+                  {editDialog?.status || "OPEN"}
+                </Badge>
+              </div>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">New Expected Amount ($)</p>
+              <Input
+                type="number"
+                step="0.01"
+                value={editAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
+                placeholder="0.00"
+                data-testid="input-edit-expected"
+              />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">Reason for change</p>
+              <Textarea
+                value={editReason}
+                onChange={(e) => setEditReason(e.target.value)}
+                placeholder="e.g., Rate adjustment, service downgrade..."
+                rows={2}
+                data-testid="input-edit-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditDialog(null); setEditAmount(""); setEditReason(""); }}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!editAmount || parseFloat(editAmount) < 0 || !editReason.trim() || editExpectedMutation.isPending}
+              onClick={() => editExpectedMutation.mutate({
+                id: editDialog.id,
+                expectedAmountCents: Math.round(parseFloat(editAmount) * 100),
+                reason: editReason.trim(),
+              })}
+              className="bg-[#C9A84C] hover:bg-[#b8973e] text-white"
+              data-testid="btn-save-expected"
+            >
+              {editExpectedMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
