@@ -6,13 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
 import {
-  CheckCircle2, XCircle, Search, Filter, Clock, AlertTriangle, ChevronLeft, ChevronRight, ShieldAlert
+  CheckCircle2, XCircle, Search, Clock, AlertTriangle, ChevronLeft, ChevronRight,
+  ShieldAlert, Pencil, Save, DollarSign
 } from "lucide-react";
 
 function RiskBadge({ score }: { score: number | null | undefined }) {
@@ -36,14 +40,23 @@ const roleColors: Record<string, string> = {
   MANAGER: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
 };
 
+const jobStatuses = ["PENDING", "SCHEDULED", "INSTALLED", "COMPLETED", "CANCELED"];
+const approvalStatuses = ["PENDING", "APPROVED", "REJECTED"];
+const paymentStatuses = ["UNPAID", "PAID", "HOLD"];
+
 export default function OpsOrders() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<Record<string, any>>({});
   const limit = 25;
+
+  const isDirector = user?.role === "DIRECTOR";
 
   const { data: pendingOrders, isLoading: pendingLoading } = useQuery<any[]>({
     queryKey: ["/api/orders", "?status=COMPLETED&limit=100"],
@@ -52,6 +65,20 @@ export default function OpsOrders() {
   const { data: allOrdersData, isLoading: allLoading } = useQuery<any>({
     queryKey: ["/api/orders", `?status=${statusFilter === "all" ? "" : statusFilter}&search=${searchTerm}&page=${page}&limit=${limit}`],
   });
+
+  const { data: usersData } = useQuery<any>({
+    queryKey: ["/api/admin/users"],
+    enabled: !isDirector,
+  });
+
+  const { data: servicesData } = useQuery<any>({
+    queryKey: ["/api/services"],
+    enabled: !isDirector,
+  });
+
+  const allUsers = usersData?.users || usersData || [];
+  const activeReps = Array.isArray(allUsers) ? allUsers.filter((u: any) => ["REP", "LEAD", "MANAGER", "MDU"].includes(u.role) && u.status === "ACTIVE") : [];
+  const servicesList = Array.isArray(servicesData) ? servicesData : [];
 
   const approvalQueue = useMemo(() => {
     if (!pendingOrders) return [];
@@ -62,7 +89,7 @@ export default function OpsOrders() {
 
   const approveMutation = useMutation({
     mutationFn: async (orderId: string) => {
-      return apiRequest("PATCH", `/api/orders/${orderId}`, { status: "APPROVED" });
+      return apiRequest("POST", `/api/orders/${orderId}/approve`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
@@ -73,7 +100,7 @@ export default function OpsOrders() {
 
   const rejectMutation = useMutation({
     mutationFn: async (orderId: string) => {
-      return apiRequest("PATCH", `/api/orders/${orderId}`, { status: "CANCELED" });
+      return apiRequest("PATCH", `/api/orders/${orderId}`, { jobStatus: "CANCELED" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
@@ -84,7 +111,7 @@ export default function OpsOrders() {
 
   const bulkApproveMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      await Promise.all(ids.map(id => apiRequest("PATCH", `/api/orders/${id}`, { status: "APPROVED" })));
+      return apiRequest("POST", `/api/orders/bulk-approve`, { orderIds: ids });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
@@ -92,6 +119,37 @@ export default function OpsOrders() {
       toast({ title: `${selectedIds.size} orders approved` });
     },
     onError: () => toast({ title: "Bulk approve failed", variant: "destructive" }),
+  });
+
+  const updateOrderMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
+      const res = await apiRequest("PATCH", `/api/orders/${id}`, data);
+      return res.json();
+    },
+    onSuccess: (updatedOrder) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({ title: "Order updated" });
+      setSelectedOrder(updatedOrder);
+      setIsEditing(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/admin/orders/${id}/mark-paid`);
+      return res.json();
+    },
+    onSuccess: (updatedOrder) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({ title: "Order marked as paid" });
+      if (selectedOrder) setSelectedOrder({ ...selectedOrder, paymentStatus: "PAID" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to mark paid", description: err.message, variant: "destructive" });
+    },
   });
 
   const toggleSelect = (id: string) => {
@@ -114,6 +172,46 @@ export default function OpsOrders() {
     return Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
   };
 
+  const openEditMode = (order: any) => {
+    setEditForm({
+      customerName: order.customerName || "",
+      customerPhone: order.customerPhone || "",
+      customerEmail: order.customerEmail || "",
+      customerAddress: order.customerAddress || "",
+      accountNumber: order.accountNumber || "",
+      repId: order.repId || "",
+      serviceId: order.serviceId?.toString() || "",
+      jobStatus: order.jobStatus || order.status || "PENDING",
+      installDate: order.installDate || "",
+      installType: order.installType || "",
+      notes: order.notes || "",
+    });
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!selectedOrder) return;
+    const changes: Record<string, any> = {};
+    if (editForm.customerName !== (selectedOrder.customerName || "")) changes.customerName = editForm.customerName;
+    if (editForm.customerPhone !== (selectedOrder.customerPhone || "")) changes.customerPhone = editForm.customerPhone;
+    if (editForm.customerEmail !== (selectedOrder.customerEmail || "")) changes.customerEmail = editForm.customerEmail;
+    if (editForm.customerAddress !== (selectedOrder.customerAddress || "")) changes.customerAddress = editForm.customerAddress;
+    if (editForm.accountNumber !== (selectedOrder.accountNumber || "")) changes.accountNumber = editForm.accountNumber;
+    if (editForm.repId !== (selectedOrder.repId || "")) changes.repId = editForm.repId;
+    if (editForm.serviceId !== (selectedOrder.serviceId?.toString() || "")) changes.serviceId = parseInt(editForm.serviceId);
+    if (editForm.jobStatus !== (selectedOrder.jobStatus || selectedOrder.status || "PENDING")) changes.jobStatus = editForm.jobStatus;
+    if (editForm.installDate !== (selectedOrder.installDate || "")) changes.installDate = editForm.installDate;
+    if (editForm.installType !== (selectedOrder.installType || "")) changes.installType = editForm.installType;
+    if (editForm.notes !== (selectedOrder.notes || "")) changes.notes = editForm.notes;
+
+    if (Object.keys(changes).length === 0) {
+      toast({ title: "No changes to save" });
+      setIsEditing(false);
+      return;
+    }
+    updateOrderMutation.mutate({ id: selectedOrder.id, data: changes });
+  };
+
   const allOrders = Array.isArray(allOrdersData) ? allOrdersData : (allOrdersData?.orders || []);
   const totalOrders = allOrdersData?.total || allOrders.length;
 
@@ -121,113 +219,117 @@ export default function OpsOrders() {
     <div className="p-4 md:p-6 max-w-7xl mx-auto" data-testid="ops-orders">
       <h1 className="text-2xl font-bold mb-6">Order Management</h1>
 
-      <Tabs defaultValue="approval" className="space-y-4">
+      <Tabs defaultValue={isDirector ? "all" : "approval"} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="approval" data-testid="tab-approval">
-            Needs Approval ({approvalQueue.length})
-          </TabsTrigger>
+          {!isDirector && (
+            <TabsTrigger value="approval" data-testid="tab-approval">
+              Needs Approval ({approvalQueue.length})
+            </TabsTrigger>
+          )}
           <TabsTrigger value="all" data-testid="tab-all-orders">
             All Orders
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="approval" className="space-y-4">
-          {selectedIds.size > 0 && (
-            <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
-              <span className="text-sm font-medium">{selectedIds.size} selected</span>
-              <Button
-                size="sm"
-                onClick={() => bulkApproveMutation.mutate([...selectedIds])}
-                disabled={bulkApproveMutation.isPending}
-                data-testid="btn-bulk-approve"
-              >
-                <CheckCircle2 className="h-4 w-4 mr-1" />
-                Approve Selected
-              </Button>
-            </div>
-          )}
-
-          {pendingLoading ? (
-            <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-20" />)}</div>
-          ) : approvalQueue.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center text-muted-foreground">
-                <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
-                No orders pending approval
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-2">
-                <Checkbox
-                  checked={selectedIds.size === approvalQueue.length && approvalQueue.length > 0}
-                  onCheckedChange={toggleSelectAll}
-                  data-testid="checkbox-select-all"
-                />
-                <span className="text-sm text-muted-foreground">Select All</span>
+        {!isDirector && (
+          <TabsContent value="approval" className="space-y-4">
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+                <span className="text-sm font-medium">{selectedIds.size} selected</span>
+                <Button
+                  size="sm"
+                  onClick={() => bulkApproveMutation.mutate([...selectedIds])}
+                  disabled={bulkApproveMutation.isPending}
+                  data-testid="btn-bulk-approve"
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1" />
+                  Approve Selected
+                </Button>
               </div>
-              {approvalQueue.map((order: any) => {
-                const days = getDaysSince(order.completedAt || order.createdAt);
-                return (
-                  <Card key={order.id} className={days >= 5 ? "border-red-300 dark:border-red-700" : ""} data-testid={`approval-order-${order.id}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        <Checkbox
-                          checked={selectedIds.has(order.id)}
-                          onCheckedChange={() => toggleSelect(order.id)}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium">{order.repName || order.repId}</span>
-                            {order.repRoleAtSale && (
-                              <Badge variant="outline" className={`text-xs ${roleColors[order.repRoleAtSale] || ""}`}>
-                                {order.repRoleAtSale}
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {order.customerName} · {order.serviceName || "N/A"}
-                          </p>
-                          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                            <span>${parseFloat(order.baseCommissionEarned || "0").toFixed(2)}</span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {days}d ago
-                            </span>
-                            {days >= 5 && (
-                              <span className="text-red-600 dark:text-red-400 flex items-center gap-1">
-                                <AlertTriangle className="h-3 w-3" /> Overdue
+            )}
+
+            {pendingLoading ? (
+              <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-20" />)}</div>
+            ) : approvalQueue.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                  No orders pending approval
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <Checkbox
+                    checked={selectedIds.size === approvalQueue.length && approvalQueue.length > 0}
+                    onCheckedChange={toggleSelectAll}
+                    data-testid="checkbox-select-all"
+                  />
+                  <span className="text-sm text-muted-foreground">Select All</span>
+                </div>
+                {approvalQueue.map((order: any) => {
+                  const days = getDaysSince(order.completedAt || order.createdAt);
+                  return (
+                    <Card key={order.id} className={days >= 5 ? "border-red-300 dark:border-red-700" : ""} data-testid={`approval-order-${order.id}`}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                          <Checkbox
+                            checked={selectedIds.has(order.id)}
+                            onCheckedChange={() => toggleSelect(order.id)}
+                          />
+                          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { setSelectedOrder(order); setIsEditing(false); }}>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium">{order.repName || order.repId}</span>
+                              {order.repRoleAtSale && (
+                                <Badge variant="outline" className={`text-xs ${roleColors[order.repRoleAtSale] || ""}`}>
+                                  {order.repRoleAtSale}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground truncate">
+                              {order.customerName} · {order.serviceName || "N/A"}
+                            </p>
+                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                              {!isDirector && <span>${parseFloat(order.baseCommissionEarned || "0").toFixed(2)}</span>}
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {days}d ago
                               </span>
-                            )}
+                              {days >= 5 && (
+                                <span className="text-red-600 dark:text-red-400 flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3" /> Overdue
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex gap-2 shrink-0">
+                            <Button
+                              size="sm"
+                              onClick={() => approveMutation.mutate(order.id)}
+                              disabled={approveMutation.isPending}
+                              data-testid={`btn-approve-${order.id}`}
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => rejectMutation.mutate(order.id)}
+                              disabled={rejectMutation.isPending}
+                              data-testid={`btn-reject-${order.id}`}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
-                        <div className="flex gap-2 shrink-0">
-                          <Button
-                            size="sm"
-                            onClick={() => approveMutation.mutate(order.id)}
-                            disabled={approveMutation.isPending}
-                            data-testid={`btn-approve-${order.id}`}
-                          >
-                            <CheckCircle2 className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => rejectMutation.mutate(order.id)}
-                            disabled={rejectMutation.isPending}
-                            data-testid={`btn-reject-${order.id}`}
-                          >
-                            <XCircle className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </TabsContent>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+        )}
 
         <TabsContent value="all" className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
@@ -268,28 +370,30 @@ export default function OpsOrders() {
                       <th className="text-left p-3 font-medium hidden lg:table-cell">Rep</th>
                       <th className="text-left p-3 font-medium hidden md:table-cell">Service</th>
                       <th className="text-left p-3 font-medium">Status</th>
-                      <th className="text-right p-3 font-medium hidden sm:table-cell">Commission</th>
+                      {!isDirector && <th className="text-right p-3 font-medium hidden sm:table-cell">Commission</th>}
                       <th className="text-right p-3 font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {allOrders.map((order: any) => (
-                      <tr key={order.id} className="border-t hover:bg-muted/50 cursor-pointer" onClick={() => setSelectedOrder(order)} data-testid={`order-row-${order.id}`}>
+                      <tr key={order.id} className="border-t hover:bg-muted/50 cursor-pointer" onClick={() => { setSelectedOrder(order); setIsEditing(false); }} data-testid={`order-row-${order.id}`}>
                         <td className="p-3 font-mono text-xs">{order.invoiceNumber || "—"}</td>
                         <td className="p-3 hidden md:table-cell">{order.customerName}</td>
-                        <td className="p-3 hidden lg:table-cell">{order.repId}</td>
+                        <td className="p-3 hidden lg:table-cell">{order.repName || order.repId}</td>
                         <td className="p-3 hidden md:table-cell">{order.serviceName || "—"}</td>
                         <td className="p-3">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <Badge variant="outline" className="text-xs">
-                              {order.status}
+                              {order.jobStatus || order.status}
                             </Badge>
                             <RiskBadge score={order.chargebackRiskScore} />
                           </div>
                         </td>
-                        <td className="p-3 text-right hidden sm:table-cell">
-                          ${parseFloat(order.baseCommissionEarned || "0").toFixed(2)}
-                        </td>
+                        {!isDirector && (
+                          <td className="p-3 text-right hidden sm:table-cell">
+                            ${parseFloat(order.baseCommissionEarned || "0").toFixed(2)}
+                          </td>
+                        )}
                         <td className="p-3 text-right">
                           <Button size="sm" variant="ghost" data-testid={`btn-view-${order.id}`}>
                             View
@@ -319,12 +423,24 @@ export default function OpsOrders() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
+      <Dialog open={!!selectedOrder} onOpenChange={(open) => { if (!open) { setSelectedOrder(null); setIsEditing(false); } }}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Order Details</DialogTitle>
+            <DialogTitle className="flex items-center justify-between">
+              <span>Order Details</span>
+              {!isDirector && !isEditing && (
+                <Button size="sm" variant="outline" onClick={() => openEditMode(selectedOrder)} data-testid="btn-edit-order">
+                  <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                </Button>
+              )}
+            </DialogTitle>
+            {selectedOrder && (
+              <DialogDescription>
+                {selectedOrder.invoiceNumber || `Order ${selectedOrder.id?.slice(0, 8)}`}
+              </DialogDescription>
+            )}
           </DialogHeader>
-          {selectedOrder && (
+          {selectedOrder && !isEditing && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
@@ -332,8 +448,8 @@ export default function OpsOrders() {
                   <p className="font-medium">{selectedOrder.invoiceNumber || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Status</p>
-                  <Badge variant="outline">{selectedOrder.status}</Badge>
+                  <p className="text-muted-foreground">Job Status</p>
+                  <Badge variant="outline">{selectedOrder.jobStatus || selectedOrder.status}</Badge>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Customer</p>
@@ -341,7 +457,7 @@ export default function OpsOrders() {
                 </div>
                 <div>
                   <p className="text-muted-foreground">Rep</p>
-                  <p className="font-medium">{selectedOrder.repId}</p>
+                  <p className="font-medium">{selectedOrder.repName || selectedOrder.repId}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Service</p>
@@ -351,15 +467,67 @@ export default function OpsOrders() {
                   <p className="text-muted-foreground">Provider</p>
                   <p className="font-medium">{selectedOrder.providerName || "—"}</p>
                 </div>
+                {!isDirector && (
+                  <div>
+                    <p className="text-muted-foreground">Commission</p>
+                    <p className="font-medium">${parseFloat(selectedOrder.baseCommissionEarned || "0").toFixed(2)}</p>
+                  </div>
+                )}
                 <div>
-                  <p className="text-muted-foreground">Commission</p>
-                  <p className="font-medium">${parseFloat(selectedOrder.baseCommissionEarned || "0").toFixed(2)}</p>
+                  <p className="text-muted-foreground">Date Sold</p>
+                  <p className="font-medium">{selectedOrder.dateSold ? new Date(selectedOrder.dateSold).toLocaleDateString() : "—"}</p>
+                </div>
+                {selectedOrder.installDate && (
+                  <div>
+                    <p className="text-muted-foreground">Install Date</p>
+                    <p className="font-medium">{new Date(selectedOrder.installDate).toLocaleDateString()}</p>
+                  </div>
+                )}
+                {selectedOrder.installType && (
+                  <div>
+                    <p className="text-muted-foreground">Install Type</p>
+                    <p className="font-medium">{selectedOrder.installType}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-muted-foreground">Approval</p>
+                  <Badge variant="outline" className="text-xs">{selectedOrder.approvalStatus || "PENDING"}</Badge>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Created</p>
-                  <p className="font-medium">{new Date(selectedOrder.createdAt).toLocaleDateString()}</p>
+                  <p className="text-muted-foreground">Payment</p>
+                  <Badge variant="outline" className="text-xs">{selectedOrder.paymentStatus || "UNPAID"}</Badge>
                 </div>
               </div>
+              {selectedOrder.customerPhone && (
+                <div className="text-sm">
+                  <p className="text-muted-foreground">Phone</p>
+                  <p className="font-medium">{selectedOrder.customerPhone}</p>
+                </div>
+              )}
+              {selectedOrder.customerEmail && (
+                <div className="text-sm">
+                  <p className="text-muted-foreground">Email</p>
+                  <p className="font-medium">{selectedOrder.customerEmail}</p>
+                </div>
+              )}
+              {selectedOrder.customerAddress && (
+                <div className="text-sm">
+                  <p className="text-muted-foreground">Address</p>
+                  <p className="font-medium">{selectedOrder.customerAddress}</p>
+                </div>
+              )}
+              {selectedOrder.accountNumber && (
+                <div className="text-sm">
+                  <p className="text-muted-foreground">Account #</p>
+                  <p className="font-medium">{selectedOrder.accountNumber}</p>
+                </div>
+              )}
+              {selectedOrder.notes && (
+                <div className="text-sm">
+                  <p className="text-muted-foreground">Notes</p>
+                  <p className="font-medium">{selectedOrder.notes}</p>
+                </div>
+              )}
               {selectedOrder.chargebackRiskScore != null && (
                 <div className="p-3 rounded-lg bg-muted/50 border" data-testid="section-risk-detail">
                   <div className="flex items-center justify-between mb-2">
@@ -387,22 +555,120 @@ export default function OpsOrders() {
                   })()}
                 </div>
               )}
-              {selectedOrder.customerAddress && (
-                <div className="text-sm">
-                  <p className="text-muted-foreground">Address</p>
-                  <p className="font-medium">{selectedOrder.customerAddress}</p>
+
+              {!isDirector && (
+                <div className="flex gap-2 flex-wrap pt-2 border-t">
+                  {selectedOrder.status === "COMPLETED" && !selectedOrder.approvedAt && (
+                    <>
+                      <Button size="sm" onClick={() => { approveMutation.mutate(selectedOrder.id); setSelectedOrder(null); }} data-testid="btn-approve-detail">
+                        <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={() => { rejectMutation.mutate(selectedOrder.id); setSelectedOrder(null); }} data-testid="btn-reject-detail">
+                        <XCircle className="h-4 w-4 mr-1" /> Reject
+                      </Button>
+                    </>
+                  )}
+                  {selectedOrder.paymentStatus !== "PAID" && (
+                    <Button size="sm" variant="outline" onClick={() => markPaidMutation.mutate(selectedOrder.id)}
+                      disabled={markPaidMutation.isPending} data-testid="btn-mark-paid">
+                      <DollarSign className="h-4 w-4 mr-1" /> Mark Paid
+                    </Button>
+                  )}
                 </div>
               )}
-              {selectedOrder.status === "COMPLETED" && !selectedOrder.approvedAt && (
-                <div className="flex gap-2 pt-2">
-                  <Button className="flex-1" onClick={() => { approveMutation.mutate(selectedOrder.id); setSelectedOrder(null); }} data-testid="btn-approve-detail">
-                    <CheckCircle2 className="h-4 w-4 mr-2" /> Approve
-                  </Button>
-                  <Button variant="destructive" className="flex-1" onClick={() => { rejectMutation.mutate(selectedOrder.id); setSelectedOrder(null); }} data-testid="btn-reject-detail">
-                    <XCircle className="h-4 w-4 mr-2" /> Reject
-                  </Button>
+            </div>
+          )}
+
+          {selectedOrder && isEditing && !isDirector && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Customer Name</Label>
+                  <Input value={editForm.customerName} onChange={e => setEditForm(f => ({ ...f, customerName: e.target.value }))} data-testid="edit-customer-name" />
                 </div>
-              )}
+                <div className="space-y-1">
+                  <Label className="text-xs">Phone</Label>
+                  <Input value={editForm.customerPhone} onChange={e => setEditForm(f => ({ ...f, customerPhone: e.target.value }))} data-testid="edit-customer-phone" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Email</Label>
+                  <Input value={editForm.customerEmail} onChange={e => setEditForm(f => ({ ...f, customerEmail: e.target.value }))} data-testid="edit-customer-email" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Account #</Label>
+                  <Input value={editForm.accountNumber} onChange={e => setEditForm(f => ({ ...f, accountNumber: e.target.value }))} data-testid="edit-account-number" />
+                </div>
+                <div className="col-span-2 space-y-1">
+                  <Label className="text-xs">Address</Label>
+                  <Input value={editForm.customerAddress} onChange={e => setEditForm(f => ({ ...f, customerAddress: e.target.value }))} data-testid="edit-customer-address" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Assigned Rep</Label>
+                  <Select value={editForm.repId} onValueChange={v => setEditForm(f => ({ ...f, repId: v }))}>
+                    <SelectTrigger data-testid="edit-rep-id">
+                      <SelectValue placeholder="Select rep" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeReps.map((u: any) => (
+                        <SelectItem key={u.id} value={u.repId}>{u.name} ({u.repId})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Service</Label>
+                  <Select value={editForm.serviceId} onValueChange={v => setEditForm(f => ({ ...f, serviceId: v }))}>
+                    <SelectTrigger data-testid="edit-service-id">
+                      <SelectValue placeholder="Select service" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {servicesList.map((s: any) => (
+                        <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Job Status</Label>
+                  <Select value={editForm.jobStatus} onValueChange={v => setEditForm(f => ({ ...f, jobStatus: v }))}>
+                    <SelectTrigger data-testid="edit-job-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {jobStatuses.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Install Date</Label>
+                  <Input type="date" value={editForm.installDate} onChange={e => setEditForm(f => ({ ...f, installDate: e.target.value }))} data-testid="edit-install-date" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Install Type</Label>
+                  <Select value={editForm.installType || "__none__"} onValueChange={v => setEditForm(f => ({ ...f, installType: v === "__none__" ? "" : v }))}>
+                    <SelectTrigger data-testid="edit-install-type">
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      <SelectItem value="SELF">Self Install</SelectItem>
+                      <SelectItem value="PRO">Pro Install</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2 space-y-1">
+                  <Label className="text-xs">Notes</Label>
+                  <Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} data-testid="edit-notes" />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
+                <Button onClick={handleSaveEdit} disabled={updateOrderMutation.isPending}
+                  className="bg-[#C9A84C] hover:bg-[#b8973e] text-white" data-testid="btn-save-order">
+                  <Save className="h-4 w-4 mr-1" />
+                  {updateOrderMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
             </div>
           )}
         </DialogContent>
