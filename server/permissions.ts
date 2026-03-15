@@ -12,7 +12,7 @@ export const PERMISSIONS = {
   'orders:delete': ['OPERATIONS', 'EXECUTIVE'],
 
   'financial:view:commission': ['REP', 'LEAD', 'MANAGER', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
-  'financial:view:profit': ['ACCOUNTING', 'EXECUTIVE'],
+  'financial:view:profit': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'financial:view:ar': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'financial:edit:ar': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'financial:view:payruns': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
@@ -26,7 +26,7 @@ export const PERMISSIONS = {
   'financial:export:ach': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'financial:view:reserves': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'financial:manage:reserves': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
-  'financial:override:reserve:cap': ['EXECUTIVE'],
+  'financial:override:reserve:cap': ['OPERATIONS', 'EXECUTIVE'],
 
   'overrides:approve:director': ['OPERATIONS', 'EXECUTIVE'],
   'overrides:approve:admin': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
@@ -42,10 +42,10 @@ export const PERMISSIONS = {
   'users:create': ['OPERATIONS', 'EXECUTIVE'],
   'users:edit': ['OPERATIONS', 'EXECUTIVE'],
   'users:deactivate': ['OPERATIONS', 'EXECUTIVE'],
-  'users:create:executive': ['EXECUTIVE'],
+  'users:create:executive': ['OPERATIONS', 'EXECUTIVE'],
   'users:create:accounting': ['OPERATIONS', 'EXECUTIVE'],
   'users:create:director': ['OPERATIONS', 'EXECUTIVE'],
-  'users:create:operations': ['EXECUTIVE'],
+  'users:create:operations': ['OPERATIONS', 'EXECUTIVE'],
 
   'finance:import:upload': ['OPERATIONS', 'EXECUTIVE'],
   'finance:import:view': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
@@ -58,7 +58,7 @@ export const PERMISSIONS = {
   'system:settings:financial': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'system:settings:all': ['OPERATIONS', 'EXECUTIVE'],
   'system:ratecards:view': ['ADMIN', 'DIRECTOR', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
-  'system:ratecards:edit': ['ADMIN', 'EXECUTIVE'],
+  'system:ratecards:edit': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
   'system:automation': ['OPERATIONS', 'EXECUTIVE'],
 
   'exceptions:operational': ['DIRECTOR', 'OPERATIONS', 'EXECUTIVE'],
@@ -88,7 +88,7 @@ export const PERMISSIONS = {
   'reserves:view:all': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'reserves:manual:adjust': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'reserves:handle:separation': ['OPERATIONS', 'EXECUTIVE'],
-  'reserves:override:cap': ['EXECUTIVE'],
+  'reserves:override:cap': ['OPERATIONS', 'EXECUTIVE'],
 
   'audit:view': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 
@@ -103,7 +103,7 @@ export const PERMISSIONS = {
 
   'banking:view': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'banking:export': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
-  'banking:manage:accounts': ['ACCOUNTING', 'EXECUTIVE'],
+  'banking:manage:accounts': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 
   'admin:providers': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
   'admin:clients': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
@@ -130,7 +130,7 @@ export const PERMISSIONS = {
   'admin:finance:ar': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'admin:finance:columnmaps': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'admin:integrations': ['OPERATIONS', 'EXECUTIVE'],
-  'admin:seeddata': ['EXECUTIVE'],
+  'admin:seeddata': ['OPERATIONS', 'EXECUTIVE'],
   'admin:schedpay': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 } as const;
 
@@ -156,8 +156,8 @@ export function hasPermission(role: string, permission: PermissionKey): boolean 
 }
 
 export const canCreateRole: Record<string, string[]> = {
-  'EXECUTIVE': ['EXECUTIVE'],
-  'OPERATIONS': ['EXECUTIVE'],
+  'EXECUTIVE': ['OPERATIONS', 'EXECUTIVE'],
+  'OPERATIONS': ['OPERATIONS', 'EXECUTIVE'],
   'ADMIN': ['OPERATIONS', 'EXECUTIVE'],
   'DIRECTOR': ['OPERATIONS', 'EXECUTIVE'],
   'ACCOUNTING': ['OPERATIONS', 'EXECUTIVE'],
