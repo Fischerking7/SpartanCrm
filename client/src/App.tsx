@@ -342,7 +342,11 @@ function Router() {
           <Route path="/ops/orders">{() => <OpsLayout><OpsOrders /></OpsLayout>}</Route>
         )}
 
-        {(user.role === "OPERATIONS" || user.role === "EXECUTIVE") && (
+        {user.role === "EXECUTIVE" && (
+          <Route path="/ops/orders">{() => <OpsLayout><OpsOrders /></OpsLayout>}</Route>
+        )}
+
+        {user.role === "OPERATIONS" && (
           <>
             <Route path="/ops">{() => <OpsLayout><OpsHome /></OpsLayout>}</Route>
             <Route path="/ops/orders">{() => <OpsLayout><OpsOrders /></OpsLayout>}</Route>

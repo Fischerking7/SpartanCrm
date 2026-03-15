@@ -449,13 +449,22 @@ export function AppSidebar() {
             location={location}
           />
         )}
-        <CollapsibleSection 
-          title="Ops Center" 
-          icon={Briefcase} 
-          items={[MENU.opsHome, MENU.opsOrders, MENU.opsReps, MENU.opsPayRuns, MENU.opsPayStubs, MENU.opsAR, MENU.opsOverrides, MENU.opsAdvances, MENU.opsReports]} 
-          location={location}
-          defaultOpen={!isExec}
-        />
+        {isExec ? (
+          <CollapsibleSection 
+            title="Ops Center" 
+            icon={Briefcase} 
+            items={[MENU.opsOrders]} 
+            location={location}
+          />
+        ) : (
+          <CollapsibleSection 
+            title="Ops Center" 
+            icon={Briefcase} 
+            items={[MENU.opsHome, MENU.opsOrders, MENU.opsReps, MENU.opsPayRuns, MENU.opsPayStubs, MENU.opsAR, MENU.opsOverrides, MENU.opsAdvances, MENU.opsReports]} 
+            location={location}
+            defaultOpen={true}
+          />
+        )}
         <CollapsibleSection 
           title="Accounting" 
           icon={Wallet} 
