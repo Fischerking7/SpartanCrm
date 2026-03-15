@@ -16561,7 +16561,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         .from(salesOrders).where(eq(salesOrders.approvalStatus, "UNAPPROVED"));
 
       const pendingInstalls = await db.select({ count: sql<number>`count(*)` })
-        .from(salesOrders).where(sql`"approval_status" = 'APPROVED' AND "job_status" != 'COMPLETED' AND "job_status" != 'CANCELLED'`);
+        .from(salesOrders).where(sql`"approval_status" = 'APPROVED' AND "job_status" != 'COMPLETED' AND "job_status" != 'CANCELED'`);
 
       const pendingOverrides = await db.select({ count: sql<number>`count(*)` })
         .from(overrideEarnings).where(sql`"approval_status" = 'PENDING_APPROVAL'`);
