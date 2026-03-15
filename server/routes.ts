@@ -2035,7 +2035,7 @@ export async function registerRoutes(
       const search = req.query.search as string | undefined;
       const viewMode = req.query.viewMode as string | undefined; // "own", "team", "global" for EXECUTIVE
 
-      if (search && search.length >= 2 && (user.role === "ADMIN" || user.role === "OPERATIONS")) {
+      if (search && search.length >= 2 && (user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE")) {
         const results = await storage.searchOrders(search, limit || 20);
         const [svcList, prvList, cltList, usrList] = await Promise.all([
           storage.getServices(), storage.getProviders(), storage.getClients(), storage.getUsers()
@@ -16683,12 +16683,11 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
       }
       const profitByService = [...svcProfit.values()].sort((a, b) => b.profitCents - a.profitCents);
 
-      const user = req.user!;
-      const managers = await db.query.users.findMany({
-        where: and(eq(users.assignedExecutiveId, user.id), eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"), isNull(users.deletedAt))
+      const allManagers = await db.query.users.findMany({
+        where: and(eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"), isNull(users.deletedAt))
       });
       const profitByManager = [];
-      for (const mgr of managers) {
+      for (const mgr of allManagers) {
         const mgrScope = await storage.getManagerScope(mgr.id);
         const mgrOrders = profitOrders.filter(o => mgrScope.allRepRepIds.includes(o.repId));
         const profitCents = mgrOrders.reduce((sum: number, o: any) => sum + (o.ironCrestProfitCents || 0), 0);
@@ -16772,18 +16771,13 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
 
   app.get("/api/executive/production", auth, execAccess, async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
       const now = new Date();
       const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
       const formatDate = (d: Date) => d.toISOString().split("T")[0];
       const startDate = (req.query.startDate as string) || new Date(nyNow.getFullYear(), nyNow.getMonth(), 1).toISOString().split("T")[0];
       const endDate = (req.query.endDate as string) || formatDate(nyNow);
-      const scope = await storage.getExecutiveScope(user.id);
-      const allRepIds = scope.allRepRepIds;
-
       const orders = await db.query.salesOrders.findMany({
         where: and(
-          inArray(salesOrders.repId, allRepIds.length > 0 ? allRepIds : [""]),
           gte(salesOrders.dateSold, startDate),
           lte(salesOrders.dateSold, endDate)
         )
@@ -16794,7 +16788,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
       const serviceMap = new Map(servicesList.map((s: any) => [s.id, s]));
 
       const managers = await db.query.users.findMany({
-        where: and(eq(users.assignedExecutiveId, user.id), eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"), isNull(users.deletedAt))
+        where: and(eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"), isNull(users.deletedAt))
       });
 
       const byManager = [];
@@ -16821,7 +16815,8 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         byManager.push({ id: mgr.id, name: mgr.name, teamSize: teamReps.length, sales, connects, rate, payoutCents, profitCents, reps });
       }
 
-      const teamReps = allUsers.filter((u: any) => allRepIds.includes(u.repId) && ["REP", "LEAD"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
+      const allRepRepIds = allUsers.filter((u: any) => ["REP", "LEAD"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt).map((u: any) => u.repId);
+      const teamReps = allUsers.filter((u: any) => ["REP", "LEAD"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
       const byRep = teamReps.map((rep: any) => {
         const repOrders = orders.filter(o => o.repId === rep.repId);
         const sales = repOrders.length;
