@@ -577,6 +577,7 @@ function UserRow({ user, users, onEdit, onResetPassword, onDeactivate, onDelete 
 export default function AdminUsers() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
+  const [showDeactivated, setShowDeactivated] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [skipValidation, setSkipValidation] = useState(false);
@@ -769,9 +770,13 @@ export default function AdminUsers() {
 
   const filteredUsers = users?.filter((user) =>
     !user.deletedAt &&
+    (showDeactivated ? user.status === "INACTIVE" : user.status === "ACTIVE") &&
     (user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.repId.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  const activeCount = users?.filter(u => !u.deletedAt && u.status === "ACTIVE").length || 0;
+  const deactivatedCount = users?.filter(u => !u.deletedAt && u.status === "INACTIVE").length || 0;
 
   const showSupervisorField = formData.role === "REP" || formData.role === "MDU";
   const showManagerField = formData.role === "REP" || formData.role === "MDU" || formData.role === "LEAD";
@@ -806,8 +811,28 @@ export default function AdminUsers() {
                 data-testid="input-search-users"
               />
             </div>
+            <div className="flex items-center gap-1 bg-muted rounded-lg p-1" data-testid="toggle-user-status">
+              <Button
+                size="sm"
+                variant={!showDeactivated ? "default" : "ghost"}
+                className="h-8 text-xs px-3"
+                onClick={() => setShowDeactivated(false)}
+                data-testid="button-show-active"
+              >
+                Active ({activeCount})
+              </Button>
+              <Button
+                size="sm"
+                variant={showDeactivated ? "default" : "ghost"}
+                className="h-8 text-xs px-3"
+                onClick={() => setShowDeactivated(true)}
+                data-testid="button-show-deactivated"
+              >
+                Deactivated ({deactivatedCount})
+              </Button>
+            </div>
             <span className="text-sm text-muted-foreground">
-              {filteredUsers?.length || 0} of {users?.length || 0} users
+              {filteredUsers?.length || 0} shown
             </span>
           </div>
         </CardHeader>
