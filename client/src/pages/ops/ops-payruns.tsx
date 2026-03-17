@@ -15,7 +15,8 @@ import {
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
   DRAFT: { label: "Draft", color: "text-gray-700 dark:text-gray-300", bg: "bg-gray-100 dark:bg-gray-800" },
-  REVIEW: { label: "In Review", color: "text-blue-700 dark:text-blue-300", bg: "bg-blue-100 dark:bg-blue-900/30" },
+  PENDING_REVIEW: { label: "Pending Review", color: "text-blue-700 dark:text-blue-300", bg: "bg-blue-100 dark:bg-blue-900/30" },
+  PENDING_APPROVAL: { label: "Pending Approval", color: "text-amber-700 dark:text-amber-300", bg: "bg-amber-100 dark:bg-amber-900/30" },
   APPROVED: { label: "Approved", color: "text-emerald-700 dark:text-emerald-300", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
   REJECTED: { label: "Rejected", color: "text-red-700 dark:text-red-300", bg: "bg-red-100 dark:bg-red-900/30" },
   FINALIZED: { label: "Finalized", color: "text-[#C9A84C]", bg: "bg-[#C9A84C]/20" },
@@ -23,18 +24,19 @@ const statusConfig: Record<string, { label: string; color: string; bg: string }>
 };
 
 const workflowSteps = [
-  { step: 1, label: "Create", description: "Initialize pay run" },
-  { step: 2, label: "Build", description: "Generate statements" },
-  { step: 3, label: "Review", description: "Verify amounts" },
-  { step: 4, label: "Approve", description: "Management sign-off" },
+  { step: 1, label: "Draft", description: "Initialize pay run" },
+  { step: 2, label: "Review", description: "Verify amounts" },
+  { step: 3, label: "Approval", description: "Management sign-off" },
+  { step: 4, label: "Approved", description: "Ready to finalize" },
   { step: 5, label: "Finalize", description: "Lock & confirm" },
-  { step: 6, label: "Pay", description: "Process payments" },
+  { step: 6, label: "Paid", description: "Payments processed" },
 ];
 
 function getStepFromStatus(status: string): number {
   switch (status) {
     case "DRAFT": return 1;
-    case "REVIEW": return 3;
+    case "PENDING_REVIEW": return 2;
+    case "PENDING_APPROVAL": return 3;
     case "APPROVED": return 4;
     case "FINALIZED": return 5;
     case "PAID": return 6;
@@ -102,7 +104,7 @@ export default function OpsPayRuns() {
   });
 
   const submitReviewMutation = useMutation({
-    mutationFn: async (id: number) => {
+    mutationFn: async (id: string) => {
       const res = await apiRequest("POST", `/api/admin/payruns/${id}/submit-review`);
       return res.json();
     },
@@ -116,14 +118,59 @@ export default function OpsPayRuns() {
     },
   });
 
+  const submitApprovalMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/admin/payruns/${id}/submit-approval`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      toast({ title: "Submitted for approval" });
+      setSelectedRun(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const approveMutation = useMutation({
-    mutationFn: async (id: number) => {
+    mutationFn: async (id: string) => {
       const res = await apiRequest("POST", `/api/admin/payruns/${id}/approve`);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
       toast({ title: "Pay run approved" });
+      setSelectedRun(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/admin/payruns/${id}/reject`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      toast({ title: "Pay run rejected and returned to draft" });
+      setSelectedRun(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const finalizeMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/admin/payruns/${id}/finalize`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      toast({ title: "Pay run finalized" });
       setSelectedRun(null);
     },
     onError: (err: any) => {
@@ -270,11 +317,29 @@ export default function OpsPayRuns() {
                             <ArrowRight className="h-3.5 w-3.5 mr-1" /> Submit for Review
                           </Button>
                         )}
-                        {run.status === "REVIEW" && (
-                          <Button size="sm" onClick={(e) => { e.stopPropagation(); approveMutation.mutate(run.id); }}
-                            disabled={approveMutation.isPending} data-testid={`btn-approve-${run.id}`}>
-                            <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
-                          </Button>
+                        {run.status === "PENDING_REVIEW" && (
+                          <>
+                            <Button size="sm" onClick={(e) => { e.stopPropagation(); submitApprovalMutation.mutate(run.id); }}
+                              disabled={submitApprovalMutation.isPending} data-testid={`btn-submit-approval-${run.id}`}>
+                              <ArrowRight className="h-3.5 w-3.5 mr-1" /> Submit for Approval
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); rejectMutation.mutate(run.id); }}
+                              disabled={rejectMutation.isPending} data-testid={`btn-reject-review-${run.id}`}>
+                              Return to Draft
+                            </Button>
+                          </>
+                        )}
+                        {run.status === "PENDING_APPROVAL" && (
+                          <>
+                            <Button size="sm" onClick={(e) => { e.stopPropagation(); approveMutation.mutate(run.id); }}
+                              disabled={approveMutation.isPending} data-testid={`btn-approve-${run.id}`}>
+                              <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); rejectMutation.mutate(run.id); }}
+                              disabled={rejectMutation.isPending} data-testid={`btn-reject-approval-${run.id}`}>
+                              Reject
+                            </Button>
+                          </>
                         )}
                         {run.status === "APPROVED" && (
                           <Button size="sm" className="bg-[#C9A84C] hover:bg-[#b8973e] text-white"
@@ -371,12 +436,14 @@ export default function OpsPayRuns() {
               Cancel
             </Button>
             <Button
-              disabled={finalizeConfirm !== "FINALIZE"}
+              disabled={finalizeConfirm !== "FINALIZE" || finalizeMutation.isPending}
               className="bg-[#C9A84C] hover:bg-[#b8973e] text-white"
               onClick={() => {
+                if (selectedRun) {
+                  finalizeMutation.mutate(selectedRun.id);
+                }
                 setShowFinalizeDialog(false);
                 setFinalizeConfirm("");
-                toast({ title: "Pay run finalized" });
               }}
               data-testid="btn-confirm-finalize"
             >
