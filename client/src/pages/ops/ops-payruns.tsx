@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   DollarSign, Plus, CheckCircle2, Clock, AlertTriangle,
-  ChevronRight, ArrowRight, Users, FileText
+  ChevronRight, ArrowRight, Users, FileText, Trash2
 } from "lucide-react";
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -65,6 +65,7 @@ export default function OpsPayRuns() {
   const [selectedRun, setSelectedRun] = useState<any>(null);
   const [finalizeConfirm, setFinalizeConfirm] = useState("");
   const [showFinalizeDialog, setShowFinalizeDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
@@ -172,6 +173,22 @@ export default function OpsPayRuns() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
       toast({ title: "Pay run finalized" });
       setSelectedRun(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/admin/payruns/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      toast({ title: "Pay run deleted" });
+      setSelectedRun(null);
+      setShowDeleteDialog(false);
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -329,6 +346,12 @@ export default function OpsPayRuns() {
                             </Button>
                           </>
                         )}
+                        {["DRAFT", "PENDING_REVIEW", "REJECTED"].includes(run.status) && (
+                          <Button size="sm" variant="destructive" onClick={(e) => { e.stopPropagation(); setSelectedRun(run); setShowDeleteDialog(true); }}
+                            data-testid={`btn-delete-${run.id}`}>
+                            <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+                          </Button>
+                        )}
                         {run.status === "PENDING_APPROVAL" && (
                           <>
                             <Button size="sm" onClick={(e) => { e.stopPropagation(); approveMutation.mutate(run.id); }}
@@ -448,6 +471,34 @@ export default function OpsPayRuns() {
               data-testid="btn-confirm-finalize"
             >
               Finalize
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Pay Run</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this pay run? This will unlink all associated orders and remove any generated pay statements. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)} data-testid="btn-cancel-delete">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (selectedRun) {
+                  deleteMutation.mutate(selectedRun.id);
+                }
+              }}
+              data-testid="btn-confirm-delete"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete Pay Run"}
             </Button>
           </DialogFooter>
         </DialogContent>

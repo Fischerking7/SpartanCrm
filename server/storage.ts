@@ -2908,6 +2908,12 @@ export const storage = {
   async deletePayRunApprovals(payRunId: string) {
     await db.delete(payRunApprovals).where(eq(payRunApprovals.payRunId, payRunId));
   },
+  async deletePayRun(payRunId: string) {
+    await db.update(salesOrders).set({ payRunId: null }).where(eq(salesOrders.payRunId, payRunId));
+    await db.delete(payStatements).where(eq(payStatements.payRunId, payRunId));
+    await db.delete(payRunApprovals).where(eq(payRunApprovals.payRunId, payRunId));
+    await db.delete(payRuns).where(eq(payRuns.id, payRunId));
+  },
 
   // Deduction Types
   async getDeductionTypes() {

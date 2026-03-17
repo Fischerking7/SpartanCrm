@@ -4001,6 +4001,19 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
+  app.delete("/api/admin/payruns/:id", auth, requirePermission("admin:payruns:delete"), async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (!["DRAFT", "PENDING_REVIEW", "REJECTED"].includes(payRun.status)) {
+        return res.status(400).json({ message: "Only draft or pending review pay runs can be deleted" });
+      }
+      await storage.deletePayRun(req.params.id);
+      await storage.createAuditLog({ action: "delete_payrun", tableName: "pay_runs", recordId: req.params.id, beforeJson: JSON.stringify(payRun), afterJson: null, userId: req.user!.id });
+      res.json({ message: "Pay run deleted" });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to delete pay run" }); }
+  });
+
   app.get("/api/admin/payruns/:id/variance", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);

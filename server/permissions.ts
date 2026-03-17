@@ -112,6 +112,7 @@ export const PERMISSIONS = {
   'admin:overrides:manage': ['OPERATIONS', 'EXECUTIVE'],
   'admin:overridepool': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'admin:payruns:manage': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+  'admin:payruns:delete': ['OPERATIONS', 'ADMIN', 'EXECUTIVE'],
   'admin:payruns:approve': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'admin:export:approved': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'admin:import:payments': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
