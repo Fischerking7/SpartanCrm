@@ -133,6 +133,7 @@ function OrderCard({
   providerMap,
   serviceMap,
   services,
+  repMap,
   canSeeCommissions,
   isEditing,
   onEdit,
@@ -147,6 +148,7 @@ function OrderCard({
   providerMap: Map<string, string>;
   serviceMap: Map<string, string>;
   services: Service[];
+  repMap: Map<string, { name: string; repId: string }>;
   canSeeCommissions: boolean;
   isEditing: boolean;
   onEdit: () => void;
@@ -163,6 +165,7 @@ function OrderCard({
   const clientName = clientMap.get(order.clientId) || "Unknown";
   const providerName = providerMap.get(order.providerId) || "Unknown";
   const serviceName = serviceMap.get(order.serviceId) || "";
+  const repInfo = repMap.get(order.repId);
 
   const [formData, setFormData] = useState({
     customerName: order.customerName || "",
@@ -395,6 +398,12 @@ function OrderCard({
                 </span>
               )}
             </div>
+            {repInfo && (
+              <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono" data-testid={`badge-rep-id-${order.id}`}>{repInfo.repId}</Badge>
+                <span data-testid={`text-rep-name-${order.id}`}>{repInfo.name}</span>
+              </div>
+            )}
             <div className="flex items-center gap-x-3 gap-y-0.5 mt-1.5 text-sm text-muted-foreground flex-wrap">
               <span className="font-medium text-foreground/80">{serviceName || "No service"}</span>
               <span className="text-xs">|</span>
@@ -647,16 +656,16 @@ export default function OrderTracker() {
     },
   });
 
+  const canSeeReps = ["OPERATIONS", "EXECUTIVE", "ADMIN", "LEAD", "MANAGER", "DIRECTOR", "ACCOUNTING"].includes(user?.role || "");
   const { data: reps } = useQuery<UserType[]>({
     queryKey: ["/api/admin/users"],
     queryFn: async () => {
       const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
       if (!res.ok) return [];
       const users = await res.json();
-      const salesRoles = ["REP", "LEAD", "MANAGER", "EXECUTIVE"];
-      return users.filter((u: UserType) => salesRoles.includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
+      return users.filter((u: UserType) => u.status === "ACTIVE" && !u.deletedAt);
     },
-    enabled: isAdmin,
+    enabled: canSeeReps,
   });
 
   const { data: availableServices } = useQuery<Service[]>({
@@ -791,6 +800,12 @@ export default function OrderTracker() {
     return map;
   }, [services]);
 
+  const repMap = useMemo(() => {
+    const map = new Map<string, { name: string; repId: string }>();
+    reps?.forEach(r => map.set(r.repId, { name: `${r.firstName} ${r.lastName}`, repId: r.repId }));
+    return map;
+  }, [reps]);
+
   const dateFilteredOrders = useMemo(() => {
     if (!orders) return [];
     const now = new Date();
@@ -843,15 +858,18 @@ export default function OrderTracker() {
     }).filter(o => {
       if (!searchTerm) return true;
       const q = searchTerm.toLowerCase();
+      const rep = repMap.get(o.repId);
       return (
         o.customerName.toLowerCase().includes(q) ||
         o.invoiceNumber?.toLowerCase().includes(q) ||
         o.accountNumber?.toLowerCase().includes(q) ||
+        o.repId.toLowerCase().includes(q) ||
+        rep?.name.toLowerCase().includes(q) ||
         clientMap.get(o.clientId)?.toLowerCase().includes(q) ||
         providerMap.get(o.providerId)?.toLowerCase().includes(q)
       );
     });
-  }, [dateFilteredOrders, activeTab, searchTerm, clientMap, providerMap]);
+  }, [dateFilteredOrders, activeTab, searchTerm, clientMap, providerMap, repMap]);
 
   const sortedOrders = useMemo(() => {
     return [...filteredOrders].sort((a, b) => {
@@ -1156,6 +1174,7 @@ export default function OrderTracker() {
               providerMap={providerMap}
               serviceMap={serviceMap}
               services={services || []}
+              repMap={repMap}
               canSeeCommissions={canSeeCommissions}
               isEditing={editingOrderId === order.id}
               onEdit={() => setEditingOrderId(order.id)}
@@ -1487,6 +1506,7 @@ export default function OrderTracker() {
               providerMap={providerMap}
               serviceMap={serviceMap}
               services={services || []}
+              repMap={repMap}
               onClose={() => setSelectedOrder(null)}
               canSeeCommissions={canSeeCommissions}
             />
@@ -1689,6 +1709,7 @@ function OrderDetailPanel({
   providerMap,
   serviceMap,
   services,
+  repMap,
   onClose,
   canSeeCommissions,
 }: {
@@ -1697,6 +1718,7 @@ function OrderDetailPanel({
   providerMap: Map<string, string>;
   serviceMap: Map<string, string>;
   services: Service[];
+  repMap: Map<string, { name: string; repId: string }>;
   onClose: () => void;
   canSeeCommissions: boolean;
 }) {
@@ -1704,6 +1726,7 @@ function OrderDetailPanel({
   const status = getOrderStatus(order);
   const config = getStatusConfig(status);
   const netCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
+  const repInfo = repMap.get(order.repId);
 
   const [isEditing, setIsEditing] = useState(false);
   const [notesValue, setNotesValue] = useState(order.notes || "");
@@ -1990,6 +2013,18 @@ function OrderDetailPanel({
               <p className="text-sm font-medium">{order.customerName}</p>
             </div>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              {repInfo && (
+                <>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Rep ID</p>
+                    <p className="text-sm font-medium font-mono" data-testid="text-detail-rep-id">{repInfo.repId}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Rep Name</p>
+                    <p className="text-sm font-medium" data-testid="text-detail-rep-name">{repInfo.name}</p>
+                  </div>
+                </>
+              )}
               <div>
                 <p className="text-xs text-muted-foreground">Service</p>
                 <p className="text-sm font-medium">{serviceMap.get(order.serviceId) || "—"}</p>
