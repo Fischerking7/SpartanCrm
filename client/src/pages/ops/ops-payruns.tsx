@@ -130,6 +130,20 @@ export default function OpsPayRuns() {
     },
   });
 
+  const backfillMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/payroll/backfill-ready");
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      toast({ title: "Backfill complete", description: `${data.ordersUpdated} orders marked payroll-ready` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Backfill failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const runs = payRuns?.payRuns || payRuns || [];
 
   return (
@@ -139,10 +153,15 @@ export default function OpsPayRuns() {
           <h1 className="text-2xl font-bold">Pay Runs</h1>
           <p className="text-sm text-muted-foreground">Manage payroll processing workflow</p>
         </div>
-        <Button onClick={openCreateDialog} data-testid="btn-create-payrun">
-          <Plus className="h-4 w-4 mr-2" />
-          New Pay Run
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => backfillMutation.mutate()} disabled={backfillMutation.isPending} data-testid="btn-backfill-ready">
+            {backfillMutation.isPending ? "Processing..." : "Sync Payroll-Ready Orders"}
+          </Button>
+          <Button onClick={openCreateDialog} data-testid="btn-create-payrun">
+            <Plus className="h-4 w-4 mr-2" />
+            New Pay Run
+          </Button>
+        </div>
       </div>
 
       <Card className="border-0 shadow-sm">

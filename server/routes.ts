@@ -14309,7 +14309,8 @@ export async function registerRoutes(
               if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
               await storage.updateOrder(orderId, orderUpdate);
 
-              if (order.approvalStatus === 'APPROVED' && !order.isPayrollHeld && !order.payrollReadyAt) {
+              const freshOrder = await storage.getOrderById(orderId);
+              if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
                 await storage.setPayrollReady(orderId, "AR_SATISFIED");
               }
             }
@@ -14505,6 +14506,11 @@ export async function registerRoutes(
           
           await storage.updateOrder(ar.orderId, orderUpdate);
           
+          const freshOrder = await storage.getOrderById(ar.orderId);
+          if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
+            await storage.setPayrollReady(ar.orderId, "AR_SATISFIED");
+          }
+          
           await storage.createAuditLog({
             action: "order_payment_status_updated",
             tableName: "sales_orders",
@@ -14590,6 +14596,13 @@ export async function registerRoutes(
             
             if (Object.keys(orderUpdate).length > 0 && orderUpdate.paymentStatus !== order.paymentStatus) {
               await storage.updateOrder(ar.orderId, orderUpdate);
+              
+              if (newStatus === 'SATISFIED') {
+                const freshOrder = await storage.getOrderById(ar.orderId);
+                if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
+                  await storage.setPayrollReady(ar.orderId, "AR_SATISFIED");
+                }
+              }
               
               await storage.createAuditLog({
                 action: "order_payment_status_updated",
@@ -14693,6 +14706,11 @@ export async function registerRoutes(
           if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
           if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
           await storage.updateOrder(ar.orderId, orderUpdate);
+          
+          const freshOrder = await storage.getOrderById(ar.orderId);
+          if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
+            await storage.setPayrollReady(ar.orderId, "AR_SATISFIED");
+          }
         }
       }
       
@@ -14743,6 +14761,11 @@ export async function registerRoutes(
           if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
           if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
           await storage.updateOrder(ar.orderId, orderUpdate);
+          
+          const freshOrder = await storage.getOrderById(ar.orderId);
+          if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
+            await storage.setPayrollReady(ar.orderId, "AR_SATISFIED");
+          }
         }
       }
 
@@ -15621,6 +15644,36 @@ export async function registerRoutes(
         recordId: req.params.orderId,
       });
       res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/payroll/backfill-ready", auth, requireRoles("ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const allOrders = await db.select().from(salesOrders).where(and(
+        eq(salesOrders.approvalStatus, "APPROVED"),
+        eq(salesOrders.paymentStatus, "PAID"),
+        eq(salesOrders.isPayrollHeld, false),
+        isNull(salesOrders.payrollReadyAt),
+        isNull(salesOrders.payRunId),
+      ));
+
+      let updated = 0;
+      for (const order of allOrders) {
+        await storage.setPayrollReady(order.id, "BACKFILL");
+        updated++;
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "payroll_backfill_ready",
+        tableName: "sales_orders",
+        recordId: "bulk",
+        afterJson: JSON.stringify({ ordersUpdated: updated }),
+      });
+
+      res.json({ success: true, ordersUpdated: updated });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
