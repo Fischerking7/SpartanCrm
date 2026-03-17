@@ -4569,8 +4569,8 @@ export const storage = {
       eq(salesOrders.isPayrollHeld, false),
       isNull(salesOrders.payRunId),
       eq(salesOrders.approvalStatus, "APPROVED"),
-      gte(salesOrders.payrollReadyAt, new Date(periodStart)),
-      lte(salesOrders.payrollReadyAt, new Date(periodEnd + "T23:59:59"))
+      gte(salesOrders.paidDate, periodStart),
+      lte(salesOrders.paidDate, periodEnd)
     ));
   },
 
@@ -4591,8 +4591,8 @@ export const storage = {
       isNull(salesOrders.payRunId),
       eq(salesOrders.approvalStatus, "APPROVED"),
       eq(salesOrders.userId, userId),
-      gte(salesOrders.payrollReadyAt, new Date(periodStart)),
-      lte(salesOrders.payrollReadyAt, new Date(periodEnd + "T23:59:59"))
+      gte(salesOrders.paidDate, periodStart),
+      lte(salesOrders.paidDate, periodEnd)
     ));
   },
 

@@ -3872,9 +3872,11 @@ export async function registerRoutes(
         const totalCommission = orders.reduce((sum, o) => 
           sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0
         );
+        const uniqueReps = new Set(orders.map(o => o.userId));
         return {
           ...pr,
           orderCount: orders.length,
+          repCount: uniqueReps.size,
           totalCommission: totalCommission.toFixed(2),
         };
       }));
@@ -3885,8 +3887,40 @@ export async function registerRoutes(
     try {
       const validated = insertPayRunSchema.parse({ ...req.body, createdByUserId: req.user!.id });
       const payRun = await storage.createPayRun(validated);
+
+      if (validated.periodStart && validated.periodEnd) {
+        const missingReady = await db.select().from(salesOrders).where(and(
+          eq(salesOrders.approvalStatus, "APPROVED"),
+          eq(salesOrders.paymentStatus, "PAID"),
+          eq(salesOrders.isPayrollHeld, false),
+          isNull(salesOrders.payrollReadyAt),
+          isNull(salesOrders.payRunId),
+        ));
+        for (const order of missingReady) {
+          await storage.setPayrollReady(order.id, "BACKFILL");
+        }
+
+        const readyOrders = await storage.getPayrollReadyOrders(
+          validated.periodStart as string,
+          validated.periodEnd as string
+        );
+        for (const { order } of readyOrders) {
+          await storage.updateOrder(order.id, { payRunId: payRun.id });
+        }
+        if (readyOrders.length > 0) {
+          await storage.createAuditLog({
+            action: "payrun_orders_linked",
+            tableName: "pay_runs",
+            recordId: payRun.id,
+            afterJson: JSON.stringify({ orderCount: readyOrders.length, backfilled: missingReady.length }),
+            userId: req.user!.id,
+          });
+        }
+      }
+
       await storage.createAuditLog({ action: "create_payrun", tableName: "pay_runs", recordId: payRun.id, afterJson: JSON.stringify(payRun), userId: req.user!.id });
-      res.json(payRun);
+      const orders = await storage.getOrdersByPayRunId(payRun.id);
+      res.json({ ...payRun, orderCount: orders.length });
     } catch (error: any) { 
       if (error.name === "ZodError") return res.status(400).json({ message: "Validation failed", errors: error.errors });
       res.status(500).json({ message: error.message || "Failed" }); 

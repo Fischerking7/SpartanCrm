@@ -90,9 +90,10 @@ export default function OpsPayRuns() {
       });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
-      toast({ title: "Pay run created" });
+      const orderCount = data.orderCount || 0;
+      toast({ title: "Pay run created", description: `${orderCount} order${orderCount !== 1 ? 's' : ''} collected for this period` });
       setShowCreateDialog(false);
     },
     onError: (err: any) => {
@@ -236,9 +237,12 @@ export default function OpsPayRuns() {
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Users className="h-4 w-4" />
-                      <span>{run.repCount || 0} reps</span>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Users className="h-4 w-4" />
+                        <span>{run.repCount || 0} reps</span>
+                      </div>
+                      <span>{run.orderCount || 0} orders</span>
                     </div>
                   </div>
 
