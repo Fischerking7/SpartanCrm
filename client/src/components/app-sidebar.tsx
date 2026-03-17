@@ -335,7 +335,7 @@ export function AppSidebar() {
 
   if (!user) return null;
 
-  const isAdmin = user.role === "OPERATIONS" || user.role === "EXECUTIVE";
+  const isAdmin = user.role === "OPERATIONS" || user.role === "EXECUTIVE" || user.role === "ADMIN";
 
   const getInitials = (name: string) => {
     return name
@@ -388,22 +388,28 @@ export function AppSidebar() {
   const renderAdminSidebar = () => (
     <>
       <CollapsibleSection 
-        title="Ops Center" 
+        title="Operations" 
         icon={Briefcase} 
-        items={[MENU.opsHome, MENU.opsOrders, MENU.opsReps, MENU.opsPayRuns, MENU.opsPayStubs, MENU.opsAR, MENU.opsOverrides, MENU.opsAdvances, MENU.opsReports]} 
+        items={adminOpsItems} 
         location={location}
         defaultOpen={true}
       />
       <CollapsibleSection 
-        title="Accounting" 
+        title="Accounting & Audit" 
         icon={Wallet} 
-        items={[MENU.acctHome, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acctReports, MENU.acct1099]} 
+        items={adminAccountingItems} 
         location={location}
       />
       <CollapsibleSection 
         title="Insights" 
         icon={TrendingUp} 
         items={adminInsightsItems} 
+        location={location}
+      />
+      <CollapsibleSection 
+        title="My Account" 
+        icon={User} 
+        items={[...personalItems, ...preferencesItems]} 
         location={location}
       />
       <CollapsibleSection 
@@ -564,6 +570,7 @@ export function AppSidebar() {
 
   const renderSidebar = () => {
     if (user.role === "EXECUTIVE" || user.role === "OPERATIONS") return renderExecutiveSidebar();
+    if (user.role === "ADMIN") return renderAdminSidebar();
     if (user.role === "DIRECTOR") return renderDirectorSidebar();
     if (user.role === "ACCOUNTING") return renderAccountingSidebar();
     return renderNonAdminSidebar();

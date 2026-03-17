@@ -115,6 +115,8 @@ function Dashboard() {
       return <OpsHome />;
     case "ACCOUNTING":
       return <AcctHome />;
+    case "ADMIN":
+      return <AdminDashboard />;
     case "MANAGER":
       return <SalesDashboard />;
     case "REP":
@@ -142,7 +144,7 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
     return <Redirect to="/login" />;
   }
   
-  if (adminOnly && user.role !== "OPERATIONS" && user.role !== "EXECUTIVE") {
+  if (adminOnly && user.role !== "OPERATIONS" && user.role !== "EXECUTIVE" && user.role !== "ADMIN") {
     return <Redirect to="/" />;
   }
   
@@ -300,7 +302,7 @@ function Router() {
     );
   }
 
-  const isAdmin = user.role === "OPERATIONS" || user.role === "EXECUTIVE";
+  const isAdmin = user.role === "OPERATIONS" || user.role === "EXECUTIVE" || user.role === "ADMIN";
   const canReviewMdu = user.role === "OPERATIONS" || user.role === "EXECUTIVE";
   const canViewReports = user.role !== "REP";
 
@@ -385,7 +387,7 @@ function Router() {
           </>
         )}
 
-        {(user.role === "ACCOUNTING" || user.role === "EXECUTIVE" || user.role === "OPERATIONS" || user.role === "DIRECTOR") && (
+        {(user.role === "ACCOUNTING" || user.role === "EXECUTIVE" || user.role === "OPERATIONS" || user.role === "DIRECTOR" || user.role === "ADMIN") && (
           <>
             <Route path="/accounting">{() => <AcctLayout><AcctHome /></AcctLayout>}</Route>
             <Route path="/accounting/order-tracker">{() => <AcctLayout><OpsOrderTracker /></AcctLayout>}</Route>
@@ -430,7 +432,7 @@ function Router() {
           </>
         )}
         
-        {["OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role) && (
+        {["OPERATIONS", "EXECUTIVE", "MANAGER", "ADMIN"].includes(user.role) && (
           <Route path="/admin/user-activity" component={UserActivityPage} />
         )}
         
