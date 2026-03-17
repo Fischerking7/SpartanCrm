@@ -429,42 +429,10 @@ export function AppSidebar() {
 
   const renderExecutiveSidebar = () => {
     const isExec = user.role === "EXECUTIVE";
-    const opsItems = isExec
-      ? execOpsItems.filter(i => i !== MENU.payRuns)
-      : execOpsItems;
-    const settingsItems = isExec
-      ? [MENU.users]
-      : adminSettingsItems;
 
-    return (
-      <>
-        {isExec && (
-          <CollapsibleSection 
-            title="Executive Center" 
-            icon={Crown} 
-            items={[MENU.execHome, MENU.execFinancials, MENU.execProduction, MENU.execOverrides, MENU.execSettings]} 
-            location={location}
-            defaultOpen={true}
-          />
-        )}
-        {isExec && (
-          <CollapsibleSection 
-            title="Director Center" 
-            icon={Target} 
-            items={[MENU.dirHome, MENU.dirProduction, MENU.dirAnalytics, MENU.dirApprovals, MENU.dirResources]} 
-            location={location}
-          />
-        )}
-        {isExec ? (
-          <>
-            <CollapsibleSection 
-              title="Sales" 
-              icon={Briefcase} 
-              items={[MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.adjustments]} 
-              location={location}
-            />
-          </>
-        ) : (
+    if (!isExec) {
+      return (
+        <>
           <CollapsibleSection 
             title="Ops Center" 
             icon={Briefcase} 
@@ -472,35 +440,70 @@ export function AppSidebar() {
             location={location}
             defaultOpen={true}
           />
-        )}
+          <CollapsibleSection 
+            title="Finance" 
+            icon={Wallet} 
+            items={[MENU.acctHome, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acctReports, MENU.acct1099]} 
+            location={location}
+          />
+          <CollapsibleSection 
+            title="Insights" 
+            icon={TrendingUp} 
+            items={adminInsightsItems} 
+            location={location}
+          />
+          <CollapsibleSection 
+            title="My Account" 
+            icon={User} 
+            items={[...personalItems, ...preferencesItems]} 
+            location={location}
+          />
+          <CollapsibleSection 
+            title="System Settings" 
+            icon={Cog} 
+            items={adminSettingsItems} 
+            location={location}
+          />
+        </>
+      );
+    }
+
+    return (
+      <>
+        <SidebarGroup className="py-0">
+          <SidebarGroupContent>
+            <MenuItems items={[MENU.execHome, MENU.orderTracker, MENU.quickEntry]} location={location} />
+          </SidebarGroupContent>
+        </SidebarGroup>
         <CollapsibleSection 
-          title="Accounting" 
+          title="Company" 
+          icon={Crown} 
+          items={[MENU.execFinancials, MENU.execProduction, MENU.dirAnalytics, MENU.execOverrides, MENU.dirApprovals]} 
+          location={location}
+          defaultOpen={true}
+        />
+        <CollapsibleSection 
+          title="Sales & Orders" 
+          icon={Briefcase} 
+          items={[MENU.orders, MENU.leads, MENU.adjustments, MENU.leadPool]} 
+          location={location}
+        />
+        <CollapsibleSection 
+          title="Finance" 
           icon={Wallet} 
-          items={[MENU.acctHome, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acctReports, MENU.acct1099]} 
+          items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports]} 
           location={location}
         />
         <CollapsibleSection 
-          title="Insights" 
+          title="Reports & Insights" 
           icon={TrendingUp} 
-          items={adminInsightsItems} 
+          items={[MENU.reports, MENU.execReports, MENU.dirProduction, MENU.knowledge]} 
           location={location}
         />
         <CollapsibleSection 
-          title="My Account" 
-          icon={User} 
-          items={[...personalItems, ...preferencesItems]} 
-          location={location}
-        />
-        <CollapsibleSection 
-          title="Resources" 
-          icon={BookOpen} 
-          items={[MENU.knowledge]} 
-          location={location}
-        />
-        <CollapsibleSection 
-          title="System Settings" 
+          title="Settings" 
           icon={Cog} 
-          items={settingsItems} 
+          items={[MENU.execSettings, MENU.users, MENU.myAccount, MENU.alerts, MENU.settings]} 
           location={location}
         />
       </>
