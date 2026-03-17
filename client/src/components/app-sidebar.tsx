@@ -358,227 +358,180 @@ export function AppSidebar() {
     }
   };
 
-  const renderNonAdminSidebar = () => {
-    const menu = getRoleMenu(user.role);
-    return (
-      <>
-        <CollapsibleSection 
-          title="Sales" 
-          icon={Briefcase} 
-          items={menu.sales} 
-          location={location}
-          defaultOpen={true}
-        />
-        <CollapsibleSection 
-          title="My Account" 
-          icon={User} 
-          items={menu.personal} 
-          location={location}
-        />
-        <CollapsibleSection 
-          title="Resources" 
-          icon={BookOpen} 
-          items={menu.resources} 
-          location={location}
-        />
-      </>
-    );
-  };
-
-  const renderAdminSidebar = () => (
-    <>
-      <CollapsibleSection 
-        title="Operations" 
-        icon={Briefcase} 
-        items={adminOpsItems} 
-        location={location}
-        defaultOpen={true}
-      />
-      <CollapsibleSection 
-        title="Accounting & Audit" 
-        icon={Wallet} 
-        items={adminAccountingItems} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="Insights" 
-        icon={TrendingUp} 
-        items={adminInsightsItems} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="My Account" 
-        icon={User} 
-        items={[...personalItems, ...preferencesItems]} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="Resources" 
-        icon={BookOpen} 
-        items={[MENU.knowledge]} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="System Settings" 
-        icon={Cog} 
-        items={adminSettingsItems} 
-        location={location}
-      />
-    </>
-  );
-
-  const renderExecutiveSidebar = () => {
-    const isExec = user.role === "EXECUTIVE";
-
-    if (!isExec) {
-      return (
-        <>
-          <CollapsibleSection 
-            title="Ops Center" 
-            icon={Briefcase} 
-            items={[MENU.opsHome, MENU.opsOrders, MENU.opsReps, MENU.opsPayRuns, MENU.opsPayStubs, MENU.opsAR, MENU.opsOverrides, MENU.opsAdvances, MENU.opsReports]} 
-            location={location}
-            defaultOpen={true}
-          />
-          <CollapsibleSection 
-            title="Finance" 
-            icon={Wallet} 
-            items={[MENU.acctHome, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acctReports, MENU.acct1099]} 
-            location={location}
-          />
-          <CollapsibleSection 
-            title="Insights" 
-            icon={TrendingUp} 
-            items={adminInsightsItems} 
-            location={location}
-          />
-          <CollapsibleSection 
-            title="My Account" 
-            icon={User} 
-            items={[...personalItems, ...preferencesItems]} 
-            location={location}
-          />
-          <CollapsibleSection 
-            title="System Settings" 
-            icon={Cog} 
-            items={adminSettingsItems} 
-            location={location}
-          />
-        </>
-      );
-    }
-
-    return (
-      <>
-        <SidebarGroup className="py-0">
-          <SidebarGroupContent>
-            <MenuItems items={[MENU.execHome, MENU.orderTracker, MENU.quickEntry]} location={location} />
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <CollapsibleSection 
-          title="Company" 
-          icon={Crown} 
-          items={[MENU.execFinancials, MENU.execProduction, MENU.dirAnalytics, MENU.execOverrides, MENU.dirApprovals]} 
-          location={location}
-          defaultOpen={true}
-        />
-        <CollapsibleSection 
-          title="Sales & Orders" 
-          icon={Briefcase} 
-          items={[MENU.orders, MENU.leads, MENU.adjustments, MENU.leadPool]} 
-          location={location}
-        />
-        <CollapsibleSection 
-          title="Finance" 
-          icon={Wallet} 
-          items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports]} 
-          location={location}
-        />
-        <CollapsibleSection 
-          title="Reports & Insights" 
-          icon={TrendingUp} 
-          items={[MENU.reports, MENU.execReports, MENU.dirProduction, MENU.knowledge]} 
-          location={location}
-        />
-        <CollapsibleSection 
-          title="Settings" 
-          icon={Cog} 
-          items={[MENU.execSettings, MENU.users, MENU.myAccount, MENU.alerts, MENU.settings]} 
-          location={location}
-        />
-      </>
-    );
-  };
-
-  const renderAccountingSidebar = () => (
-    <>
-      <CollapsibleSection 
-        title="Accounting Center" 
-        icon={Wallet} 
-        items={[
-          MENU.acctHome,
-          MENU.acctPayRuns,
-          MENU.acctPayStubs,
-          MENU.acctAR,
-          MENU.acctOverrides,
-          MENU.acctAdvances,
-          MENU.acctReports,
-          MENU.acct1099,
-        ]} 
-        location={location}
-        defaultOpen={true}
-      />
-      <CollapsibleSection 
-        title="My Account" 
-        icon={User} 
-        items={[...personalItems, ...preferencesItems]} 
-        location={location}
-      />
-      <CollapsibleSection 
-        title="Resources" 
-        icon={BookOpen} 
-        items={[MENU.knowledge]} 
-        location={location}
-      />
-    </>
-  );
-
-  const renderDirectorSidebar = () => (
-    <>
-      <CollapsibleSection
-        title="Director Center"
-        icon={Target}
-        items={[
-          MENU.dirHome,
-          MENU.dirProduction,
-          MENU.dirAnalytics,
-          MENU.dirApprovals,
-          MENU.dirResources,
-        ]}
-        location={location}
-        defaultOpen={true}
-      />
-      <CollapsibleSection
-        title="My Account"
-        icon={User}
-        items={[...personalItems, ...preferencesItems]}
-        location={location}
-      />
-      <CollapsibleSection
-        title="Resources"
-        icon={BookOpen}
-        items={[MENU.knowledge]}
-        location={location}
-      />
-    </>
-  );
-
   const renderSidebar = () => {
-    if (user.role === "EXECUTIVE" || user.role === "OPERATIONS") return renderExecutiveSidebar();
-    if (user.role === "ADMIN") return renderAdminSidebar();
-    if (user.role === "DIRECTOR") return renderDirectorSidebar();
-    if (user.role === "ACCOUNTING") return renderAccountingSidebar();
-    return renderNonAdminSidebar();
+    switch (user.role) {
+      case "REP":
+        return (
+          <>
+            <SidebarGroup className="py-0">
+              <SidebarGroupContent>
+                <MenuItems items={[MENU.dashboard, MENU.orderTracker, MENU.quickEntry]} location={location} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <CollapsibleSection title="Sales" icon={Briefcase}
+              items={[MENU.leads, MENU.adjustments]} location={location} defaultOpen={true} />
+            <CollapsibleSection title="My Pay" icon={DollarSign}
+              items={[MENU.commissions, MENU.forecast, MENU.myPay, MENU.myReserve, MENU.myDisputes]} location={location} />
+            <CollapsibleSection title="Settings" icon={Cog}
+              items={[MENU.myAccount, MENU.credentials, MENU.knowledge, MENU.alerts, MENU.settings]} location={location} />
+          </>
+        );
+
+      case "MDU":
+        return (
+          <>
+            <SidebarGroup className="py-0">
+              <SidebarGroupContent>
+                <MenuItems items={[MENU.dashboard, MENU.mduOrders, MENU.orderTracker]} location={location} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <CollapsibleSection title="My Pay" icon={DollarSign}
+              items={[MENU.commissions, MENU.forecast, MENU.myPay, MENU.myReserve, MENU.myDisputes]} location={location} />
+            <CollapsibleSection title="Settings" icon={Cog}
+              items={[MENU.myAccount, MENU.credentials, MENU.knowledge, MENU.alerts, MENU.settings]} location={location} />
+          </>
+        );
+
+      case "LEAD":
+        return (
+          <>
+            <SidebarGroup className="py-0">
+              <SidebarGroupContent>
+                <MenuItems items={[MENU.dashboard, MENU.orderTracker, MENU.quickEntry]} location={location} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <CollapsibleSection title="Sales" icon={Briefcase}
+              items={[MENU.leads, MENU.leadPool, MENU.adjustments, MENU.reports]} location={location} defaultOpen={true} />
+            <CollapsibleSection title="My Pay" icon={DollarSign}
+              items={[MENU.commissions, MENU.forecast, MENU.myPay, MENU.myReserve, MENU.myDisputes]} location={location} />
+            <CollapsibleSection title="Settings" icon={Cog}
+              items={[MENU.myAccount, MENU.credentials, MENU.knowledge, MENU.alerts, MENU.settings]} location={location} />
+          </>
+        );
+
+      case "MANAGER":
+        return (
+          <>
+            <SidebarGroup className="py-0">
+              <SidebarGroupContent>
+                <MenuItems items={[MENU.dashboard, MENU.orderTracker, MENU.quickEntry]} location={location} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <CollapsibleSection title="Team" icon={Briefcase}
+              items={[MENU.leads, MENU.leadPool, MENU.adjustments, MENU.reports, MENU.userActivity]} location={location} defaultOpen={true} />
+            <CollapsibleSection title="My Pay" icon={DollarSign}
+              items={[MENU.commissions, MENU.forecast, MENU.myPay, MENU.myReserve, MENU.myDisputes]} location={location} />
+            <CollapsibleSection title="Settings" icon={Cog}
+              items={[MENU.myAccount, MENU.credentials, MENU.knowledge, MENU.alerts, MENU.settings]} location={location} />
+          </>
+        );
+
+      case "DIRECTOR":
+        return (
+          <>
+            <SidebarGroup className="py-0">
+              <SidebarGroupContent>
+                <MenuItems items={[MENU.dirHome, MENU.orderTracker]} location={location} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <CollapsibleSection title="Team" icon={Target}
+              items={[MENU.dirProduction, MENU.dirAnalytics, MENU.dirApprovals, MENU.dirResources]} location={location} defaultOpen={true} />
+            <CollapsibleSection title="My Pay" icon={DollarSign}
+              items={[MENU.commissions, MENU.forecast, MENU.myPay, MENU.myReserve, MENU.myDisputes]} location={location} />
+            <CollapsibleSection title="Settings" icon={Cog}
+              items={[MENU.myAccount, MENU.credentials, MENU.knowledge, MENU.alerts, MENU.settings]} location={location} />
+          </>
+        );
+
+      case "ACCOUNTING":
+        return (
+          <>
+            <SidebarGroup className="py-0">
+              <SidebarGroupContent>
+                <MenuItems items={[MENU.acctHome]} location={location} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <CollapsibleSection title="Finance" icon={Wallet}
+              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports]} location={location} defaultOpen={true} />
+            <CollapsibleSection title="My Pay" icon={DollarSign}
+              items={[MENU.commissions, MENU.forecast, MENU.myPay, MENU.myReserve, MENU.myDisputes]} location={location} />
+            <CollapsibleSection title="Settings" icon={Cog}
+              items={[MENU.myAccount, MENU.credentials, MENU.knowledge, MENU.alerts, MENU.settings]} location={location} />
+          </>
+        );
+
+      case "ADMIN":
+        return (
+          <>
+            <SidebarGroup className="py-0">
+              <SidebarGroupContent>
+                <MenuItems items={[MENU.dashboard, MENU.orders]} location={location} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <CollapsibleSection title="Finance" icon={Wallet}
+              items={[MENU.accounting, MENU.finance, MENU.exports, MENU.recalculate, MENU.queues, MENU.audit]} location={location} defaultOpen={true} />
+            <CollapsibleSection title="Reports" icon={TrendingUp}
+              items={[MENU.leadPool, MENU.reports, MENU.execReports]} location={location} />
+            <CollapsibleSection title="System" icon={Cog}
+              items={[...adminSettingsItems, MENU.myAccount, MENU.alerts, MENU.settings]} location={location} />
+          </>
+        );
+
+      case "OPERATIONS":
+        return (
+          <>
+            <SidebarGroup className="py-0">
+              <SidebarGroupContent>
+                <MenuItems items={[MENU.opsHome, MENU.opsOrders, MENU.opsReps]} location={location} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <CollapsibleSection title="Payroll" icon={Wallet}
+              items={[MENU.opsPayRuns, MENU.opsPayStubs, MENU.opsAR, MENU.opsOverrides, MENU.opsAdvances]} location={location} defaultOpen={true} />
+            <CollapsibleSection title="Finance" icon={DollarSign}
+              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctReports, MENU.acct1099]} location={location} />
+            <CollapsibleSection title="Reports" icon={TrendingUp}
+              items={[MENU.dashboard, MENU.leadPool, MENU.reports, MENU.execReports, MENU.opsReports]} location={location} />
+            <CollapsibleSection title="System" icon={Cog}
+              items={[...adminSettingsItems, MENU.myAccount, MENU.alerts, MENU.settings]} location={location} />
+          </>
+        );
+
+      case "EXECUTIVE":
+        return (
+          <>
+            <SidebarGroup className="py-0">
+              <SidebarGroupContent>
+                <MenuItems items={[MENU.execHome, MENU.orderTracker, MENU.quickEntry]} location={location} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <CollapsibleSection title="Company" icon={Crown}
+              items={[MENU.execFinancials, MENU.execProduction, MENU.dirAnalytics, MENU.execOverrides, MENU.dirApprovals]} location={location} defaultOpen={true} />
+            <CollapsibleSection title="Sales & Orders" icon={Briefcase}
+              items={[MENU.orders, MENU.leads, MENU.adjustments, MENU.leadPool]} location={location} />
+            <CollapsibleSection title="Finance" icon={Wallet}
+              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports]} location={location} />
+            <CollapsibleSection title="Reports" icon={TrendingUp}
+              items={[MENU.reports, MENU.execReports, MENU.dirProduction, MENU.knowledge]} location={location} />
+            <CollapsibleSection title="Settings" icon={Cog}
+              items={[MENU.execSettings, MENU.users, MENU.myAccount, MENU.alerts, MENU.settings]} location={location} />
+          </>
+        );
+
+      default:
+        return (
+          <>
+            <SidebarGroup className="py-0">
+              <SidebarGroupContent>
+                <MenuItems items={[MENU.dashboard, MENU.orderTracker]} location={location} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <CollapsibleSection title="My Pay" icon={DollarSign}
+              items={[MENU.commissions, MENU.myPay]} location={location} />
+            <CollapsibleSection title="Settings" icon={Cog}
+              items={[MENU.myAccount, MENU.knowledge, MENU.alerts, MENU.settings]} location={location} />
+          </>
+        );
+    }
   };
 
   return (
