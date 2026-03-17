@@ -456,12 +456,14 @@ export function AppSidebar() {
           />
         )}
         {isExec ? (
-          <CollapsibleSection 
-            title="Ops Center" 
-            icon={Briefcase} 
-            items={[MENU.opsOrders]} 
-            location={location}
-          />
+          <>
+            <CollapsibleSection 
+              title="Sales" 
+              icon={Briefcase} 
+              items={[MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.adjustments]} 
+              location={location}
+            />
+          </>
         ) : (
           <CollapsibleSection 
             title="Ops Center" 
