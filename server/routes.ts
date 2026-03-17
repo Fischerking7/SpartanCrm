@@ -4199,6 +4199,19 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
+  app.post("/api/admin/payruns/:id/mark-paid", auth, requirePermission("financial:finalize:payruns"), async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+      if (payRun.status !== "FINALIZED") return res.status(400).json({ message: "Pay run must be finalized before marking as paid" });
+
+      const beforeJson = JSON.stringify({ status: payRun.status });
+      const updated = await storage.updatePayRun(req.params.id, { status: "PAID", paidAt: new Date() });
+      await storage.createAuditLog({ action: "mark_payrun_paid", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
+      res.json(updated);
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
   app.get("/api/admin/payruns/:id", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);

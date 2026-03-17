@@ -179,6 +179,21 @@ export default function OpsPayRuns() {
     },
   });
 
+  const markPaidMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/admin/payruns/${id}/mark-paid`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
+      toast({ title: "Pay run marked as paid" });
+      setSelectedRun(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await apiRequest("DELETE", `/api/admin/payruns/${id}`);
@@ -366,9 +381,17 @@ export default function OpsPayRuns() {
                         )}
                         {run.status === "APPROVED" && (
                           <Button size="sm" className="bg-[#C9A84C] hover:bg-[#b8973e] text-white"
-                            onClick={(e) => { e.stopPropagation(); setShowFinalizeDialog(true); }}
+                            onClick={(e) => { e.stopPropagation(); setSelectedRun(run); setShowFinalizeDialog(true); }}
                             data-testid={`btn-finalize-${run.id}`}>
                             Finalize Pay Run
+                          </Button>
+                        )}
+                        {run.status === "FINALIZED" && (
+                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={(e) => { e.stopPropagation(); markPaidMutation.mutate(run.id); }}
+                            disabled={markPaidMutation.isPending}
+                            data-testid={`btn-mark-paid-${run.id}`}>
+                            <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> {markPaidMutation.isPending ? "Processing..." : "Mark as Paid"}
                           </Button>
                         )}
                       </div>

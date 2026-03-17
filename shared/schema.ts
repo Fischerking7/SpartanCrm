@@ -233,6 +233,7 @@ export const payRuns = pgTable("pay_runs", {
   createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   finalizedAt: timestamp("finalized_at"),
+  paidAt: timestamp("paid_at"),
   deletedAt: timestamp("deleted_at"),
   // QuickBooks sync fields
   qbJournalEntryId: text("qb_journal_entry_id"),
@@ -731,7 +732,7 @@ export const insertOverrideAgreementSchema = createInsertSchema(overrideAgreemen
 export const insertOverrideEarningSchema = createInsertSchema(overrideEarnings).omit({ id: true, createdAt: true, approvedAt: true, rejectedAt: true });
 export const insertChargebackSchema = createInsertSchema(chargebacks).omit({ id: true, createdAt: true });
 export const insertAdjustmentSchema = createInsertSchema(adjustments).omit({ id: true, createdAt: true, approvedAt: true, approvedByUserId: true });
-export const insertPayRunSchema = createInsertSchema(payRuns).omit({ id: true, createdAt: true, finalizedAt: true });
+export const insertPayRunSchema = createInsertSchema(payRuns).omit({ id: true, createdAt: true, finalizedAt: true, paidAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 
 // Types
