@@ -55,8 +55,14 @@ function formatDate(d: string | Date) {
 
 function defaultDates() {
   const today = new Date();
-  const end = today.toISOString().split("T")[0];
-  const start = new Date(today.getTime() - 14 * 86400000).toISOString().split("T")[0];
+  const dayOfWeek = today.getDay();
+  const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - diffToMonday);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const start = monday.toISOString().split("T")[0];
+  const end = sunday.toISOString().split("T")[0];
   return { start, end };
 }
 
