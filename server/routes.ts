@@ -3872,7 +3872,7 @@ export async function registerRoutes(
         const totalCommission = orders.reduce((sum, o) => 
           sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0
         );
-        const uniqueReps = new Set(orders.map(o => o.userId));
+        const uniqueReps = new Set(orders.map(o => o.repId));
         return {
           ...pr,
           orderCount: orders.length,
@@ -15791,20 +15791,21 @@ export async function registerRoutes(
 
       const readyOrders = await storage.getPayrollReadyOrders(periodStart as string, periodEnd as string);
 
-      const byUser: Record<string, { orders: any[]; totalCommission: number; userId: string; userName: string }> = {};
+      const byUser: Record<string, { orders: any[]; totalCommission: number; repId: string; userName: string }> = {};
       for (const { order, client, provider, service } of readyOrders) {
-        if (!byUser[order.userId]) {
-          const user = await storage.getUserById(order.userId);
-          byUser[order.userId] = {
-            userId: order.userId,
-            userName: user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : "Unknown",
+        const repKey = order.repId || "UNKNOWN";
+        if (!byUser[repKey]) {
+          const user = await storage.getUserByRepId(repKey);
+          byUser[repKey] = {
+            repId: repKey,
+            userName: user?.name || "Unknown",
             orders: [],
             totalCommission: 0,
           };
         }
-        const comm = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
-        byUser[order.userId].totalCommission += comm;
-        byUser[order.userId].orders.push({
+        const comm = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
+        byUser[repKey].totalCommission += comm;
+        byUser[repKey].orders.push({
           orderId: order.id,
           invoiceNumber: order.invoiceNumber,
           clientName: client?.name,
