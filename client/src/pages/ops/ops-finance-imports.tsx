@@ -8,12 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getAuthHeaders } from "@/lib/auth";
 import {
-  Upload, FileText, CheckCircle2, AlertTriangle, Search, ArrowLeft
+  Upload, FileText, CheckCircle2, AlertTriangle, Search, ArrowLeft, Link2, Loader2, Check
 } from "lucide-react";
 
 const statusColors: Record<string, string> = {
@@ -30,6 +30,9 @@ export default function OpsFinanceImports() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [clientId, setClientId] = useState("");
   const [selectedImportId, setSelectedImportId] = useState<string | null>(null);
+  const [manualMatchRow, setManualMatchRow] = useState<any>(null);
+  const [orderSearchTerm, setOrderSearchTerm] = useState("");
+  const [selectedOrderId, setSelectedOrderId] = useState("");
 
   const { data: imports, isLoading: importsLoading } = useQuery<any[]>({
     queryKey: ["/api/finance/imports"],
@@ -93,6 +96,44 @@ export default function OpsFinanceImports() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/finance/imports"] });
       toast({ title: "Row ignored" });
+    },
+  });
+
+  const { data: searchOrders } = useQuery<any[]>({
+    queryKey: ["/api/orders/search", orderSearchTerm],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (orderSearchTerm) params.set("search", orderSearchTerm);
+      params.set("limit", "20");
+      const res = await fetch(`/api/orders?${params.toString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to search orders");
+      return res.json();
+    },
+    enabled: !!manualMatchRow && orderSearchTerm.length >= 2,
+  });
+
+  const manualMatchMutation = useMutation({
+    mutationFn: async ({ rowId, orderId }: { rowId: string; orderId: string }) => {
+      const res = await fetch(`/api/finance/imports/${selectedImportId}/manual-match`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ rowId, orderId }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to match");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/imports"] });
+      toast({ title: "Row matched successfully" });
+      setManualMatchRow(null);
+      setOrderSearchTerm("");
+      setSelectedOrderId("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Match failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -174,11 +215,21 @@ export default function OpsFinanceImports() {
                           </Badge>
                         </td>
                         <td className="p-2 text-right">
-                          {row.matchStatus === "UNMATCHED" && (
+                          {(row.matchStatus === "UNMATCHED" || row.matchStatus === "AMBIGUOUS") && (
                             <>
-                              <Button size="sm" variant="ghost" className="text-xs">Find Match</Button>
+                              <Button size="sm" variant="ghost" className="text-xs"
+                                onClick={() => {
+                                  setManualMatchRow(row);
+                                  setOrderSearchTerm(row.customerName || row.normalizedCustomerName || "");
+                                  setSelectedOrderId("");
+                                }}
+                                data-testid={`btn-find-match-${row.id}`}
+                              >
+                                <Link2 className="h-3 w-3 mr-1" /> Find Match
+                              </Button>
                               <Button size="sm" variant="ghost" className="text-xs text-muted-foreground"
                                 onClick={() => ignoreRowMutation.mutate({ importId: selectedImportId, rowId: row.id, reason: "Manual ignore" })}
+                                data-testid={`btn-ignore-${row.id}`}
                               >
                                 Ignore
                               </Button>
@@ -193,6 +244,94 @@ export default function OpsFinanceImports() {
             </TabsContent>
           ))}
         </Tabs>
+
+        <Dialog open={!!manualMatchRow} onOpenChange={(open) => { if (!open) { setManualMatchRow(null); setOrderSearchTerm(""); setSelectedOrderId(""); } }}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Manual Match</DialogTitle>
+              <DialogDescription>
+                Match "{manualMatchRow?.customerName || manualMatchRow?.normalizedCustomerName}" to an existing order
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="p-3 bg-muted rounded-lg">
+                <div className="text-sm text-muted-foreground">Import Row Details</div>
+                <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
+                  <div><strong>Customer:</strong> {manualMatchRow?.customerName || manualMatchRow?.normalizedCustomerName || "—"}</div>
+                  <div><strong>Service:</strong> {manualMatchRow?.serviceType || "—"}</div>
+                  <div><strong>Date:</strong> {manualMatchRow?.serviceDate || manualMatchRow?.saleDate ? new Date(manualMatchRow.serviceDate || manualMatchRow.saleDate).toLocaleDateString() : "—"}</div>
+                  <div><strong>Amount:</strong> ${parseFloat(manualMatchRow?.amount || "0").toFixed(2)}</div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Search Orders</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={orderSearchTerm}
+                    onChange={(e) => setOrderSearchTerm(e.target.value)}
+                    placeholder="Search by customer name, invoice #, or account #..."
+                    className="pl-10"
+                    data-testid="input-order-search"
+                  />
+                </div>
+              </div>
+
+              {orderSearchTerm.length >= 2 && (
+                <div className="border rounded-lg max-h-[300px] overflow-auto">
+                  {searchOrders && searchOrders.length > 0 ? (
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted sticky top-0">
+                        <tr>
+                          <th className="w-8 p-2"></th>
+                          <th className="text-left p-2">Customer</th>
+                          <th className="text-left p-2">Invoice #</th>
+                          <th className="text-left p-2">Account #</th>
+                          <th className="text-left p-2">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {searchOrders.map((order: any) => (
+                          <tr
+                            key={order.id}
+                            className={`border-t cursor-pointer hover:bg-muted/50 ${selectedOrderId === order.id ? "bg-[#C9A84C]/10" : ""}`}
+                            onClick={() => setSelectedOrderId(order.id)}
+                            data-testid={`order-result-${order.id}`}
+                          >
+                            <td className="p-2 text-center">
+                              <input type="radio" checked={selectedOrderId === order.id} readOnly />
+                            </td>
+                            <td className="p-2 font-medium">{order.customerName}</td>
+                            <td className="p-2">{order.invoiceNumber || "—"}</td>
+                            <td className="p-2">{order.accountNumber || "—"}</td>
+                            <td className="p-2">{order.dateSold ? new Date(order.dateSold).toLocaleDateString() : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="p-4 text-center text-muted-foreground">
+                      No orders found. Try a different search term.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setManualMatchRow(null); setOrderSearchTerm(""); setSelectedOrderId(""); }}>Cancel</Button>
+              <Button
+                onClick={() => manualMatchRow && manualMatchMutation.mutate({ rowId: manualMatchRow.id, orderId: selectedOrderId })}
+                disabled={!selectedOrderId || manualMatchMutation.isPending}
+                className="bg-[#C9A84C] hover:bg-[#b8973e] text-white"
+                data-testid="btn-confirm-match"
+              >
+                {manualMatchMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+                Confirm Match
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

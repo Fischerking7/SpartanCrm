@@ -4575,6 +4575,7 @@ export const storage = {
       eq(salesOrders.isPayrollHeld, false),
       isNull(salesOrders.payRunId),
       eq(salesOrders.approvalStatus, "APPROVED"),
+      eq(salesOrders.paymentStatus, "PAID"),
       gte(salesOrders.paidDate, periodStart),
       lte(salesOrders.paidDate, periodEnd)
     ));

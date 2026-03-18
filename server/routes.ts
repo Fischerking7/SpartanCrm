@@ -15747,6 +15747,7 @@ export async function registerRoutes(
       const order = await storage.getOrderById(req.params.orderId);
       if (!order) return res.status(404).json({ message: "Order not found" });
       if (order.approvalStatus !== "APPROVED") return res.status(400).json({ message: "Order must be approved" });
+      if (order.paymentStatus !== "PAID") return res.status(400).json({ message: "Order must have AR collected (payment status PAID) before marking payroll-ready" });
       if (order.payrollReadyAt) return res.status(400).json({ message: "Order already payroll-ready" });
 
       const updated = await storage.setPayrollReady(req.params.orderId, "MANUAL");
