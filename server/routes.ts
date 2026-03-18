@@ -4364,7 +4364,7 @@ export async function registerRoutes(
       const arFiltered: typeof eligible = [];
       for (const o of eligible) {
         const ars = await storage.getArExpectationsByOrderId(o.id);
-        if (ars.length > 0 && ars.some(ar => ar.status === 'PARTIAL' || ar.status === 'SATISFIED')) {
+        if (ars.length > 0 && ars.some(ar => ar.status === 'SATISFIED')) {
           arFiltered.push(o);
         }
       }
