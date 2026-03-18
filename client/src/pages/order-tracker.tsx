@@ -32,6 +32,7 @@ import {
   Plus,
   Smartphone,
   Trash2,
+  Download,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -547,6 +548,55 @@ export default function OrderTracker() {
     return false;
   };
 
+  const exportOrdersCSV = () => {
+    if (!sortedOrders || sortedOrders.length === 0) {
+      toast({ title: "No orders to export", variant: "destructive" });
+      return;
+    }
+    const headers = [
+      "Rep ID", "Rep Name", "Customer Name", "Account #", "Phone", "Email",
+      "Address", "City", "Zip", "Service", "Provider", "Client",
+      "Date Sold", "Install Date", "Job Status", "Approval Status", "Payment Status",
+      "Base Commission", "Incentive", "Total Commission", "Invoice #", "Notes"
+    ];
+    const rows = sortedOrders.map(o => {
+      const rep = repMap.get(o.repId);
+      return [
+        o.repId,
+        rep?.name || "",
+        o.customerName || "",
+        o.accountNumber || "",
+        o.customerPhone || "",
+        o.customerEmail || "",
+        [o.houseNumber, o.streetName, o.aptUnit].filter(Boolean).join(" ") || o.customerAddress || "",
+        o.city || "",
+        o.zipCode || "",
+        serviceMap.get(o.serviceId) || "",
+        providerMap.get(o.providerId) || "",
+        clientMap.get(o.clientId) || "",
+        o.dateSold || "",
+        o.installDate ? o.installDate.split("T")[0] : "",
+        o.jobStatus || "",
+        o.approvalStatus || "",
+        o.paymentStatus || "",
+        parseFloat(o.baseCommissionEarned).toFixed(2),
+        parseFloat(o.incentiveEarned || "0").toFixed(2),
+        (parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned || "0")).toFixed(2),
+        o.invoiceNumber || "",
+        (o.notes || "").replace(/"/g, '""'),
+      ].map(v => `"${v}"`);
+    });
+    const csv = [headers.map(h => `"${h}"`).join(","), ...rows.map(r => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `orders-export-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: `Exported ${sortedOrders.length} orders` });
+  };
+
   const getTodayDate = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -967,6 +1017,10 @@ export default function OrderTracker() {
               <SelectItem value="this_month">This Month</SelectItem>
             </SelectContent>
           </Select>
+          <Button variant="outline" onClick={exportOrdersCSV} data-testid="button-export-orders">
+            <Download className="h-4 w-4 mr-1.5" />
+            Export
+          </Button>
           <Button onClick={() => setShowNewOrderDialog(true)} data-testid="button-new-order-tracker">
             <Plus className="h-4 w-4 mr-1.5" />
             New Order
