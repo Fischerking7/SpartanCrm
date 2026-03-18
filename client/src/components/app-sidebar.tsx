@@ -468,8 +468,10 @@ export function AppSidebar() {
                 <MenuItems items={[MENU.dashboard, MENU.orders]} location={location} />
               </SidebarGroupContent>
             </SidebarGroup>
+            <CollapsibleSection title="Accounting" icon={FileSpreadsheet}
+              items={[MENU.accounting, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports]} location={location} defaultOpen={true} />
             <CollapsibleSection title="Finance" icon={Wallet}
-              items={[MENU.accounting, MENU.finance, MENU.exports, MENU.recalculate, MENU.queues, MENU.audit]} location={location} defaultOpen={true} />
+              items={[MENU.finance, MENU.exports, MENU.recalculate, MENU.queues, MENU.audit]} location={location} />
             <CollapsibleSection title="Reports" icon={TrendingUp}
               items={[MENU.leadPool, MENU.reports, MENU.execReports]} location={location} />
             <CollapsibleSection title="System" icon={Cog}
