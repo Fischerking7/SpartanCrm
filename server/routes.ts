@@ -3955,12 +3955,28 @@ export async function registerRoutes(
         for (const { order } of readyOrders) {
           await storage.updateOrder(order.id, { payRunId: payRun.id });
         }
-        if (readyOrders.length > 0) {
+
+        const weekEnd = new Date(validated.periodEnd + "T23:59:59");
+        const allOrders = await storage.getOrders();
+        const additionalEligible = allOrders.filter(o =>
+          o.jobStatus === "COMPLETED" &&
+          o.approvalStatus === "APPROVED" &&
+          o.paymentStatus === "UNPAID" &&
+          !o.payRunId &&
+          !o.isPayrollHeld &&
+          (o.dateSold ? new Date(o.dateSold + "T23:59:59") <= weekEnd : true)
+        );
+        for (const order of additionalEligible) {
+          await storage.updateOrder(order.id, { payRunId: payRun.id });
+        }
+
+        const totalLinked = readyOrders.length + additionalEligible.length;
+        if (totalLinked > 0) {
           await storage.createAuditLog({
             action: "payrun_orders_linked",
             tableName: "pay_runs",
             recordId: payRun.id,
-            afterJson: JSON.stringify({ orderCount: readyOrders.length, backfilled: missingReady.length }),
+            afterJson: JSON.stringify({ orderCount: totalLinked, paidOrders: readyOrders.length, unpaidOrders: additionalEligible.length }),
             userId: req.user!.id,
           });
         }
@@ -4343,11 +4359,17 @@ export async function registerRoutes(
 
       if (payRun.weekEndingDate) {
         const { weekStart, weekEnd } = getPayWeekBounds(payRun.weekEndingDate);
-        
+
         eligible = eligible.filter(o => {
-          if (!o.approvedAt) return false;
-          const approvedAt = new Date(o.approvedAt);
-          return approvedAt >= weekStart && approvedAt <= weekEnd;
+          if (o.dateSold) {
+            const sold = new Date(o.dateSold + "T23:59:59");
+            return sold <= weekEnd;
+          }
+          if (o.approvedAt) {
+            const approved = new Date(o.approvedAt);
+            return approved <= weekEnd;
+          }
+          return true;
         });
       }
 
