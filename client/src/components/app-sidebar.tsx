@@ -452,7 +452,7 @@ export function AppSidebar() {
               </SidebarGroupContent>
             </SidebarGroup>
             <CollapsibleSection title="Finance" icon={Wallet}
-              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports]} location={location} defaultOpen={true} />
+              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports, MENU.exports]} location={location} defaultOpen={true} />
             <CollapsibleSection title="My Pay" icon={DollarSign}
               items={[MENU.commissions, MENU.forecast, MENU.myPay, MENU.myReserve, MENU.myDisputes]} location={location} />
             <CollapsibleSection title="Settings" icon={Cog}
@@ -488,7 +488,7 @@ export function AppSidebar() {
             <CollapsibleSection title="Payroll" icon={Wallet}
               items={[MENU.opsPayRuns, MENU.opsPayStubs, MENU.opsAR, MENU.opsOverrides, MENU.opsAdvances]} location={location} defaultOpen={true} />
             <CollapsibleSection title="Finance" icon={DollarSign}
-              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctReports, MENU.acct1099]} location={location} />
+              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctReports, MENU.acct1099, MENU.exports]} location={location} />
             <CollapsibleSection title="Reports" icon={TrendingUp}
               items={[MENU.dashboard, MENU.leadPool, MENU.reports, MENU.execReports, MENU.opsReports]} location={location} />
             <CollapsibleSection title="System" icon={Cog}
@@ -509,7 +509,7 @@ export function AppSidebar() {
             <CollapsibleSection title="Sales & Orders" icon={Briefcase}
               items={[MENU.orders, MENU.leads, MENU.adjustments, MENU.leadPool]} location={location} />
             <CollapsibleSection title="Finance" icon={Wallet}
-              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports]} location={location} />
+              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports, MENU.exports]} location={location} />
             <CollapsibleSection title="Reports" icon={TrendingUp}
               items={[MENU.reports, MENU.execReports, MENU.dirProduction, MENU.knowledge]} location={location} />
             <CollapsibleSection title="Settings" icon={Cog}
