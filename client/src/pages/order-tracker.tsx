@@ -135,6 +135,7 @@ function OrderCard({
   services,
   repMap,
   canSeeCommissions,
+  canEdit,
   isEditing,
   onEdit,
   onCancelEdit,
@@ -150,6 +151,7 @@ function OrderCard({
   services: Service[];
   repMap: Map<string, { name: string; repId: string }>;
   canSeeCommissions: boolean;
+  canEdit: boolean;
   isEditing: boolean;
   onEdit: () => void;
   onCancelEdit: () => void;
@@ -503,14 +505,16 @@ function OrderCard({
             </p>
           </div>
 
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            data-testid={`button-edit-inline-${order.id}`}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
+          {canEdit && (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              data-testid={`button-edit-inline-${order.id}`}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -521,7 +525,7 @@ export default function OrderTracker() {
   const { user } = useAuth();
   const { toast } = useToast();
   const canSeeCommissions = ["EXECUTIVE", "OPERATIONS"].includes(user?.role || "");
-  const hasViewModeToggle = ["LEAD", "MANAGER", "EXECUTIVE"].includes(user?.role || "");
+  const hasViewModeToggle = ["LEAD", "MANAGER", "DIRECTOR", "EXECUTIVE"].includes(user?.role || "");
   const [viewMode, setViewMode] = useState<"own" | "team" | "global">("own");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
@@ -534,6 +538,14 @@ export default function OrderTracker() {
   const isAdmin = ["OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
   const isTouchDevice = useIsTouchDevice();
   const isPaidTab = activeTab === "paid";
+
+  const canEditOrder = (order: SalesOrder): boolean => {
+    if (!user) return false;
+    if (["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) return true;
+    if (order.repId === user.repId) return true;
+    if (["MANAGER", "LEAD", "DIRECTOR"].includes(user.role) && (viewMode === "team" || viewMode === "global")) return true;
+    return false;
+  };
 
   const getTodayDate = () => {
     const d = new Date();
@@ -928,7 +940,7 @@ export default function OrderTracker() {
               >
                 My Team
               </Button>
-              {(user?.role === "EXECUTIVE" || user?.role === "MANAGER") && (
+              {(user?.role === "EXECUTIVE" || user?.role === "MANAGER" || user?.role === "DIRECTOR") && (
                 <Button
                   variant={viewMode === "global" ? "default" : "ghost"}
                   size="sm"
@@ -1176,6 +1188,7 @@ export default function OrderTracker() {
               services={services || []}
               repMap={repMap}
               canSeeCommissions={canSeeCommissions}
+              canEdit={canEditOrder(order)}
               isEditing={editingOrderId === order.id}
               onEdit={() => setEditingOrderId(order.id)}
               onCancelEdit={() => setEditingOrderId(null)}
@@ -1509,6 +1522,7 @@ export default function OrderTracker() {
               repMap={repMap}
               onClose={() => setSelectedOrder(null)}
               canSeeCommissions={canSeeCommissions}
+              canEdit={canEditOrder(selectedOrder)}
             />
           )}
         </DialogContent>
@@ -1712,6 +1726,7 @@ function OrderDetailPanel({
   repMap,
   onClose,
   canSeeCommissions,
+  canEdit,
 }: {
   order: SalesOrder;
   clientMap: Map<string, string>;
@@ -1721,6 +1736,7 @@ function OrderDetailPanel({
   repMap: Map<string, { name: string; repId: string }>;
   onClose: () => void;
   canSeeCommissions: boolean;
+  canEdit: boolean;
 }) {
   const { toast } = useToast();
   const status = getOrderStatus(order);
@@ -1847,16 +1863,18 @@ function OrderDetailPanel({
         </Badge>
         <div className="flex items-center gap-2">
           <StatusPipeline status={status} />
-          {!isEditing ? (
-            <Button size="sm" variant="outline" onClick={() => setIsEditing(true)} data-testid="button-edit-order">
-              <Pencil className="h-3.5 w-3.5 mr-1.5" />
-              Edit
-            </Button>
-          ) : (
-            <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-order">
-              {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-              Save
-            </Button>
+          {canEdit && (
+            !isEditing ? (
+              <Button size="sm" variant="outline" onClick={() => setIsEditing(true)} data-testid="button-edit-order">
+                <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                Edit
+              </Button>
+            ) : (
+              <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-order">
+                {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+                Save
+              </Button>
+            )
           )}
         </div>
       </div>

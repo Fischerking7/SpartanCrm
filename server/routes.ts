@@ -2079,6 +2079,16 @@ export async function registerRoutes(
         } else {
           orders = await storage.getOrders({ repId: user.repId, limit });
         }
+      } else if (user.role === "DIRECTOR") {
+        if (viewMode === "global") {
+          orders = await storage.getOrders({ limit });
+        } else if (viewMode === "team") {
+          const scope = await storage.getExecutiveScope(user.id);
+          const teamRepIds = [...(scope.allRepRepIds || []), user.repId];
+          orders = await storage.getOrders({ teamRepIds, limit });
+        } else {
+          orders = await storage.getOrders({ repId: user.repId, limit });
+        }
       } else if (user.role === "LEAD") {
         if (viewMode === "team") {
           const supervisedReps = await storage.getSupervisedReps(user.id);
@@ -2537,19 +2547,39 @@ export async function registerRoutes(
       // Check if user is admin-level (can edit any order)
       const isAdminLevel = ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role);
       
-      // Order locking: non-admin roles can only edit their own orders
+      // Order locking: non-admin roles can only edit their own or team orders
       if (!isAdminLevel) {
-        // REPs, MDU, LEAD can only modify their own orders
-        if (["REP", "MDU", "LEAD"].includes(user.role) && order.repId !== user.repId) {
-          return res.status(403).json({ message: "Orders are locked to their creator. Contact admin to make changes." });
-        }
-        
-        // MANAGERs can only modify their team's orders
-        if (user.role === "MANAGER") {
-          const teamMembers = await storage.getTeamMembers(user.id);
-          const teamRepIds = [...teamMembers.map(m => m.repId), user.repId];
-          if (!teamRepIds.includes(order.repId)) {
-            return res.status(403).json({ message: "Access denied" });
+        if (order.repId !== user.repId) {
+          // REPs and MDU can only modify their own orders
+          if (["REP", "MDU"].includes(user.role)) {
+            return res.status(403).json({ message: "Orders are locked to their creator. Contact admin to make changes." });
+          }
+
+          // LEADs can modify their supervised reps' orders
+          if (user.role === "LEAD") {
+            const supervisedReps = await storage.getSupervisedReps(user.id);
+            const teamRepIds = supervisedReps.map(r => r.repId);
+            if (!teamRepIds.includes(order.repId)) {
+              return res.status(403).json({ message: "You can only edit your own or your team's orders." });
+            }
+          }
+
+          // MANAGERs can modify their team's orders
+          if (user.role === "MANAGER") {
+            const teamMembers = await storage.getTeamMembers(user.id);
+            const teamRepIds = teamMembers.map(m => m.repId);
+            if (!teamRepIds.includes(order.repId)) {
+              return res.status(403).json({ message: "You can only edit your own or your team's orders." });
+            }
+          }
+
+          // DIRECTORs can modify their team's orders
+          if (user.role === "DIRECTOR") {
+            const scope = await storage.getExecutiveScope(user.id);
+            const teamRepIds = scope.allRepRepIds || [];
+            if (!teamRepIds.includes(order.repId)) {
+              return res.status(403).json({ message: "You can only edit your own or your team's orders." });
+            }
           }
         }
       }
