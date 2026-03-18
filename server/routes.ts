@@ -17,7 +17,7 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import rateLimit from "express-rate-limit";
 import { encryptSsn, decryptSsn, extractSsnLast4, maskSsn } from "./encryption";
 import { fetchGoogleSheet, parseUploadedCsv } from "./google-sheets";
-import { matchInstallationsToOrders, type OrderSummary } from "./claude-matching";
+import { matchInstallationsToOrders, normalizeWoStatus, type OrderSummary } from "./claude-matching";
 import { emailService } from "./email";
 import { getOrCreateReserve, applyWithholding, applyChargebackToReserve, applyEquipmentRecovery, handleRepSeparation, checkAndReleaseMaturedReserves, calculateWithholding, isReserveEligibleRole } from "./reserves/reserveService";
 import { generatePayStub, generatePayStubsForPayRun } from "./payStubGenerator";
@@ -15090,6 +15090,7 @@ export async function registerRoutes(
             dateSold: order.dateSold || "",
             jobStatus: order.jobStatus,
             approvalStatus: order.approvalStatus,
+            accountNumber: order.accountNumber || "",
           };
         });
 
@@ -15102,7 +15103,7 @@ export async function registerRoutes(
         if (matchResult.matches.length > 0) {
           const now = new Date();
           for (const match of matchResult.matches) {
-            const woStatus = (match.sheetData?.WO_STATUS || "").trim().toUpperCase();
+            const woStatus = normalizeWoStatus(match.sheetData || {});
 
             const order = await storage.getOrderById(match.orderId);
             if (!order) continue;

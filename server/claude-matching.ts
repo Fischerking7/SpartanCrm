@@ -15,6 +15,7 @@ export interface OrderSummary {
   dateSold: string;
   jobStatus: string;
   approvalStatus: string;
+  accountNumber?: string;
 }
 
 export interface MatchResult {
@@ -123,7 +124,7 @@ function nameTokenMatch(a: string, b: string): number {
         bestIdx = j;
       }
     }
-    if (bestScore >= 0.75 && bestIdx >= 0) {
+    if (bestScore >= 0.7 && bestIdx >= 0) {
       matched += bestScore;
       usedB.add(bestIdx);
     }
@@ -159,6 +160,84 @@ function addressSimilarity(sheetAddr: string, orderAddr: string): number {
   return total > 0 ? matched / total : 0;
 }
 
+function findColumn(row: Record<string, string>, ...aliases: string[]): string {
+  for (const alias of aliases) {
+    const lowerAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, "");
+    for (const key of Object.keys(row)) {
+      const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (lowerKey === lowerAlias) return row[key] || "";
+    }
+  }
+  return "";
+}
+
+function getCustomerName(row: Record<string, string>): string {
+  const direct = findColumn(row,
+    "CUSTOMER_NAME", "Customer_Name", "Customer Name", "CustomerName",
+    "customer", "name", "client_name", "Client Name", "subscriber",
+    "Subscriber Name", "SUBSCRIBER_NAME", "cust_name", "CUST_NAME"
+  );
+  if (direct) return direct;
+
+  const first = findColumn(row, "FIRST_NAME", "First Name", "FirstName", "first_name", "FNAME");
+  const last = findColumn(row, "LAST_NAME", "Last Name", "LastName", "last_name", "LNAME");
+  if (first || last) return [first, last].filter(Boolean).join(" ");
+
+  return "";
+}
+
+function getAddress(row: Record<string, string>): string {
+  const line1 = findColumn(row,
+    "ADDR_LINE_1", "Address", "ADDRESS", "address_line_1", "Address Line 1",
+    "Street", "STREET", "street_address", "Street Address",
+    "service_address", "Service Address", "SERVICE_ADDRESS",
+    "install_address", "Install Address"
+  );
+  const line2 = findColumn(row,
+    "ADDR_LINE_2", "Address2", "ADDRESS_2", "address_line_2", "Address Line 2",
+    "Apt", "APT", "Unit", "UNIT", "Suite", "SUITE"
+  );
+  return [line1, line2].filter(Boolean).join(" ");
+}
+
+function getCity(row: Record<string, string>): string {
+  return findColumn(row, "CITY", "City", "city", "TOWN", "Town");
+}
+
+function getZip(row: Record<string, string>): string {
+  return findColumn(row,
+    "ZIP", "Zip", "zip", "ZIP_CODE", "Zip Code", "ZipCode",
+    "zip_code", "ZIPCODE", "Postal", "POSTAL", "postal_code"
+  );
+}
+
+function getRepName(row: Record<string, string>): string {
+  return findColumn(row,
+    "SALESMAN_NAME", "Salesman Name", "SalesmanName", "salesman",
+    "REP_NAME", "Rep Name", "RepName", "rep_name", "rep",
+    "sales_rep", "Sales Rep", "SALES_REP", "agent", "Agent", "AGENT",
+    "consultant", "Consultant"
+  );
+}
+
+function getAccountNumber(row: Record<string, string>): string {
+  return findColumn(row,
+    "ACCT_NBR", "Account Number", "AccountNumber", "account_number",
+    "ACCOUNT_NUMBER", "Acct", "ACCT", "acct_number", "Account",
+    "ACCOUNT", "account_nbr", "Account_Nbr", "acct_num",
+    "subscriber_id", "SUBSCRIBER_ID", "customer_id", "CUSTOMER_ID"
+  );
+}
+
+function getWoStatus(row: Record<string, string>): string {
+  return findColumn(row,
+    "WO_STATUS", "Status", "STATUS", "status", "Work Order Status",
+    "wo_status", "WorkOrderStatus", "ORDER_STATUS", "Order Status",
+    "order_status", "JOB_STATUS", "Job Status", "job_status",
+    "install_status", "Install Status", "INSTALL_STATUS"
+  );
+}
+
 interface ScoreBreakdown {
   nameScore: number;
   addressScore: number;
@@ -170,32 +249,32 @@ interface ScoreBreakdown {
   reasons: string[];
 }
 
-function scoreMatch(row: Record<string, string>, order: OrderSummary, repMap: Map<string, string>): ScoreBreakdown {
+function scoreMatch(row: Record<string, string>, order: OrderSummary): ScoreBreakdown {
   const reasons: string[] = [];
 
-  const sheetName = row["CUSTOMER_NAME"] || "";
+  const sheetName = getCustomerName(row);
   const nameScore = nameTokenMatch(sheetName, order.customerName);
   if (nameScore >= 0.9) reasons.push("Strong name match");
   else if (nameScore >= 0.7) reasons.push("Good name match");
   else if (nameScore >= 0.5) reasons.push("Partial name match");
 
-  const sheetAddr = [row["ADDR_LINE_1"], row["ADDR_LINE_2"]].filter(Boolean).join(" ");
+  const sheetAddr = getAddress(row);
   const orderAddr = [order.houseNumber, order.streetName, order.aptUnit].filter(Boolean).join(" ");
   const addressScore = addressSimilarity(sheetAddr, orderAddr);
   if (addressScore >= 0.7) reasons.push("Address matched");
   else if (addressScore >= 0.4) reasons.push("Partial address match");
 
-  const sheetCity = normalize(row["CITY"] || "");
+  const sheetCity = normalize(getCity(row));
   const orderCity = normalize(order.city || "");
   const cityScore = sheetCity && orderCity ? similarity(sheetCity, orderCity) : 0;
   if (cityScore >= 0.8) reasons.push("City matched");
 
-  const sheetZip = (row["ZIP"] || "").replace(/\D/g, "").slice(0, 5);
+  const sheetZip = getZip(row).replace(/\D/g, "").slice(0, 5);
   const orderZip = (order.zipCode || "").replace(/\D/g, "").slice(0, 5);
   const zipScore = sheetZip && orderZip && sheetZip === orderZip ? 1 : 0;
   if (zipScore > 0) reasons.push("ZIP matched");
 
-  const sheetRep = normalize(row["SALESMAN_NAME"] || "");
+  const sheetRep = normalize(getRepName(row));
   const orderRep = normalize(order.repName || "");
   let repScore = 0;
   if (sheetRep && orderRep) {
@@ -203,30 +282,73 @@ function scoreMatch(row: Record<string, string>, order: OrderSummary, repMap: Ma
     if (repScore >= 0.7) reasons.push("Rep name matched");
   }
 
-  const sheetAcct = (row["ACCT_NBR"] || "").trim();
+  const sheetAcct = normalize(getAccountNumber(row));
   let acctScore = 0;
-  if (sheetAcct && order.invoiceNumber && normalize(sheetAcct) === normalize(order.invoiceNumber)) {
-    acctScore = 1;
-    reasons.push("Account/Invoice number matched");
+  if (sheetAcct) {
+    const orderInv = normalize(order.invoiceNumber || "");
+    const orderAcct = normalize(order.accountNumber || "");
+    if ((orderInv && sheetAcct === orderInv) || (orderAcct && sheetAcct === orderAcct)) {
+      acctScore = 1;
+      reasons.push("Account/Invoice number matched");
+    }
   }
 
   let total: number;
-  if (acctScore === 1 && nameScore >= 0.5) {
+  if (acctScore === 1 && nameScore >= 0.4) {
     total = 95;
     reasons.unshift("High-confidence: account + name match");
+  } else if (acctScore === 1) {
+    total = 85;
+    reasons.unshift("Account number matched (name weak)");
   } else {
-    total = Math.round(
-      nameScore * 40 +
-      addressScore * 25 +
-      cityScore * 10 +
-      zipScore * 10 +
-      repScore * 10 +
-      acctScore * 5
-    );
+    const hasAddr = sheetAddr.length > 0;
+    const hasCity = sheetCity.length > 0;
+    const hasZip = sheetZip.length > 0;
+    const hasRep = sheetRep.length > 0;
+    const fieldsAvailable = 1 + (hasAddr ? 1 : 0) + (hasCity ? 1 : 0) + (hasZip ? 1 : 0) + (hasRep ? 1 : 0);
+
+    if (fieldsAvailable <= 2) {
+      total = Math.round(nameScore * 60 + addressScore * 25 + cityScore * 5 + zipScore * 5 + repScore * 5);
+    } else {
+      total = Math.round(
+        nameScore * 35 +
+        addressScore * 25 +
+        cityScore * 10 +
+        zipScore * 10 +
+        repScore * 15 +
+        acctScore * 5
+      );
+    }
   }
 
   return { nameScore, addressScore, cityScore, zipScore, repScore, acctScore, total, reasons };
 }
+
+export function normalizeWoStatus(row: Record<string, string>): string {
+  const raw = getWoStatus(row).trim().toUpperCase();
+  const statusMap: Record<string, string> = {
+    "CP": "CP",
+    "COMPLETED": "CP",
+    "CONNECTED": "CP",
+    "INSTALLED": "CP",
+    "DONE": "CP",
+    "CN": "CN",
+    "CANCELED": "CN",
+    "CANCELLED": "CN",
+    "OP": "OP",
+    "OPEN": "OP",
+    "IN PROGRESS": "OP",
+    "ACTIVE": "OP",
+    "ND": "ND",
+    "NO DISPATCH": "ND",
+    "NO_DISPATCH": "ND",
+    "PENDING": "OP",
+    "SCHEDULED": "OP",
+  };
+  return statusMap[raw] || raw;
+}
+
+const MATCH_THRESHOLD = 45;
 
 export async function matchInstallationsToOrders(
   sheetRows: SheetRow[],
@@ -238,23 +360,39 @@ export async function matchInstallationsToOrders(
 
   const matchableRows: SheetRow[] = [];
   const skippedRows: { rowIndex: number; data: Record<string, string>; reason: string }[] = [];
-  const validStatuses = new Set(["CP", "CN", "OP", "ND"]);
+  const validStatuses = new Set(["CP", "CN", "OP", "ND", "COMPLETED", "CONNECTED", "OPEN", "NO DISPATCH", "CANCELED", "CANCELLED"]);
 
   for (const row of sheetRows) {
-    const woStatus = (row.data["WO_STATUS"] || "").trim().toUpperCase();
-    if (validStatuses.has(woStatus)) {
+    const woStatus = getWoStatus(row.data).trim().toUpperCase();
+    if (!woStatus || validStatuses.has(woStatus)) {
       matchableRows.push(row);
     } else {
-      skippedRows.push({ rowIndex: row.rowIndex, data: row.data, reason: `Skipped: WO_STATUS is '${woStatus || "empty"}' (not a recognized status)` });
+      skippedRows.push({ rowIndex: row.rowIndex, data: row.data, reason: `Skipped: status is '${woStatus}' (not a recognized status)` });
     }
   }
 
-  const cpCount = matchableRows.filter(r => (r.data["WO_STATUS"] || "").trim().toUpperCase() === "CP").length;
-  const cnCount = matchableRows.filter(r => (r.data["WO_STATUS"] || "").trim().toUpperCase() === "CN").length;
-  const opCount = matchableRows.filter(r => (r.data["WO_STATUS"] || "").trim().toUpperCase() === "OP").length;
-  const ndCount = matchableRows.filter(r => (r.data["WO_STATUS"] || "").trim().toUpperCase() === "ND").length;
+  const statusCounts: Record<string, number> = {};
+  for (const r of matchableRows) {
+    const s = getWoStatus(r.data).trim().toUpperCase() || "EMPTY";
+    statusCounts[s] = (statusCounts[s] || 0) + 1;
+  }
+  const statusStr = Object.entries(statusCounts).map(([k, v]) => `${k}:${v}`).join(", ");
 
-  console.log(`[Install Sync] Filtered: ${matchableRows.length} matchable (CP:${cpCount}, CN:${cnCount}, OP:${opCount}, ND:${ndCount}), ${skippedRows.length} skipped out of ${sheetRows.length} total rows`);
+  console.log(`[Install Sync] Filtered: ${matchableRows.length} matchable (${statusStr}), ${skippedRows.length} skipped out of ${sheetRows.length} total rows`);
+
+  if (matchableRows.length > 0) {
+    const sampleRow = matchableRows[0].data;
+    const detectedCols = {
+      name: getCustomerName(sampleRow) ? "found" : "MISSING",
+      address: getAddress(sampleRow) ? "found" : "MISSING",
+      city: getCity(sampleRow) ? "found" : "MISSING",
+      zip: getZip(sampleRow) ? "found" : "MISSING",
+      rep: getRepName(sampleRow) ? "found" : "MISSING",
+      acct: getAccountNumber(sampleRow) ? "found" : "MISSING",
+    };
+    console.log(`[Install Sync] Column detection: ${JSON.stringify(detectedCols)}`);
+    console.log(`[Install Sync] Available headers: ${Object.keys(sampleRow).join(", ")}`);
+  }
 
   if (matchableRows.length === 0) {
     return { matches: [], unmatched: skippedRows, summary: `No matchable installation records found. ${skippedRows.length} rows skipped.` };
@@ -271,14 +409,14 @@ export async function matchInstallationsToOrders(
     };
   }
 
-  const repMap = new Map<string, string>();
+  console.log(`[Install Sync] Matching ${matchableRows.length} sheet rows against ${orders.length} orders (threshold: ${MATCH_THRESHOLD}%)`);
 
   const candidates: { rowIndex: number; data: Record<string, string>; orderId: string; score: ScoreBreakdown }[] = [];
 
   for (const row of matchableRows) {
     for (const order of orders) {
-      const score = scoreMatch(row.data, order, repMap);
-      if (score.total >= 60) {
+      const score = scoreMatch(row.data, order);
+      if (score.total >= MATCH_THRESHOLD) {
         candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score });
       }
     }
@@ -314,14 +452,23 @@ export async function matchInstallationsToOrders(
     .filter(r => !usedRowIndices.has(r.rowIndex))
     .map(r => {
       let bestScore = 0;
+      let bestReasons: string[] = [];
       for (const order of orders) {
-        const s = scoreMatch(r.data, order, repMap);
-        if (s.total > bestScore) bestScore = s.total;
+        const s = scoreMatch(r.data, order);
+        if (s.total > bestScore) {
+          bestScore = s.total;
+          bestReasons = s.reasons;
+        }
       }
+      const customerName = getCustomerName(r.data);
+      const addr = getAddress(r.data);
+      const detail = customerName ? ` (customer: ${customerName})` : addr ? ` (address: ${addr.slice(0, 40)})` : "";
       return {
         rowIndex: r.rowIndex,
         data: r.data,
-        reason: bestScore > 0 ? `Best match score ${bestScore}% (below 60% threshold)` : "No matching order found",
+        reason: bestScore > 0
+          ? `Best score ${bestScore}% (below ${MATCH_THRESHOLD}% threshold)${detail}. Partial: ${bestReasons.join(", ") || "none"}`
+          : `No matching order found${detail}`,
       };
     });
 
