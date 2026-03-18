@@ -1017,10 +1017,12 @@ export default function OrderTracker() {
               <SelectItem value="this_month">This Month</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={exportOrdersCSV} data-testid="button-export-orders">
-            <Download className="h-4 w-4 mr-1.5" />
-            Export
-          </Button>
+          {["MANAGER", "DIRECTOR", "EXECUTIVE", "OPERATIONS", "ADMIN", "ACCOUNTING"].includes(user?.role || "") && (
+            <Button variant="outline" onClick={exportOrdersCSV} data-testid="button-export-orders">
+              <Download className="h-4 w-4 mr-1.5" />
+              Export
+            </Button>
+          )}
           <Button onClick={() => setShowNewOrderDialog(true)} data-testid="button-new-order-tracker">
             <Plus className="h-4 w-4 mr-1.5" />
             New Order
