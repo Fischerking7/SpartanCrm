@@ -183,7 +183,7 @@ export default function OpsReports() {
   }, [dateFrom, dateTo]);
 
   const fetchProfitReport = useCallback(async () => {
-    const url = `/api/admin/reports/iron-crest-profit?from=${dateFrom}&to=${dateTo}`;
+    const url = `/api/admin/reports/iron-crest-profit?startDate=${dateFrom}&endDate=${dateTo}`;
     const res = await fetch(url, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error("Failed to fetch report");
     return res.json();

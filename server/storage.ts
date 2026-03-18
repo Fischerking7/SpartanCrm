@@ -4757,9 +4757,12 @@ export const storage = {
   },
 
   async getVarianceReport(periodStart: string, periodEnd: string) {
-    return db.select({
+    const rows = await db.select({
       orderId: salesOrders.id,
       invoiceNumber: salesOrders.invoiceNumber,
+      customerName: salesOrders.customerName,
+      repId: salesOrders.repId,
+      dateSold: salesOrders.dateSold,
       commissionAmount: salesOrders.commissionAmount,
       rackRateCents: salesOrders.ironCrestRackRateCents,
       profitCents: salesOrders.ironCrestProfitCents,
@@ -4778,5 +4781,13 @@ export const storage = {
       lte(salesOrders.createdAt, new Date(periodEnd + "T23:59:59"))
     ))
     .orderBy(desc(salesOrders.createdAt));
+
+    const allUsers = await db.select().from(users);
+    const repMap = new Map(allUsers.map(u => [u.repId, u.name]));
+
+    return rows.map(r => ({
+      ...r,
+      repName: repMap.get(r.repId) || r.repId,
+    }));
   },
 };

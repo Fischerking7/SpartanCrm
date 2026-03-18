@@ -16202,9 +16202,35 @@ export async function registerRoutes(
 
   app.get("/api/admin/payroll/stale-ar", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
     try {
-      const days = parseInt(req.query.days as string) || 30;
+      const raw = Number(req.query.days);
+      const days = Number.isFinite(raw) && raw >= 0 ? raw : 30;
       const staleOrders = await storage.getStaleArOrders(days);
-      res.json(staleOrders);
+      const allUsers = await storage.getUsers();
+      const repMap = new Map(allUsers.map(u => [u.repId, u.name]));
+      const allServices = await storage.getServices();
+      const serviceMap = new Map(allServices.map(s => [s.id, s.name]));
+
+      const flattened = staleOrders.map((row: any) => {
+        const o = row.order;
+        const c = row.client;
+        const now = new Date();
+        const created = new Date(o.createdAt);
+        const ageDays = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+        return {
+          invoiceNumber: o.invoiceNumber || "",
+          customerName: o.customerName || "",
+          repId: o.repId || "",
+          repName: repMap.get(o.repId) || o.repId || "",
+          clientName: c?.name || "",
+          serviceName: serviceMap.get(o.serviceId) || "",
+          dateSold: o.dateSold || "",
+          approvalStatus: o.approvalStatus || "",
+          commission: o.commissionAmount || "0",
+          ageDays,
+          ageBucket: ageDays <= 30 ? "0-30" : ageDays <= 60 ? "31-60" : ageDays <= 90 ? "61-90" : "90+",
+        };
+      });
+      res.json(flattened);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
