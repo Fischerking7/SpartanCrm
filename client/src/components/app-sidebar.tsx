@@ -470,10 +470,10 @@ export function AppSidebar() {
                 <MenuItems items={[MENU.dashboard, MENU.orders]} location={location} />
               </SidebarGroupContent>
             </SidebarGroup>
-            <CollapsibleSection title="Accounting" icon={FileSpreadsheet}
-              items={[MENU.accounting, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports]} location={location} defaultOpen={true} />
-            <CollapsibleSection title="Finance" icon={Wallet}
-              items={[MENU.finance, MENU.financeImports, MENU.installSync, MENU.exports, MENU.recalculate, MENU.queues, MENU.audit]} location={location} />
+            <CollapsibleSection title="Payroll & Finance" icon={Wallet}
+              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports, MENU.exports]} location={location} defaultOpen={true} />
+            <CollapsibleSection title="Data & Imports" icon={FileSpreadsheet}
+              items={[MENU.financeImports, MENU.installSync, MENU.recalculate, MENU.queues, MENU.audit]} location={location} />
             <CollapsibleSection title="Reports" icon={TrendingUp}
               items={[MENU.leadPool, MENU.reports, MENU.execReports]} location={location} />
             <CollapsibleSection title="System" icon={Cog}
@@ -489,10 +489,8 @@ export function AppSidebar() {
                 <MenuItems items={[MENU.opsHome, MENU.opsOrders, MENU.opsReps]} location={location} />
               </SidebarGroupContent>
             </SidebarGroup>
-            <CollapsibleSection title="Payroll" icon={Wallet}
-              items={[MENU.opsPayRuns, MENU.opsPayStubs, MENU.opsAR, MENU.opsOverrides, MENU.opsAdvances]} location={location} defaultOpen={true} />
-            <CollapsibleSection title="Finance" icon={DollarSign}
-              items={[MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctReports, MENU.acct1099, MENU.exports]} location={location} />
+            <CollapsibleSection title="Payroll & Finance" icon={Wallet}
+              items={[MENU.opsPayRuns, MENU.opsPayStubs, MENU.opsAR, MENU.opsOverrides, MENU.opsAdvances, MENU.acct1099, MENU.exports]} location={location} defaultOpen={true} />
             <CollapsibleSection title="Reports" icon={TrendingUp}
               items={[MENU.dashboard, MENU.leadPool, MENU.reports, MENU.execReports, MENU.opsReports]} location={location} />
             <CollapsibleSection title="System" icon={Cog}

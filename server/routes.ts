@@ -3948,38 +3948,28 @@ export async function registerRoutes(
           await storage.setPayrollReady(order.id, "BACKFILL");
         }
 
-        const readyOrders = await storage.getPayrollReadyOrders(
-          validated.periodStart as string,
-          validated.periodEnd as string
-        );
-        for (const { order } of readyOrders) {
-          await storage.updateOrder(order.id, { payRunId: payRun.id });
-        }
-
         const periodStartDate = new Date(validated.periodStart + "T00:00:00");
         const periodEndDate = new Date(validated.periodEnd + "T23:59:59");
         const allOrders = await storage.getOrders();
-        const additionalEligible = allOrders.filter(o =>
-          o.jobStatus === "COMPLETED" &&
+        const eligible = allOrders.filter(o =>
           o.approvalStatus === "APPROVED" &&
-          o.paymentStatus === "UNPAID" &&
+          o.paymentStatus === "PAID" &&
           !o.payRunId &&
           !o.isPayrollHeld &&
           o.installDate &&
           new Date(o.installDate + "T00:00:00") >= periodStartDate &&
           new Date(o.installDate + "T23:59:59") <= periodEndDate
         );
-        for (const order of additionalEligible) {
+        for (const order of eligible) {
           await storage.updateOrder(order.id, { payRunId: payRun.id });
         }
 
-        const totalLinked = readyOrders.length + additionalEligible.length;
-        if (totalLinked > 0) {
+        if (eligible.length > 0) {
           await storage.createAuditLog({
             action: "payrun_orders_linked",
             tableName: "pay_runs",
             recordId: payRun.id,
-            afterJson: JSON.stringify({ orderCount: totalLinked, paidOrders: readyOrders.length, unpaidOrders: additionalEligible.length }),
+            afterJson: JSON.stringify({ orderCount: eligible.length }),
             userId: req.user!.id,
           });
         }
@@ -4354,10 +4344,10 @@ export async function registerRoutes(
 
       const allOrders = await storage.getOrders();
       let eligible = allOrders.filter(o => 
-        o.jobStatus === "COMPLETED" && 
         o.approvalStatus === "APPROVED" &&
-        o.paymentStatus === "UNPAID" && 
-        !o.payRunId
+        o.paymentStatus === "PAID" && 
+        !o.payRunId &&
+        !o.isPayrollHeld
       );
 
       if (payRun.weekEndingDate) {
