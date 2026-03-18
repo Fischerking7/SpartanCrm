@@ -4554,7 +4554,6 @@ export const storage = {
         or(
           eq(salesOrders.jobStatus, "PENDING"),
           eq(salesOrders.jobStatus, "COMPLETED"),
-          eq(salesOrders.jobStatus, "SCHEDULED"),
         ),
       )
     );
