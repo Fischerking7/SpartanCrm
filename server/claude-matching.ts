@@ -1,10 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { SheetRow } from "./google-sheets";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-  ...(process.env.ANTHROPIC_API_KEY ? {} : { baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL }),
-});
 
 export interface OrderSummary {
   id: string;
@@ -39,106 +33,199 @@ export interface MatchingResponse {
   summary: string;
 }
 
-const BATCH_SIZE = 25;
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 65000;
-
-interface CompactSheetRow {
-  i: number;
-  d: Record<string, string>;
+function normalize(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-interface CompactOrder {
-  id: string;
-  name: string;
-  addr: string;
-  city: string;
-  zip: string;
-  svc: string;
-  rep: string;
-  date: string;
-}
-
-function compactifySheetRows(rows: SheetRow[]): CompactSheetRow[] {
-  return rows.map((r) => {
-    const essentialKeys = [
-      "CUSTOMER_NAME", "ADDR_LINE_1", "ADDR_LINE_2", "CITY", "ZIP", "STATE",
-      "ACCT_NBR", "WORK_ORDER_NBR", "WO_STATUS", "SALESMAN_NAME", "SALESMAN_NBR",
-      "DT_ENTERED", "SCHEDULE_DT", "WORK_ORDER_TYPE",
-      "DATA_INSTALLS_QTY", "MOBILE_INSTALLS_QTY", "VIDEO_INSTALLS_QTY", "TELEPHONE_INSTALLS_QTY",
-    ];
-    const d: Record<string, string> = {};
-    for (const key of essentialKeys) {
-      if (r.data[key] && r.data[key].trim()) {
-        d[key] = r.data[key].trim();
-      }
-    }
-    if (Object.keys(d).length === 0) {
-      for (const [k, v] of Object.entries(r.data)) {
-        if (v && v.trim()) d[k] = v.trim();
-      }
-    }
-    return { i: r.rowIndex, d };
-  });
-}
-
-function compactifyOrders(orders: OrderSummary[]): CompactOrder[] {
-  return orders.map((o) => ({
-    id: o.id,
-    name: o.customerName,
-    addr: [o.houseNumber, o.streetName, o.aptUnit].filter(Boolean).join(" "),
-    city: o.city,
-    zip: o.zipCode,
-    svc: o.serviceType,
-    rep: o.repName,
-    date: o.dateSold,
-  }));
-}
-
-function buildPrompt(sheetRows: CompactSheetRow[], orders: CompactOrder[]): string {
-  return `Match installation records to CRM orders by customer name + address/service.
-
-INSTALLS (${sheetRows.length}):
-${JSON.stringify(sheetRows)}
-
-ORDERS (${orders.length}):
-${JSON.stringify(orders)}
-
-Rules: Match name similarity + address/account/service. Score 90-100=strong, 70-89=likely, 60-69=possible. Min 60. Each order max 1 match.
-
-Return ONLY JSON:
-{"matches":[{"i":<rowIndex>,"id":"<orderId>","c":<confidence>,"r":"<reason>"}],"u":[{"i":<rowIndex>,"r":"<reason>"}],"s":"<summary>"}`;
-}
-
-async function callClaude(prompt: string, attempt = 0): Promise<any> {
-  try {
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 4096,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const content = message.content[0];
-    if (content.type !== "text") {
-      throw new Error("Unexpected response type from Claude");
-    }
-
-    let responseText = content.text.trim();
-    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      responseText = jsonMatch[1].trim();
-    }
-
-    return JSON.parse(responseText);
-  } catch (error: any) {
-    const isRateLimit = error.message?.includes("429") || error.message?.includes("rate_limit");
-    if (isRateLimit && attempt < MAX_RETRIES) {
-      console.log(`[Claude Matching] Rate limited, waiting ${RETRY_DELAY_MS / 1000}s before retry ${attempt + 1}/${MAX_RETRIES}...`);
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-      return callClaude(prompt, attempt + 1);
-    }
-    throw error;
+function normalizeAddress(s: string): string {
+  let addr = normalize(s);
+  const replacements: [RegExp, string][] = [
+    [/\bstreet\b/g, "st"],
+    [/\bavenue\b/g, "ave"],
+    [/\bboulevard\b/g, "blvd"],
+    [/\bdrive\b/g, "dr"],
+    [/\blane\b/g, "ln"],
+    [/\broad\b/g, "rd"],
+    [/\bcourt\b/g, "ct"],
+    [/\bplace\b/g, "pl"],
+    [/\bcircle\b/g, "cir"],
+    [/\bterrace\b/g, "ter"],
+    [/\bapartment\b/g, "apt"],
+    [/\bunit\b/g, "apt"],
+    [/\bsuite\b/g, "ste"],
+    [/\bnorth\b/g, "n"],
+    [/\bsouth\b/g, "s"],
+    [/\beast\b/g, "e"],
+    [/\bwest\b/g, "w"],
+  ];
+  for (const [pattern, replacement] of replacements) {
+    addr = addr.replace(pattern, replacement);
   }
+  return addr;
+}
+
+function levenshtein(a: string, b: string): number {
+  const la = a.length;
+  const lb = b.length;
+  if (la === 0) return lb;
+  if (lb === 0) return la;
+
+  const matrix: number[][] = [];
+  for (let i = 0; i <= la; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= lb; j++) {
+    matrix[0][j] = j;
+  }
+  for (let i = 1; i <= la; i++) {
+    for (let j = 1; j <= lb; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return matrix[la][lb];
+}
+
+function similarity(a: string, b: string): number {
+  const na = normalize(a);
+  const nb = normalize(b);
+  if (!na && !nb) return 1;
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  const maxLen = Math.max(na.length, nb.length);
+  const dist = levenshtein(na, nb);
+  return Math.max(0, 1 - dist / maxLen);
+}
+
+function nameTokenMatch(a: string, b: string): number {
+  const tokensA = normalize(a).split(" ").filter(Boolean);
+  const tokensB = normalize(b).split(" ").filter(Boolean);
+  if (tokensA.length === 0 || tokensB.length === 0) return 0;
+
+  let matched = 0;
+  const usedB = new Set<number>();
+  for (const ta of tokensA) {
+    let bestScore = 0;
+    let bestIdx = -1;
+    for (let j = 0; j < tokensB.length; j++) {
+      if (usedB.has(j)) continue;
+      const s = similarity(ta, tokensB[j]);
+      if (s > bestScore) {
+        bestScore = s;
+        bestIdx = j;
+      }
+    }
+    if (bestScore >= 0.75 && bestIdx >= 0) {
+      matched += bestScore;
+      usedB.add(bestIdx);
+    }
+  }
+
+  return matched / Math.max(tokensA.length, tokensB.length);
+}
+
+function addressSimilarity(sheetAddr: string, orderAddr: string): number {
+  const na = normalizeAddress(sheetAddr);
+  const nb = normalizeAddress(orderAddr);
+  if (!na && !nb) return 0.5;
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+
+  const tokensA = na.split(" ").filter(Boolean);
+  const tokensB = nb.split(" ").filter(Boolean);
+
+  let matched = 0;
+  const usedB = new Set<number>();
+  for (const ta of tokensA) {
+    for (let j = 0; j < tokensB.length; j++) {
+      if (usedB.has(j)) continue;
+      if (ta === tokensB[j]) {
+        matched++;
+        usedB.add(j);
+        break;
+      }
+    }
+  }
+
+  const total = Math.max(tokensA.length, tokensB.length);
+  return total > 0 ? matched / total : 0;
+}
+
+interface ScoreBreakdown {
+  nameScore: number;
+  addressScore: number;
+  cityScore: number;
+  zipScore: number;
+  repScore: number;
+  acctScore: number;
+  total: number;
+  reasons: string[];
+}
+
+function scoreMatch(row: Record<string, string>, order: OrderSummary, repMap: Map<string, string>): ScoreBreakdown {
+  const reasons: string[] = [];
+
+  const sheetName = row["CUSTOMER_NAME"] || "";
+  const nameScore = nameTokenMatch(sheetName, order.customerName);
+  if (nameScore >= 0.9) reasons.push("Strong name match");
+  else if (nameScore >= 0.7) reasons.push("Good name match");
+  else if (nameScore >= 0.5) reasons.push("Partial name match");
+
+  const sheetAddr = [row["ADDR_LINE_1"], row["ADDR_LINE_2"]].filter(Boolean).join(" ");
+  const orderAddr = [order.houseNumber, order.streetName, order.aptUnit].filter(Boolean).join(" ");
+  const addressScore = addressSimilarity(sheetAddr, orderAddr);
+  if (addressScore >= 0.7) reasons.push("Address matched");
+  else if (addressScore >= 0.4) reasons.push("Partial address match");
+
+  const sheetCity = normalize(row["CITY"] || "");
+  const orderCity = normalize(order.city || "");
+  const cityScore = sheetCity && orderCity ? similarity(sheetCity, orderCity) : 0;
+  if (cityScore >= 0.8) reasons.push("City matched");
+
+  const sheetZip = (row["ZIP"] || "").replace(/\D/g, "").slice(0, 5);
+  const orderZip = (order.zipCode || "").replace(/\D/g, "").slice(0, 5);
+  const zipScore = sheetZip && orderZip && sheetZip === orderZip ? 1 : 0;
+  if (zipScore > 0) reasons.push("ZIP matched");
+
+  const sheetRep = normalize(row["SALESMAN_NAME"] || "");
+  const orderRep = normalize(order.repName || "");
+  let repScore = 0;
+  if (sheetRep && orderRep) {
+    repScore = nameTokenMatch(sheetRep, orderRep);
+    if (repScore >= 0.7) reasons.push("Rep name matched");
+  }
+
+  const sheetAcct = (row["ACCT_NBR"] || "").trim();
+  let acctScore = 0;
+  if (sheetAcct && order.invoiceNumber && normalize(sheetAcct) === normalize(order.invoiceNumber)) {
+    acctScore = 1;
+    reasons.push("Account/Invoice number matched");
+  }
+
+  let total: number;
+  if (acctScore === 1 && nameScore >= 0.5) {
+    total = 95;
+    reasons.unshift("High-confidence: account + name match");
+  } else {
+    total = Math.round(
+      nameScore * 40 +
+      addressScore * 25 +
+      cityScore * 10 +
+      zipScore * 10 +
+      repScore * 10 +
+      acctScore * 5
+    );
+  }
+
+  return { nameScore, addressScore, cityScore, zipScore, repScore, acctScore, total, reasons };
 }
 
 export async function matchInstallationsToOrders(
@@ -151,7 +238,6 @@ export async function matchInstallationsToOrders(
 
   const matchableRows: SheetRow[] = [];
   const skippedRows: { rowIndex: number; data: Record<string, string>; reason: string }[] = [];
-
   const validStatuses = new Set(["CP", "CN", "OP", "ND"]);
 
   for (const row of sheetRows) {
@@ -168,125 +254,84 @@ export async function matchInstallationsToOrders(
   const opCount = matchableRows.filter(r => (r.data["WO_STATUS"] || "").trim().toUpperCase() === "OP").length;
   const ndCount = matchableRows.filter(r => (r.data["WO_STATUS"] || "").trim().toUpperCase() === "ND").length;
 
-  console.log(`[Claude Matching] Filtered: ${matchableRows.length} matchable (CP:${cpCount}, CN:${cnCount}, OP:${opCount}, ND:${ndCount}), ${skippedRows.length} skipped out of ${sheetRows.length} total rows`);
+  console.log(`[Install Sync] Filtered: ${matchableRows.length} matchable (CP:${cpCount}, CN:${cnCount}, OP:${opCount}, ND:${ndCount}), ${skippedRows.length} skipped out of ${sheetRows.length} total rows`);
 
   if (matchableRows.length === 0) {
-    return {
-      matches: [],
-      unmatched: skippedRows,
-      summary: `No matchable installation records found. ${skippedRows.length} rows skipped.`,
-    };
+    return { matches: [], unmatched: skippedRows, summary: `No matchable installation records found. ${skippedRows.length} rows skipped.` };
   }
 
   if (orders.length === 0) {
     return {
       matches: [],
       unmatched: [
-        ...matchableRows.map((r) => ({
-          rowIndex: r.rowIndex,
-          data: r.data,
-          reason: "No pending orders in the system to match against.",
-        })),
+        ...matchableRows.map(r => ({ rowIndex: r.rowIndex, data: r.data, reason: "No pending orders in the system to match against." })),
         ...skippedRows,
       ],
       summary: "No pending orders available for matching.",
     };
   }
 
-  const sheetRowMap = new Map(matchableRows.map((r) => [r.rowIndex, r]));
-  const orderMap = new Map(orders.map((o) => [o.id, o]));
+  const repMap = new Map<string, string>();
 
-  const compactOrders = compactifyOrders(orders);
-  const allRawMatches: any[] = [];
-  const allRawUnmatched: any[] = [];
+  const candidates: { rowIndex: number; data: Record<string, string>; orderId: string; score: ScoreBreakdown }[] = [];
 
-  const batches: SheetRow[][] = [];
-  for (let i = 0; i < matchableRows.length; i += BATCH_SIZE) {
-    batches.push(matchableRows.slice(i, i + BATCH_SIZE));
+  for (const row of matchableRows) {
+    for (const order of orders) {
+      const score = scoreMatch(row.data, order, repMap);
+      if (score.total >= 60) {
+        candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score });
+      }
+    }
   }
 
-  console.log(`[Claude Matching] Processing ${matchableRows.length} rows in ${batches.length} batch(es) against ${orders.length} orders`);
-
-  for (let bIdx = 0; bIdx < batches.length; bIdx++) {
-    const batch = batches[bIdx];
-    const compactRows = compactifySheetRows(batch);
-    const prompt = buildPrompt(compactRows, compactOrders);
-    console.log(`[Claude Matching] Batch ${bIdx + 1}/${batches.length}: ${batch.length} rows, prompt ~${prompt.length} chars`);
-
-    const parsed = await callClaude(prompt);
-
-    if (parsed.matches && Array.isArray(parsed.matches)) {
-      for (const m of parsed.matches) {
-        allRawMatches.push({
-          sheetRowIndex: m.i ?? m.sheetRowIndex,
-          orderId: m.id ?? m.orderId,
-          confidence: m.c ?? m.confidence,
-          reasoning: m.r ?? m.reasoning,
-        });
-      }
-    }
-    if (parsed.u && Array.isArray(parsed.u)) {
-      for (const u of parsed.u) {
-        allRawUnmatched.push({ rowIndex: u.i ?? u.rowIndex, reason: u.r ?? u.reason });
-      }
-    }
-    if (parsed.unmatched && Array.isArray(parsed.unmatched)) {
-      for (const u of parsed.unmatched) {
-        allRawUnmatched.push({ rowIndex: u.i ?? u.rowIndex, reason: u.r ?? u.reason });
-      }
-    }
-
-    if (bIdx < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-  }
+  candidates.sort((a, b) => b.score.total - a.score.total);
 
   const usedOrderIds = new Set<string>();
   const usedRowIndices = new Set<number>();
-
-  const sortedMatches = allRawMatches
-    .filter((m) => typeof m.confidence === "number" && m.confidence >= 60)
-    .sort((a, b) => b.confidence - a.confidence);
-
   const validMatches: MatchResult[] = [];
-  for (const match of sortedMatches) {
-    const sheetRow = sheetRowMap.get(match.sheetRowIndex);
-    const order = orderMap.get(match.orderId);
-    if (!sheetRow || !order) continue;
-    if (usedOrderIds.has(match.orderId) || usedRowIndices.has(match.sheetRowIndex)) continue;
+  const orderMap = new Map(orders.map(o => [o.id, o]));
 
-    usedOrderIds.add(match.orderId);
-    usedRowIndices.add(match.sheetRowIndex);
+  for (const c of candidates) {
+    if (usedOrderIds.has(c.orderId) || usedRowIndices.has(c.rowIndex)) continue;
+    const order = orderMap.get(c.orderId);
+    if (!order) continue;
+
+    usedOrderIds.add(c.orderId);
+    usedRowIndices.add(c.rowIndex);
 
     validMatches.push({
-      sheetRowIndex: match.sheetRowIndex,
-      sheetData: sheetRow.data,
+      sheetRowIndex: c.rowIndex,
+      sheetData: c.data,
       orderId: order.id,
       orderInvoice: order.invoiceNumber,
       orderCustomerName: order.customerName,
-      confidence: Math.min(100, Math.round(match.confidence)),
-      reasoning: match.reasoning || "Matched by Claude AI",
+      confidence: Math.min(100, c.score.total),
+      reasoning: c.score.reasons.join("; ") || "Matched by deterministic scoring",
     });
   }
 
   const unmatchedRows = matchableRows
-    .filter((r) => !usedRowIndices.has(r.rowIndex))
-    .map((r) => {
-      const unmatchedEntry = allRawUnmatched.find((u: any) => u.rowIndex === r.rowIndex);
+    .filter(r => !usedRowIndices.has(r.rowIndex))
+    .map(r => {
+      let bestScore = 0;
+      for (const order of orders) {
+        const s = scoreMatch(r.data, order, repMap);
+        if (s.total > bestScore) bestScore = s.total;
+      }
       return {
         rowIndex: r.rowIndex,
         data: r.data,
-        reason: unmatchedEntry?.reason || "No matching order found",
+        reason: bestScore > 0 ? `Best match score ${bestScore}% (below 60% threshold)` : "No matching order found",
       };
     });
 
   const allUnmatched = [...unmatchedRows, ...skippedRows];
 
-  console.log(`[Claude Matching] Done: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped`);
+  console.log(`[Install Sync] Done: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped`);
 
   return {
     matches: validMatches,
     unmatched: allUnmatched,
-    summary: `Matched ${validMatches.length} of ${matchableRows.length} records across ${batches.length} batch(es). ${skippedRows.length} rows skipped (unrecognized status).`,
+    summary: `Matched ${validMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped (unrecognized status).`,
   };
 }
