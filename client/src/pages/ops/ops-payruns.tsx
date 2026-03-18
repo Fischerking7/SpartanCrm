@@ -414,51 +414,40 @@ export default function OpsPayRuns() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create Pay Run</DialogTitle>
-            <DialogDescription>Select the date range for this pay run.</DialogDescription>
+            <DialogDescription>Pick the week ending date (Sunday). The pay period runs Monday through Sunday.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Period Start</p>
-                <Input
-                  type="date"
-                  value={periodStart}
-                  onChange={(e) => setPeriodStart(e.target.value)}
-                  data-testid="input-period-start"
-                />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Period End</p>
-                <Input
-                  type="date"
-                  value={periodEnd}
-                  onChange={(e) => {
-                    setPeriodEnd(e.target.value);
-                    setWeekEndingDate(e.target.value);
-                  }}
-                  data-testid="input-period-end"
-                />
-              </div>
-            </div>
             <div>
-              <p className="text-sm text-muted-foreground mb-1">Week Ending Date</p>
+              <p className="text-sm text-muted-foreground mb-1">Week Ending Date (Sunday)</p>
               <Input
                 type="date"
                 value={weekEndingDate}
-                onChange={(e) => setWeekEndingDate(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setWeekEndingDate(val);
+                  setPeriodEnd(val);
+                  if (val) {
+                    const d = new Date(val + "T00:00:00");
+                    const dow = d.getDay();
+                    const toMon = dow === 0 ? 6 : dow - 1;
+                    const monday = new Date(d);
+                    monday.setDate(d.getDate() - toMon);
+                    setPeriodStart(monday.toISOString().split("T")[0]);
+                  }
+                }}
                 data-testid="input-week-ending"
               />
             </div>
             {periodStart && periodEnd && (
               <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
-                Pay run will cover <span className="font-medium text-foreground">{formatDate(periodStart)}</span> through <span className="font-medium text-foreground">{formatDate(periodEnd)}</span>
+                Pay period: <span className="font-medium text-foreground">{new Date(periodStart + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span> – <span className="font-medium text-foreground">{new Date(periodEnd + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span> (Mon–Sun)
               </div>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
             <Button
-              disabled={!periodStart || !periodEnd || !weekEndingDate || periodStart > periodEnd || createMutation.isPending}
+              disabled={!weekEndingDate || createMutation.isPending}
               onClick={() => createMutation.mutate({ periodStart, periodEnd, weekEndingDate })}
               className="bg-[#C9A84C] hover:bg-[#b8973e] text-white"
               data-testid="btn-confirm-create-payrun"

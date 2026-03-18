@@ -1124,10 +1124,14 @@ export default function PayRuns() {
             <DialogTitle>Link Orders to Pay Run</DialogTitle>
             <DialogDescription>
               {selectedPayRun && (() => {
-                const weekEnd = new Date(selectedPayRun.weekEndingDate);
-                const weekStart = new Date(selectedPayRun.weekEndingDate);
-                weekStart.setDate(weekStart.getDate() - 6);
-                return `Showing orders approved between ${weekStart.toLocaleDateString()} and ${weekEnd.toLocaleDateString()}`;
+                const endDate = new Date(selectedPayRun.weekEndingDate + "T00:00:00");
+                const dow = endDate.getDay();
+                const toMon = dow === 0 ? 6 : dow - 1;
+                const monday = new Date(endDate);
+                monday.setDate(endDate.getDate() - toMon);
+                const sunday = new Date(monday);
+                sunday.setDate(monday.getDate() + 6);
+                return `Showing orders approved between ${monday.toLocaleDateString()} (Mon) and ${sunday.toLocaleDateString()} (Sun)`;
               })()}
             </DialogDescription>
           </DialogHeader>

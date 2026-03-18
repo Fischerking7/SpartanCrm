@@ -27,6 +27,24 @@ import archiver from "archiver";
 // Placeholder until actual MRC data is tracked
 const REVENUE_MULTIPLIER = parseFloat(process.env.REVENUE_MULTIPLIER || "5");
 
+function getPayWeekBounds(weekEndingDate: string): { weekStart: Date; weekEnd: Date; periodStart: string; periodEnd: string } {
+  const endDate = new Date(weekEndingDate + "T00:00:00");
+  const dayOfWeek = endDate.getDay();
+  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const monday = new Date(endDate);
+  monday.setDate(endDate.getDate() - daysToMonday);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  monday.setHours(0, 0, 0, 0);
+  sunday.setHours(23, 59, 59, 999);
+  return {
+    weekStart: monday,
+    weekEnd: sunday,
+    periodStart: monday.toISOString().split("T")[0],
+    periodEnd: sunday.toISOString().split("T")[0],
+  };
+}
+
 function calcGrossCommission(order: any): number {
   return (
     parseFloat(order.baseCommissionEarned || '0') +
@@ -4312,11 +4330,7 @@ export async function registerRoutes(
       );
 
       if (payRun.weekEndingDate) {
-        const weekEnd = new Date(payRun.weekEndingDate);
-        weekEnd.setHours(23, 59, 59, 999);
-        const weekStart = new Date(payRun.weekEndingDate);
-        weekStart.setDate(weekStart.getDate() - 6);
-        weekStart.setHours(0, 0, 0, 0);
+        const { weekStart, weekEnd } = getPayWeekBounds(payRun.weekEndingDate);
         
         eligible = eligible.filter(o => {
           if (!o.approvedAt) return false;
@@ -4442,14 +4456,9 @@ export async function registerRoutes(
         !o.payRunId
       );
       
-      // If weekEndingDate is provided, filter by approval date within the pay week
-      // Pay week is 7 days ending on weekEndingDate (inclusive)
+      // If weekEndingDate is provided, filter by approval date within the pay week (Mon-Sun)
       if (weekEndingDate) {
-        const weekEnd = new Date(weekEndingDate);
-        weekEnd.setHours(23, 59, 59, 999);
-        const weekStart = new Date(weekEndingDate);
-        weekStart.setDate(weekStart.getDate() - 6);
-        weekStart.setHours(0, 0, 0, 0);
+        const { weekStart, weekEnd } = getPayWeekBounds(weekEndingDate);
         
         unlinked = unlinked.filter(o => {
           if (!o.approvedAt) return false;
@@ -9707,11 +9716,8 @@ export async function registerRoutes(
         const grossTotal = grossCommission + incentivesTotal + overrideEarningsTotal;
         const netPay = grossTotal - chargebacksTotal - deductionsTotal - advancesApplied;
         
-        // Calculate pay period start (7 days before week ending)
-        const weekEnd = new Date(payRun.weekEndingDate + "T00:00:00");
-        const weekStart = new Date(weekEnd);
-        weekStart.setDate(weekStart.getDate() - 6);
-        const periodStartStr = weekStart.toISOString().split("T")[0];
+        // Calculate pay period as Monday-Sunday week
+        const { periodStart: periodStartStr } = getPayWeekBounds(payRun.weekEndingDate);
 
         // Create pay statement
         const statement = await storage.createPayStatement({
@@ -9809,13 +9815,8 @@ export async function registerRoutes(
       }
       const { weekEndingDate } = parsed.data;
       
-      // Calculate week start (7 days before week ending)
-      const endDate = new Date(weekEndingDate);
-      const startDate = new Date(endDate);
-      startDate.setDate(startDate.getDate() - 6);
-      
-      const periodStart = startDate.toISOString().split("T")[0];
-      const periodEnd = endDate.toISOString().split("T")[0];
+      // Calculate Monday-Sunday pay week from the week ending date
+      const { weekStart, weekEnd, periodStart, periodEnd } = getPayWeekBounds(weekEndingDate);
       
       // Get all PAID orders with install date within this date range
       const allOrders = await storage.getOrders({});
@@ -9823,7 +9824,7 @@ export async function registerRoutes(
         if (order.paymentStatus !== "PAID") return false;
         if (!order.installDate) return false;
         const installDate = new Date(order.installDate);
-        return installDate >= startDate && installDate <= endDate;
+        return installDate >= weekStart && installDate <= weekEnd;
       });
       
       if (paidOrders.length === 0) {

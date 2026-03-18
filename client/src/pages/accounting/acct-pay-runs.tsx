@@ -484,17 +484,29 @@ export default function AcctPayRuns() {
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Period Start</Label>
-              <Input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} data-testid="input-period-start" />
+              <Label>Week Ending Date (Sunday)</Label>
+              <Input type="date" value={periodEnd} onChange={e => {
+                const val = e.target.value;
+                setPeriodEnd(val);
+                if (val) {
+                  const d = new Date(val + "T00:00:00");
+                  const dow = d.getDay();
+                  const toMon = dow === 0 ? 6 : dow - 1;
+                  const monday = new Date(d);
+                  monday.setDate(d.getDate() - toMon);
+                  setPeriodStart(monday.toISOString().split("T")[0]);
+                }
+              }} data-testid="input-period-end" />
             </div>
-            <div>
-              <Label>Period End</Label>
-              <Input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} data-testid="input-period-end" />
-            </div>
+            {periodStart && periodEnd && (
+              <p className="text-sm text-muted-foreground">
+                Pay period: <span className="font-medium text-foreground">{new Date(periodStart + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span> – <span className="font-medium text-foreground">{new Date(periodEnd + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span> (Mon–Sun)
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setBuildOpen(false)} data-testid="button-cancel-build">Cancel</Button>
-            <Button onClick={() => buildMutation.mutate()} disabled={buildMutation.isPending} data-testid="button-confirm-build">
+            <Button onClick={() => buildMutation.mutate()} disabled={!periodEnd || buildMutation.isPending} data-testid="button-confirm-build">
               {buildMutation.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
               Build Pay Run
             </Button>
