@@ -373,7 +373,7 @@ export default function OpsPayRuns() {
                                       <th className="text-left p-2">Customer</th>
                                       <th className="text-left p-2">Rep</th>
                                       <th className="text-left p-2">Service</th>
-                                      <th className="text-left p-2">Date</th>
+                                      <th className="text-left p-2">Install Date</th>
                                       <th className="text-right p-2">Commission</th>
                                       <th className="text-right p-2">Total</th>
                                     </tr>
@@ -386,7 +386,7 @@ export default function OpsPayRuns() {
                                           <td className="p-2 font-medium">{o.customerName}</td>
                                           <td className="p-2">{o.repId}</td>
                                           <td className="p-2">{o.service?.name || o.serviceType || ""}</td>
-                                          <td className="p-2">{o.dateSold ? new Date(o.dateSold).toLocaleDateString() : ""}</td>
+                                          <td className="p-2">{o.installDate ? new Date(o.installDate).toLocaleDateString() : o.dateSold ? new Date(o.dateSold).toLocaleDateString() : ""}</td>
                                           <td className="p-2 text-right font-mono">${parseFloat(o.baseCommissionEarned || 0).toFixed(2)}</td>
                                           <td className="p-2 text-right font-mono font-medium">${total.toFixed(2)}</td>
                                         </tr>

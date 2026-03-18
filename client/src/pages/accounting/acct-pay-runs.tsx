@@ -320,7 +320,7 @@ export default function AcctPayRuns() {
                                 <th className="text-left p-3">Rep</th>
                                 <th className="text-left p-3">Provider</th>
                                 <th className="text-left p-3">Service</th>
-                                <th className="text-left p-3">Date Sold</th>
+                                <th className="text-left p-3">Install Date</th>
                                 <th className="text-right p-3">Commission</th>
                                 <th className="text-right p-3">Incentive</th>
                                 <th className="text-right p-3">Total</th>
@@ -336,7 +336,7 @@ export default function AcctPayRuns() {
                                     <td className="p-3">{o.repId}</td>
                                     <td className="p-3">{o.provider?.name || o.providerId || ""}</td>
                                     <td className="p-3">{o.service?.name || o.serviceType || ""}</td>
-                                    <td className="p-3">{o.dateSold ? new Date(o.dateSold).toLocaleDateString() : ""}</td>
+                                    <td className="p-3">{o.installDate ? new Date(o.installDate).toLocaleDateString() : o.dateSold ? new Date(o.dateSold).toLocaleDateString() : ""}</td>
                                     <td className="p-3 text-right font-mono">{fmt(comm)}</td>
                                     <td className="p-3 text-right font-mono">{fmt(inc)}</td>
                                     <td className="p-3 text-right font-mono font-medium">{fmt(comm + inc)}</td>

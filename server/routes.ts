@@ -3956,7 +3956,8 @@ export async function registerRoutes(
           await storage.updateOrder(order.id, { payRunId: payRun.id });
         }
 
-        const weekEnd = new Date(validated.periodEnd + "T23:59:59");
+        const periodStartDate = new Date(validated.periodStart + "T00:00:00");
+        const periodEndDate = new Date(validated.periodEnd + "T23:59:59");
         const allOrders = await storage.getOrders();
         const additionalEligible = allOrders.filter(o =>
           o.jobStatus === "COMPLETED" &&
@@ -3964,7 +3965,9 @@ export async function registerRoutes(
           o.paymentStatus === "UNPAID" &&
           !o.payRunId &&
           !o.isPayrollHeld &&
-          (o.installDate ? new Date(o.installDate + "T23:59:59") <= weekEnd : true)
+          o.installDate &&
+          new Date(o.installDate + "T00:00:00") >= periodStartDate &&
+          new Date(o.installDate + "T23:59:59") <= periodEndDate
         );
         for (const order of additionalEligible) {
           await storage.updateOrder(order.id, { payRunId: payRun.id });
@@ -4361,15 +4364,9 @@ export async function registerRoutes(
         const { weekStart, weekEnd } = getPayWeekBounds(payRun.weekEndingDate);
 
         eligible = eligible.filter(o => {
-          if (o.installDate) {
-            const installed = new Date(o.installDate + "T23:59:59");
-            return installed <= weekEnd;
-          }
-          if (o.approvedAt) {
-            const approved = new Date(o.approvedAt);
-            return approved <= weekEnd;
-          }
-          return true;
+          if (!o.installDate) return false;
+          const installed = new Date(o.installDate + "T00:00:00");
+          return installed >= weekStart && installed <= weekEnd;
         });
       }
 
