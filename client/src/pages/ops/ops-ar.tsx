@@ -232,8 +232,9 @@ export default function OpsAR() {
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="text-left p-3 font-medium">Order Info</th>
+                  <th className="text-left p-3 font-medium hidden md:table-cell">Service</th>
                   <th className="text-left p-3 font-medium">Rep</th>
-                  <th className="text-left p-3 font-medium">Client</th>
+                  <th className="text-left p-3 font-medium hidden lg:table-cell">Client</th>
                   <th className="text-right p-3 font-medium">Expected</th>
                   <th className="text-right p-3 font-medium">Received</th>
                   <th className="text-right p-3 font-medium">Balance</th>
@@ -258,8 +259,18 @@ export default function OpsAR() {
                         {customerName && <div className="text-xs text-muted-foreground">{customerName}</div>}
                         {createdDate && <div className="text-xs text-muted-foreground">{createdDate}</div>}
                       </td>
+                      <td className="p-3 hidden md:table-cell">
+                        {ar.serviceType ? (
+                          <Badge variant="outline" className="text-xs">{ar.serviceType}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">All</span>
+                        )}
+                        {ar.serviceInstallDate && (
+                          <div className="text-xs text-muted-foreground mt-0.5">{formatDate(ar.serviceInstallDate)}</div>
+                        )}
+                      </td>
                       <td className="p-3 text-muted-foreground">{repLabel}</td>
-                      <td className="p-3 text-muted-foreground">{clientLabel}</td>
+                      <td className="p-3 hidden lg:table-cell text-muted-foreground">{clientLabel}</td>
                       <td className="p-3 text-right">{formatCurrency(expectedCents)}</td>
                       <td className="p-3 text-right text-emerald-600">{formatCurrency(receivedCents)}</td>
                       <td className="p-3 text-right font-medium">{formatCurrency(balanceCents)}</td>

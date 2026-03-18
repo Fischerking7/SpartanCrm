@@ -2176,7 +2176,7 @@ export async function registerRoutes(
       // Base order data (non-mobile fields)
       const baseFields = ["clientId", "providerId", "serviceId", "dateSold", "customerName",
         "customerPhone", "customerEmail", "customerAddress", "houseNumber", "streetName", "aptUnit", "city", "zipCode",
-        "accountNumber", "installDate", "notes"];
+        "accountNumber", "installDate", "tvInstallDate", "mobileInstallDate", "notes"];
       
       const baseOrderData: Record<string, any> = {};
       for (const field of baseFields) {
@@ -4353,11 +4353,25 @@ export async function registerRoutes(
       if (payRun.weekEndingDate) {
         const { weekStart, weekEnd } = getPayWeekBounds(payRun.weekEndingDate);
 
-        eligible = eligible.filter(o => {
-          if (!o.installDate) return false;
-          const installed = new Date(o.installDate + "T00:00:00");
-          return installed >= weekStart && installed <= weekEnd;
-        });
+        const eligibleFiltered: typeof eligible = [];
+        for (const o of eligible) {
+          const orderArs = await storage.getArExpectationsByOrderId(o.id);
+          const hasServiceArs = orderArs.some(ar => ar.serviceType && ar.serviceInstallDate);
+
+          if (hasServiceArs) {
+            const hasMatchingService = orderArs.some(ar => {
+              if (!ar.serviceInstallDate || ar.status !== 'SATISFIED') return false;
+              const svcDate = new Date(ar.serviceInstallDate + "T00:00:00");
+              return svcDate >= weekStart && svcDate <= weekEnd;
+            });
+            if (hasMatchingService) eligibleFiltered.push(o);
+          } else {
+            if (!o.installDate) continue;
+            const installed = new Date(o.installDate + "T00:00:00");
+            if (installed >= weekStart && installed <= weekEnd) eligibleFiltered.push(o);
+          }
+        }
+        eligible = eligibleFiltered;
       }
 
       if (eligible.length === 0) {
@@ -14390,40 +14404,158 @@ export async function registerRoutes(
           ordersAccepted++;
 
           const primaryRow = enrolledRows[0];
-          const existingArByRow = await storage.getArExpectationByRowId(primaryRow.id);
-          const existingArByOrder = existingArByRow ? existingArByRow : await storage.getArExpectationByOrderId(orderId);
-          if (!existingArByOrder) {
-            const varianceCents = totalPaidCents - expectedCents;
-            let arStatus: string = 'OPEN';
-            if (totalPaidCents > 0 && totalPaidCents >= expectedCents) {
-              arStatus = 'SATISFIED';
-            } else if (totalPaidCents > 0) {
-              arStatus = 'PARTIAL';
-            }
-            await storage.createArExpectation({
-              clientId: financeImport.clientId,
-              orderId: orderId,
-              financeImportRowId: primaryRow.id,
-              expectedAmountCents: expectedCents,
-              actualAmountCents: totalPaidCents,
-              varianceAmountCents: varianceCents,
-              expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
-              status: arStatus
-            });
-            arCreated++;
-            
-            if (arStatus === 'SATISFIED' && order) {
-              const orderUpdate: Record<string, any> = {
-                paymentStatus: 'PAID',
-                paidDate: new Date().toISOString().split('T')[0],
-              };
-              if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
-              if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
-              await storage.updateOrder(orderId, orderUpdate);
+          const existingArs = await storage.getArExpectationsByOrderId(orderId);
+          if (existingArs.length === 0) {
+            const hasMultipleServices = order && (order.tvSold || order.mobileSold);
 
-              const freshOrder = await storage.getOrderById(orderId);
-              if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
-                await storage.setPayrollReady(orderId, "AR_SATISFIED");
+            if (hasMultipleServices && order) {
+              const lineItems = await storage.getCommissionLineItemsByOrderId(orderId);
+              const serviceBreakdown: { type: string; amountCents: number; installDate: string | null }[] = [];
+
+              const internetItems = lineItems.filter(li => li.serviceCategory === 'INTERNET');
+              const videoItems = lineItems.filter(li => li.serviceCategory === 'VIDEO');
+              const mobileItems = lineItems.filter(li => li.serviceCategory === 'MOBILE');
+
+              const internetCents = internetItems.reduce((s, li) => s + Math.round(parseFloat(li.totalAmount || "0") * 100), 0);
+              const videoCents = videoItems.reduce((s, li) => s + Math.round(parseFloat(li.totalAmount || "0") * 100), 0);
+              const mobileCents = mobileItems.reduce((s, li) => s + Math.round(parseFloat(li.totalAmount || "0") * 100), 0);
+              const lineItemTotal = internetCents + videoCents + mobileCents;
+
+              if (lineItemTotal > 0 && (videoCents > 0 || mobileCents > 0)) {
+                const overridePortion = orderOverride;
+                const internetWithOverride = internetCents + overridePortion;
+
+                if (internetCents > 0) {
+                  serviceBreakdown.push({
+                    type: 'INTERNET',
+                    amountCents: internetWithOverride,
+                    installDate: order.installDate,
+                  });
+                }
+                if (videoCents > 0) {
+                  serviceBreakdown.push({
+                    type: 'VIDEO',
+                    amountCents: videoCents,
+                    installDate: order.tvInstallDate || order.installDate,
+                  });
+                }
+                if (mobileCents > 0) {
+                  serviceBreakdown.push({
+                    type: 'MOBILE',
+                    amountCents: mobileCents,
+                    installDate: order.mobileInstallDate || order.installDate,
+                  });
+                }
+              }
+
+              if (serviceBreakdown.length > 0) {
+                let paidRemaining = totalPaidCents;
+                for (let i = 0; i < serviceBreakdown.length; i++) {
+                  const svc = serviceBreakdown[i];
+                  const isFirst = i === 0;
+                  const allocated = Math.min(paidRemaining, svc.amountCents);
+                  paidRemaining -= allocated;
+                  const svcVariance = allocated - svc.amountCents;
+                  let svcStatus: string = 'OPEN';
+                  if (allocated > 0 && allocated >= svc.amountCents) svcStatus = 'SATISFIED';
+                  else if (allocated > 0) svcStatus = 'PARTIAL';
+
+                  await storage.createArExpectation({
+                    clientId: financeImport.clientId,
+                    orderId: orderId,
+                    financeImportRowId: isFirst ? primaryRow.id : null as any,
+                    expectedAmountCents: svc.amountCents,
+                    actualAmountCents: allocated,
+                    varianceAmountCents: svcVariance,
+                    expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
+                    status: svcStatus,
+                    serviceType: svc.type,
+                    serviceInstallDate: svc.installDate,
+                    commissionAmountCents: svc.amountCents,
+                  });
+                  arCreated++;
+                }
+
+                const allSatisfied = serviceBreakdown.every((svc, i) => {
+                  const allocated = i === 0 ? Math.min(totalPaidCents, svc.amountCents) : 0;
+                  return allocated >= svc.amountCents;
+                });
+                const freshArs = await storage.getArExpectationsByOrderId(orderId);
+                const allArsSatisfied = freshArs.every(ar => ar.status === 'SATISFIED');
+                if (allArsSatisfied && order) {
+                  const orderUpdate: Record<string, any> = {
+                    paymentStatus: 'PAID',
+                    paidDate: new Date().toISOString().split('T')[0],
+                  };
+                  if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+                  if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+                  await storage.updateOrder(orderId, orderUpdate);
+
+                  const freshOrder = await storage.getOrderById(orderId);
+                  if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
+                    await storage.setPayrollReady(orderId, "AR_SATISFIED");
+                  }
+                }
+              } else {
+                const varianceCents = totalPaidCents - expectedCents;
+                let arStatus: string = 'OPEN';
+                if (totalPaidCents > 0 && totalPaidCents >= expectedCents) arStatus = 'SATISFIED';
+                else if (totalPaidCents > 0) arStatus = 'PARTIAL';
+                await storage.createArExpectation({
+                  clientId: financeImport.clientId,
+                  orderId: orderId,
+                  financeImportRowId: primaryRow.id,
+                  expectedAmountCents: expectedCents,
+                  actualAmountCents: totalPaidCents,
+                  varianceAmountCents: varianceCents,
+                  expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
+                  status: arStatus,
+                  serviceType: null,
+                  serviceInstallDate: order?.installDate || null,
+                  commissionAmountCents: expectedCents,
+                });
+                arCreated++;
+                if (arStatus === 'SATISFIED' && order) {
+                  const orderUpdate: Record<string, any> = { paymentStatus: 'PAID', paidDate: new Date().toISOString().split('T')[0] };
+                  if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+                  if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+                  await storage.updateOrder(orderId, orderUpdate);
+                  const freshOrder = await storage.getOrderById(orderId);
+                  if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
+                    await storage.setPayrollReady(orderId, "AR_SATISFIED");
+                  }
+                }
+              }
+            } else {
+              const varianceCents = totalPaidCents - expectedCents;
+              let arStatus: string = 'OPEN';
+              if (totalPaidCents > 0 && totalPaidCents >= expectedCents) arStatus = 'SATISFIED';
+              else if (totalPaidCents > 0) arStatus = 'PARTIAL';
+
+              await storage.createArExpectation({
+                clientId: financeImport.clientId,
+                orderId: orderId,
+                financeImportRowId: primaryRow.id,
+                expectedAmountCents: expectedCents,
+                actualAmountCents: totalPaidCents,
+                varianceAmountCents: varianceCents,
+                expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
+                status: arStatus,
+                serviceType: null,
+                serviceInstallDate: order?.installDate || null,
+                commissionAmountCents: expectedCents,
+              });
+              arCreated++;
+
+              if (arStatus === 'SATISFIED' && order) {
+                const orderUpdate: Record<string, any> = { paymentStatus: 'PAID', paidDate: new Date().toISOString().split('T')[0] };
+                if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+                if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+                await storage.updateOrder(orderId, orderUpdate);
+                const freshOrder = await storage.getOrderById(orderId);
+                if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
+                  await storage.setPayrollReady(orderId, "AR_SATISFIED");
+                }
               }
             }
           }
@@ -14605,10 +14737,12 @@ export async function registerRoutes(
         satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
       });
       
-      // When AR is satisfied, mark the linked order as completed, approved, and paid
       if (newStatus === 'SATISFIED' && ar.orderId) {
+        const allArs = await storage.getArExpectationsByOrderId(ar.orderId);
+        const allArsSatisfied = allArs.every(a => a.id === req.params.id ? true : a.status === 'SATISFIED');
+
         const order = await storage.getOrderById(ar.orderId);
-        if (order) {
+        if (allArsSatisfied && order) {
           const orderUpdate: Record<string, any> = {
             paymentStatus: 'PAID',
             paidDate: new Date().toISOString().split('T')[0],
@@ -14627,9 +14761,11 @@ export async function registerRoutes(
             action: "order_payment_status_updated",
             tableName: "sales_orders",
             recordId: ar.orderId,
-            afterJson: JSON.stringify({ ...orderUpdate, reason: 'AR satisfied', arId: req.params.id }),
+            afterJson: JSON.stringify({ ...orderUpdate, reason: 'All service ARs satisfied', arId: req.params.id }),
             userId: req.user!.id,
           });
+        } else if (order && order.paymentStatus !== 'PAID') {
+          await storage.updateOrder(ar.orderId, { paymentStatus: 'PARTIALLY_PAID' });
         }
       } else if (newStatus === 'PARTIAL' && ar.orderId) {
         const order = await storage.getOrderById(ar.orderId);
@@ -14690,32 +14826,39 @@ export async function registerRoutes(
           satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
         });
         
-        // Update linked order's status based on new AR status
         if (ar.orderId) {
+          const allArs = await storage.getArExpectationsByOrderId(ar.orderId);
+          const allArsSatisfied = allArs.every(a => a.id === arId ? newStatus === 'SATISFIED' : a.status === 'SATISFIED');
+          const anyPartial = allArs.some(a => a.id === arId ? newStatus === 'PARTIAL' : a.status === 'PARTIAL');
+          const anyPaid = allArs.some(a => a.id === arId ? (newStatus === 'SATISFIED' || newStatus === 'PARTIAL') : (a.status === 'SATISFIED' || a.status === 'PARTIAL'));
+
           const order = await storage.getOrderById(ar.orderId);
           if (order) {
-            const orderUpdate: Record<string, any> = {};
-            if (newStatus === 'SATISFIED') {
-              orderUpdate.paymentStatus = 'PAID';
-              orderUpdate.paidDate = new Date().toISOString().split('T')[0];
-              if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
-              if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
-            } else if (newStatus === 'PARTIAL') {
-              orderUpdate.paymentStatus = 'PARTIALLY_PAID';
-            } else if (newStatus === 'OPEN') {
-              orderUpdate.paymentStatus = 'UNPAID';
+            let orderPaymentStatus: string;
+            if (allArsSatisfied) {
+              orderPaymentStatus = 'PAID';
+            } else if (anyPaid) {
+              orderPaymentStatus = 'PARTIALLY_PAID';
+            } else {
+              orderPaymentStatus = 'UNPAID';
             }
-            
-            if (Object.keys(orderUpdate).length > 0 && orderUpdate.paymentStatus !== order.paymentStatus) {
+
+            if (orderPaymentStatus !== order.paymentStatus) {
+              const orderUpdate: Record<string, any> = { paymentStatus: orderPaymentStatus };
+              if (orderPaymentStatus === 'PAID') {
+                orderUpdate.paidDate = new Date().toISOString().split('T')[0];
+                if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+                if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+              }
               await storage.updateOrder(ar.orderId, orderUpdate);
-              
-              if (newStatus === 'SATISFIED') {
+
+              if (orderPaymentStatus === 'PAID') {
                 const freshOrder = await storage.getOrderById(ar.orderId);
                 if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
                   await storage.setPayrollReady(ar.orderId, "AR_SATISFIED");
                 }
               }
-              
+
               await storage.createAuditLog({
                 action: "order_payment_status_updated",
                 tableName: "sales_orders",
@@ -14807,10 +14950,12 @@ export async function registerRoutes(
         satisfiedAt: newStatus === 'SATISFIED' ? new Date() : null,
       });
       
-      // If now satisfied, mark order as completed, approved, and paid
-      if (newStatus === 'SATISFIED' && ar.orderId) {
+      if (ar.orderId) {
+        const allArs = await storage.getArExpectationsByOrderId(ar.orderId);
+        const allArsSatisfied = allArs.every(a => a.id === req.params.id ? newStatus === 'SATISFIED' : a.status === 'SATISFIED');
+
         const order = await storage.getOrderById(ar.orderId);
-        if (order) {
+        if (allArsSatisfied && newStatus === 'SATISFIED' && order) {
           const orderUpdate: Record<string, any> = {
             paymentStatus: 'PAID',
             paidDate: new Date().toISOString().split('T')[0],
@@ -14823,6 +14968,8 @@ export async function registerRoutes(
           if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
             await storage.setPayrollReady(ar.orderId, "AR_SATISFIED");
           }
+        } else if (order && newStatus !== 'SATISFIED' && order.paymentStatus === 'PAID') {
+          await storage.updateOrder(ar.orderId, { paymentStatus: 'PARTIALLY_PAID' });
         }
       }
       
@@ -14864,8 +15011,11 @@ export async function registerRoutes(
       });
 
       if (ar.orderId) {
+        const allArs = await storage.getArExpectationsByOrderId(ar.orderId);
+        const allArsSatisfied = allArs.every(a => a.id === req.params.id ? true : a.status === 'SATISFIED');
+
         const order = await storage.getOrderById(ar.orderId);
-        if (order) {
+        if (allArsSatisfied && order) {
           const orderUpdate: Record<string, any> = {
             paymentStatus: 'PAID',
             paidDate: new Date().toISOString().split('T')[0],
@@ -14878,6 +15028,8 @@ export async function registerRoutes(
           if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
             await storage.setPayrollReady(ar.orderId, "AR_SATISFIED");
           }
+        } else if (order && order.paymentStatus !== 'PAID') {
+          await storage.updateOrder(ar.orderId, { paymentStatus: 'PARTIALLY_PAID' });
         }
       }
 

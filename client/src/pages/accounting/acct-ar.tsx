@@ -159,8 +159,9 @@ export default function AcctAR() {
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <th className="text-left p-3">Order Info</th>
+                      <th className="text-left p-3 hidden md:table-cell">Service</th>
                       <th className="text-left p-3">Rep</th>
-                      <th className="text-left p-3">Client</th>
+                      <th className="text-left p-3 hidden lg:table-cell">Client</th>
                       <th className="text-right p-3">Expected</th>
                       <th className="text-right p-3">Received</th>
                       <th className="text-right p-3">Balance</th>
@@ -170,7 +171,7 @@ export default function AcctAR() {
                   </thead>
                   <tbody>
                     {paginated.length === 0 && (
-                      <tr><td colSpan={8} className="text-center p-6 text-muted-foreground">No AR expectations found</td></tr>
+                      <tr><td colSpan={9} className="text-center p-6 text-muted-foreground">No AR expectations found</td></tr>
                     )}
                     {paginated.map((ar: any) => {
                       const customerName = ar.order?.customerName || ar.customerName || "";
@@ -186,8 +187,20 @@ export default function AcctAR() {
                             {customerName && <div className="text-xs text-muted-foreground">{customerName}</div>}
                             {createdDate && <div className="text-xs text-muted-foreground">{createdDate}</div>}
                           </td>
+                          <td className="p-3 hidden md:table-cell">
+                            {ar.serviceType ? (
+                              <Badge variant="outline" className="text-xs">{ar.serviceType}</Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">All</span>
+                            )}
+                            {ar.serviceInstallDate && (
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                {new Date(ar.serviceInstallDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                              </div>
+                            )}
+                          </td>
                           <td className="p-3 text-muted-foreground">{repLabel}</td>
-                          <td className="p-3 text-muted-foreground">{clientLabel}</td>
+                          <td className="p-3 hidden lg:table-cell text-muted-foreground">{clientLabel}</td>
                           <td className="p-3 text-right">{fmt(ar.expectedAmountCents || 0)}</td>
                           <td className="p-3 text-right text-green-600">{fmt(ar.actualAmountCents || 0)}</td>
                           <td className="p-3 text-right font-medium">{fmt((ar.expectedAmountCents || 0) - (ar.actualAmountCents || 0))}</td>

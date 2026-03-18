@@ -27,6 +27,8 @@ interface FormData {
   serviceId: string;
   dateSold: string;
   installDate: string;
+  tvInstallDate: string;
+  mobileInstallDate: string;
   installTime: string;
   notes: string;
   hasTv: boolean;
@@ -48,6 +50,8 @@ const initialFormData: FormData = {
   serviceId: "",
   dateSold: new Date().toISOString().split("T")[0],
   installDate: "",
+  tvInstallDate: "",
+  mobileInstallDate: "",
   installTime: "",
   notes: "",
   hasTv: false,
@@ -96,6 +100,8 @@ export default function NewOrder() {
         serviceId: formData.serviceId,
         dateSold: formData.dateSold,
         installDate: formData.installDate || undefined,
+        tvInstallDate: formData.tvInstallDate || undefined,
+        mobileInstallDate: formData.mobileInstallDate || undefined,
         notes: formData.notes || undefined,
         hasTv: formData.hasTv,
         hasMobile: formData.hasMobile,
@@ -407,6 +413,21 @@ export default function NewOrder() {
             </div>
           </button>
 
+          {formData.hasTv && (
+            <div className="bg-muted/30 rounded-2xl p-5">
+              <Label htmlFor="tvInstallDate" className="text-sm font-medium mb-2 block">TV Install Date (if different)</Label>
+              <Input
+                id="tvInstallDate"
+                type="date"
+                value={formData.tvInstallDate}
+                onChange={e => update("tvInstallDate", e.target.value)}
+                className="h-12 rounded-lg"
+                data-testid="input-tv-install-date"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Leave blank if same as main install date</p>
+            </div>
+          )}
+
           <button
             onClick={() => update("hasMobile", !formData.hasMobile)}
             className={`w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all ${
@@ -428,7 +449,19 @@ export default function NewOrder() {
           </button>
 
           {formData.hasMobile && (
-            <div className="bg-muted/30 rounded-2xl p-5">
+            <div className="bg-muted/30 rounded-2xl p-5 space-y-4">
+              <div>
+                <Label htmlFor="mobileInstallDate" className="text-sm font-medium mb-2 block">Mobile Install Date (if different)</Label>
+                <Input
+                  id="mobileInstallDate"
+                  type="date"
+                  value={formData.mobileInstallDate}
+                  onChange={e => update("mobileInstallDate", e.target.value)}
+                  className="h-12 rounded-lg"
+                  data-testid="input-mobile-install-date"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Leave blank if same as main install date</p>
+              </div>
               <Label className="text-sm font-medium mb-3 block">Number of Lines: {formData.mobileLinesQty}</Label>
               <input
                 type="range"
@@ -491,11 +524,17 @@ export default function NewOrder() {
                 )}
               </div>
               {(formData.hasTv || formData.hasMobile) && (
-                <div>
+                <div className="space-y-2">
                   <p className="text-xs text-muted-foreground">Add-ons</p>
                   <p className="text-sm">
                     {[formData.hasTv && "TV", formData.hasMobile && `Mobile (${formData.mobileLinesQty} line${formData.mobileLinesQty > 1 ? "s" : ""})`].filter(Boolean).join(", ")}
                   </p>
+                  {formData.hasTv && formData.tvInstallDate && (
+                    <p className="text-xs text-muted-foreground">TV Install: {formData.tvInstallDate}</p>
+                  )}
+                  {formData.hasMobile && formData.mobileInstallDate && (
+                    <p className="text-xs text-muted-foreground">Mobile Install: {formData.mobileInstallDate}</p>
+                  )}
                 </div>
               )}
             </CardContent>
