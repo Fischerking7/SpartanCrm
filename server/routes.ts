@@ -4353,25 +4353,13 @@ export async function registerRoutes(
       if (payRun.weekEndingDate) {
         const { weekStart, weekEnd } = getPayWeekBounds(payRun.weekEndingDate);
 
-        const eligibleFiltered: typeof eligible = [];
-        for (const o of eligible) {
-          const orderArs = await storage.getArExpectationsByOrderId(o.id);
-          const hasServiceArs = orderArs.some(ar => ar.serviceType && ar.serviceInstallDate);
-
-          if (hasServiceArs) {
-            const hasMatchingService = orderArs.some(ar => {
-              if (!ar.serviceInstallDate || ar.status !== 'SATISFIED') return false;
-              const svcDate = new Date(ar.serviceInstallDate + "T00:00:00");
-              return svcDate >= weekStart && svcDate <= weekEnd;
-            });
-            if (hasMatchingService) eligibleFiltered.push(o);
-          } else {
-            if (!o.installDate) continue;
+        eligible = eligible.filter(o => {
+          if (o.installDate) {
             const installed = new Date(o.installDate + "T00:00:00");
-            if (installed >= weekStart && installed <= weekEnd) eligibleFiltered.push(o);
+            if (installed >= weekStart && installed <= weekEnd) return true;
           }
-        }
-        eligible = eligibleFiltered;
+          return false;
+        });
       }
 
       if (eligible.length === 0) {
