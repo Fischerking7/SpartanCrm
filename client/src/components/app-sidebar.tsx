@@ -56,6 +56,7 @@ import {
   Shield,
   Plug,
   UserCheck,
+  Upload,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -150,6 +151,7 @@ const MENU = {
   empCredentials: { title: "Employee Credentials", url: "/admin/employee-credentials", icon: Key },
   adminDisputes: { title: "Disputes", url: "/admin/disputes", icon: MessageSquareWarning },
   userActivity: { title: "User Activity", url: "/admin/user-activity", icon: Activity },
+  financeImports: { title: "Finance Imports", url: "/ops/finance-imports", icon: Upload },
   installSync: { title: "Install Sync", url: "/admin/install-sync", icon: RefreshCw },
   payroll: { title: "Payroll", url: "/admin/payroll", icon: Calendar },
   advPayroll: { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
@@ -471,7 +473,7 @@ export function AppSidebar() {
             <CollapsibleSection title="Accounting" icon={FileSpreadsheet}
               items={[MENU.accounting, MENU.acctPayRuns, MENU.acctPayStubs, MENU.acctAR, MENU.acctOverrides, MENU.acctAdvances, MENU.acct1099, MENU.acctReports]} location={location} defaultOpen={true} />
             <CollapsibleSection title="Finance" icon={Wallet}
-              items={[MENU.finance, MENU.exports, MENU.recalculate, MENU.queues, MENU.audit]} location={location} />
+              items={[MENU.finance, MENU.financeImports, MENU.installSync, MENU.exports, MENU.recalculate, MENU.queues, MENU.audit]} location={location} />
             <CollapsibleSection title="Reports" icon={TrendingUp}
               items={[MENU.leadPool, MENU.reports, MENU.execReports]} location={location} />
             <CollapsibleSection title="System" icon={Cog}
