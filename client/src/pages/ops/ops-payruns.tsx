@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -79,6 +80,11 @@ export default function OpsPayRuns() {
 
   const { data: payRuns, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/payruns"],
+  });
+
+  const { data: runDetail } = useQuery<any>({
+    queryKey: ["/api/admin/payruns", selectedRun?.id],
+    enabled: !!selectedRun?.id,
   });
 
   const openCreateDialog = () => {
@@ -347,6 +353,104 @@ export default function OpsPayRuns() {
                           </div>
                         ))}
                       </div>
+
+                      {!runDetail ? (
+                        <div className="mt-2 flex items-center justify-center p-4 text-xs text-muted-foreground gap-2">
+                          <Clock className="h-3.5 w-3.5 animate-spin" /> Loading details...
+                        </div>
+                      ) : (
+                        <Tabs defaultValue="orders" className="mt-2">
+                          <TabsList className="h-8">
+                            <TabsTrigger value="orders" className="text-xs" data-testid="tab-orders">Orders ({runDetail.orders?.length || 0})</TabsTrigger>
+                            <TabsTrigger value="reps" className="text-xs" data-testid="tab-reps">Rep Payouts ({runDetail.stats?.repBreakdown?.length || 0})</TabsTrigger>
+                          </TabsList>
+                          <TabsContent value="orders" className="mt-2">
+                            {runDetail.orders?.length > 0 ? (
+                              <div className="overflow-x-auto border rounded-lg max-h-64 overflow-y-auto">
+                                <table className="w-full text-xs">
+                                  <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                                    <tr className="border-b">
+                                      <th className="text-left p-2">Customer</th>
+                                      <th className="text-left p-2">Rep</th>
+                                      <th className="text-left p-2">Service</th>
+                                      <th className="text-left p-2">Date</th>
+                                      <th className="text-right p-2">Commission</th>
+                                      <th className="text-right p-2">Total</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {runDetail.orders.map((o: any) => {
+                                      const total = parseFloat(o.baseCommissionEarned || 0) + parseFloat(o.incentiveEarned || 0);
+                                      return (
+                                        <tr key={o.id} className="border-b hover:bg-muted/30" data-testid={`row-order-${o.id}`}>
+                                          <td className="p-2 font-medium">{o.customerName}</td>
+                                          <td className="p-2">{o.repId}</td>
+                                          <td className="p-2">{o.service?.name || o.serviceType || ""}</td>
+                                          <td className="p-2">{o.dateSold ? new Date(o.dateSold).toLocaleDateString() : ""}</td>
+                                          <td className="p-2 text-right font-mono">${parseFloat(o.baseCommissionEarned || 0).toFixed(2)}</td>
+                                          <td className="p-2 text-right font-mono font-medium">${total.toFixed(2)}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr className="border-t-2 bg-muted/30 font-medium text-xs">
+                                      <td colSpan={4} className="p-2">{runDetail.orders.length} orders</td>
+                                      <td className="p-2 text-right font-mono">
+                                        ${runDetail.orders.reduce((s: number, o: any) => s + parseFloat(o.baseCommissionEarned || 0), 0).toFixed(2)}
+                                      </td>
+                                      <td className="p-2 text-right font-mono">
+                                        ${runDetail.orders.reduce((s: number, o: any) => s + parseFloat(o.baseCommissionEarned || 0) + parseFloat(o.incentiveEarned || 0), 0).toFixed(2)}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+                            ) : (
+                              <div className="p-4 rounded-lg border border-dashed text-center text-xs text-muted-foreground">
+                                No orders linked to this pay run yet.
+                              </div>
+                            )}
+                          </TabsContent>
+                          <TabsContent value="reps" className="mt-2">
+                            {(runDetail.stats?.repBreakdown || []).length > 0 ? (
+                              <div className="overflow-x-auto border rounded-lg">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="border-b bg-muted/50">
+                                      <th className="text-left p-2">Rep</th>
+                                      <th className="text-right p-2">Orders</th>
+                                      <th className="text-right p-2">Estimated Payout</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {runDetail.stats.repBreakdown.map((r: any) => (
+                                      <tr key={r.repId || r.name} className="border-b hover:bg-muted/30" data-testid={`row-rep-${r.repId || r.name}`}>
+                                        <td className="p-2 font-medium">{r.name}</td>
+                                        <td className="p-2 text-right">{r.count}</td>
+                                        <td className="p-2 text-right font-mono">${r.total.toFixed(2)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr className="border-t-2 bg-muted/30 font-medium text-xs">
+                                      <td className="p-2">{runDetail.stats.repBreakdown.length} reps</td>
+                                      <td className="p-2 text-right">{runDetail.stats.repBreakdown.reduce((s: number, r: any) => s + r.count, 0)}</td>
+                                      <td className="p-2 text-right font-mono">
+                                        ${runDetail.stats.repBreakdown.reduce((s: number, r: any) => s + r.total, 0).toFixed(2)}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+                            ) : (
+                              <div className="p-4 rounded-lg border border-dashed text-center text-xs text-muted-foreground">
+                                No rep payout data available. Link orders first.
+                              </div>
+                            )}
+                          </TabsContent>
+                        </Tabs>
+                      )}
 
                       <div className="flex gap-2 flex-wrap">
                         {run.status === "DRAFT" && (

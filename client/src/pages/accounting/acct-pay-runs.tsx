@@ -207,7 +207,7 @@ export default function AcctPayRuns() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
                     <div>
                       <p className="text-muted-foreground">Period</p>
                       <p className="font-medium">{selected.periodStart ? new Date(selected.periodStart).toLocaleDateString() : "N/A"} – {selected.periodEnd ? new Date(selected.periodEnd).toLocaleDateString() : "N/A"}</p>
@@ -221,12 +221,16 @@ export default function AcctPayRuns() {
                       <p className="font-medium" data-testid="text-order-count">{selected.orderCount || detail?.orders?.length || 0}</p>
                     </div>
                     <div>
+                      <p className="text-muted-foreground">Commission Total</p>
+                      <p className="font-medium" data-testid="text-total-commission">{fmt(detail?.stats?.totalCommission || selected.totalAmount || 0)}</p>
+                    </div>
+                    <div>
                       <p className="text-muted-foreground">Total Gross</p>
-                      <p className="font-medium" data-testid="text-total-gross">{fmt(selected.totalGross || detail?.totalGross || 0)}</p>
+                      <p className="font-medium" data-testid="text-total-gross">{fmt(detail?.totalGross || selected.totalGross || 0)}</p>
                     </div>
                     <div>
                       <p className="text-muted-foreground">Total Net</p>
-                      <p className="font-medium" data-testid="text-total-net">{fmt(selected.totalNet || detail?.totalNet || 0)}</p>
+                      <p className="font-medium" data-testid="text-total-net">{fmt(detail?.totalNet || selected.totalNet || 0)}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -295,73 +299,164 @@ export default function AcctPayRuns() {
                 )}
               </div>
 
-              <Tabs defaultValue="by-rep">
+              <Tabs defaultValue="orders">
                 <TabsList>
-                  <TabsTrigger value="by-rep" data-testid="tab-by-rep">By Rep</TabsTrigger>
-                  <TabsTrigger value="by-service" data-testid="tab-by-service">By Service</TabsTrigger>
+                  <TabsTrigger value="orders" data-testid="tab-orders">Orders</TabsTrigger>
+                  <TabsTrigger value="by-rep" data-testid="tab-by-rep">Rep Payouts</TabsTrigger>
                   <TabsTrigger value="exceptions" data-testid="tab-exceptions">Exceptions</TabsTrigger>
                   <TabsTrigger value="cash-projection" data-testid="tab-cash-projection">
                     <TrendingUp className="h-3.5 w-3.5 mr-1" /> Cash Projection
                   </TabsTrigger>
                 </TabsList>
-                <TabsContent value="by-rep">
+                <TabsContent value="orders">
                   <Card>
                     <CardContent className="p-0">
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b bg-muted/50">
-                              <th className="text-left p-3"></th>
-                              <th className="text-left p-3">Rep</th>
-                              <th className="text-right p-3">Gross</th>
-                              <th className="text-right p-3">Net Pay</th>
-                              <th className="text-right p-3">Status</th>
-                              <th className="text-right p-3">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {statements.length === 0 && (
-                              <tr><td colSpan={6} className="text-center p-6 text-muted-foreground">No statements yet. Link orders and generate stubs.</td></tr>
-                            )}
-                            {statements.map((s: any) => (
-                              <tr key={s.id} className="border-b hover:bg-muted/30" data-testid={`row-statement-${s.id}`}>
-                                <td className="p-3">
-                                  <button onClick={() => setExpandedRep(expandedRep === s.id ? null : s.id)} data-testid={`button-expand-rep-${s.id}`}>
-                                    {expandedRep === s.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                                  </button>
-                                </td>
-                                <td className="p-3 font-medium">{s.repName || s.userId}</td>
-                                <td className="p-3 text-right">{fmt(s.grossCommission || 0)}</td>
-                                <td className="p-3 text-right font-medium">{fmt(s.netPay || 0)}</td>
-                                <td className="p-3 text-right">
-                                  <Badge variant="outline">{s.status}</Badge>
-                                </td>
-                                <td className="p-3 text-right">
-                                  {s.stubNumber && (
-                                    <Button size="sm" variant="ghost" onClick={async () => {
-                                      const res = await fetch(`/api/admin/payroll/pdf/${s.id}`, { headers: getAuthHeaders() });
-                                      if (res.ok) {
-                                        const blob = await res.blob();
-                                        const url = URL.createObjectURL(blob);
-                                        window.open(url);
-                                      }
-                                    }} data-testid={`button-view-stub-${s.id}`}>
-                                      <FileText className="h-3.5 w-3.5" />
-                                    </Button>
-                                  )}
-                                </td>
+                        {detail?.orders?.length > 0 ? (
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b bg-muted/50">
+                                <th className="text-left p-3">Customer</th>
+                                <th className="text-left p-3">Rep</th>
+                                <th className="text-left p-3">Provider</th>
+                                <th className="text-left p-3">Service</th>
+                                <th className="text-left p-3">Date Sold</th>
+                                <th className="text-right p-3">Commission</th>
+                                <th className="text-right p-3">Incentive</th>
+                                <th className="text-right p-3">Total</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {detail.orders.map((o: any) => {
+                                const comm = parseFloat(o.baseCommissionEarned || 0);
+                                const inc = parseFloat(o.incentiveEarned || 0);
+                                return (
+                                  <tr key={o.id} className="border-b hover:bg-muted/30" data-testid={`row-order-${o.id}`}>
+                                    <td className="p-3 font-medium">{o.customerName}</td>
+                                    <td className="p-3">{o.repId}</td>
+                                    <td className="p-3">{o.provider?.name || o.providerId || ""}</td>
+                                    <td className="p-3">{o.service?.name || o.serviceType || ""}</td>
+                                    <td className="p-3">{o.dateSold ? new Date(o.dateSold).toLocaleDateString() : ""}</td>
+                                    <td className="p-3 text-right font-mono">{fmt(comm)}</td>
+                                    <td className="p-3 text-right font-mono">{fmt(inc)}</td>
+                                    <td className="p-3 text-right font-mono font-medium">{fmt(comm + inc)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t-2 bg-muted/30 font-medium">
+                                <td colSpan={5} className="p-3">{detail.orders.length} orders</td>
+                                <td className="p-3 text-right font-mono">{fmt(detail.orders.reduce((s: number, o: any) => s + parseFloat(o.baseCommissionEarned || 0), 0))}</td>
+                                <td className="p-3 text-right font-mono">{fmt(detail.orders.reduce((s: number, o: any) => s + parseFloat(o.incentiveEarned || 0), 0))}</td>
+                                <td className="p-3 text-right font-mono">{fmt(detail.orders.reduce((s: number, o: any) => s + parseFloat(o.baseCommissionEarned || 0) + parseFloat(o.incentiveEarned || 0), 0))}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        ) : (
+                          <div className="p-6 text-center text-muted-foreground">No orders linked to this pay run yet. Click "Link All Orders" to collect eligible orders.</div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
                 </TabsContent>
-                <TabsContent value="by-service">
+                <TabsContent value="by-rep">
                   <Card>
-                    <CardContent className="p-6">
-                      <p className="text-sm text-muted-foreground text-center">Service breakdown available after orders are linked to this pay run.</p>
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        {statements.length > 0 ? (
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b bg-muted/50">
+                                <th className="text-left p-3"></th>
+                                <th className="text-left p-3">Rep</th>
+                                <th className="text-right p-3">Orders</th>
+                                <th className="text-right p-3">Gross</th>
+                                <th className="text-right p-3">Deductions</th>
+                                <th className="text-right p-3">Net Pay</th>
+                                <th className="text-right p-3">Status</th>
+                                <th className="text-right p-3">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {statements.map((s: any) => (
+                                <tr key={s.id} className="border-b hover:bg-muted/30" data-testid={`row-statement-${s.id}`}>
+                                  <td className="p-3">
+                                    <button onClick={() => setExpandedRep(expandedRep === s.id ? null : s.id)} data-testid={`button-expand-rep-${s.id}`}>
+                                      {expandedRep === s.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                    </button>
+                                  </td>
+                                  <td className="p-3 font-medium">{s.repName || s.userId}</td>
+                                  <td className="p-3 text-right">{s.orderCount || "—"}</td>
+                                  <td className="p-3 text-right font-mono">{fmt(s.grossCommission || 0)}</td>
+                                  <td className="p-3 text-right font-mono text-red-600 dark:text-red-400">
+                                    {parseFloat(s.chargebacksTotal || 0) + parseFloat(s.deductionsTotal || 0) > 0
+                                      ? `-${fmt(parseFloat(s.chargebacksTotal || 0) + parseFloat(s.deductionsTotal || 0))}`
+                                      : fmt(0)}
+                                  </td>
+                                  <td className="p-3 text-right font-mono font-medium">{fmt(s.netPay || 0)}</td>
+                                  <td className="p-3 text-right">
+                                    <Badge variant="outline">{s.status}</Badge>
+                                  </td>
+                                  <td className="p-3 text-right">
+                                    {s.stubNumber && (
+                                      <Button size="sm" variant="ghost" onClick={async () => {
+                                        const res = await fetch(`/api/admin/payroll/pdf/${s.id}`, { headers: getAuthHeaders() });
+                                        if (res.ok) {
+                                          const blob = await res.blob();
+                                          const url = URL.createObjectURL(blob);
+                                          window.open(url);
+                                        }
+                                      }} data-testid={`button-view-stub-${s.id}`}>
+                                        <FileText className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t-2 bg-muted/30 font-medium">
+                                <td colSpan={3} className="p-3">{statements.length} reps</td>
+                                <td className="p-3 text-right font-mono">{fmt(statements.reduce((s: number, st: any) => s + parseFloat(st.grossCommission || 0), 0))}</td>
+                                <td className="p-3 text-right font-mono text-red-600 dark:text-red-400">
+                                  {fmt(statements.reduce((s: number, st: any) => s + parseFloat(st.chargebacksTotal || 0) + parseFloat(st.deductionsTotal || 0), 0))}
+                                </td>
+                                <td className="p-3 text-right font-mono">{fmt(statements.reduce((s: number, st: any) => s + parseFloat(st.netPay || 0), 0))}</td>
+                                <td colSpan={2}></td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        ) : detail?.stats?.repBreakdown?.length > 0 ? (
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b bg-muted/50">
+                                <th className="text-left p-3">Rep</th>
+                                <th className="text-right p-3">Orders</th>
+                                <th className="text-right p-3">Estimated Payout</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {detail.stats.repBreakdown.map((r: any) => (
+                                <tr key={r.name} className="border-b hover:bg-muted/30" data-testid={`row-rep-${r.name}`}>
+                                  <td className="p-3 font-medium">{r.name}</td>
+                                  <td className="p-3 text-right">{r.count}</td>
+                                  <td className="p-3 text-right font-mono">{fmt(r.total)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t-2 bg-muted/30 font-medium">
+                                <td className="p-3">{detail.stats.repBreakdown.length} reps</td>
+                                <td className="p-3 text-right">{detail.stats.repBreakdown.reduce((s: number, r: any) => s + r.count, 0)}</td>
+                                <td className="p-3 text-right font-mono">{fmt(detail.stats.repBreakdown.reduce((s: number, r: any) => s + r.total, 0))}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        ) : (
+                          <div className="p-6 text-center text-muted-foreground">No payout data yet. Link orders first, then generate stubs.</div>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 </TabsContent>

@@ -4266,25 +4266,37 @@ export async function registerRoutes(
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
       
       const orders = await storage.getOrdersByPayRunId(req.params.id);
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.repId, u.name]));
       
       // Calculate totals
       let totalCommission = 0;
-      const repTotals: Record<string, { name: string; total: number; count: number }> = {};
+      let totalGross = 0;
+      let totalNet = 0;
+      const repTotals: Record<string, { repId: string; name: string; total: number; count: number }> = {};
       
       for (const order of orders) {
         const commission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
         totalCommission += commission;
         
         if (!repTotals[order.repId]) {
-          repTotals[order.repId] = { name: order.repId, total: 0, count: 0 };
+          repTotals[order.repId] = { repId: order.repId, name: userMap.get(order.repId) || order.repId, total: 0, count: 0 };
         }
         repTotals[order.repId].total += commission;
         repTotals[order.repId].count++;
+      }
+
+      const stmts = await db.select().from(payStatements).where(eq(payStatements.payRunId, req.params.id));
+      for (const s of stmts) {
+        totalGross += parseFloat(s.grossCommission || "0");
+        totalNet += parseFloat(s.netPay || "0");
       }
       
       res.json({
         ...payRun,
         orders,
+        totalGross: totalGross.toFixed(2),
+        totalNet: totalNet.toFixed(2),
         stats: {
           totalOrders: orders.length,
           totalCommission: totalCommission.toFixed(2),
