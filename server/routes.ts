@@ -4345,7 +4345,6 @@ export async function registerRoutes(
       const allOrders = await storage.getOrders();
       let eligible = allOrders.filter(o => 
         o.approvalStatus === "APPROVED" &&
-        o.paymentStatus === "PAID" && 
         !o.payRunId &&
         !o.isPayrollHeld
       );
@@ -4361,6 +4360,15 @@ export async function registerRoutes(
           return false;
         });
       }
+
+      const arFiltered: typeof eligible = [];
+      for (const o of eligible) {
+        const ars = await storage.getArExpectationsByOrderId(o.id);
+        if (ars.length > 0 && ars.some(ar => ar.status === 'PARTIAL' || ar.status === 'SATISFIED')) {
+          arFiltered.push(o);
+        }
+      }
+      eligible = arFiltered;
 
       if (eligible.length === 0) {
         return res.json({ linked: 0, message: "No eligible orders found for this pay period" });
