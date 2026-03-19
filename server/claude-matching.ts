@@ -359,7 +359,6 @@ export function normalizeWoStatus(row: Record<string, string>): string {
     "CONNECTED": "CP",
     "INSTALLED": "CP",
     "DONE": "CP",
-    "IN": "CP",
     "CN": "CN",
     "CANCELED": "CN",
     "CANCELLED": "CN",
@@ -388,7 +387,7 @@ export async function matchInstallationsToOrders(
 
   const matchableRows: SheetRow[] = [];
   const skippedRows: { rowIndex: number; data: Record<string, string>; reason: string }[] = [];
-  const validStatuses = new Set(["CP", "CN", "OP", "ND", "IN", "COMPLETED", "CONNECTED", "OPEN", "NO DISPATCH", "CANCELED", "CANCELLED", "INSTALLED", "ACTIVE", "PENDING", "SCHEDULED", "IN PROGRESS"]);
+  const validStatuses = new Set(["CP", "CN", "OP", "ND", "COMPLETED", "CONNECTED", "OPEN", "NO DISPATCH", "CANCELED", "CANCELLED", "INSTALLED", "ACTIVE", "PENDING", "SCHEDULED", "IN PROGRESS", "DONE"]);
 
   for (const row of sheetRows) {
     const woStatus = getWoStatus(row.data).trim().toUpperCase();
