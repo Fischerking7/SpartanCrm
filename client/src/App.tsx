@@ -56,6 +56,8 @@ import AdminDisputes from "@/pages/admin-disputes";
 import OrderTracker from "@/pages/order-tracker";
 import UserActivityPage from "@/pages/admin/user-activity";
 import InstallSync from "@/pages/admin/install-sync";
+import Onboarding from "@/pages/onboarding";
+import AdminOnboardingReview from "@/pages/admin/onboarding-review";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -221,6 +223,7 @@ function Router() {
         <Route path="/change-password" component={ChangePassword} />
         <Route path="/mobile-entry" component={MobileOrderEntry} />
         <Route path="/my-disputes" component={MyDisputes} />
+        <Route path="/onboarding" component={Onboarding} />
         
         {user.role === "MDU" && <Route path="/mdu-orders" component={MduOrders} />}
         
@@ -257,6 +260,7 @@ function Router() {
             <Route path="/admin/employee-credentials" component={AdminEmployeeCredentials} />
             <Route path="/admin/disputes" component={AdminDisputes} />
             <Route path="/admin/install-sync" component={InstallSync} />
+            <Route path="/admin/onboarding-review" component={AdminOnboardingReview} />
           </>
         )}
         

@@ -109,6 +109,8 @@ const MENU = {
   empCredentials: { title: "Employee Credentials", url: "/admin/employee-credentials", icon: Key },
   adminDisputes: { title: "Disputes", url: "/admin/disputes", icon: MessageSquareWarning },
   userActivity: { title: "User Activity", url: "/admin/user-activity", icon: Activity },
+  onboarding: { title: "Onboarding", url: "/onboarding", icon: ClipboardList },
+  onboardingReview: { title: "Onboarding Review", url: "/admin/onboarding-review", icon: CheckSquare },
   installSync: { title: "Install Sync", url: "/admin/install-sync", icon: RefreshCw },
   payroll: { title: "Payroll", url: "/admin/payroll", icon: Calendar },
   advPayroll: { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
@@ -124,6 +126,7 @@ const personalItems: MenuItem[] = [
   MENU.myPay,
   MENU.myDisputes,
   MENU.credentials,
+  MENU.onboarding,
 ];
 
 // Alerts & Settings - common to all
@@ -180,6 +183,7 @@ const adminSettingsItems: MenuItem[] = [
   MENU.quickbooks,
   MENU.userActivity,
   MENU.installSync,
+  MENU.onboardingReview,
 ];
 
 // ============ ROLE-SPECIFIC MENUS (Composed from blocks) ============
