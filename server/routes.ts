@@ -2135,16 +2135,24 @@ export async function registerRoutes(
       const clientMap = new Map(allClients.map((c: any) => [c.id, c.name]));
       const repMap = new Map(allUsersForOrders.map((u: any) => [u.repId, u.name]));
       
-      // Attach commission totals and resolved names to each order
-      const ordersWithCommissions = orders.map((order: any) => ({
-        ...order,
-        mobileCommissionTotal: mobileCommissionTotals.get(order.id) || "0",
-        grossCommissionTotal: grossCommissionTotals.get(order.id) || "0",
-        repName: repMap.get(order.repId) || order.repId,
-        serviceName: serviceMap.get(order.serviceId) || order.serviceId,
-        providerName: providerMap.get(order.providerId) || order.providerId,
-        clientName: clientMap.get(order.clientId) || order.clientId,
-      }));
+      const canSeeGross = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user.role);
+
+      const ordersWithCommissions = orders.map((order: any) => {
+        const base: any = {
+          ...order,
+          mobileCommissionTotal: mobileCommissionTotals.get(order.id) || "0",
+          repName: repMap.get(order.repId) || order.repId,
+          serviceName: serviceMap.get(order.serviceId) || order.serviceId,
+          providerName: providerMap.get(order.providerId) || order.providerId,
+          clientName: clientMap.get(order.clientId) || order.clientId,
+        };
+        if (canSeeGross) {
+          base.grossCommissionTotal = grossCommissionTotals.get(order.id) || "0";
+        } else {
+          delete base.overrideDeduction;
+        }
+        return base;
+      });
 
       res.json(ordersWithCommissions);
     } catch (error) {
