@@ -141,6 +141,7 @@ function OrderCard({
   isSelectable,
   isSelected,
   onToggleSelect,
+  repName,
 }: {
   order: SalesOrder;
   clientMap: Map<string, string>;
@@ -155,6 +156,7 @@ function OrderCard({
   isSelectable?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  repName?: string;
 }) {
   const { toast } = useToast();
   const status = getOrderStatus(order);
@@ -394,13 +396,33 @@ function OrderCard({
                   #{order.accountNumber}
                 </span>
               )}
+              {order.isMobileOrder && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                  <Smartphone className="h-2.5 w-2.5 mr-0.5" />Mobile
+                </Badge>
+              )}
+              {order.tvSold && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">TV</Badge>
+              )}
             </div>
             <div className="flex items-center gap-x-3 gap-y-0.5 mt-1.5 text-sm text-muted-foreground flex-wrap">
               <span className="font-medium text-foreground/80">{serviceName || "No service"}</span>
               <span className="text-xs">|</span>
               <span>{providerName} - {clientName}</span>
+              {repName && (
+                <>
+                  <span className="text-xs">|</span>
+                  <span>Rep: {repName}</span>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground flex-wrap">
+              {order.dateSold && (
+                <span className="flex items-center gap-1">
+                  <CalendarDays className="h-3 w-3" />
+                  Sold: {new Date(order.dateSold).toLocaleDateString()}
+                </span>
+              )}
               {order.installDate && (
                 <span className="flex items-center gap-1">
                   <CalendarDays className="h-3 w-3" />
@@ -413,15 +435,26 @@ function OrderCard({
                   {order.customerPhone}
                 </span>
               )}
+              {order.customerEmail && (
+                <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                  {order.customerEmail}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs text-muted-foreground flex-wrap">
               {(order.houseNumber || order.streetName || order.city || order.zipCode || order.customerAddress) && (
                 <span className="flex items-center gap-1">
                   <MapPin className="h-3 w-3" />
                   {(() => {
-                    const addr = [order.houseNumber, order.streetName, order.aptUnit, order.city, order.zipCode].filter(Boolean).join(", ");
-                    const display = addr || order.customerAddress || "";
-                    return display.length > 40 ? display.slice(0, 40) + "..." : display;
+                    const parts = [order.houseNumber, order.streetName, order.aptUnit].filter(Boolean).join(" ");
+                    const location = [parts, order.city, order.zipCode].filter(Boolean).join(", ");
+                    const display = location || order.customerAddress || "";
+                    return display.length > 60 ? display.slice(0, 60) + "..." : display;
                   })()}
                 </span>
+              )}
+              {order.invoiceNumber && (
+                <span className="font-mono text-[11px]">{order.invoiceNumber}</span>
               )}
             </div>
             {order.notes && (
@@ -790,6 +823,17 @@ export default function OrderTracker() {
     services?.forEach(s => map.set(s.id, s.name));
     return map;
   }, [services]);
+
+  const repMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (reps) {
+      reps.forEach(r => map.set(r.repId, r.name));
+    }
+    if (user) {
+      map.set(user.repId, user.name);
+    }
+    return map;
+  }, [reps, user]);
 
   const dateFilteredOrders = useMemo(() => {
     if (!orders) return [];
@@ -1161,6 +1205,7 @@ export default function OrderTracker() {
               onEdit={() => setEditingOrderId(order.id)}
               onCancelEdit={() => setEditingOrderId(null)}
               onSelect={() => setSelectedOrder(order)}
+              repName={repMap.get(order.repId) || (order as any).repName || ""}
               isSelectable={isPaidTab}
               isSelected={selectedOrderIds.has(order.id)}
               onToggleSelect={() => {
@@ -1489,6 +1534,7 @@ export default function OrderTracker() {
               services={services || []}
               onClose={() => setSelectedOrder(null)}
               canSeeCommissions={canSeeCommissions}
+              repName={repMap.get(selectedOrder.repId) || (selectedOrder as any).repName || ""}
             />
           )}
         </DialogContent>
@@ -1691,6 +1737,7 @@ function OrderDetailPanel({
   services,
   onClose,
   canSeeCommissions,
+  repName,
 }: {
   order: SalesOrder;
   clientMap: Map<string, string>;
@@ -1699,6 +1746,7 @@ function OrderDetailPanel({
   services: Service[];
   onClose: () => void;
   canSeeCommissions: boolean;
+  repName?: string;
 }) {
   const { toast } = useToast();
   const status = getOrderStatus(order);
@@ -1806,13 +1854,21 @@ function OrderDetailPanel({
     notesMutation.mutate(notesValue);
   };
 
+  const fullAddress = (() => {
+    const street = [order.houseNumber, order.streetName, order.aptUnit].filter(Boolean).join(" ");
+    const location = [street, order.city, order.zipCode].filter(Boolean).join(", ");
+    return location || order.customerAddress || "";
+  })();
+
   const readOnlyRows: { label: string; value: string | null }[] = [
     { label: "Invoice #", value: order.invoiceNumber || null },
+    { label: "Rep", value: repName || null },
     { label: "Provider", value: providerMap.get(order.providerId) || null },
     { label: "Client", value: clientMap.get(order.clientId) || null },
     { label: "Date Sold", value: order.dateSold ? new Date(order.dateSold).toLocaleDateString() : null },
     { label: "Install Type", value: order.installType || null },
-    { label: "TV", value: order.tvSold ? "Yes" : "No" },
+    { label: "TV Sold", value: order.tvSold ? "Yes" : "No" },
+    { label: "Mobile Order", value: order.isMobileOrder ? "Yes" : "No" },
   ];
 
   return (
@@ -1998,21 +2054,21 @@ function OrderDetailPanel({
                 <p className="text-xs text-muted-foreground">Install Date</p>
                 <p className="text-sm font-medium">{order.installDate ? new Date(order.installDate).toLocaleDateString() : "—"}</p>
               </div>
-              <div>
+              <div className="col-span-2">
                 <p className="text-xs text-muted-foreground">Address</p>
-                <p className="text-sm font-medium">{order.customerAddress || "—"}</p>
+                <p className="text-sm font-medium">{fullAddress || "—"}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Phone</p>
-                <p className="text-sm font-medium">{order.customerPhone || "—"}</p>
+                <p className="text-sm font-medium" data-testid="text-detail-phone">{order.customerPhone || "—"}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Email</p>
-                <p className="text-sm font-medium">{order.customerEmail || "—"}</p>
+                <p className="text-sm font-medium" data-testid="text-detail-email">{order.customerEmail || "—"}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Account #</p>
-                <p className="text-sm font-medium">{order.accountNumber || "—"}</p>
+                <p className="text-sm font-medium" data-testid="text-detail-account">{order.accountNumber || "—"}</p>
               </div>
             </div>
           </div>
