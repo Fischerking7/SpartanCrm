@@ -1410,7 +1410,7 @@ export async function registerRoutes(
       const formatDate = (d: Date) => d.toISOString().split('T')[0];
       
       // Determine scope based on viewMode
-      const isGlobalView = viewMode === "global" && ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(role);
+      const isGlobalView = viewMode === "global" && ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR"].includes(role);
       const isOwnView = viewMode === "own";
       
       // Get rep IDs for personal and team scopes
@@ -2192,7 +2192,7 @@ export async function registerRoutes(
 
       if (viewMode === "own") {
         orders = await storage.getOrders({ repId: user.repId, limit });
-      } else if (user.role === "ADMIN" || user.role === "OPERATIONS") {
+      } else if (user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "DIRECTOR") {
         orders = await storage.getOrders({ limit });
       } else if (user.role === "EXECUTIVE") {
         if (viewMode === "global") {
@@ -19144,7 +19144,7 @@ function registerReportRoutes(app: Express, auth: any) {
     }
   });
 
-  app.get("/api/reports/executive/summary", auth, requireRoles("EXECUTIVE", "ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+  app.get("/api/reports/executive/summary", auth, requireRoles("EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR"), async (req: AuthRequest, res) => {
     try {
       const today = getTodayET();
       const period = getCurrentPayPeriod();
@@ -19327,7 +19327,7 @@ function registerReportRoutes(app: Express, auth: any) {
     }
   });
 
-  app.get("/api/reports/operations/dashboard", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE"), async (req: AuthRequest, res) => {
+  app.get("/api/reports/operations/dashboard", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE", "DIRECTOR"), async (req: AuthRequest, res) => {
     try {
       const [
         openExceptionsRows,

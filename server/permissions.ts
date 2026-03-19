@@ -73,7 +73,7 @@ export const PERMISSIONS = {
   'disputes:resolve': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 
   'reports:production': ['DIRECTOR', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
-  'reports:financial': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+  'reports:financial': ['DIRECTOR', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'reports:all': ['DIRECTOR', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 
   'onboarding:review': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
