@@ -106,6 +106,7 @@ const MENU = {
   rateCards: { title: "Rate Cards", url: "/admin/rate-cards", icon: DollarSign },
   incentives: { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
   overrides: { title: "Overrides", url: "/admin/overrides", icon: Users },
+  overrideApprovals: { title: "Override Approvals", url: "/admin/override-approvals", icon: CheckSquare },
   empCredentials: { title: "Employee Credentials", url: "/admin/employee-credentials", icon: Key },
   adminDisputes: { title: "Disputes", url: "/admin/disputes", icon: MessageSquareWarning },
   userActivity: { title: "User Activity", url: "/admin/user-activity", icon: Activity },
@@ -178,6 +179,7 @@ const adminSettingsItems: MenuItem[] = [
   MENU.rateCards,
   MENU.incentives,
   MENU.overrides,
+  MENU.overrideApprovals,
   MENU.empCredentials,
   MENU.adminDisputes,
   MENU.quickbooks,
@@ -213,6 +215,11 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
     case "MANAGER":
       return {
         sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments, MENU.userActivity],
+        ...base,
+      };
+    case "ACCOUNTING":
+      return {
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.overrideApprovals],
         ...base,
       };
     case "EXECUTIVE":

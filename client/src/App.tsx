@@ -33,6 +33,7 @@ import AdminServices from "@/pages/admin/services";
 import AdminRateCards from "@/pages/admin/rate-cards";
 import AdminIncentives from "@/pages/admin/incentives";
 import AdminOverrides from "@/pages/admin/overrides";
+import OverrideApprovals from "@/pages/admin/override-approvals";
 import AdminPayroll from "@/pages/admin/payroll";
 import AdminPayrollAdvanced from "@/pages/admin/payroll-advanced";
 import AdminQuickBooks from "@/pages/admin/quickbooks";
@@ -262,6 +263,10 @@ function Router() {
             <Route path="/admin/install-sync" component={InstallSync} />
             <Route path="/admin/onboarding-review" component={AdminOnboardingReview} />
           </>
+        )}
+        
+        {["ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"].includes(user.role) && (
+          <Route path="/admin/override-approvals" component={OverrideApprovals} />
         )}
         
         {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role) && (

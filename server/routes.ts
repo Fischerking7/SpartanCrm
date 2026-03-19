@@ -493,6 +493,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
           sourceLevelUsed: recipientRole as any,
           amount: agreement.amountFlat,
           overrideAgreementId: agreement.id,
+          approvalStatus: "APPROVED",
         }, txDb);
         earnings.push(earning);
       }
@@ -526,6 +527,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
               sourceLevelUsed: recipientRole as any,
               amount: totalAmount,
               overrideAgreementId: agreement.id,
+              approvalStatus: "APPROVED",
             }, txDb);
             earnings.push(earning);
           }
@@ -548,9 +550,23 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
             sourceLevelUsed: "LEAD",
             amount: leaderOverrideAmount,
             overrideType: "LEADER_OVERRIDE",
-            approvalStatus: "APPROVED",
+            approvalStatus: "PENDING_APPROVAL",
           }, txDb);
           earnings.push(earning);
+
+          const leaderApprovers = admins.filter(u => ["EXECUTIVE", "OPERATIONS", "ADMIN"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
+          for (const notifyUser of leaderApprovers) {
+            try {
+              await storage.createEmailNotification({
+                userId: notifyUser.id,
+                notificationType: "OVERRIDE_PENDING_APPROVAL",
+                subject: "Leader Override Pending Approval",
+                body: `A LEADER_OVERRIDE of $${leaderOverrideAmount} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
+                recipientEmail: "",
+                status: "PENDING",
+              });
+            } catch {}
+          }
         }
       }
       await processAgreements(hierarchy.supervisor.id, "LEAD");
@@ -570,9 +586,23 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
           sourceLevelUsed: "MANAGER",
           amount: managerOverrideAmount.toFixed(2),
           overrideType: "MANAGER_OVERRIDE",
-          approvalStatus: "APPROVED",
+          approvalStatus: "PENDING_APPROVAL",
         }, txDb);
         earnings.push(earning);
+
+        const managerApprovers = admins.filter(u => ["EXECUTIVE", "OPERATIONS", "ADMIN"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
+        for (const notifyUser of managerApprovers) {
+          try {
+            await storage.createEmailNotification({
+              userId: notifyUser.id,
+              notificationType: "OVERRIDE_PENDING_APPROVAL",
+              subject: "Manager Override Pending Approval",
+              body: `A MANAGER_OVERRIDE of $${managerOverrideAmount.toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
+              recipientEmail: "",
+              status: "PENDING",
+            });
+          } catch {}
+        }
       }
       await processAgreements(hierarchy.manager.id, "MANAGER");
     }
@@ -15685,11 +15715,14 @@ export async function registerRoutes(
     }
   });
 
-  const overrideApprovalAccess = requireRoles("EXECUTIVE", "OPERATIONS", "ACCOUNTING");
+  const overrideApprovalAccess = requireRoles("EXECUTIVE", "OPERATIONS", "ADMIN", "ACCOUNTING");
+
+  const ALL_APPROVABLE_TYPES = ["LEADER_OVERRIDE", "MANAGER_OVERRIDE", "DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"];
 
   function canApproveOverrideType(userRole: string, overrideType: string): boolean {
-    if (userRole === "EXECUTIVE") return ["DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
-    if (userRole === "OPERATIONS") return ["DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
+    if (userRole === "EXECUTIVE") return ALL_APPROVABLE_TYPES.includes(overrideType);
+    if (userRole === "OPERATIONS") return ALL_APPROVABLE_TYPES.includes(overrideType);
+    if (userRole === "ADMIN") return ["LEADER_OVERRIDE", "MANAGER_OVERRIDE", "DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
     if (userRole === "ACCOUNTING") return ["ACCOUNTING_OVERRIDE"].includes(overrideType);
     return false;
   }
