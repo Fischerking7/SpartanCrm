@@ -344,6 +344,57 @@ async function checkPasswordAuthority(actor: User, target: User): Promise<boolea
   return false;
 }
 
+async function getWeeklyTeamConnects(userId: string, role: string, dateSold: string): Promise<number> {
+  const saleDate = new Date(dateSold);
+  const dayOfWeek = saleDate.getDay();
+  const weekStart = new Date(saleDate);
+  weekStart.setDate(saleDate.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+  const weekStartStr = weekStart.toISOString().split("T")[0];
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  const weekEndStr = weekEnd.toISOString().split("T")[0];
+
+  let teamRepIds: string[] = [];
+  if (role === "LEAD") {
+    const supervised = await storage.getSupervisedReps(userId);
+    teamRepIds = supervised.map(r => r.repId);
+  } else if (role === "MANAGER") {
+    const scope = await storage.getManagerScope(userId);
+    teamRepIds = scope.allRepRepIds;
+  }
+
+  if (teamRepIds.length === 0) return 0;
+
+  const result = await db.select({ count: sql<number>`count(*)` })
+    .from(salesOrders)
+    .where(and(
+      inArray(salesOrders.repId, teamRepIds),
+      eq(salesOrders.approvalStatus, "APPROVED"),
+      gte(salesOrders.dateSold, weekStartStr),
+      lte(salesOrders.dateSold, weekEndStr),
+      isNull(salesOrders.deletedAt)
+    ));
+
+  return Number(result[0]?.count || 0);
+}
+
+const OVERRIDE_RULE_SERVICE_IDS = {
+  "600_MBPS": "158b569d-52cc-42b3-b74e-283cc779a69d",
+  "1_GIG": "2beb75b6-d64a-4a28-957b-e1d854afb4f4",
+  "GIG_PLUS": "3285ddf1-5bd3-48cf-8d45-6b2eaef5841f",
+  "300_MBPS": "ba872cf2-e7dc-4d93-b9d6-fbc8d3ffd24a",
+  "MULTI_GIG": "f96671c3-061c-4a45-9bea-fe7d1ff7b2b1",
+};
+
+const ASTOUND_PROVIDER_ID = "88a9321e-d805-4543-9e77-2116890d471b";
+
+const MANAGER_BOOST_ELIGIBLE_SERVICES = new Set([
+  OVERRIDE_RULE_SERVICE_IDS["600_MBPS"],
+  OVERRIDE_RULE_SERVICE_IDS["1_GIG"],
+  OVERRIDE_RULE_SERVICE_IDS["GIG_PLUS"],
+  OVERRIDE_RULE_SERVICE_IDS["MULTI_GIG"],
+]);
+
 async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder: SalesOrder): Promise<OverrideEarning[]> {
   const salesRep = await storage.getUserByRepId(approvedOrder.repId);
   if (salesRep?.role === "EXECUTIVE") {
@@ -482,11 +533,47 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       }
     };
     
+    const isMobileOnlyOrder = !approvedOrder.serviceId;
+    const isInternetOrder = !!approvedOrder.serviceId;
+
     if (hierarchy.supervisor) {
+      if (isInternetOrder) {
+        const weeklyConnects = await getWeeklyTeamConnects(hierarchy.supervisor.id, "LEAD", approvedOrder.dateSold);
+        if (weeklyConnects >= 35) {
+          const leaderOverrideAmount = "10.00";
+          const earning = await storage.createOverrideEarning({
+            salesOrderId: approvedOrder.id,
+            recipientUserId: hierarchy.supervisor.id,
+            sourceRepId: approvedOrder.repId,
+            sourceLevelUsed: "LEAD",
+            amount: leaderOverrideAmount,
+            overrideType: "LEADER_OVERRIDE",
+            approvalStatus: "APPROVED",
+          }, txDb);
+          earnings.push(earning);
+        }
+      }
       await processAgreements(hierarchy.supervisor.id, "LEAD");
     }
     
     if (hierarchy.manager) {
+      if (isInternetOrder) {
+        const weeklyConnects = await getWeeklyTeamConnects(hierarchy.manager.id, "MANAGER", approvedOrder.dateSold);
+        let managerOverrideAmount = 10;
+        if (weeklyConnects >= 100 && approvedOrder.serviceId && MANAGER_BOOST_ELIGIBLE_SERVICES.has(approvedOrder.serviceId)) {
+          managerOverrideAmount = 15;
+        }
+        const earning = await storage.createOverrideEarning({
+          salesOrderId: approvedOrder.id,
+          recipientUserId: hierarchy.manager.id,
+          sourceRepId: approvedOrder.repId,
+          sourceLevelUsed: "MANAGER",
+          amount: managerOverrideAmount.toFixed(2),
+          overrideType: "MANAGER_OVERRIDE",
+          approvalStatus: "APPROVED",
+        }, txDb);
+        earnings.push(earning);
+      }
       await processAgreements(hierarchy.manager.id, "MANAGER");
     }
     
