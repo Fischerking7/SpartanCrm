@@ -64,6 +64,7 @@ export default function Orders() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("global");
   const [approvalFilter, setApprovalFilter] = useState<string>("all");
+  const [repFilter, setRepFilter] = useState<string>("all");
   
 
   const getTodayDate = () => {
@@ -144,7 +145,7 @@ export default function Orders() {
     });
   };
 
-  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE";
+  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE" || user?.role === "ACCOUNTING";
   const isOperations = user?.role === "OPERATIONS";
   const isExecutive = user?.role === "EXECUTIVE";
   const isTouchDevice = useIsTouchDevice();
@@ -402,7 +403,7 @@ export default function Orders() {
   });
 
   // Fetch rate cards for commission calculation (all users need this for accurate net display)
-  const isAdminOrExec = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE";
+  const isAdminOrExec = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE" || user?.role === "ACCOUNTING";
   const { data: rateCards } = useQuery<RateCard[]>({
     queryKey: ["/api/rate-cards/for-overrides"],
     queryFn: async () => {
@@ -989,7 +990,8 @@ export default function Orders() {
       (exportFilter === "unexported" && !order.exportedToAccounting) ||
       (exportFilter === "ready" && order.jobStatus === "COMPLETED" && !order.exportedToAccounting);
     const matchesApproval = approvalFilter === "all" || order.approvalStatus === approvalFilter;
-    return matchesTab && matchesSearch && matchesStatus && matchesProvider && matchesClient && matchesDateFrom && matchesDateTo && matchesExport && matchesApproval;
+    const matchesRep = repFilter === "all" || order.repId === repFilter;
+    return matchesTab && matchesSearch && matchesStatus && matchesProvider && matchesClient && matchesDateFrom && matchesDateTo && matchesExport && matchesApproval && matchesRep;
   }).sort((a, b) => {
     const [field, direction] = sortBy.split("_");
     const multiplier = direction === "asc" ? 1 : -1;
@@ -1543,7 +1545,7 @@ export default function Orders() {
           </div>
           <MobileFilterDrawer
             activeFilterCount={
-              [providerFilter, clientFilter, statusFilter, approvalFilter, exportFilter].filter(v => v !== "all").length +
+              [providerFilter, clientFilter, statusFilter, approvalFilter, exportFilter, repFilter].filter(v => v !== "all").length +
               (dateFromFilter ? 1 : 0) + (dateToFilter ? 1 : 0) +
               (sortBy !== "createdAt_desc" ? 1 : 0)
             }
@@ -1570,6 +1572,19 @@ export default function Orders() {
                 ))}
               </SelectContent>
             </Select>
+            {isAdmin && (
+              <Select value={repFilter} onValueChange={setRepFilter}>
+                <SelectTrigger className={isMobile ? "w-full" : "w-[160px]"} data-testid="select-rep-filter">
+                  <SelectValue placeholder="Rep" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Reps</SelectItem>
+                  {allUsers?.map((u: User) => (
+                    <SelectItem key={u.id} value={u.repId}>{u.repId} - {u.firstName} {u.lastName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className={isMobile ? "w-full" : "w-[140px]"} data-testid="select-status-filter">
                 <SelectValue placeholder="Job Status" />
