@@ -105,9 +105,9 @@ export const PERMISSIONS = {
   'banking:export': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'banking:manage:accounts': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 
-  'admin:providers': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
-  'admin:clients': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
-  'admin:services': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
+  'admin:providers': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+  'admin:clients': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+  'admin:services': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'admin:incentives': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
   'admin:overrides:manage': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
   'admin:overridepool': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
