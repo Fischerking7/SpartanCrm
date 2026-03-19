@@ -3982,6 +3982,56 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed to save role overrides" }); }
   });
 
+  app.get("/api/admin/rate-cards/override-config/export", auth, requirePermission("system:ratecards:view"), async (req, res) => {
+    try {
+      const allRateCards = await storage.getRateCards();
+      const config: any[] = [];
+      for (const rc of allRateCards) {
+        const overrides = await storage.getRateCardRoleOverrides(rc.id);
+        if (overrides.length > 0) {
+          config.push({
+            rateCardId: rc.id,
+            overrides: overrides.map((o: any) => ({
+              role: o.role,
+              overrideDeduction: o.overrideDeduction,
+              tvOverrideDeduction: o.tvOverrideDeduction,
+              mobileOverrideDeduction: o.mobileOverrideDeduction,
+            })),
+          });
+        }
+      }
+      res.json({ config, exportedAt: new Date().toISOString(), totalRateCards: config.length });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to export override config" }); }
+  });
+
+  app.post("/api/admin/rate-cards/override-config/import", auth, requirePermission("system:ratecards:edit"), async (req: AuthRequest, res) => {
+    try {
+      const { config } = req.body;
+      if (!Array.isArray(config)) return res.status(400).json({ message: "config must be an array" });
+      const validRoles = ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE"];
+      let updated = 0;
+      let skipped = 0;
+      for (const entry of config) {
+        if (!entry.rateCardId || !Array.isArray(entry.overrides)) { skipped++; continue; }
+        const rc = await storage.getRateCardById(entry.rateCardId);
+        if (!rc) { skipped++; continue; }
+        const validatedOverrides = entry.overrides
+          .filter((ro: any) => ro && validRoles.includes(ro.role))
+          .map((ro: any) => ({
+            role: ro.role,
+            overrideDeduction: String(ro.overrideDeduction || "0"),
+            tvOverrideDeduction: String(ro.tvOverrideDeduction || "0"),
+            mobileOverrideDeduction: String(ro.mobileOverrideDeduction || "0"),
+            isAdditive: false,
+          }));
+        await storage.saveRateCardRoleOverrides(entry.rateCardId, validatedOverrides);
+        updated++;
+      }
+      await storage.createAuditLog({ action: "import_override_config", tableName: "rate_card_role_overrides", recordId: "bulk", userId: req.user!.id, afterJson: JSON.stringify({ updated, skipped }) });
+      res.json({ success: true, updated, skipped });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to import override config" }); }
+  });
+
   // Incentives
   app.get("/api/admin/incentives", auth, requirePermission("admin:incentives"), async (req, res) => {
     try { res.json(await storage.getIncentives()); } catch (error) { res.status(500).json({ message: "Failed" }); }

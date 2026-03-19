@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, DollarSign, Edit, Trash2, ChevronDown, Check } from "lucide-react";
+import { Plus, Search, DollarSign, Edit, Trash2, ChevronDown, Check, Download, Upload } from "lucide-react";
 import type { RateCard, Provider, Client, Service } from "@shared/schema";
 
 const __ANY_CLIENT__ = "__ANY_CLIENT__";
@@ -66,6 +66,46 @@ export default function AdminRateCards() {
   }, {} as Record<string, { overrideDeduction: string; tvOverrideDeduction: string; mobileOverrideDeduction: string }>);
   
   const [roleOverrides, setRoleOverrides] = useState(emptyRoleOverrides());
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  const handleExportConfig = async () => {
+    try {
+      const res = await fetch("/api/admin/rate-cards/override-config/export", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Export failed");
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `override-config-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Exported", description: `${data.totalRateCards} rate card override configurations exported.` });
+    } catch {
+      toast({ title: "Export failed", variant: "destructive" });
+    }
+  };
+
+  const handleImportConfig = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const res = await fetch("/api/admin/rate-cards/override-config/import", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ config: data.config }),
+      });
+      if (!res.ok) throw new Error("Import failed");
+      const result = await res.json();
+      toast({ title: "Imported", description: `${result.updated} rate cards updated, ${result.skipped} skipped.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/rate-cards"] });
+    } catch {
+      toast({ title: "Import failed", description: "Invalid file format.", variant: "destructive" });
+    }
+    if (importFileRef.current) importFileRef.current.value = "";
+  };
 
   const { data: items, isLoading } = useQuery<RateCard[]>({
     queryKey: ["/api/admin/rate-cards"],
@@ -428,10 +468,21 @@ export default function AdminRateCards() {
             <p className="text-muted-foreground">Manage commission rates with payout components</p>
           </div>
         </div>
-        <Button onClick={() => setShowDialog(true)} data-testid="button-new-rate-card">
-          <Plus className="h-4 w-4 mr-2" />
-          New Rate Card
-        </Button>
+        <div className="flex items-center gap-2">
+          <input type="file" ref={importFileRef} accept=".json" onChange={handleImportConfig} className="hidden" data-testid="input-import-config" />
+          <Button variant="outline" size="sm" onClick={handleExportConfig} data-testid="button-export-config">
+            <Download className="h-4 w-4 mr-2" />
+            Export Overrides
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => importFileRef.current?.click()} data-testid="button-import-config">
+            <Upload className="h-4 w-4 mr-2" />
+            Import Overrides
+          </Button>
+          <Button onClick={() => setShowDialog(true)} data-testid="button-new-rate-card">
+            <Plus className="h-4 w-4 mr-2" />
+            New Rate Card
+          </Button>
+        </div>
       </div>
 
       <Card>
