@@ -18,6 +18,11 @@ import SalesDashboard from "@/pages/sales-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
 import ExecutiveDashboard from "@/pages/executive-dashboard";
 import AccountingDashboard from "@/pages/accounting-dashboard";
+import MyReportDashboard from "@/pages/reports/my-dashboard";
+import ManagerReportDashboard from "@/pages/reports/manager-dashboard";
+import ExecutiveReportDashboard from "@/pages/reports/executive-report-dashboard";
+import DirectorReportDashboard from "@/pages/reports/director-dashboard";
+import OperationsReportDashboard from "@/pages/reports/operations-report-dashboard";
 import Orders from "@/pages/orders";
 import Leads from "@/pages/leads";
 import Commissions from "@/pages/commissions";
@@ -67,15 +72,18 @@ function Dashboard() {
   if (!user) return null;
   
   switch (user.role) {
-    case "OPERATIONS":
-    case "ADMIN":
-      return <AdminDashboard />;
-    case "ACCOUNTING":
-      return <AccountingDashboard />;
     case "EXECUTIVE":
-      return <ExecutiveDashboard />;
+    case "ADMIN":
+      return <ExecutiveReportDashboard />;
+    case "DIRECTOR":
+      return <DirectorReportDashboard />;
+    case "MANAGER":
+      return <ManagerReportDashboard />;
+    case "OPERATIONS":
+    case "ACCOUNTING":
+      return <OperationsReportDashboard />;
     default:
-      return <SalesDashboard />;
+      return <MyReportDashboard />;
   }
 }
 

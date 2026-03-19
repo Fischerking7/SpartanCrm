@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
@@ -16545,6 +16545,7 @@ export async function registerRoutes(
 
   registerDirectorRoutes(app, storage, auth);
   registerExecutiveRoutes(app, storage, auth);
+  registerReportRoutes(app, auth);
 
   return httpServer;
 }
@@ -18934,5 +18935,453 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         ? 'Internal server error'
         : err.message,
     });
+  });
+}
+
+function getCurrentPayPeriod() {
+  const now = new Date();
+  const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const year = nyNow.getFullYear();
+  const month = nyNow.getMonth();
+  const day = nyNow.getDate();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  if (day <= 15) {
+    return {
+      start: `${year}-${String(month + 1).padStart(2, "0")}-01`,
+      end: `${year}-${String(month + 1).padStart(2, "0")}-15`,
+    };
+  }
+  return {
+    start: `${year}-${String(month + 1).padStart(2, "0")}-16`,
+    end: `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+  };
+}
+
+function getTodayET() {
+  const now = new Date();
+  const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  return nyNow.toISOString().split("T")[0];
+}
+
+function getMonthStartET() {
+  const now = new Date();
+  const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  return `${nyNow.getFullYear()}-${String(nyNow.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function registerReportRoutes(app: Express, auth: any) {
+
+  app.get("/api/reports/my/dashboard", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const today = getTodayET();
+      const period = getCurrentPayPeriod();
+      const monthStart = getMonthStartET();
+
+      const todayOrderRows = await db.select({ count: sql<number>`count(*)::int` })
+        .from(salesOrders)
+        .where(and(eq(salesOrders.repId, user.repId), eq(salesOrders.dateSold, today)));
+
+      const periodRows = await db.select({
+        count: sql<number>`count(*)::int`,
+        totalCommission: sql<string>`coalesce(sum(${salesOrders.baseCommissionEarned}::numeric), 0)::text`,
+      }).from(salesOrders).where(and(
+        eq(salesOrders.repId, user.repId),
+        gte(salesOrders.dateSold, period.start),
+        lte(salesOrders.dateSold, period.end),
+      ));
+
+      const mtdRows = await db.select({ count: sql<number>`count(*)::int` })
+        .from(salesOrders)
+        .where(and(eq(salesOrders.repId, user.repId), gte(salesOrders.dateSold, monthStart)));
+
+      const activityRows = await db.select({
+        firstSeen: sql<string>`min(${userActivityLogs.createdAt})::text`,
+        lastSeen: sql<string>`max(${userActivityLogs.createdAt})::text`,
+      }).from(userActivityLogs).where(and(
+        eq(userActivityLogs.userId, user.id),
+        gte(userActivityLogs.createdAt, new Date(today + "T00:00:00")),
+      ));
+
+      const latestStatement = await db.query.payStatements.findFirst({
+        where: and(eq(payStatements.userId, user.id), eq(payStatements.isViewableByRep, true)),
+        orderBy: [desc(payStatements.createdAt)],
+      });
+
+      const activity = activityRows[0];
+      let minutesActive = 0;
+      if (activity?.firstSeen && activity?.lastSeen) {
+        minutesActive = Math.round((new Date(activity.lastSeen).getTime() - new Date(activity.firstSeen).getTime()) / 60000);
+      }
+
+      res.json({
+        todayOrders: todayOrderRows[0]?.count || 0,
+        periodOrders: periodRows[0]?.count || 0,
+        periodCommission: periodRows[0]?.totalCommission || "0",
+        mtdOrders: mtdRows[0]?.count || 0,
+        activityToday: {
+          firstSeen: activity?.firstSeen || null,
+          lastSeen: activity?.lastSeen || null,
+          minutesActive,
+        },
+        latestStatement: latestStatement ? {
+          id: latestStatement.id,
+          periodStart: latestStatement.periodStart,
+          periodEnd: latestStatement.periodEnd,
+          netPay: latestStatement.netPay,
+          status: latestStatement.status,
+        } : null,
+      });
+    } catch (error: any) {
+      console.error("My dashboard error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/reports/manager/dashboard", auth, requireRoles("MANAGER", "DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const today = getTodayET();
+      const period = getCurrentPayPeriod();
+
+      const teamReps = await db.query.users.findMany({
+        where: and(eq(users.assignedManagerId, user.id), eq(users.status, "ACTIVE")),
+      });
+
+      const repIds = teamReps.map(r => r.repId);
+      const repUserIds = teamReps.map(r => r.id);
+
+      if (repIds.length === 0) {
+        return res.json({
+          teamSize: 0, clockedInCount: 0, zeroDayCount: 0, todayTotalOrders: 0, reps: [],
+        });
+      }
+
+      const todayOrders = await db.select({
+        repId: salesOrders.repId,
+        count: sql<number>`count(*)::int`,
+      }).from(salesOrders).where(and(
+        inArray(salesOrders.repId, repIds),
+        eq(salesOrders.dateSold, today),
+      )).groupBy(salesOrders.repId);
+
+      const periodOrders = await db.select({
+        repId: salesOrders.repId,
+        count: sql<number>`count(*)::int`,
+        totalCommission: sql<string>`coalesce(sum(${salesOrders.baseCommissionEarned}::numeric), 0)::text`,
+      }).from(salesOrders).where(and(
+        inArray(salesOrders.repId, repIds),
+        gte(salesOrders.dateSold, period.start),
+        lte(salesOrders.dateSold, period.end),
+      )).groupBy(salesOrders.repId);
+
+      const activityToday = await db.select({
+        userId: userActivityLogs.userId,
+        firstSeen: sql<string>`min(${userActivityLogs.createdAt})::text`,
+        lastSeen: sql<string>`max(${userActivityLogs.createdAt})::text`,
+        lastPage: sql<string>`(array_agg(${userActivityLogs.page} ORDER BY ${userActivityLogs.createdAt} DESC))[1]`,
+        deviceType: sql<string>`(array_agg(${userActivityLogs.deviceType} ORDER BY ${userActivityLogs.createdAt} DESC))[1]`,
+      }).from(userActivityLogs).where(and(
+        inArray(userActivityLogs.userId, repUserIds),
+        gte(userActivityLogs.createdAt, new Date(today + "T00:00:00")),
+      )).groupBy(userActivityLogs.userId);
+
+      const todayOrderMap = new Map(todayOrders.map(o => [o.repId, o.count]));
+      const periodOrderMap = new Map(periodOrders.map(o => [o.repId, { count: o.count, commission: o.totalCommission }]));
+      const activityMap = new Map(activityToday.map(a => [a.userId, a]));
+
+      let clockedInCount = 0;
+      let zeroDayCount = 0;
+      let todayTotalOrders = 0;
+
+      const reps = teamReps.map(rep => {
+        const activity = activityMap.get(rep.id);
+        const isActiveToday = !!activity;
+        const todayCount = todayOrderMap.get(rep.repId) || 0;
+        const periodData = periodOrderMap.get(rep.repId);
+        const isZeroDay = isActiveToday && todayCount === 0;
+
+        let minutesActive = 0;
+        if (activity?.firstSeen && activity?.lastSeen) {
+          minutesActive = Math.round((new Date(activity.lastSeen).getTime() - new Date(activity.firstSeen).getTime()) / 60000);
+        }
+
+        if (isActiveToday) clockedInCount++;
+        if (isZeroDay) zeroDayCount++;
+        todayTotalOrders += todayCount;
+
+        return {
+          id: rep.id,
+          name: `${rep.firstName} ${rep.lastName}`,
+          repId: rep.repId,
+          isActiveToday,
+          firstSeen: activity?.firstSeen || null,
+          lastSeen: activity?.lastSeen || null,
+          minutesActive,
+          todayOrders: todayCount,
+          periodOrders: periodData?.count || 0,
+          periodCommission: periodData?.commission || "0",
+          isZeroDay,
+          lastPage: activity?.lastPage || null,
+          deviceType: activity?.deviceType || null,
+        };
+      }).sort((a, b) => {
+        if (a.isActiveToday !== b.isActiveToday) return a.isActiveToday ? -1 : 1;
+        return b.todayOrders - a.todayOrders;
+      });
+
+      res.json({
+        teamSize: teamReps.length,
+        clockedInCount,
+        zeroDayCount,
+        todayTotalOrders,
+        reps,
+      });
+    } catch (error: any) {
+      console.error("Manager dashboard error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/reports/executive/summary", auth, requireRoles("EXECUTIVE", "ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const today = getTodayET();
+      const period = getCurrentPayPeriod();
+      const monthStart = getMonthStartET();
+
+      async function getBucket(dateFilter?: { from?: string; to?: string }) {
+        const conditions = [eq(salesOrders.approvalStatus, "APPROVED")];
+        if (dateFilter?.from) conditions.push(gte(salesOrders.dateSold, dateFilter.from));
+        if (dateFilter?.to) conditions.push(lte(salesOrders.dateSold, dateFilter.to));
+
+        const rows = await db.select({
+          totalOrders: sql<number>`count(*)::int`,
+          totalInstalls: sql<number>`count(*) filter (where ${salesOrders.jobStatus} = 'COMPLETED')::int`,
+          totalCommission: sql<string>`coalesce(sum(${salesOrders.baseCommissionEarned}::numeric), 0)::text`,
+          totalRackRateCents: sql<number>`coalesce(sum(${salesOrders.ironCrestRackRateCents}), 0)::int`,
+          totalProfitCents: sql<number>`coalesce(sum(${salesOrders.ironCrestProfitCents}), 0)::int`,
+          uniqueReps: sql<number>`count(distinct ${salesOrders.repId})::int`,
+        }).from(salesOrders).where(and(...conditions));
+
+        const r = rows[0];
+        return {
+          totalOrders: r?.totalOrders || 0,
+          totalInstalls: r?.totalInstalls || 0,
+          totalCommission: r?.totalCommission || "0",
+          totalRackRate: ((r?.totalRackRateCents || 0) / 100).toFixed(2),
+          totalProfit: ((r?.totalProfitCents || 0) / 100).toFixed(2),
+          uniqueReps: r?.uniqueReps || 0,
+        };
+      }
+
+      const [todayBucket, periodBucket, mtdBucket, allTimeBucket] = await Promise.all([
+        getBucket({ from: today, to: today }),
+        getBucket({ from: period.start, to: period.end }),
+        getBucket({ from: monthStart }),
+        getBucket(),
+      ]);
+
+      const chargebackCount = await db.select({ count: sql<number>`count(*)::int` })
+        .from(chargebacks)
+        .where(gte(chargebacks.chargebackDate, period.start));
+
+      const approvedInPeriod = periodBucket.totalOrders || 1;
+      const chargebackRate = ((chargebackCount[0]?.count || 0) / approvedInPeriod * 100).toFixed(1);
+
+      const pendingPayRunRows = await db.select({ count: sql<number>`count(*)::int` })
+        .from(payRuns)
+        .where(inArray(payRuns.status, ["DRAFT", "PENDING_REVIEW", "PENDING_APPROVAL"]));
+
+      res.json({
+        today: todayBucket,
+        payPeriod: periodBucket,
+        mtd: mtdBucket,
+        allTime: allTimeBucket,
+        chargebackRate,
+        pendingPayRuns: pendingPayRunRows[0]?.count || 0,
+      });
+    } catch (error: any) {
+      console.error("Executive summary error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/reports/director/team-comparison", auth, requireRoles("DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const { dateFrom, dateTo } = req.query as { dateFrom?: string; dateTo?: string };
+      const period = getCurrentPayPeriod();
+      const from = dateFrom || period.start;
+      const to = dateTo || period.end;
+
+      const managers = await db.query.users.findMany({
+        where: and(eq(users.role, "MANAGER"), eq(users.status, "ACTIVE")),
+      });
+
+      const teams = await Promise.all(managers.map(async (mgr) => {
+        const teamReps = await db.query.users.findMany({
+          where: and(eq(users.assignedManagerId, mgr.id), eq(users.status, "ACTIVE")),
+        });
+        const repIds = teamReps.map(r => r.repId);
+
+        if (repIds.length === 0) {
+          return {
+            manager: { id: mgr.id, name: `${mgr.firstName} ${mgr.lastName}` },
+            repCount: 0, totalOrders: 0, totalInstalls: 0, totalCommission: "0", avgCommissionPerRep: "0",
+          };
+        }
+
+        const stats = await db.select({
+          totalOrders: sql<number>`count(*)::int`,
+          totalInstalls: sql<number>`count(*) filter (where ${salesOrders.jobStatus} = 'COMPLETED')::int`,
+          totalCommission: sql<string>`coalesce(sum(${salesOrders.baseCommissionEarned}::numeric), 0)::text`,
+        }).from(salesOrders).where(and(
+          inArray(salesOrders.repId, repIds),
+          gte(salesOrders.dateSold, from),
+          lte(salesOrders.dateSold, to),
+        ));
+
+        const s = stats[0];
+        const totalCommission = parseFloat(s?.totalCommission || "0");
+        return {
+          manager: { id: mgr.id, name: `${mgr.firstName} ${mgr.lastName}` },
+          repCount: repIds.length,
+          totalOrders: s?.totalOrders || 0,
+          totalInstalls: s?.totalInstalls || 0,
+          totalCommission: totalCommission.toFixed(2),
+          avgCommissionPerRep: repIds.length > 0 ? (totalCommission / repIds.length).toFixed(2) : "0",
+        };
+      }));
+
+      res.json({ teams, dateFrom: from, dateTo: to });
+    } catch (error: any) {
+      console.error("Team comparison error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/reports/director/rep-leaderboard", auth, requireRoles("DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const { dateFrom, dateTo, limit: limitStr } = req.query as { dateFrom?: string; dateTo?: string; limit?: string };
+      const period = getCurrentPayPeriod();
+      const from = dateFrom || period.start;
+      const to = dateTo || period.end;
+      const rowLimit = parseInt(limitStr || "20", 10);
+
+      const conditions = [
+        gte(salesOrders.dateSold, from),
+        lte(salesOrders.dateSold, to),
+      ];
+
+      const rows = await db.select({
+        repId: salesOrders.repId,
+        totalOrders: sql<number>`count(*)::int`,
+        totalInstalls: sql<number>`count(*) filter (where ${salesOrders.jobStatus} = 'COMPLETED')::int`,
+        totalCommission: sql<string>`coalesce(sum(${salesOrders.baseCommissionEarned}::numeric), 0)::text`,
+      }).from(salesOrders)
+        .where(and(...conditions))
+        .groupBy(salesOrders.repId)
+        .orderBy(sql`count(*) desc`)
+        .limit(rowLimit);
+
+      const repIds = rows.map(r => r.repId).filter(Boolean) as string[];
+      const usersMap = new Map<string, any>();
+      if (repIds.length > 0) {
+        const userRows = await db.query.users.findMany({
+          where: inArray(users.repId, repIds),
+        });
+        const managerIds = userRows.map(u => u.assignedManagerId).filter(Boolean) as string[];
+        const managerMap = new Map<string, string>();
+        if (managerIds.length > 0) {
+          const mgrRows = await db.query.users.findMany({
+            where: inArray(users.id, managerIds),
+          });
+          mgrRows.forEach(m => managerMap.set(m.id, `${m.firstName} ${m.lastName}`));
+        }
+        userRows.forEach(u => usersMap.set(u.repId, {
+          userName: `${u.firstName} ${u.lastName}`,
+          role: u.role,
+          managerName: u.assignedManagerId ? managerMap.get(u.assignedManagerId) || null : null,
+        }));
+      }
+
+      const leaderboard = rows.map(r => {
+        const userInfo = usersMap.get(r.repId!) || {};
+        const installRate = r.totalOrders > 0 ? Math.round((r.totalInstalls / r.totalOrders) * 100) : 0;
+        return {
+          repId: r.repId,
+          userName: userInfo.userName || r.repId,
+          role: userInfo.role || null,
+          managerName: userInfo.managerName || null,
+          totalOrders: r.totalOrders,
+          totalInstalls: r.totalInstalls,
+          totalCommission: r.totalCommission,
+          installRate,
+        };
+      });
+
+      res.json({ leaderboard, dateFrom: from, dateTo: to });
+    } catch (error: any) {
+      console.error("Rep leaderboard error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/reports/operations/dashboard", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const [
+        openExceptionsRows,
+        unmatchedPaymentRows,
+        unmatchedChargebackRows,
+        rateIssueRows,
+        pendingPayRunRows,
+        openSystemExceptionsRows,
+        latestSyncRow,
+      ] = await Promise.all([
+        db.select({ count: sql<number>`count(*)::int` }).from(orderExceptions).where(isNull(orderExceptions.resolvedAt)),
+        db.select({ count: sql<number>`count(*)::int` }).from(unmatchedPayments).where(isNull(unmatchedPayments.resolvedAt)),
+        db.select({ count: sql<number>`count(*)::int` }).from(unmatchedChargebacks).where(isNull(unmatchedChargebacks.resolvedAt)),
+        db.select({ count: sql<number>`count(*)::int` }).from(rateIssues).where(isNull(rateIssues.resolvedAt)),
+        db.select({ count: sql<number>`count(*)::int` }).from(payRuns).where(inArray(payRuns.status, ["DRAFT", "PENDING_REVIEW", "PENDING_APPROVAL"])),
+        db.select({ count: sql<number>`count(*)::int` }).from(systemExceptions).where(eq(systemExceptions.status, "OPEN")),
+        db.query.installSyncRuns.findFirst({ orderBy: [desc(installSyncRuns.createdAt)] }),
+      ]);
+
+      const openExceptions = openExceptionsRows[0]?.count || 0;
+      const unmatchedPaymentCount = unmatchedPaymentRows[0]?.count || 0;
+      const unmatchedChargebackCount = unmatchedChargebackRows[0]?.count || 0;
+      const rateIssueCount = rateIssueRows[0]?.count || 0;
+      const pendingPayRuns = pendingPayRunRows[0]?.count || 0;
+      const openSystemExceptions = openSystemExceptionsRows[0]?.count || 0;
+
+      const alerts: { severity: "error" | "warning"; message: string }[] = [];
+      if (openExceptions > 0) alerts.push({ severity: "warning", message: `${openExceptions} open order exception${openExceptions > 1 ? "s" : ""}` });
+      if (unmatchedPaymentCount > 0) alerts.push({ severity: "error", message: `${unmatchedPaymentCount} unmatched payment${unmatchedPaymentCount > 1 ? "s" : ""}` });
+      if (unmatchedChargebackCount > 0) alerts.push({ severity: "error", message: `${unmatchedChargebackCount} unmatched chargeback${unmatchedChargebackCount > 1 ? "s" : ""}` });
+      if (rateIssueCount > 0) alerts.push({ severity: "warning", message: `${rateIssueCount} rate issue${rateIssueCount > 1 ? "s" : ""}` });
+      if (openSystemExceptions > 0) alerts.push({ severity: "error", message: `${openSystemExceptions} open system exception${openSystemExceptions > 1 ? "s" : ""}` });
+      if (latestSyncRow && latestSyncRow.status === "FAILED") alerts.push({ severity: "error", message: "Latest install sync failed" });
+
+      res.json({
+        openExceptions,
+        unmatchedPayments: unmatchedPaymentCount,
+        unmatchedChargebacks: unmatchedChargebackCount,
+        rateIssues: rateIssueCount,
+        pendingPayRuns,
+        systemExceptions: openSystemExceptions,
+        latestSyncRun: latestSyncRow ? {
+          id: latestSyncRow.id,
+          status: latestSyncRow.status,
+          createdAt: latestSyncRow.createdAt,
+          completedAt: latestSyncRow.completedAt,
+          matchedCount: latestSyncRow.matchedCount,
+          unmatchedCount: latestSyncRow.unmatchedCount,
+          totalSheetRows: latestSyncRow.totalSheetRows,
+        } : null,
+        alerts,
+      });
+    } catch (error: any) {
+      console.error("Operations dashboard error:", error);
+      res.status(500).json({ message: error.message });
+    }
   });
 }

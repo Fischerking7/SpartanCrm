@@ -1,0 +1,184 @@
+I need to build a reporting system and passive activity tracking feature into the existing Spartan CRM. Here is exactly what to build:
+
+---
+
+## 1. PASSIVE ACTIVITY TRACKING (no new tables needed)
+
+The `user_activity_logs` table already exists in the schema with these fields:
+- userId, eventType, page, ipAddress, city, region, country, userAgent, deviceType, createdAt
+
+Verify that the backend is writing to `user_activity_logs` on every authenticated page visit. If it is not, add a middleware call in the Express router (after auth verification) that inserts a log row on each request with:
+- userId from JWT
+- eventType: "PAGE_VISIT"
+- page: req.path
+- ipAddress: req.ip
+- userAgent: req.headers["user-agent"]
+- deviceType: derived from user-agent (mobile/desktop/tablet)
+
+---
+
+## 2. NEW BACKEND ENDPOINTS
+
+Create `server/routes/reports.ts` and register it at `/api/reports`. Add a `requireRole(roles[])` middleware helper that checks `req.user.role` against an array of allowed roles.
+
+### Helper: getCurrentPayPeriod()
+Semi-monthly: day 1–15 = first half, day 16–end = second half of current month.
+
+### Endpoint 1: GET /api/reports/manager/dashboard
+Roles: MANAGER, DIRECTOR, EXECUTIVE, ADMIN
+
+Steps:
+1. Get all ACTIVE users where assignedManagerId = req.user.id
+2. Get today's orders from sales_orders where rep_id IN (repIds) and date_sold = today, grouped by rep_id
+3. Get current pay period orders from sales_orders, grouped by rep_id, with sum(base_commission_earned)
+4. Get today's activity from user_activity_logs: for each rep userId, select min(created_at) as firstSeen, max(created_at) as lastSeen where date(created_at) = today
+5. Return JSON:
+{
+  teamSize, clockedInCount (reps active today), zeroDayCount (clocked in but 0 orders),
+  todayTotalOrders,
+  reps: [{
+    id, name, repId, isActiveToday, firstSeen, lastSeen, minutesActive,
+    todayOrders, periodOrders, periodCommission, isZeroDay, lastPage, deviceType
+  }]
+}
+
+### Endpoint 2: GET /api/reports/my/dashboard
+Roles: any authenticated user
+
+Return:
+{
+  todayOrders: count of today's orders for req.user.repId,
+  periodOrders: count + sum(base_commission_earned) for current pay period,
+  mtdOrders: count for month to date,
+  activityToday: { firstSeen, lastSeen, minutesActive } from user_activity_logs,
+  latestStatement: most recent pay_statement where isViewableByRep = true
+}
+
+### Endpoint 3: GET /api/reports/executive/summary
+Roles: EXECUTIVE, ADMIN
+
+Return four time buckets (today, pay period, MTD, all-time), each with:
+{
+  totalOrders: count(*) from sales_orders where approvalStatus = APPROVED,
+  totalInstalls: count where job_status = COMPLETED,
+  totalCommission: sum(base_commission_earned),
+  totalRackRate: sum(iron_crest_rack_rate_cents) / 100,
+  totalProfit: sum(iron_crest_profit_cents) / 100,
+  uniqueReps: count(distinct rep_id)
+}
+Also return:
+- chargebackRate: count(chargebacks in period) / count(approved orders in period) * 100
+- pendingPayRuns: count of pay_runs where status IN (DRAFT, PENDING_REVIEW, PENDING_APPROVAL)
+
+### Endpoint 4: GET /api/reports/director/team-comparison
+Roles: DIRECTOR, EXECUTIVE, ADMIN
+Query params: dateFrom, dateTo
+
+For each MANAGER role user, get their team reps (assignedManagerId = manager.id) and return:
+{
+  teams: [{
+    manager: { id, name },
+    repCount,
+    totalOrders, totalInstalls, totalCommission, avgCommissionPerRep
+  }]
+}
+
+### Endpoint 5: GET /api/reports/director/rep-leaderboard
+Roles: DIRECTOR, EXECUTIVE, ADMIN
+Query params: dateFrom, dateTo, limit (default 20)
+
+Join sales_orders with users, group by rep_id, return:
+[{ repId, userName, role, managerName, totalOrders, totalInstalls, totalCommission, installRate }]
+Sorted by totalOrders desc.
+
+### Endpoint 6: GET /api/reports/operations/dashboard
+Roles: OPERATIONS, ADMIN, EXECUTIVE
+
+Query in parallel and return counts:
+- openExceptions: order_exceptions where resolved_at IS NULL
+- unmatchedPayments: unmatched_payments where resolved_at IS NULL
+- unmatchedChargebacks: unmatched_chargebacks where resolved_at IS NULL
+- rateIssues: rate_issues where resolved_at IS NULL
+- latestSyncRun: most recent row from install_sync_runs
+- pendingPayRuns: pay_runs where status IN (DRAFT, PENDING_REVIEW, PENDING_APPROVAL)
+- systemExceptions: system_exceptions where status = OPEN
+- alerts: array of { severity: "error"|"warning", message } for any non-zero counts or failed sync
+
+---
+
+## 3. FRONTEND COMPONENTS
+
+### Role-based Dashboard Router
+In the existing dashboard page/route, detect the user's role and render the matching dashboard component:
+- EXECUTIVE or ADMIN → ExecutiveDashboard
+- DIRECTOR → DirectorDashboard
+- MANAGER → ManagerDashboard
+- OPERATIONS or ACCOUNTING → OperationsDashboard
+- All others (REP, LEAD, MDU) → MyDashboard
+
+### Shared: KpiCard component
+Props: label, value, subValue?, trend ("up"|"down"|"flat")?, trendLabel?, variant ("default"|"success"|"warning"|"danger")?
+Renders a card with a left colored border based on variant.
+
+### Shared: TimeHorizonSelector component
+A button group toggle: "Today" | "Pay Period" | "MTD"
+Passes selected horizon as state to parent dashboard.
+
+### MyDashboard (rep self-service)
+- 3 KPI cards: Orders Today, Period Orders, MTD Orders
+- Period commission earned (large number display)
+- Activity today: "First active: [time] · Last active: [time] · [X] min"
+- Latest pay statement summary if available
+
+### ManagerDashboard
+- 4 KPI cards: In Field Today (X/TeamSize), Orders Today, Zero-Day Reps, Team Size
+- Rep list sorted by: active first, then by todayOrders desc
+- Each rep row shows: green/gray dot (isActiveToday), name, repId, firstSeen, lastSeen, minutesActive, todayOrders, periodOrders, periodCommission
+- Red highlight on rows where isZeroDay = true AND isActiveToday = true
+
+### ExecutiveDashboard
+- TimeHorizonSelector drives which time bucket data is shown
+- KPI cards: Total Orders, Total Installs, Install Rate %, Total Commission, Total Rack Rate, Total Profit
+- Chargeback rate badge
+- Pending pay runs alert if > 0
+
+### DirectorDashboard
+- Team comparison table: one row per manager showing their team stats
+- Rep leaderboard table (top 20) with rank numbers
+- Date range selector defaulting to current pay period
+
+### OperationsDashboard
+- Alert banners at top for any non-zero counts
+- 6 stat tiles: Open Exceptions, Unmatched Payments, Unmatched Chargebacks, Rate Issues, Pending Pay Runs, Open System Exceptions
+- Latest install sync run: status badge, timestamp, matched/unmatched counts
+
+---
+
+## 4. REACT QUERY KEYS
+
+Use these query keys:
+- ["/api/reports/my/dashboard"]
+- ["/api/reports/manager/dashboard"]
+- ["/api/reports/executive/summary"]
+- ["/api/reports/director/team-comparison", dateFrom, dateTo]
+- ["/api/reports/director/rep-leaderboard", dateFrom, dateTo]
+- ["/api/reports/operations/dashboard"]
+
+All dashboards should refetch every 60 seconds using refetchInterval: 60000.
+
+---
+
+## 5. BUILD ORDER
+
+1. Verify/add user_activity_logs middleware
+2. Create server/routes/reports.ts with all 6 endpoints
+3. Register routes in server/routes.ts
+4. Build KpiCard and TimeHorizonSelector shared components
+5. Build MyDashboard
+6. Build ManagerDashboard with RepCard
+7. Build ExecutiveDashboard
+8. Build DirectorDashboard
+9. Build OperationsDashboard
+10. Wire role-based dashboard router
+
+Use the existing stack: Express + Drizzle ORM + React 18 + TanStack Query + TailwindCSS + shadcn/ui. Do not add new dependencies.
