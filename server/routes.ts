@@ -2252,7 +2252,7 @@ export async function registerRoutes(
       const clientMap = new Map(allClients.map((c: any) => [c.id, c.name]));
       const repMap = new Map(allUsersForOrders.map((u: any) => [u.repId, u.name]));
       
-      const canSeeGross = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user.role);
+      const canSeeGross = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR"].includes(user.role);
 
       const ordersWithCommissions = orders.map((order: any) => {
         const base: any = {
