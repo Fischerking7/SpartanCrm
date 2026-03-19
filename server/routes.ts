@@ -12309,7 +12309,7 @@ export async function registerRoutes(
   app.get("/api/user-activity", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (!["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role)) {
+      if (!["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "DIRECTOR"].includes(user.role)) {
         return res.status(403).json({ message: "Forbidden" });
       }
       const rangeDays = parseInt(req.query.range as string) || 7;
@@ -15715,7 +15715,7 @@ export async function registerRoutes(
     }
   });
 
-  const overrideApprovalAccess = requireRoles("EXECUTIVE", "OPERATIONS", "ADMIN", "ACCOUNTING");
+  const overrideApprovalAccess = requireRoles("EXECUTIVE", "OPERATIONS", "ADMIN", "ACCOUNTING", "DIRECTOR");
 
   const ALL_APPROVABLE_TYPES = ["LEADER_OVERRIDE", "MANAGER_OVERRIDE", "DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"];
 
@@ -15724,6 +15724,7 @@ export async function registerRoutes(
     if (userRole === "OPERATIONS") return ALL_APPROVABLE_TYPES.includes(overrideType);
     if (userRole === "ADMIN") return ["LEADER_OVERRIDE", "MANAGER_OVERRIDE", "DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
     if (userRole === "ACCOUNTING") return ALL_APPROVABLE_TYPES.includes(overrideType);
+    if (userRole === "DIRECTOR") return ["LEADER_OVERRIDE", "MANAGER_OVERRIDE"].includes(overrideType);
     return false;
   }
 
@@ -19225,7 +19226,7 @@ function registerReportRoutes(app: Express, auth: any) {
 
         if (repIds.length === 0) {
           return {
-            manager: { id: mgr.id, name: `${mgr.firstName} ${mgr.lastName}` },
+            manager: { id: mgr.id, name: mgr.name },
             repCount: 0, totalOrders: 0, totalInstalls: 0, totalCommission: "0", avgCommissionPerRep: "0",
           };
         }
@@ -19243,7 +19244,7 @@ function registerReportRoutes(app: Express, auth: any) {
         const s = stats[0];
         const totalCommission = parseFloat(s?.totalCommission || "0");
         return {
-          manager: { id: mgr.id, name: `${mgr.firstName} ${mgr.lastName}` },
+          manager: { id: mgr.id, name: mgr.name },
           repCount: repIds.length,
           totalOrders: s?.totalOrders || 0,
           totalInstalls: s?.totalInstalls || 0,
@@ -19295,10 +19296,10 @@ function registerReportRoutes(app: Express, auth: any) {
           const mgrRows = await db.query.users.findMany({
             where: inArray(users.id, managerIds),
           });
-          mgrRows.forEach(m => managerMap.set(m.id, `${m.firstName} ${m.lastName}`));
+          mgrRows.forEach(m => managerMap.set(m.id, m.name));
         }
         userRows.forEach(u => usersMap.set(u.repId, {
-          userName: `${u.firstName} ${u.lastName}`,
+          userName: u.name,
           role: u.role,
           managerName: u.assignedManagerId ? managerMap.get(u.assignedManagerId) || null : null,
         }));

@@ -213,7 +213,7 @@ function Router() {
     );
   }
 
-  const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE" || user.role === "ACCOUNTING";
+  const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE" || user.role === "ACCOUNTING" || user.role === "DIRECTOR";
   const canReviewMdu = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE";
   const canViewReports = user.role !== "REP";
 
@@ -276,11 +276,11 @@ function Router() {
           </>
         )}
         
-        {["ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"].includes(user.role) && (
+        {["ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING", "DIRECTOR"].includes(user.role) && (
           <Route path="/admin/override-approvals" component={OverrideApprovals} />
         )}
         
-        {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(user.role) && (
+        {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "DIRECTOR"].includes(user.role) && (
           <Route path="/admin/user-activity" component={UserActivityPage} />
         )}
         

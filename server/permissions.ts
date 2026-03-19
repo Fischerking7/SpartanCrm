@@ -28,7 +28,7 @@ export const PERMISSIONS = {
   'financial:manage:reserves': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'financial:override:reserve:cap': ['OPERATIONS', 'EXECUTIVE'],
 
-  'overrides:approve:director': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+  'overrides:approve:director': ['DIRECTOR', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'overrides:approve:admin': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'overrides:approve:accounting': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'overrides:view': ['MANAGER', 'DIRECTOR', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
@@ -74,7 +74,7 @@ export const PERMISSIONS = {
 
   'reports:production': ['DIRECTOR', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'reports:financial': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
-  'reports:all': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+  'reports:all': ['DIRECTOR', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 
   'onboarding:review': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
   'onboarding:approve': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],

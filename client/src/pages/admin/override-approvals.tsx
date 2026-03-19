@@ -166,6 +166,7 @@ export default function OverrideApprovals() {
     if (role === "EXECUTIVE" || role === "OPERATIONS") return true;
     if (role === "ADMIN") return ["LEADER_OVERRIDE", "MANAGER_OVERRIDE", "DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
     if (role === "ACCOUNTING") return overrideType === "ACCOUNTING_OVERRIDE";
+    if (role === "DIRECTOR") return ["LEADER_OVERRIDE", "MANAGER_OVERRIDE"].includes(overrideType);
     return false;
   };
 

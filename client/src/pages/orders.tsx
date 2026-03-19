@@ -145,7 +145,7 @@ export default function Orders() {
     });
   };
 
-  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE" || user?.role === "ACCOUNTING";
+  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE" || user?.role === "ACCOUNTING" || user?.role === "DIRECTOR";
   const isOperations = user?.role === "OPERATIONS";
   const isExecutive = user?.role === "EXECUTIVE";
   const isTouchDevice = useIsTouchDevice();
@@ -403,7 +403,7 @@ export default function Orders() {
   });
 
   // Fetch rate cards for commission calculation (all users need this for accurate net display)
-  const isAdminOrExec = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE" || user?.role === "ACCOUNTING";
+  const isAdminOrExec = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE" || user?.role === "ACCOUNTING" || user?.role === "DIRECTOR";
   const { data: rateCards } = useQuery<RateCard[]>({
     queryKey: ["/api/rate-cards/for-overrides"],
     queryFn: async () => {

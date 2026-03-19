@@ -217,6 +217,11 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
         sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments, MENU.userActivity],
         ...base,
       };
+    case "DIRECTOR":
+      return {
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.orders, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.execReports, MENU.overrideApprovals, MENU.userActivity, MENU.adjustments],
+        ...base,
+      };
     case "EXECUTIVE":
       return {
         sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.reports, MENU.execReports, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users, MENU.userActivity],
@@ -430,6 +435,48 @@ export function AppSidebar() {
     );
   };
 
+  const renderDirectorSidebar = () => (
+    <>
+      <CollapsibleSection
+        title="Dashboard"
+        icon={LayoutDashboard}
+        items={[MENU.dashboard]}
+        location={location}
+        defaultOpen={true}
+      />
+      <CollapsibleSection
+        title="Operations"
+        icon={Briefcase}
+        items={[MENU.orders, MENU.orderTracker, MENU.overrideApprovals, MENU.adjustments]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="Insights"
+        icon={TrendingUp}
+        items={[MENU.reports, MENU.execReports, MENU.userActivity]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="Settings"
+        icon={Cog}
+        items={[MENU.users, MENU.rateCards]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="My Account"
+        icon={User}
+        items={[...personalItems, ...preferencesItems]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="Resources"
+        icon={BookOpen}
+        items={[MENU.knowledge]}
+        location={location}
+      />
+    </>
+  );
+
   const renderAccountingSidebar = () => (
     <>
       <CollapsibleSection
@@ -480,6 +527,7 @@ export function AppSidebar() {
 
   const renderSidebar = () => {
     if (user.role === "EXECUTIVE" || user.role === "OPERATIONS") return renderExecutiveSidebar();
+    if (user.role === "DIRECTOR") return renderDirectorSidebar();
     if (user.role === "ACCOUNTING") return renderAccountingSidebar();
     if (user.role === "ADMIN") return renderAdminSidebar();
     return renderNonAdminSidebar();
