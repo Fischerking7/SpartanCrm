@@ -3991,6 +3991,10 @@ export async function registerRoutes(
         if (overrides.length > 0) {
           config.push({
             rateCardId: rc.id,
+            serviceId: rc.serviceId,
+            providerId: rc.providerId,
+            mobileProductType: rc.mobileProductType || null,
+            baseAmount: rc.baseAmount,
             overrides: overrides.map((o: any) => ({
               role: o.role,
               overrideDeduction: o.overrideDeduction,
@@ -4011,10 +4015,28 @@ export async function registerRoutes(
       const validRoles = ["REP", "MDU", "LEAD", "MANAGER", "EXECUTIVE"];
       let updated = 0;
       let skipped = 0;
+
+      const allLocalRateCards = await storage.getRateCards();
+
       for (const entry of config) {
-        if (!entry.rateCardId || !Array.isArray(entry.overrides)) { skipped++; continue; }
-        const rc = await storage.getRateCardById(entry.rateCardId);
-        if (!rc) { skipped++; continue; }
+        if (!Array.isArray(entry.overrides)) { skipped++; continue; }
+
+        const targetRateCards: string[] = [];
+        const directRc = entry.rateCardId ? await storage.getRateCardById(entry.rateCardId) : null;
+        if (directRc) targetRateCards.push(directRc.id);
+
+        if (entry.serviceId && entry.providerId) {
+          const matched = allLocalRateCards.filter((rc: any) =>
+            rc.serviceId === entry.serviceId &&
+            rc.providerId === entry.providerId &&
+            (entry.mobileProductType ? rc.mobileProductType === entry.mobileProductType : !rc.mobileProductType) &&
+            !targetRateCards.includes(rc.id)
+          );
+          for (const m of matched) targetRateCards.push(m.id);
+        }
+
+        if (targetRateCards.length === 0) { skipped++; continue; }
+
         const validatedOverrides = entry.overrides
           .filter((ro: any) => ro && validRoles.includes(ro.role))
           .map((ro: any) => ({
@@ -4024,8 +4046,11 @@ export async function registerRoutes(
             mobileOverrideDeduction: String(ro.mobileOverrideDeduction || "0"),
             isAdditive: false,
           }));
-        await storage.saveRateCardRoleOverrides(entry.rateCardId, validatedOverrides);
-        updated++;
+
+        for (const rcId of targetRateCards) {
+          await storage.saveRateCardRoleOverrides(rcId, validatedOverrides);
+          updated++;
+        }
       }
       await storage.createAuditLog({ action: "import_override_config", tableName: "rate_card_role_overrides", recordId: "bulk", userId: req.user!.id, afterJson: JSON.stringify({ updated, skipped }) });
       res.json({ success: true, updated, skipped });
