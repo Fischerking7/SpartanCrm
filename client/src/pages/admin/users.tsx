@@ -890,9 +890,11 @@ export default function AdminUsers() {
                   <SelectItem value="MDU">MDU</SelectItem>
                   <SelectItem value="LEAD">Supervisor</SelectItem>
                   <SelectItem value="MANAGER">Manager</SelectItem>
+                  <SelectItem value="DIRECTOR">Director</SelectItem>
                   <SelectItem value="EXECUTIVE">Executive</SelectItem>
                   <SelectItem value="ADMIN">Admin</SelectItem>
                   <SelectItem value="OPERATIONS">Operations</SelectItem>
+                  <SelectItem value="ACCOUNTING">Accounting</SelectItem>
                 </SelectContent>
               </Select>
             </div>
