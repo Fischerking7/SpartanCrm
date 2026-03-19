@@ -32,7 +32,6 @@ import {
   Plus,
   Smartphone,
   Trash2,
-  Download,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -134,9 +133,7 @@ function OrderCard({
   providerMap,
   serviceMap,
   services,
-  repMap,
   canSeeCommissions,
-  canEdit,
   isEditing,
   onEdit,
   onCancelEdit,
@@ -150,9 +147,7 @@ function OrderCard({
   providerMap: Map<string, string>;
   serviceMap: Map<string, string>;
   services: Service[];
-  repMap: Map<string, { name: string; repId: string }>;
   canSeeCommissions: boolean;
-  canEdit: boolean;
   isEditing: boolean;
   onEdit: () => void;
   onCancelEdit: () => void;
@@ -168,7 +163,6 @@ function OrderCard({
   const clientName = clientMap.get(order.clientId) || "Unknown";
   const providerName = providerMap.get(order.providerId) || "Unknown";
   const serviceName = serviceMap.get(order.serviceId) || "";
-  const repInfo = repMap.get(order.repId);
 
   const [formData, setFormData] = useState({
     customerName: order.customerName || "",
@@ -401,12 +395,6 @@ function OrderCard({
                 </span>
               )}
             </div>
-            {repInfo && (
-              <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono" data-testid={`badge-rep-id-${order.id}`}>{repInfo.repId}</Badge>
-                <span data-testid={`text-rep-name-${order.id}`}>{repInfo.name}</span>
-              </div>
-            )}
             <div className="flex items-center gap-x-3 gap-y-0.5 mt-1.5 text-sm text-muted-foreground flex-wrap">
               <span className="font-medium text-foreground/80">{serviceName || "No service"}</span>
               <span className="text-xs">|</span>
@@ -506,16 +494,14 @@ function OrderCard({
             </p>
           </div>
 
-          {canEdit && (
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              data-testid={`button-edit-inline-${order.id}`}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-          )}
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            data-testid={`button-edit-inline-${order.id}`}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </CardContent>
     </Card>
@@ -525,8 +511,8 @@ function OrderCard({
 export default function OrderTracker() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const canSeeCommissions = ["EXECUTIVE", "OPERATIONS"].includes(user?.role || "");
-  const hasViewModeToggle = ["LEAD", "MANAGER", "DIRECTOR", "EXECUTIVE"].includes(user?.role || "");
+  const canSeeCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
+  const hasViewModeToggle = ["LEAD", "MANAGER", "EXECUTIVE"].includes(user?.role || "");
   const [viewMode, setViewMode] = useState<"own" | "team" | "global">("own");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
@@ -536,66 +522,9 @@ export default function OrderTracker() {
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
-  const isAdmin = ["OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
+  const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user?.role || "");
   const isTouchDevice = useIsTouchDevice();
   const isPaidTab = activeTab === "paid";
-
-  const canEditOrder = (order: SalesOrder): boolean => {
-    if (!user) return false;
-    if (["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role)) return true;
-    if (order.repId === user.repId) return true;
-    if (["MANAGER", "LEAD", "DIRECTOR"].includes(user.role) && (viewMode === "team" || viewMode === "global")) return true;
-    return false;
-  };
-
-  const exportOrdersCSV = () => {
-    if (!sortedOrders || sortedOrders.length === 0) {
-      toast({ title: "No orders to export", variant: "destructive" });
-      return;
-    }
-    const headers = [
-      "Rep ID", "Rep Name", "Customer Name", "Account #", "Phone", "Email",
-      "Address", "City", "Zip", "Service", "Provider", "Client",
-      "Date Sold", "Install Date", "Job Status", "Approval Status", "Payment Status",
-      "Base Commission", "Incentive", "Total Commission", "Invoice #", "Notes"
-    ];
-    const rows = sortedOrders.map(o => {
-      const rep = repMap.get(o.repId);
-      return [
-        o.repId,
-        rep?.name || "",
-        o.customerName || "",
-        o.accountNumber || "",
-        o.customerPhone || "",
-        o.customerEmail || "",
-        [o.houseNumber, o.streetName, o.aptUnit].filter(Boolean).join(" ") || o.customerAddress || "",
-        o.city || "",
-        o.zipCode || "",
-        serviceMap.get(o.serviceId) || "",
-        providerMap.get(o.providerId) || "",
-        clientMap.get(o.clientId) || "",
-        o.dateSold || "",
-        o.installDate ? o.installDate.split("T")[0] : "",
-        o.jobStatus || "",
-        o.approvalStatus || "",
-        o.paymentStatus || "",
-        parseFloat(o.baseCommissionEarned).toFixed(2),
-        parseFloat(o.incentiveEarned || "0").toFixed(2),
-        (parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned || "0")).toFixed(2),
-        o.invoiceNumber || "",
-        (o.notes || "").replace(/"/g, '""'),
-      ].map(v => `"${v}"`);
-    });
-    const csv = [headers.map(h => `"${h}"`).join(","), ...rows.map(r => r.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `orders-export-${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: `Exported ${sortedOrders.length} orders` });
-  };
 
   const getTodayDate = () => {
     const d = new Date();
@@ -680,7 +609,7 @@ export default function OrderTracker() {
     });
   };
 
-  const effectiveViewMode = hasViewModeToggle ? viewMode : (["OPERATIONS"].includes(user?.role || "") ? undefined : "own");
+  const effectiveViewMode = hasViewModeToggle ? viewMode : (["ADMIN", "OPERATIONS"].includes(user?.role || "") ? undefined : "own");
   const { data: orders, isLoading } = useQuery<SalesOrder[]>({
     queryKey: ["/api/orders", "tracker", effectiveViewMode || "all"],
     queryFn: async () => {
@@ -718,16 +647,16 @@ export default function OrderTracker() {
     },
   });
 
-  const canSeeReps = ["OPERATIONS", "EXECUTIVE", "ADMIN", "LEAD", "MANAGER", "DIRECTOR", "ACCOUNTING"].includes(user?.role || "");
   const { data: reps } = useQuery<UserType[]>({
     queryKey: ["/api/admin/users"],
     queryFn: async () => {
       const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
       if (!res.ok) return [];
       const users = await res.json();
-      return users.filter((u: UserType) => u.status === "ACTIVE" && !u.deletedAt);
+      const salesRoles = ["REP", "LEAD", "MANAGER", "EXECUTIVE"];
+      return users.filter((u: UserType) => salesRoles.includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
     },
-    enabled: canSeeReps,
+    enabled: isAdmin,
   });
 
   const { data: availableServices } = useQuery<Service[]>({
@@ -862,12 +791,6 @@ export default function OrderTracker() {
     return map;
   }, [services]);
 
-  const repMap = useMemo(() => {
-    const map = new Map<string, { name: string; repId: string }>();
-    reps?.forEach(r => map.set(r.repId, { name: `${r.firstName} ${r.lastName}`, repId: r.repId }));
-    return map;
-  }, [reps]);
-
   const dateFilteredOrders = useMemo(() => {
     if (!orders) return [];
     const now = new Date();
@@ -920,18 +843,15 @@ export default function OrderTracker() {
     }).filter(o => {
       if (!searchTerm) return true;
       const q = searchTerm.toLowerCase();
-      const rep = repMap.get(o.repId);
       return (
         o.customerName.toLowerCase().includes(q) ||
         o.invoiceNumber?.toLowerCase().includes(q) ||
         o.accountNumber?.toLowerCase().includes(q) ||
-        o.repId.toLowerCase().includes(q) ||
-        rep?.name.toLowerCase().includes(q) ||
         clientMap.get(o.clientId)?.toLowerCase().includes(q) ||
         providerMap.get(o.providerId)?.toLowerCase().includes(q)
       );
     });
-  }, [dateFilteredOrders, activeTab, searchTerm, clientMap, providerMap, repMap]);
+  }, [dateFilteredOrders, activeTab, searchTerm, clientMap, providerMap]);
 
   const sortedOrders = useMemo(() => {
     return [...filteredOrders].sort((a, b) => {
@@ -990,7 +910,7 @@ export default function OrderTracker() {
               >
                 My Team
               </Button>
-              {(user?.role === "EXECUTIVE" || user?.role === "MANAGER" || user?.role === "DIRECTOR") && (
+              {(user?.role === "EXECUTIVE" || user?.role === "MANAGER") && (
                 <Button
                   variant={viewMode === "global" ? "default" : "ghost"}
                   size="sm"
@@ -1017,12 +937,6 @@ export default function OrderTracker() {
               <SelectItem value="this_month">This Month</SelectItem>
             </SelectContent>
           </Select>
-          {["MANAGER", "DIRECTOR", "EXECUTIVE", "OPERATIONS", "ADMIN", "ACCOUNTING"].includes(user?.role || "") && (
-            <Button variant="outline" onClick={exportOrdersCSV} data-testid="button-export-orders">
-              <Download className="h-4 w-4 mr-1.5" />
-              Export
-            </Button>
-          )}
           <Button onClick={() => setShowNewOrderDialog(true)} data-testid="button-new-order-tracker">
             <Plus className="h-4 w-4 mr-1.5" />
             New Order
@@ -1242,9 +1156,7 @@ export default function OrderTracker() {
               providerMap={providerMap}
               serviceMap={serviceMap}
               services={services || []}
-              repMap={repMap}
               canSeeCommissions={canSeeCommissions}
-              canEdit={canEditOrder(order)}
               isEditing={editingOrderId === order.id}
               onEdit={() => setEditingOrderId(order.id)}
               onCancelEdit={() => setEditingOrderId(null)}
@@ -1575,10 +1487,8 @@ export default function OrderTracker() {
               providerMap={providerMap}
               serviceMap={serviceMap}
               services={services || []}
-              repMap={repMap}
               onClose={() => setSelectedOrder(null)}
               canSeeCommissions={canSeeCommissions}
-              canEdit={canEditOrder(selectedOrder)}
             />
           )}
         </DialogContent>
@@ -1779,26 +1689,21 @@ function OrderDetailPanel({
   providerMap,
   serviceMap,
   services,
-  repMap,
   onClose,
   canSeeCommissions,
-  canEdit,
 }: {
   order: SalesOrder;
   clientMap: Map<string, string>;
   providerMap: Map<string, string>;
   serviceMap: Map<string, string>;
   services: Service[];
-  repMap: Map<string, { name: string; repId: string }>;
   onClose: () => void;
   canSeeCommissions: boolean;
-  canEdit: boolean;
 }) {
   const { toast } = useToast();
   const status = getOrderStatus(order);
   const config = getStatusConfig(status);
   const netCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
-  const repInfo = repMap.get(order.repId);
 
   const [isEditing, setIsEditing] = useState(false);
   const [notesValue, setNotesValue] = useState(order.notes || "");
@@ -1919,18 +1824,16 @@ function OrderDetailPanel({
         </Badge>
         <div className="flex items-center gap-2">
           <StatusPipeline status={status} />
-          {canEdit && (
-            !isEditing ? (
-              <Button size="sm" variant="outline" onClick={() => setIsEditing(true)} data-testid="button-edit-order">
-                <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                Edit
-              </Button>
-            ) : (
-              <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-order">
-                {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-                Save
-              </Button>
-            )
+          {!isEditing ? (
+            <Button size="sm" variant="outline" onClick={() => setIsEditing(true)} data-testid="button-edit-order">
+              <Pencil className="h-3.5 w-3.5 mr-1.5" />
+              Edit
+            </Button>
+          ) : (
+            <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-order">
+              {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+              Save
+            </Button>
           )}
         </div>
       </div>
@@ -2087,18 +1990,6 @@ function OrderDetailPanel({
               <p className="text-sm font-medium">{order.customerName}</p>
             </div>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-              {repInfo && (
-                <>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Rep ID</p>
-                    <p className="text-sm font-medium font-mono" data-testid="text-detail-rep-id">{repInfo.repId}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Rep Name</p>
-                    <p className="text-sm font-medium" data-testid="text-detail-rep-name">{repInfo.name}</p>
-                  </div>
-                </>
-              )}
               <div>
                 <p className="text-xs text-muted-foreground">Service</p>
                 <p className="text-sm font-medium">{serviceMap.get(order.serviceId) || "—"}</p>

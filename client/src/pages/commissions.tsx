@@ -76,10 +76,9 @@ export default function Commissions() {
 
   const isMobile = useIsMobile();
   const isRep = user?.role === "REP";
-  const isDirector = user?.role === "DIRECTOR";
-  const canSeeOverrides = ["EXECUTIVE", "OPERATIONS"].includes(user?.role || "");
-  const showDollars = !isDirector;
-  const formatCurrency = (amount: number) => showDollars ? `$${amount.toFixed(2)}` : "—";
+  // EXECUTIVE, ADMIN, OPERATIONS can see override earnings they receive from their teams
+  const canSeeOverrides = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
+  const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`;
 
   if (isLoading) {
     return (
@@ -347,7 +346,7 @@ export default function Commissions() {
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={data.weeklyChartData}>
                   <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(val) => showDollars ? `$${val}` : "—"} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(val) => `$${val}`} />
                   <Tooltip formatter={(value: number) => formatCurrency(value)} />
                   <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -369,7 +368,7 @@ export default function Commissions() {
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={data.mtdChartData}>
                   <XAxis dataKey="day" tick={{ fontSize: 10 }} interval={data.mtdChartData.length > 15 ? 2 : 0} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(val) => showDollars ? `$${val}` : "—"} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(val) => `$${val}`} />
                   <Tooltip formatter={(value: number) => formatCurrency(value)} />
                   <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 </BarChart>

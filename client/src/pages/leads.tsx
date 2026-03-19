@@ -81,12 +81,12 @@ export default function Leads() {
   // Tab state for Sales Pipeline
   const [activeTab, setActiveTab] = useState<string>("leads");
 
-  const canImport = ["REP", "LEAD", "MANAGER", "EXECUTIVE", "OPERATIONS"].includes(user?.role || "");
-  const canAssignToOthers = ["LEAD", "MANAGER", "EXECUTIVE", "OPERATIONS"].includes(user?.role || "");
+  const canImport = ["REP", "LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
+  const canAssignToOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
   const canBulkManage = canAssignToOthers; // LEAD+ can multi-select and bulk manage
-  const isAdmin = ["OPERATIONS"].includes(user?.role || "");
+  const isAdmin = ["ADMIN", "OPERATIONS"].includes(user?.role || "");
   const canCreateLead = true;
-  const canViewPipeline = ["MANAGER", "EXECUTIVE", "OPERATIONS"].includes(user?.role || "");
+  const canViewPipeline = ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
 
   const getStreetAddress = (lead: Lead): string => {
     let street = "";

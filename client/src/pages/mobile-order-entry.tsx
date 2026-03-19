@@ -219,7 +219,7 @@ export default function MobileOrderEntry() {
                   <SelectValue placeholder="Select provider" />
                 </SelectTrigger>
                 <SelectContent>
-                  {providers?.filter(p => p.active).map(p => (
+                  {providers?.map(p => (
                     <SelectItem key={p.id} value={p.id} className="py-3">{p.name}</SelectItem>
                   ))}
                 </SelectContent>

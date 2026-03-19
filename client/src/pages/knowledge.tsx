@@ -60,7 +60,8 @@ const ROLES = [
   { value: "LEAD", label: "Lead+" },
   { value: "MANAGER", label: "Manager+" },
   { value: "EXECUTIVE", label: "Executive+" },
-  { value: "OPERATIONS", label: "Operations+" },
+  { value: "ADMIN", label: "Admin+" },
+  { value: "OPERATIONS", label: "Founder Only" },
 ];
 
 function getFileTypeFromMime(mimeType: string): "PDF" | "WORD" | "IMAGE" | "OTHER" {
@@ -109,7 +110,7 @@ export default function KnowledgeDatabase() {
   // Store the objectPath from the upload URL request
   const pendingObjectPathRef = useRef<string | null>(null);
 
-  const isAdmin = user?.role === "OPERATIONS";
+  const isAdmin = user?.role === "ADMIN" || user?.role === "OPERATIONS";
   const canDelete = isAdmin || user?.role === "MANAGER" || user?.role === "EXECUTIVE";
   const canUpload = user?.role !== "REP" && user?.role !== "LEAD";
 

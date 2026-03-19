@@ -1,7 +1,7 @@
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
-import { Home, ShoppingCart, DollarSign, Users, User } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, Zap, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const fieldRoles = ["REP", "MDU", "LEAD"];
@@ -22,11 +22,10 @@ export function MobileBottomNav() {
   }
 
   const navItems: NavItem[] = [
-    { label: "Home", icon: <Home className="h-5 w-5" />, path: "/dashboard" },
-    { label: "Orders", icon: <ShoppingCart className="h-5 w-5" />, path: "/my-orders" },
-    { label: "Earnings", icon: <DollarSign className="h-5 w-5" />, path: "/my-earnings" },
+    { label: "Dashboard", icon: <LayoutDashboard className="h-5 w-5" />, path: "/" },
+    { label: "Orders", icon: <ShoppingCart className="h-5 w-5" />, path: "/orders" },
+    { label: "Quick Entry", icon: <Zap className="h-5 w-5" />, path: "/mobile-entry" },
     { label: "Leads", icon: <Users className="h-5 w-5" />, path: "/leads" },
-    { label: "Account", icon: <User className="h-5 w-5" />, path: "/account" },
   ];
 
   return (
@@ -44,7 +43,7 @@ export function MobileBottomNav() {
               className={cn(
                 "flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors min-w-0",
                 isActive
-                  ? "text-[#C9A84C]"
+                  ? "text-foreground"
                   : "text-muted-foreground"
               )}
               data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}

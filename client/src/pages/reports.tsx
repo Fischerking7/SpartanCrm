@@ -320,7 +320,7 @@ export default function Reports() {
       if (!res.ok) return { data: [], totals: { totalOverrides: "0.00", invoiceCount: 0 }, recipients: [] };
       return res.json();
     },
-    enabled: summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE",
+    enabled: summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE",
   });
 
   type UserActivityData = {
@@ -418,7 +418,7 @@ export default function Reports() {
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
-    enabled: ["OPERATIONS", "EXECUTIVE"].includes(user?.role || ""),
+    enabled: ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user?.role || ""),
   });
 
   const handleExport = () => {
@@ -730,23 +730,23 @@ export default function Reports() {
             {summary?.scopeInfo?.role !== "REP" && (
               <TabsTrigger value="team-production" data-testid="tab-team-production">Team Production</TabsTrigger>
             )}
-            {(summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE") && (
+            {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE") && (
               <TabsTrigger value="override-invoices" data-testid="tab-override-invoices">Override by Invoice</TabsTrigger>
             )}
-            {(summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE") && (
+            {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE") && (
               <TabsTrigger value="payroll" data-testid="tab-payroll">Payroll Summary</TabsTrigger>
             )}
-            {["OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
+            {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
               <TabsTrigger value="profitability" data-testid="tab-profitability">Profitability</TabsTrigger>
             )}
-            {["OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
+            {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
               <TabsTrigger value="product-mix" data-testid="tab-product-mix">Product Mix</TabsTrigger>
             )}
             <TabsTrigger value="user-activity" data-testid="tab-user-activity">User Activity</TabsTrigger>
-            {["OPERATIONS", "EXECUTIVE"].includes(summary?.scopeInfo?.role || "") && (
+            {["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(summary?.scopeInfo?.role || "") && (
               <TabsTrigger value="sales-tracker" data-testid="tab-sales-tracker">Sales Tracker</TabsTrigger>
             )}
-            {["OPERATIONS"].includes(summary?.scopeInfo?.role || "") && (
+            {["ADMIN", "OPERATIONS"].includes(summary?.scopeInfo?.role || "") && (
               <TabsTrigger value="email-reports" data-testid="tab-email-reports">Email Reports</TabsTrigger>
             )}
           </TabsList>
@@ -1376,7 +1376,7 @@ export default function Reports() {
           </TabsContent>
         )}
 
-        {(summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE") && (
+        {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE") && (
           <TabsContent value="override-invoices" className="space-y-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
@@ -1453,19 +1453,19 @@ export default function Reports() {
           </TabsContent>
         )}
 
-        {(summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE") && (
+        {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE") && (
           <TabsContent value="payroll" className="space-y-4">
             <PayrollSummaryTab period={period} customStartDate={customStartDate} customEndDate={customEndDate} />
           </TabsContent>
         )}
 
-        {["OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
+        {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
           <TabsContent value="profitability" className="space-y-4">
             <ProfitabilityTab period={period} customStartDate={customStartDate} customEndDate={customEndDate} />
           </TabsContent>
         )}
 
-        {["OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
+        {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(summary?.scopeInfo?.role || "") && (
           <TabsContent value="product-mix" className="space-y-4">
             <ProductMixTab period={period} customStartDate={customStartDate} customEndDate={customEndDate} />
           </TabsContent>
