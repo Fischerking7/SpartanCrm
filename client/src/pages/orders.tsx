@@ -1579,7 +1579,7 @@ export default function Orders() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Reps</SelectItem>
-                  {allUsers?.map((u: User) => (
+                  {reps?.map((u: User) => (
                     <SelectItem key={u.id} value={u.repId}>{u.repId} - {u.firstName} {u.lastName}</SelectItem>
                   ))}
                 </SelectContent>
