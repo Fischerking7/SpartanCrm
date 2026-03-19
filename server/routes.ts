@@ -15245,13 +15245,19 @@ export async function registerRoutes(
         const syncRepMap = new Map(syncUsers.map(u => [u.repId, u.name]));
         const orderSummaries: OrderSummary[] = pendingOrders.map((order) => {
           const providerName = order.providerId ? (providerMap.get(order.providerId) || "") : "";
+          let houseNumber = order.houseNumber || "";
+          let streetName = order.streetName || "";
+          let aptUnit = order.aptUnit || "";
+          if (!houseNumber && !streetName && order.customerAddress) {
+            streetName = order.customerAddress;
+          }
           return {
             id: order.id,
             invoiceNumber: order.invoiceNumber || "",
             customerName: order.customerName,
-            houseNumber: order.houseNumber || "",
-            streetName: order.streetName || "",
-            aptUnit: order.aptUnit || "",
+            houseNumber,
+            streetName,
+            aptUnit,
             city: order.city || "",
             zipCode: order.zipCode || "",
             serviceType: order.serviceType || "",

@@ -4556,7 +4556,13 @@ export const storage = {
   async getPendingUnapprovedOrders() {
     return db.select().from(salesOrders).where(
       and(
-        eq(salesOrders.approvalStatus, "UNAPPROVED"),
+        or(
+          eq(salesOrders.approvalStatus, "UNAPPROVED"),
+          and(
+            eq(salesOrders.approvalStatus, "APPROVED"),
+            eq(salesOrders.jobStatus, "PENDING"),
+          ),
+        ),
         or(
           eq(salesOrders.jobStatus, "PENDING"),
           eq(salesOrders.jobStatus, "COMPLETED"),
