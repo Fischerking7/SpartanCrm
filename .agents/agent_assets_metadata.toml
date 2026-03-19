@@ -24,3 +24,9 @@ id = "WWVZGRgQ6MWP6V5LHg186"
 uri = "file://exports/FRONTEND-INDEX.txt"
 type = "text"
 title = "Frontend File Index & Directory Guide"
+
+[[outputs]]
+id = "l1sr-ouSWyc9WsvkZLO4t"
+uri = "file://drizzle-schema-export.txt"
+type = "text"
+title = "Drizzle Schema Export (shared/schema.ts)"
