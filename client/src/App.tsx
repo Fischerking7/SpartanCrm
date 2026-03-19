@@ -17,6 +17,7 @@ import ChangePassword from "@/pages/change-password";
 import SalesDashboard from "@/pages/sales-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
 import ExecutiveDashboard from "@/pages/executive-dashboard";
+import AccountingDashboard from "@/pages/accounting-dashboard";
 import Orders from "@/pages/orders";
 import Leads from "@/pages/leads";
 import Commissions from "@/pages/commissions";
@@ -69,6 +70,8 @@ function Dashboard() {
     case "OPERATIONS":
     case "ADMIN":
       return <AdminDashboard />;
+    case "ACCOUNTING":
+      return <AccountingDashboard />;
     case "EXECUTIVE":
       return <ExecutiveDashboard />;
     default:

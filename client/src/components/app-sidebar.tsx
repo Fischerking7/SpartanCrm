@@ -433,11 +433,17 @@ export function AppSidebar() {
   const renderAccountingSidebar = () => (
     <>
       <CollapsibleSection
-        title="Orders"
-        icon={Briefcase}
-        items={[MENU.orderTracker, MENU.orders]}
+        title="Dashboard"
+        icon={LayoutDashboard}
+        items={[MENU.dashboard]}
         location={location}
         defaultOpen={true}
+      />
+      <CollapsibleSection
+        title="Orders"
+        icon={Briefcase}
+        items={[MENU.orders]}
+        location={location}
       />
       <CollapsibleSection
         title="Accounting"
@@ -448,7 +454,7 @@ export function AppSidebar() {
       <CollapsibleSection
         title="Insights"
         icon={TrendingUp}
-        items={[MENU.dashboard, MENU.reports, MENU.execReports]}
+        items={[MENU.reports, MENU.execReports]}
         location={location}
       />
       <CollapsibleSection
