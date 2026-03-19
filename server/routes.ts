@@ -15261,6 +15261,7 @@ export async function registerRoutes(
             jobStatus: order.jobStatus,
             approvalStatus: order.approvalStatus,
             accountNumber: order.accountNumber || "",
+            isMobileOrder: !!order.isMobileOrder,
           };
         });
 

@@ -16,6 +16,7 @@ export interface OrderSummary {
   jobStatus: string;
   approvalStatus: string;
   accountNumber?: string;
+  isMobileOrder?: boolean;
 }
 
 export interface MatchResult {
@@ -238,6 +239,19 @@ function getWoStatus(row: Record<string, string>): string {
   );
 }
 
+export function getWorkOrderType(row: Record<string, string>): string {
+  return findColumn(row,
+    "WORK_ORDER_TYPE", "Work_Order_Type", "Work Order Type", "WorkOrderType",
+    "work_order_type", "WO_TYPE", "wo_type", "ORDER_TYPE", "Order Type",
+    "order_type", "OrderType"
+  ).trim().toUpperCase();
+}
+
+export function isSheetRowMobile(row: Record<string, string>): boolean {
+  const woType = getWorkOrderType(row);
+  return woType === "IN";
+}
+
 interface ScoreBreakdown {
   nameScore: number;
   addressScore: number;
@@ -293,6 +307,17 @@ function scoreMatch(row: Record<string, string>, order: OrderSummary): ScoreBrea
     }
   }
 
+  const sheetIsMobile = isSheetRowMobile(row);
+  const orderIsMobile = !!order.isMobileOrder;
+  let mobileTypeBonus = 0;
+  if (sheetIsMobile && orderIsMobile) {
+    mobileTypeBonus = 10;
+    reasons.push("Mobile order type matched");
+  } else if (sheetIsMobile !== orderIsMobile) {
+    mobileTypeBonus = -15;
+    reasons.push(sheetIsMobile ? "Sheet row is mobile but order is not" : "Order is mobile but sheet row is not");
+  }
+
   let total: number;
   if (acctScore === 1 && nameScore >= 0.4) {
     total = 95;
@@ -320,6 +345,8 @@ function scoreMatch(row: Record<string, string>, order: OrderSummary): ScoreBrea
       );
     }
   }
+
+  total = Math.max(0, Math.min(100, total + mobileTypeBonus));
 
   return { nameScore, addressScore, cityScore, zipScore, repScore, acctScore, total, reasons };
 }
