@@ -217,11 +217,6 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
         sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments, MENU.userActivity],
         ...base,
       };
-    case "ACCOUNTING":
-      return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.overrideApprovals],
-        ...base,
-      };
     case "EXECUTIVE":
       return {
         sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.reports, MENU.execReports, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users, MENU.userActivity],
@@ -435,8 +430,51 @@ export function AppSidebar() {
     );
   };
 
+  const renderAccountingSidebar = () => (
+    <>
+      <CollapsibleSection
+        title="Orders"
+        icon={Briefcase}
+        items={[MENU.orderTracker, MENU.orders]}
+        location={location}
+        defaultOpen={true}
+      />
+      <CollapsibleSection
+        title="Accounting"
+        icon={Wallet}
+        items={[...adminAccountingItems, MENU.payRuns, MENU.overrideApprovals]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="Insights"
+        icon={TrendingUp}
+        items={[MENU.dashboard, MENU.reports, MENU.execReports]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="System Settings"
+        icon={Cog}
+        items={[MENU.rateCards, MENU.quickbooks, MENU.overrides]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="My Account"
+        icon={User}
+        items={[...personalItems, ...preferencesItems]}
+        location={location}
+      />
+      <CollapsibleSection
+        title="Resources"
+        icon={BookOpen}
+        items={[MENU.knowledge]}
+        location={location}
+      />
+    </>
+  );
+
   const renderSidebar = () => {
     if (user.role === "EXECUTIVE" || user.role === "OPERATIONS") return renderExecutiveSidebar();
+    if (user.role === "ACCOUNTING") return renderAccountingSidebar();
     if (user.role === "ADMIN") return renderAdminSidebar();
     return renderNonAdminSidebar();
   };

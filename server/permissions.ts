@@ -7,8 +7,8 @@ export const PERMISSIONS = {
   'orders:view:all': ['DIRECTOR', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'orders:create': ['REP', 'LEAD', 'MANAGER', 'OPERATIONS', 'EXECUTIVE'],
   'orders:edit': ['OPERATIONS', 'EXECUTIVE'],
-  'orders:approve': ['MANAGER', 'DIRECTOR', 'OPERATIONS', 'EXECUTIVE'],
-  'orders:reject': ['MANAGER', 'DIRECTOR', 'OPERATIONS', 'EXECUTIVE'],
+  'orders:approve': ['MANAGER', 'DIRECTOR', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+  'orders:reject': ['MANAGER', 'DIRECTOR', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'orders:delete': ['OPERATIONS', 'EXECUTIVE'],
 
   'financial:view:commission': ['REP', 'LEAD', 'MANAGER', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
@@ -28,7 +28,7 @@ export const PERMISSIONS = {
   'financial:manage:reserves': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'financial:override:reserve:cap': ['OPERATIONS', 'EXECUTIVE'],
 
-  'overrides:approve:director': ['OPERATIONS', 'EXECUTIVE'],
+  'overrides:approve:director': ['OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'overrides:approve:admin': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'overrides:approve:accounting': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'overrides:view': ['MANAGER', 'DIRECTOR', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
@@ -47,7 +47,7 @@ export const PERMISSIONS = {
   'users:create:director': ['OPERATIONS', 'EXECUTIVE'],
   'users:create:operations': ['OPERATIONS', 'EXECUTIVE'],
 
-  'finance:import:upload': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
+  'finance:import:upload': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'finance:import:view': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'finance:import:post': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 
@@ -72,9 +72,9 @@ export const PERMISSIONS = {
   'disputes:view:all': ['DIRECTOR', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'disputes:resolve': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 
-  'reports:production': ['DIRECTOR', 'ADMIN', 'OPERATIONS', 'EXECUTIVE'],
+  'reports:production': ['DIRECTOR', 'ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
   'reports:financial': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
-  'reports:all': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
+  'reports:all': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
 
   'onboarding:review': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
   'onboarding:approve': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],

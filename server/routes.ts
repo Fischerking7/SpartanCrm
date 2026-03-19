@@ -15723,7 +15723,7 @@ export async function registerRoutes(
     if (userRole === "EXECUTIVE") return ALL_APPROVABLE_TYPES.includes(overrideType);
     if (userRole === "OPERATIONS") return ALL_APPROVABLE_TYPES.includes(overrideType);
     if (userRole === "ADMIN") return ["LEADER_OVERRIDE", "MANAGER_OVERRIDE", "DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"].includes(overrideType);
-    if (userRole === "ACCOUNTING") return ["ACCOUNTING_OVERRIDE"].includes(overrideType);
+    if (userRole === "ACCOUNTING") return ALL_APPROVABLE_TYPES.includes(overrideType);
     return false;
   }
 
