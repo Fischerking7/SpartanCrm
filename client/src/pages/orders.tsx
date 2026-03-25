@@ -390,7 +390,9 @@ export default function Orders() {
     enabled: showNewOrderDialog && !!newOrderForm.providerId,
   });
 
-  // Fetch commission line items when viewing order details
+  const isAdminOrExec = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE" || user?.role === "ACCOUNTING" || user?.role === "DIRECTOR";
+  const canSeeCommission = isAdminOrExec;
+
   const { data: commissionLines } = useQuery<CommissionLineItem[]>({
     queryKey: ["/api/orders", selectedOrder?.id, "commission-lines"],
     queryFn: async () => {
@@ -399,11 +401,9 @@ export default function Orders() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!selectedOrder?.id,
+    enabled: !!selectedOrder?.id && canSeeCommission,
   });
 
-  // Fetch rate cards for commission calculation (all users need this for accurate net display)
-  const isAdminOrExec = user?.role === "ADMIN" || user?.role === "OPERATIONS" || user?.role === "EXECUTIVE" || user?.role === "ACCOUNTING" || user?.role === "DIRECTOR";
   const { data: rateCards } = useQuery<RateCard[]>({
     queryKey: ["/api/rate-cards/for-overrides"],
     queryFn: async () => {
@@ -411,6 +411,7 @@ export default function Orders() {
       if (!res.ok) return [];
       return res.json();
     },
+    enabled: canSeeCommission,
   });
 
   // Helper to get override amount for an order (uses stored value from commission calculation)
@@ -665,7 +666,7 @@ export default function Orders() {
     // baseCommissionEarned is the NET (after override deducted)
     const headers = isAdminOrExec 
       ? ["Rep Name", "SLSID", "Account Number", "Customer Name", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Gross Commission", "Override", "Net Commission", "Provider"]
-      : ["Rep Name", "SLSID", "Account Number", "Customer Name", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Commission", "Provider"];
+      : ["Rep Name", "SLSID", "Account Number", "Customer Name", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Provider"];
     const rows = filteredOrders.map(order => {
       const service = services?.find(s => s.id === order.serviceId);
       const provider = providers?.find(p => p.id === order.providerId);
@@ -707,7 +708,6 @@ export default function Orders() {
         order.dateSold,
         order.installDate || "",
         service?.name || "",
-        netCommission.toFixed(2),
         provider?.name || "",
       ];
     });
@@ -1120,7 +1120,7 @@ export default function Orders() {
         );
       },
     },
-        ...((activeTab === "orders" || !isAdminOrExec) ? [{
+        ...((canSeeCommission && (activeTab === "orders" || !isAdminOrExec)) ? [{
       key: "baseCommissionEarned",
       header: "Commission",
       cell: (row: SalesOrder) => {
@@ -1484,24 +1484,28 @@ export default function Orders() {
                   <p className="text-xl font-bold">{paidCount}</p>
                 </CardContent>
               </Card>
-              <Card data-testid="insight-net-earned">
-                <CardContent className="p-3">
-                  <div className="flex items-center justify-between gap-1 mb-0.5">
-                    <span className="text-xs text-muted-foreground">Net Earned</span>
-                    <DollarSign className="h-3.5 w-3.5 text-primary" />
-                  </div>
-                  <p className="text-xl font-bold font-mono">${totalEarned.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
-                </CardContent>
-              </Card>
-              <Card data-testid="insight-total-paid">
-                <CardContent className="p-3">
-                  <div className="flex items-center justify-between gap-1 mb-0.5">
-                    <span className="text-xs text-muted-foreground">Total Paid</span>
-                    <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
-                  </div>
-                  <p className="text-xl font-bold font-mono">${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
-                </CardContent>
-              </Card>
+              {canSeeCommission && (
+                <Card data-testid="insight-net-earned">
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                      <span className="text-xs text-muted-foreground">Net Earned</span>
+                      <DollarSign className="h-3.5 w-3.5 text-primary" />
+                    </div>
+                    <p className="text-xl font-bold font-mono">${totalEarned.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                  </CardContent>
+                </Card>
+              )}
+              {canSeeCommission && (
+                <Card data-testid="insight-total-paid">
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                      <span className="text-xs text-muted-foreground">Total Paid</span>
+                      <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
+                    </div>
+                    <p className="text-xl font-bold font-mono">${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                  </CardContent>
+                </Card>
+              )}
             </div>
 
             <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile" | "approval-queue" | "approved" | "paid")}>
@@ -1695,13 +1699,13 @@ export default function Orders() {
                   label: "Approval",
                   render: (row: SalesOrder) => <ApprovalStatusBadge status={row.approvalStatus} />,
                 },
-                {
+                ...(canSeeCommission ? [{
                   label: "Commission",
                   render: (row: SalesOrder) => {
                     const netCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
                     return <span className="font-mono">${netCommission.toFixed(2)}</span>;
                   },
-                },
+                }] : []),
                 {
                   label: "Provider",
                   render: (row: SalesOrder) => {
@@ -2100,118 +2104,106 @@ export default function Orders() {
                   )}
                 </div>
               </div>
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <Label className="text-muted-foreground">Commission Breakdown</Label>
-                  {isAdmin && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => recalculateCommissionMutation.mutate(selectedOrder.id)}
-                      disabled={recalculateCommissionMutation.isPending}
-                      data-testid="button-recalculate-commission"
-                    >
-                      {recalculateCommissionMutation.isPending ? "Recalculating..." : "Recalculate"}
-                    </Button>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {(() => {
-                    // Executives are exempt from override deductions
-                    const orderRepRole = reps?.find(r => r.repId === selectedOrder.repId)?.role;
-                    const isExecutiveSale = orderRepRole === "EXECUTIVE";
-                    
-                    // Get the applied rate card to determine per-category deductions
-                    const appliedRateCard = rateCards?.find(rc => rc.id === selectedOrder.appliedRateCardId);
-                    const baseDeduction = isExecutiveSale ? 0 : parseFloat(appliedRateCard?.overrideDeduction || "0");
-                    const tvDeduction = isExecutiveSale ? 0 : parseFloat(appliedRateCard?.tvOverrideDeduction || "0");
-                    const mobileDeductionTotal = isExecutiveSale ? 0 : parseFloat((appliedRateCard as any)?.mobileOverrideDeduction || "0");
-                    
-                    // Count mobile lines for distributing mobile deduction
-                    const mobileLines = commissionLines?.filter(l => l.serviceCategory === "MOBILE") || [];
-                    const mobileLineCount = mobileLines.length;
-                    
-                    // Track deductions applied (each category only once, except mobile which is per-line)
-                    let baseDeductionApplied = false;
-                    let tvDeductionApplied = false;
-                    
-                    // Calculate net for each line using category-specific deductions
-                    const getNetAmount = (line: CommissionLineItem): number => {
-                      const grossAmount = parseFloat(line.totalAmount);
-                      if (line.serviceCategory === "INTERNET" && !baseDeductionApplied) {
-                        baseDeductionApplied = true;
-                        return Math.max(0, grossAmount - baseDeduction);
-                      }
-                      if (line.serviceCategory === "VIDEO" && !tvDeductionApplied) {
-                        tvDeductionApplied = true;
-                        return Math.max(0, grossAmount - tvDeduction);
-                      }
-                      if (line.serviceCategory === "MOBILE") {
-                        // Mobile deduction split across all mobile lines
-                        const perLineDeduction = mobileLineCount > 0 ? mobileDeductionTotal / mobileLineCount : 0;
-                        return Math.max(0, grossAmount - perLineDeduction);
-                      }
-                      return grossAmount;
-                    };
-                    
-                    return (
-                      <>
-                        {commissionLines && commissionLines.length > 0 ? (
-                          <>
-                            {commissionLines.map((line, idx) => {
-                              const categoryLabels: Record<string, string> = {
-                                "INTERNET": "Internet",
-                                "MOBILE": "Mobile",
-                                "VIDEO": "Video (TV)"
-                              };
-                              const label = categoryLabels[line.serviceCategory] || line.serviceCategory;
-                              const detail = line.serviceCategory === "MOBILE" && line.quantity > 1 
-                                ? ` (${line.quantity} lines)` 
-                                : line.serviceCategory === "MOBILE" && line.mobileProductType
-                                  ? ` (${line.mobileProductType.replace("_", " ")})`
-                                  : "";
-                              const netAmount = getNetAmount(line);
-                              return (
-                                <div key={idx} className="flex justify-between gap-2">
-                                  <span>{label}{detail}</span>
-                                  <span className="font-mono">${netAmount.toFixed(2)}</span>
-                                </div>
-                              );
-                            })}
-                          </>
-                        ) : (
-                          <div className="flex justify-between gap-2">
-                            <span>Base Commission</span>
-                            <span className="font-mono">${parseFloat(selectedOrder.baseCommissionEarned).toFixed(2)}</span>
+              {canSeeCommission && (
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <Label className="text-muted-foreground">Commission Breakdown</Label>
+                    {isAdmin && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => recalculateCommissionMutation.mutate(selectedOrder.id)}
+                        disabled={recalculateCommissionMutation.isPending}
+                        data-testid="button-recalculate-commission"
+                      >
+                        {recalculateCommissionMutation.isPending ? "Recalculating..." : "Recalculate"}
+                      </Button>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {(() => {
+                      const orderRepRole = reps?.find(r => r.repId === selectedOrder.repId)?.role;
+                      const isExecutiveSale = orderRepRole === "EXECUTIVE";
+                      const appliedRateCard = rateCards?.find(rc => rc.id === selectedOrder.appliedRateCardId);
+                      const baseDeduction = isExecutiveSale ? 0 : parseFloat(appliedRateCard?.overrideDeduction || "0");
+                      const tvDeduction = isExecutiveSale ? 0 : parseFloat(appliedRateCard?.tvOverrideDeduction || "0");
+                      const mobileDeductionTotal = isExecutiveSale ? 0 : parseFloat((appliedRateCard as any)?.mobileOverrideDeduction || "0");
+                      const mobileLines = commissionLines?.filter(l => l.serviceCategory === "MOBILE") || [];
+                      const mobileLineCount = mobileLines.length;
+                      let baseDeductionApplied = false;
+                      let tvDeductionApplied = false;
+                      const getNetAmount = (line: CommissionLineItem): number => {
+                        const grossAmount = parseFloat(line.totalAmount);
+                        if (line.serviceCategory === "INTERNET" && !baseDeductionApplied) {
+                          baseDeductionApplied = true;
+                          return Math.max(0, grossAmount - baseDeduction);
+                        }
+                        if (line.serviceCategory === "VIDEO" && !tvDeductionApplied) {
+                          tvDeductionApplied = true;
+                          return Math.max(0, grossAmount - tvDeduction);
+                        }
+                        if (line.serviceCategory === "MOBILE") {
+                          const perLineDeduction = mobileLineCount > 0 ? mobileDeductionTotal / mobileLineCount : 0;
+                          return Math.max(0, grossAmount - perLineDeduction);
+                        }
+                        return grossAmount;
+                      };
+                      return (
+                        <>
+                          {commissionLines && commissionLines.length > 0 ? (
+                            <>
+                              {commissionLines.map((line, idx) => {
+                                const categoryLabels: Record<string, string> = {
+                                  "INTERNET": "Internet",
+                                  "MOBILE": "Mobile",
+                                  "VIDEO": "Video (TV)"
+                                };
+                                const label = categoryLabels[line.serviceCategory] || line.serviceCategory;
+                                const detail = line.serviceCategory === "MOBILE" && line.quantity > 1 
+                                  ? ` (${line.quantity} lines)` 
+                                  : line.serviceCategory === "MOBILE" && line.mobileProductType
+                                    ? ` (${line.mobileProductType.replace("_", " ")})`
+                                    : "";
+                                const netAmount = getNetAmount(line);
+                                return (
+                                  <div key={idx} className="flex justify-between gap-2">
+                                    <span>{label}{detail}</span>
+                                    <span className="font-mono">${netAmount.toFixed(2)}</span>
+                                  </div>
+                                );
+                              })}
+                            </>
+                          ) : (
+                            <div className="flex justify-between gap-2">
+                              <span>Base Commission</span>
+                              <span className="font-mono">${parseFloat(selectedOrder.baseCommissionEarned).toFixed(2)}</span>
+                            </div>
+                          )}
+                          {parseFloat(selectedOrder.incentiveEarned) > 0 && (
+                            <div className="flex justify-between gap-2">
+                              <span>Incentives</span>
+                              <span className="font-mono">${parseFloat(selectedOrder.incentiveEarned).toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between gap-2 border-t pt-2 font-semibold">
+                            <span>Total Earned</span>
+                            <span className="font-mono">
+                              {(() => {
+                                const gross = parseFloat((selectedOrder as any).grossCommissionTotal || "0");
+                                const net = parseFloat(selectedOrder.baseCommissionEarned) + parseFloat(selectedOrder.incentiveEarned);
+                                if (isAdminOrExec) {
+                                  return `$${gross.toFixed(2)}`;
+                                }
+                                return `$${net.toFixed(2)}`;
+                              })()}
+                            </span>
                           </div>
-                        )}
-                        {parseFloat(selectedOrder.incentiveEarned) > 0 && (
-                          <div className="flex justify-between gap-2">
-                            <span>Incentives</span>
-                            <span className="font-mono">${parseFloat(selectedOrder.incentiveEarned).toFixed(2)}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between gap-2 border-t pt-2 font-semibold">
-                          <span>Total Earned</span>
-                          <span className="font-mono">
-                            {(() => {
-                              // grossCommissionTotal from line items = original rate card amounts
-                              const gross = parseFloat((selectedOrder as any).grossCommissionTotal || "0");
-                              // Net is baseCommissionEarned (already has override deducted) + incentive
-                              const net = parseFloat(selectedOrder.baseCommissionEarned) + parseFloat(selectedOrder.incentiveEarned);
-                              // Admin/Exec see gross, REPs see net
-                              if (isAdminOrExec) {
-                                return `$${gross.toFixed(2)}`;
-                              }
-                              return `$${net.toFixed(2)}`;
-                            })()}
-                          </span>
-                        </div>
-                      </>
-                    );
-                  })()}
+                        </>
+                      );
+                    })()}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
           <DialogFooter className="gap-2 flex-wrap">

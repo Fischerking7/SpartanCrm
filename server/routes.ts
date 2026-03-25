@@ -2253,6 +2253,7 @@ export async function registerRoutes(
       const repMap = new Map(allUsersForOrders.map((u: any) => [u.repId, u.name]));
       
       const canSeeGross = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR"].includes(user.role);
+      const canSeeCommission = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR", "ACCOUNTING"].includes(user.role);
 
       const ordersWithCommissions = orders.map((order: any) => {
         const base: any = {
@@ -2266,6 +2267,13 @@ export async function registerRoutes(
         if (canSeeGross) {
           base.grossCommissionTotal = grossCommissionTotals.get(order.id) || "0";
         } else {
+          delete base.overrideDeduction;
+        }
+        if (!canSeeCommission) {
+          base.baseCommissionEarned = "0";
+          base.incentiveEarned = "0";
+          base.commissionPaid = "0";
+          base.mobileCommissionTotal = "0";
           delete base.overrideDeduction;
         }
         return base;

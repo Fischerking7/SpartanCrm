@@ -134,6 +134,7 @@ function OrderCard({
   serviceMap,
   services,
   canSeeGross,
+  canSeeCommission,
   isEditing,
   onEdit,
   onCancelEdit,
@@ -149,6 +150,7 @@ function OrderCard({
   serviceMap: Map<string, string>;
   services: Service[];
   canSeeGross: boolean;
+  canSeeCommission: boolean;
   isEditing: boolean;
   onEdit: () => void;
   onCancelEdit: () => void;
@@ -519,12 +521,16 @@ function OrderCard({
           </div>
 
           <div className="text-right min-w-[100px]">
-            <p className="font-mono font-medium" data-testid={`text-commission-${order.id}`}>
-              ${displayCommission.toFixed(2)}
-            </p>
-            <p className="text-[10px] text-muted-foreground">
-              {canSeeGross ? "Gross" : "Net"}
-            </p>
+            {canSeeCommission ? (
+              <>
+                <p className="font-mono font-medium" data-testid={`text-commission-${order.id}`}>
+                  ${displayCommission.toFixed(2)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {canSeeGross ? "Gross" : "Net"}
+                </p>
+              </>
+            ) : null}
             <p className="text-xs text-muted-foreground">
               {new Date(order.dateSold).toLocaleDateString()}
             </p>
@@ -547,7 +553,8 @@ function OrderCard({
 export default function OrderTracker() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const canSeeGrossCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user?.role || "");
+  const canSeeGrossCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR", "ACCOUNTING"].includes(user?.role || "");
+  const canSeeCommission = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR", "ACCOUNTING"].includes(user?.role || "");
   const hasViewModeToggle = ["LEAD", "MANAGER", "EXECUTIVE"].includes(user?.role || "");
   const [viewMode, setViewMode] = useState<"own" | "team" | "global">("own");
   const [searchTerm, setSearchTerm] = useState("");
@@ -1103,18 +1110,20 @@ export default function OrderTracker() {
             <p className="text-xs text-muted-foreground mt-0.5">All orders</p>
           </CardContent>
         </Card>
-        <Card data-testid="card-stat-earned">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-sm text-muted-foreground">{canSeeGrossCommissions ? "Gross Earned" : "Net Earned"}</span>
-              <DollarSign className="h-4 w-4 text-primary" />
-            </div>
-            <p className="text-2xl font-bold font-mono">
-              ${stats.totalEarned.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">Approved + paid</p>
-          </CardContent>
-        </Card>
+        {canSeeCommission && (
+          <Card data-testid="card-stat-earned">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-sm text-muted-foreground">{canSeeGrossCommissions ? "Gross Earned" : "Net Earned"}</span>
+                <DollarSign className="h-4 w-4 text-primary" />
+              </div>
+              <p className="text-2xl font-bold font-mono">
+                ${stats.totalEarned.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Approved + paid</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -1204,6 +1213,7 @@ export default function OrderTracker() {
               serviceMap={serviceMap}
               services={services || []}
               canSeeGross={canSeeGrossCommissions}
+              canSeeCommission={canSeeCommission}
               isEditing={editingOrderId === order.id}
               onEdit={() => setEditingOrderId(order.id)}
               onCancelEdit={() => setEditingOrderId(null)}
@@ -1537,6 +1547,7 @@ export default function OrderTracker() {
               services={services || []}
               onClose={() => setSelectedOrder(null)}
               canSeeGross={canSeeGrossCommissions}
+              canSeeCommission={canSeeCommission}
               repName={repMap.get(selectedOrder.repId) || (selectedOrder as any).repName || ""}
             />
           )}
@@ -1740,6 +1751,7 @@ function OrderDetailPanel({
   services,
   onClose,
   canSeeGross,
+  canSeeCommission,
   repName,
 }: {
   order: SalesOrder;
@@ -1749,6 +1761,7 @@ function OrderDetailPanel({
   services: Service[];
   onClose: () => void;
   canSeeGross: boolean;
+  canSeeCommission: boolean;
   repName?: string;
 }) {
   const { toast } = useToast();
@@ -2145,50 +2158,52 @@ function OrderDetailPanel({
         )}
       </div>
 
-      <div className="border-t pt-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs text-muted-foreground">{canSeeGross ? "Gross Commission" : "Net Commission"}</p>
-            <p className="text-xl font-bold font-mono" data-testid="text-detail-commission">
-              ${displayCommission.toFixed(2)}
-            </p>
-          </div>
-          {parseFloat(order.incentiveEarned || "0") > 0 && (
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">Includes Incentive</p>
-              <p className="text-sm font-mono">
-                +${parseFloat(order.incentiveEarned || "0").toFixed(2)}
+      {canSeeCommission && (
+        <div className="border-t pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs text-muted-foreground">{canSeeGross ? "Gross Commission" : "Net Commission"}</p>
+              <p className="text-xl font-bold font-mono" data-testid="text-detail-commission">
+                ${displayCommission.toFixed(2)}
               </p>
             </div>
+            {parseFloat(order.incentiveEarned || "0") > 0 && (
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Includes Incentive</p>
+                <p className="text-sm font-mono">
+                  +${parseFloat(order.incentiveEarned || "0").toFixed(2)}
+                </p>
+              </div>
+            )}
+          </div>
+          {canSeeGross && (
+            <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Base</p>
+                <p className="font-mono" data-testid="text-detail-base-commission">${parseFloat(order.baseCommissionEarned).toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Override Deduction</p>
+                <p className="font-mono text-orange-600 dark:text-orange-400" data-testid="text-detail-override-deduction">${overrideDeduction.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Rep Net</p>
+                <p className="font-mono" data-testid="text-detail-net-commission">${netCommission.toFixed(2)}</p>
+              </div>
+            </div>
+          )}
+          {order.paidDate && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Paid on {new Date(order.paidDate).toLocaleDateString()}
+            </p>
+          )}
+          {parseFloat(order.commissionPaid || "0") > 0 && (
+            <p className="text-xs text-muted-foreground mt-1" data-testid="text-detail-commission-paid">
+              Paid out: ${parseFloat(order.commissionPaid || "0").toFixed(2)}
+            </p>
           )}
         </div>
-        {canSeeGross && (
-          <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
-            <div>
-              <p className="text-xs text-muted-foreground">Base</p>
-              <p className="font-mono" data-testid="text-detail-base-commission">${parseFloat(order.baseCommissionEarned).toFixed(2)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Override Deduction</p>
-              <p className="font-mono text-orange-600 dark:text-orange-400" data-testid="text-detail-override-deduction">${overrideDeduction.toFixed(2)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Rep Net</p>
-              <p className="font-mono" data-testid="text-detail-net-commission">${netCommission.toFixed(2)}</p>
-            </div>
-          </div>
-        )}
-        {order.paidDate && (
-          <p className="text-xs text-muted-foreground mt-2">
-            Paid on {new Date(order.paidDate).toLocaleDateString()}
-          </p>
-        )}
-        {parseFloat(order.commissionPaid || "0") > 0 && (
-          <p className="text-xs text-muted-foreground mt-1" data-testid="text-detail-commission-paid">
-            Paid out: ${parseFloat(order.commissionPaid || "0").toFixed(2)}
-          </p>
-        )}
-      </div>
+      )}
     </div>
   );
 }
