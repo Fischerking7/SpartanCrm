@@ -665,8 +665,8 @@ export default function Orders() {
     // grossCommissionTotal comes from sum of commission line items (original rate card amounts)
     // baseCommissionEarned is the NET (after override deducted)
     const headers = isAdminOrExec 
-      ? ["Rep Name", "SLSID", "Account Number", "Customer Name", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Gross Commission", "Override", "Net Commission", "Provider"]
-      : ["Rep Name", "SLSID", "Account Number", "Customer Name", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Provider"];
+      ? ["Rep Name", "SLSID", "Account Number", "Customer Name", "Phone", "Email", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Gross Commission", "Override", "Net Commission", "Provider"]
+      : ["Rep Name", "SLSID", "Account Number", "Customer Name", "Phone", "Email", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Provider"];
     const rows = filteredOrders.map(order => {
       const service = services?.find(s => s.id === order.serviceId);
       const provider = providers?.find(p => p.id === order.providerId);
@@ -681,6 +681,8 @@ export default function Orders() {
           order.repId,
           order.accountNumber || "",
           order.customerName,
+          order.customerPhone || "",
+          order.customerEmail || "",
           order.houseNumber || "",
           order.streetName || "",
           order.aptUnit || "",
@@ -700,6 +702,8 @@ export default function Orders() {
         order.repId,
         order.accountNumber || "",
         order.customerName,
+        order.customerPhone || "",
+        order.customerEmail || "",
         order.houseNumber || "",
         order.streetName || "",
         order.aptUnit || "",
