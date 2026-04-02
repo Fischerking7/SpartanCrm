@@ -334,6 +334,30 @@ export default function Orders() {
     },
   });
 
+  useEffect(() => {
+    if (showNewOrderDialog && clients?.length === 1 && !newOrderForm.clientId) {
+      setNewOrderForm(f => ({ ...f, clientId: clients[0].id }));
+    }
+  }, [showNewOrderDialog, clients, newOrderForm.clientId]);
+
+  useEffect(() => {
+    if (showNewOrderDialog && providers?.length === 1 && !newOrderForm.providerId) {
+      setNewOrderForm(f => ({ ...f, providerId: providers[0].id }));
+    }
+  }, [showNewOrderDialog, providers, newOrderForm.providerId]);
+
+  useEffect(() => {
+    if (showMobileOrderDialog && clients?.length === 1 && !mobileOrderForm.clientId) {
+      setMobileOrderForm(f => ({ ...f, clientId: clients[0].id }));
+    }
+  }, [showMobileOrderDialog, clients, mobileOrderForm.clientId]);
+
+  useEffect(() => {
+    if (showMobileOrderDialog && providers?.length === 1 && !mobileOrderForm.providerId) {
+      setMobileOrderForm(f => ({ ...f, providerId: providers[0].id }));
+    }
+  }, [showMobileOrderDialog, providers, mobileOrderForm.providerId]);
+
   // Available services filtered by client and provider (for order form)
   const { data: availableServices } = useQuery<Service[]>({
     queryKey: ["/api/services/available", newOrderForm.clientId, newOrderForm.providerId],
