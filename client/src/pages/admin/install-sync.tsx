@@ -141,9 +141,16 @@ export default function InstallSync() {
       if (sheetUrl) localStorage.setItem("installSync_sheetUrl", sheetUrl);
       if (emailTo) localStorage.setItem("installSync_emailTo", emailTo);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/install-sync/history"] });
+      const ci = data.carrierInsights;
+      const parts: string[] = [];
+      parts.push(`${data.matchedCount}/${data.totalSheetRows} matched`);
+      if (data.approvedCount > 0) parts.push(`${data.approvedCount} approved`);
+      if (ci?.autoFilled?.length) parts.push(`${ci.autoFilled.length} orders updated`);
+      if (ci?.mismatches?.length) parts.push(`${ci.mismatches.length} speed mismatches`);
+      if (ci?.missingOrders?.length) parts.push(`${ci.missingOrders.length} missing from CRM`);
       toast({
         title: "Sync Complete",
-        description: `Matched ${data.matchedCount} of ${data.totalSheetRows} records. ${data.approvedCount} orders approved.`,
+        description: parts.join(" · "),
       });
     },
     onError: (error: Error) => {
@@ -315,7 +322,46 @@ export default function InstallSync() {
               </div>
             </div>
 
-            <p className="text-sm" data-testid="text-summary">{result.summary}</p>
+            <div className="space-y-2" data-testid="text-summary">
+              <p className="text-sm">{result.summary}</p>
+
+              {(() => {
+                const ci2 = result.carrierInsights;
+                const lines: { icon: typeof CheckCircle2; color: string; text: string }[] = [];
+                if (result.approvedCount > 0)
+                  lines.push({ icon: CheckCircle2, color: "text-green-600", text: `${result.approvedCount} order${result.approvedCount !== 1 ? "s" : ""} auto-approved (completed installs with 70%+ confidence)` });
+                if (ci2?.autoFilled?.length) {
+                  const fieldCounts: Record<string, number> = {};
+                  ci2.autoFilled.forEach(af => af.fields.forEach(f => { fieldCounts[f] = (fieldCounts[f] || 0) + 1; }));
+                  const fieldSummary = Object.entries(fieldCounts).map(([f, c]) => `${c} ${f}`).join(", ");
+                  lines.push({ icon: Zap, color: "text-blue-600", text: `${ci2.autoFilled.length} order${ci2.autoFilled.length !== 1 ? "s" : ""} updated from carrier data (${fieldSummary})` });
+                }
+                if (ci2?.mismatches?.length)
+                  lines.push({ icon: ArrowRightLeft, color: "text-amber-600", text: `${ci2.mismatches.length} speed tier mismatch${ci2.mismatches.length !== 1 ? "es" : ""} detected — sold service differs from carrier install` });
+                if (ci2?.missingOrders?.length)
+                  lines.push({ icon: Search, color: "text-red-600", text: `${ci2.missingOrders.length} carrier record${ci2.missingOrders.length !== 1 ? "s" : ""} for Iron Crest reps not found in CRM — may need to be entered` });
+                const cancelCount = ci2?.carrierStats?.canceledCount || 0;
+                if (cancelCount > 0)
+                  lines.push({ icon: XCircle, color: "text-red-500", text: `${cancelCount} carrier cancellation${cancelCount !== 1 ? "s" : ""} in this batch (${ci2?.carrierStats?.cancelRate || 0}% cancel rate)` });
+                if (result.unmatchedCount > 0 && !ci2?.missingOrders?.length)
+                  lines.push({ icon: AlertTriangle, color: "text-amber-500", text: `${result.unmatchedCount} sheet row${result.unmatchedCount !== 1 ? "s" : ""} could not be matched to any CRM order` });
+
+                if (lines.length === 0) return null;
+                return (
+                  <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                    {lines.map((line, idx) => {
+                      const Icon = line.icon;
+                      return (
+                        <div key={idx} className={`flex items-start gap-2 text-sm ${line.color}`}>
+                          <Icon className="h-4 w-4 mt-0.5 shrink-0" />
+                          <span>{line.text}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
 
             {result.emailSent && (
               <div className="flex items-center gap-2 text-sm text-green-600">
