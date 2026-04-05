@@ -17,7 +17,7 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import rateLimit from "express-rate-limit";
 import { encryptSsn, decryptSsn, extractSsnLast4, maskSsn } from "./encryption";
 import { fetchGoogleSheet, parseUploadedCsv } from "./google-sheets";
-import { matchInstallationsToOrders, normalizeWoStatus, type OrderSummary } from "./claude-matching";
+import { matchInstallationsToOrders, normalizeWoStatus, type OrderSummary, getCustomerName, getAddress, getCity, getZip, getRepName, getAccountNumber, getWoStatus, getWorkOrderNumber, getScheduleDate, getCheckInDate, getCancelCode, getCancelCodeDesc, getInternetMdm, getSalesmanNumber, getOffice, getWorkOrderType, getDataInstallsQty, getMobileInstallsQty, getVideoInstallsQty } from "./claude-matching";
 import { emailService } from "./email";
 import { getOrCreateReserve, applyWithholding, applyChargebackToReserve, applyEquipmentRecovery, handleRepSeparation, checkAndReleaseMaturedReserves, calculateWithholding, isReserveEligibleRole } from "./reserves/reserveService";
 import { generatePayStub, generatePayStubsForPayRun } from "./payStubGenerator";
@@ -15511,6 +15511,73 @@ export async function registerRoutes(
         const approvedOrders: any[] = [];
         const statusUpdatedOrders: any[] = [];
 
+        const speedTierMap: Record<string, string> = {
+          "50": "50_MBPS", "150": "150_MBPS", "300": "300_MBPS", "600": "600_MBPS",
+          "1000": "1_GIG", "1200": "GiG_PLUS", "2000": "2_GIG", "5000": "5_GIG",
+        };
+        const allServicesForSync = await storage.getServices();
+        const serviceByCode = new Map(allServicesForSync.map(s => [s.code, s]));
+        const serviceById = new Map(allServicesForSync.map(s => [s.id, s]));
+
+        const carrierInsights: {
+          autoFilled: { orderId: string; orderInvoice: string; customerName: string; fields: string[] }[];
+          mismatches: { orderId: string; orderInvoice: string; customerName: string; crmService: string; carrierSpeed: string; carrierSpeedLabel: string }[];
+          missingOrders: { customerName: string; address: string; city: string; repName: string; acctNbr: string; woStatus: string; woType: string; internetSpeed: string }[];
+          carrierStats: {
+            totalRows: number; completedCount: number; canceledCount: number; openCount: number; noDispatchCount: number;
+            completionRate: number; cancelRate: number;
+            byRep: Record<string, { total: number; completed: number; canceled: number; open: number }>;
+            bySpeedTier: Record<string, number>;
+            ironCrestRows: number; otherOfficeRows: number;
+          };
+        } = {
+          autoFilled: [],
+          mismatches: [],
+          missingOrders: [],
+          carrierStats: {
+            totalRows: sheetData.rows.length, completedCount: 0, canceledCount: 0, openCount: 0, noDispatchCount: 0,
+            completionRate: 0, cancelRate: 0, byRep: {}, bySpeedTier: {}, ironCrestRows: 0, otherOfficeRows: 0,
+          },
+        };
+
+        for (const row of sheetData.rows) {
+          const status = normalizeWoStatus(row.data);
+          if (status === "CP") carrierInsights.carrierStats.completedCount++;
+          else if (status === "CN") carrierInsights.carrierStats.canceledCount++;
+          else if (status === "OP") carrierInsights.carrierStats.openCount++;
+          else if (status === "ND") carrierInsights.carrierStats.noDispatchCount++;
+
+          const repName = getRepName(row.data);
+          if (repName) {
+            if (!carrierInsights.carrierStats.byRep[repName]) {
+              carrierInsights.carrierStats.byRep[repName] = { total: 0, completed: 0, canceled: 0, open: 0 };
+            }
+            carrierInsights.carrierStats.byRep[repName].total++;
+            if (status === "CP") carrierInsights.carrierStats.byRep[repName].completed++;
+            else if (status === "CN") carrierInsights.carrierStats.byRep[repName].canceled++;
+            else if (status === "OP") carrierInsights.carrierStats.byRep[repName].open++;
+          }
+
+          const speed = getInternetMdm(row.data);
+          if (speed) {
+            const label = speedTierMap[speed] || `${speed} Mbps`;
+            carrierInsights.carrierStats.bySpeedTier[label] = (carrierInsights.carrierStats.bySpeedTier[label] || 0) + 1;
+          }
+
+          const office = getOffice(row.data).toUpperCase();
+          if (office.includes("IRON CREST") || office.includes("IRONCREST")) {
+            carrierInsights.carrierStats.ironCrestRows++;
+          } else if (office) {
+            carrierInsights.carrierStats.otherOfficeRows++;
+          }
+        }
+
+        const totalWithStatus = carrierInsights.carrierStats.completedCount + carrierInsights.carrierStats.canceledCount + carrierInsights.carrierStats.openCount + carrierInsights.carrierStats.noDispatchCount;
+        if (totalWithStatus > 0) {
+          carrierInsights.carrierStats.completionRate = Math.round((carrierInsights.carrierStats.completedCount / totalWithStatus) * 100);
+          carrierInsights.carrierStats.cancelRate = Math.round((carrierInsights.carrierStats.canceledCount / totalWithStatus) * 100);
+        }
+
         if (matchResult.matches.length > 0) {
           const now = new Date();
           for (const match of matchResult.matches) {
@@ -15521,6 +15588,70 @@ export async function registerRoutes(
 
             const beforeJson = JSON.stringify(order);
             const updates: Record<string, any> = {};
+            const autoFilledFields: string[] = [];
+
+            const sheetAcctNbr = getAccountNumber(match.sheetData);
+            if (sheetAcctNbr && !order.accountNumber) {
+              updates.accountNumber = sheetAcctNbr;
+              autoFilledFields.push("Account Number");
+            }
+
+            const checkInDt = getCheckInDate(match.sheetData);
+            if (checkInDt && !order.installDate && woStatus === "CP") {
+              const parsed = new Date(checkInDt);
+              if (!isNaN(parsed.getTime())) {
+                updates.installDate = parsed.toISOString().split("T")[0];
+                autoFilledFields.push("Install Date");
+              }
+            }
+
+            if (woStatus === "CN") {
+              const cancelCode = getCancelCode(match.sheetData);
+              const cancelDesc = getCancelCodeDesc(match.sheetData);
+              if (cancelCode || cancelDesc) {
+                const cancelMarker = cancelCode ? `[${cancelCode}]` : (cancelDesc || "");
+                if (!order.notes?.includes(cancelMarker)) {
+                  const cancelNote = `Carrier Cancel: ${cancelCode ? `[${cancelCode}] ` : ""}${cancelDesc || ""}`.trim();
+                  updates.notes = order.notes ? `${order.notes}\n${cancelNote}` : cancelNote;
+                  autoFilledFields.push("Cancel Reason");
+                }
+              }
+            }
+
+            const woNumber = getWorkOrderNumber(match.sheetData);
+            if (woNumber && !order.notes?.includes(`WO#${woNumber}`)) {
+              const woNote = `WO#${woNumber}`;
+              updates.notes = (updates.notes || order.notes || "") ? `${updates.notes || order.notes || ""}\n${woNote}`.trim() : woNote;
+              autoFilledFields.push("Work Order #");
+            }
+
+            const carrierSpeed = getInternetMdm(match.sheetData);
+            if (carrierSpeed && order.serviceId) {
+              const orderService = serviceById.get(order.serviceId);
+              if (orderService) {
+                const expectedCode = speedTierMap[carrierSpeed];
+                if (expectedCode && orderService.code !== expectedCode && orderService.code !== "Gen Internet") {
+                  const expectedService = serviceByCode.get(expectedCode);
+                  carrierInsights.mismatches.push({
+                    orderId: order.id,
+                    orderInvoice: order.invoiceNumber || "",
+                    customerName: order.customerName,
+                    crmService: orderService.name,
+                    carrierSpeed: carrierSpeed,
+                    carrierSpeedLabel: expectedService?.name || `${carrierSpeed} Mbps`,
+                  });
+                }
+              }
+            }
+
+            if (autoFilledFields.length > 0) {
+              carrierInsights.autoFilled.push({
+                orderId: order.id,
+                orderInvoice: order.invoiceNumber || "",
+                customerName: order.customerName,
+                fields: autoFilledFields,
+              });
+            }
 
             if (woStatus === "CP") {
               if (order.jobStatus !== "COMPLETED") {
@@ -15683,6 +15814,40 @@ export async function registerRoutes(
           );
         }
 
+        const matchedSheetIndexes = new Set(matchResult.matches.map(m => m.sheetRowIndex));
+        const allCrmUsers = await storage.getUsers();
+        const crmRepNames = new Set(allCrmUsers.map(u => u.name.toUpperCase().trim()));
+
+        for (let i = 0; i < sheetData.rows.length; i++) {
+          const rowIndex = sheetData.rows[i].rowIndex;
+          if (matchedSheetIndexes.has(rowIndex)) continue;
+          const row = sheetData.rows[i].data;
+          const office = getOffice(row).toUpperCase();
+          if (!office.includes("IRON CREST") && !office.includes("IRONCREST")) continue;
+
+          const repName = getRepName(row);
+          if (!repName) continue;
+          const repUpper = repName.toUpperCase().trim();
+          const isKnownRep = crmRepNames.has(repUpper) ||
+            Array.from(crmRepNames).some(n => {
+              const parts = repUpper.split(/\s+/);
+              return parts.length >= 2 && (n.includes(parts[0]) && n.includes(parts[parts.length - 1]));
+            });
+
+          if (isKnownRep) {
+            carrierInsights.missingOrders.push({
+              customerName: getCustomerName(row),
+              address: getAddress(row),
+              city: getCity(row),
+              repName,
+              acctNbr: getAccountNumber(row),
+              woStatus: normalizeWoStatus(row),
+              woType: getWorkOrderType(row),
+              internetSpeed: getInternetMdm(row),
+            });
+          }
+        }
+
         await storage.updateInstallSyncRun(syncRun.id, {
           totalSheetRows: sheetData.rows.length,
           matchedCount: matchResult.matches.length,
@@ -15702,6 +15867,7 @@ export async function registerRoutes(
               reasoning: m.reasoning,
             })),
             unmatched: matchResult.unmatched,
+            carrierInsights,
           }),
           completedAt: new Date(),
         });
@@ -15716,6 +15882,7 @@ export async function registerRoutes(
           summary: matchResult.summary,
           matches: matchResult.matches,
           unmatched: matchResult.unmatched,
+          carrierInsights,
         });
       } catch (innerError: any) {
         await storage.updateInstallSyncRun(syncRun.id, {

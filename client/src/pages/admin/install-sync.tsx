@@ -9,8 +9,48 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Link2, Play, CheckCircle2, XCircle, Clock, FileSpreadsheet, Mail, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { Upload, Link2, Play, CheckCircle2, XCircle, Clock, FileSpreadsheet, Mail, AlertTriangle, ChevronDown, ChevronUp, BarChart3, ArrowRightLeft, Search, Zap } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+interface CarrierInsights {
+  autoFilled: Array<{
+    orderId: string;
+    orderInvoice: string;
+    customerName: string;
+    fields: string[];
+  }>;
+  mismatches: Array<{
+    orderId: string;
+    orderInvoice: string;
+    customerName: string;
+    crmService: string;
+    carrierSpeed: string;
+    carrierSpeedLabel: string;
+  }>;
+  missingOrders: Array<{
+    customerName: string;
+    address: string;
+    city: string;
+    repName: string;
+    acctNbr: string;
+    woStatus: string;
+    woType: string;
+    internetSpeed: string;
+  }>;
+  carrierStats: {
+    totalRows: number;
+    completedCount: number;
+    canceledCount: number;
+    openCount: number;
+    noDispatchCount: number;
+    completionRate: number;
+    cancelRate: number;
+    byRep: Record<string, { total: number; completed: number; canceled: number; open: number }>;
+    bySpeedTier: Record<string, number>;
+    ironCrestRows: number;
+    otherOfficeRows: number;
+  };
+}
 
 interface SyncResult {
   syncRunId: string;
@@ -34,6 +74,7 @@ interface SyncResult {
     data: Record<string, string>;
     reason: string;
   }>;
+  carrierInsights?: CarrierInsights;
 }
 
 interface SyncRun {
@@ -65,6 +106,7 @@ export default function InstallSync() {
   const [sourceMode, setSourceMode] = useState<"sheet" | "upload">("sheet");
   const [result, setResult] = useState<SyncResult | null>(null);
   const [expandedDetails, setExpandedDetails] = useState(false);
+  const [expandedInsights, setExpandedInsights] = useState(true);
 
   const historyQuery = useQuery<SyncRun[]>({
     queryKey: ["/api/admin/install-sync/history"],
@@ -110,6 +152,8 @@ export default function InstallSync() {
   });
 
   const canRun = (sourceMode === "sheet" && sheetUrl.trim()) || (sourceMode === "upload" && selectedFile);
+
+  const ci = result?.carrierInsights;
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
@@ -364,6 +408,237 @@ export default function InstallSync() {
               </div>
             )}
           </CardContent>
+        </Card>
+      )}
+
+      {ci && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 cursor-pointer" onClick={() => setExpandedInsights(!expandedInsights)}>
+              <BarChart3 className="h-5 w-5 text-blue-600" />
+              Carrier Insights
+              {expandedInsights ? <ChevronUp className="h-4 w-4 ml-auto" /> : <ChevronDown className="h-4 w-4 ml-auto" />}
+            </CardTitle>
+            <CardDescription>
+              Enriched data extracted from carrier sheet: stats, mismatches, missing orders, and auto-filled fields.
+            </CardDescription>
+          </CardHeader>
+          {expandedInsights && (
+            <CardContent className="space-y-6">
+              <div>
+                <h4 className="font-medium mb-3 flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Carrier Statistics
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="text-center p-3 rounded-lg border bg-green-50 dark:bg-green-950/30" data-testid="stat-completed">
+                    <div className="text-xl font-bold text-green-700 dark:text-green-400">{ci.carrierStats.completedCount}</div>
+                    <div className="text-xs text-green-600 dark:text-green-500">Completed</div>
+                    <div className="text-xs text-muted-foreground">{ci.carrierStats.completionRate}%</div>
+                  </div>
+                  <div className="text-center p-3 rounded-lg border bg-red-50 dark:bg-red-950/30" data-testid="stat-canceled">
+                    <div className="text-xl font-bold text-red-700 dark:text-red-400">{ci.carrierStats.canceledCount}</div>
+                    <div className="text-xs text-red-600 dark:text-red-500">Canceled</div>
+                    <div className="text-xs text-muted-foreground">{ci.carrierStats.cancelRate}%</div>
+                  </div>
+                  <div className="text-center p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/30" data-testid="stat-open">
+                    <div className="text-xl font-bold text-blue-700 dark:text-blue-400">{ci.carrierStats.openCount}</div>
+                    <div className="text-xs text-blue-600 dark:text-blue-500">Open</div>
+                  </div>
+                  <div className="text-center p-3 rounded-lg border bg-amber-50 dark:bg-amber-950/30" data-testid="stat-no-dispatch">
+                    <div className="text-xl font-bold text-amber-700 dark:text-amber-400">{ci.carrierStats.noDispatchCount}</div>
+                    <div className="text-xs text-amber-600 dark:text-amber-500">No Dispatch</div>
+                  </div>
+                  <div className="text-center p-3 rounded-lg border bg-purple-50 dark:bg-purple-950/30" data-testid="stat-iron-crest">
+                    <div className="text-xl font-bold text-purple-700 dark:text-purple-400">{ci.carrierStats.ironCrestRows}</div>
+                    <div className="text-xs text-purple-600 dark:text-purple-500">Iron Crest</div>
+                    {ci.carrierStats.otherOfficeRows > 0 && (
+                      <div className="text-xs text-muted-foreground">{ci.carrierStats.otherOfficeRows} other</div>
+                    )}
+                  </div>
+                </div>
+
+                {Object.keys(ci.carrierStats.bySpeedTier).length > 0 && (
+                  <div className="mt-4">
+                    <h5 className="text-sm font-medium mb-2">By Speed Tier</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(ci.carrierStats.bySpeedTier)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([tier, count]) => (
+                          <Badge key={tier} variant="outline" className="text-xs" data-testid={`badge-tier-${tier}`}>
+                            {tier}: {count}
+                          </Badge>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {Object.keys(ci.carrierStats.byRep).length > 0 && (
+                  <div className="mt-4">
+                    <h5 className="text-sm font-medium mb-2">By Rep (Carrier Data)</h5>
+                    <div className="overflow-x-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Rep Name</TableHead>
+                            <TableHead className="text-center">Total</TableHead>
+                            <TableHead className="text-center">Completed</TableHead>
+                            <TableHead className="text-center">Canceled</TableHead>
+                            <TableHead className="text-center">Open</TableHead>
+                            <TableHead className="text-center">Completion %</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {Object.entries(ci.carrierStats.byRep)
+                            .sort(([, a], [, b]) => b.total - a.total)
+                            .map(([name, data]) => (
+                              <TableRow key={name}>
+                                <TableCell className="text-sm font-medium">{name}</TableCell>
+                                <TableCell className="text-center text-sm">{data.total}</TableCell>
+                                <TableCell className="text-center text-sm text-green-600">{data.completed}</TableCell>
+                                <TableCell className="text-center text-sm text-red-600">{data.canceled}</TableCell>
+                                <TableCell className="text-center text-sm text-blue-600">{data.open}</TableCell>
+                                <TableCell className="text-center text-sm">
+                                  {data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0}%
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {ci.autoFilled.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2 flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-green-600" />
+                    Auto-Filled Fields ({ci.autoFilled.length} orders)
+                  </h4>
+                  <div className="overflow-x-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Invoice</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>Fields Updated</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {ci.autoFilled.map((af, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="font-mono text-xs">{af.orderInvoice || af.orderId.slice(0, 8)}</TableCell>
+                            <TableCell className="text-sm">{af.customerName}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {af.fields.map((f) => (
+                                  <Badge key={f} variant="secondary" className="text-xs">{f}</Badge>
+                                ))}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {ci.mismatches.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2 flex items-center gap-2">
+                    <ArrowRightLeft className="h-4 w-4 text-amber-600" />
+                    Speed Tier Mismatches ({ci.mismatches.length})
+                  </h4>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    The service sold in the CRM doesn't match what the carrier shows as installed.
+                  </p>
+                  <div className="overflow-x-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Invoice</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>CRM Service</TableHead>
+                          <TableHead>Carrier Installed</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {ci.mismatches.map((mm, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="font-mono text-xs">{mm.orderInvoice || mm.orderId.slice(0, 8)}</TableCell>
+                            <TableCell className="text-sm">{mm.customerName}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs">{mm.crmService}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="destructive" className="text-xs">{mm.carrierSpeedLabel}</Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {ci.missingOrders.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2 flex items-center gap-2">
+                    <Search className="h-4 w-4 text-red-600" />
+                    Potential Missing CRM Orders ({ci.missingOrders.length})
+                  </h4>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Iron Crest rep entries in the carrier sheet that could not be matched to any CRM order.
+                  </p>
+                  <div className="overflow-x-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>Address</TableHead>
+                          <TableHead>Rep</TableHead>
+                          <TableHead>Acct #</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Speed</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {ci.missingOrders.map((mo, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="text-sm font-medium">{mo.customerName || "-"}</TableCell>
+                            <TableCell className="text-xs max-w-[180px] truncate">
+                              {mo.address ? `${mo.address}${mo.city ? `, ${mo.city}` : ""}` : "-"}
+                            </TableCell>
+                            <TableCell className="text-sm">{mo.repName}</TableCell>
+                            <TableCell className="font-mono text-xs">{mo.acctNbr || "-"}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={mo.woStatus === "CP" ? "default" : mo.woStatus === "CN" ? "destructive" : "secondary"}
+                                className="text-xs"
+                              >
+                                {mo.woStatus || "?"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs">{mo.woType === "IN" ? "Install" : mo.woType === "UP" ? "Upgrade" : mo.woType || "-"}</TableCell>
+                            <TableCell className="text-xs">{mo.internetSpeed ? `${mo.internetSpeed} Mbps` : "-"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {ci.autoFilled.length === 0 && ci.mismatches.length === 0 && ci.missingOrders.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  No auto-fills, mismatches, or missing orders detected.
+                </p>
+              )}
+            </CardContent>
+          )}
         </Card>
       )}
 

@@ -172,7 +172,7 @@ function findColumn(row: Record<string, string>, ...aliases: string[]): string {
   return "";
 }
 
-function getCustomerName(row: Record<string, string>): string {
+export function getCustomerName(row: Record<string, string>): string {
   const direct = findColumn(row,
     "CUSTOMER_NAME", "Customer_Name", "Customer Name", "CustomerName",
     "customer", "name", "client_name", "Client Name", "subscriber",
@@ -187,7 +187,7 @@ function getCustomerName(row: Record<string, string>): string {
   return "";
 }
 
-function getAddress(row: Record<string, string>): string {
+export function getAddress(row: Record<string, string>): string {
   const line1 = findColumn(row,
     "ADDR_LINE_1", "Address", "ADDRESS", "address_line_1", "Address Line 1",
     "Street", "STREET", "street_address", "Street Address",
@@ -201,18 +201,18 @@ function getAddress(row: Record<string, string>): string {
   return [line1, line2].filter(Boolean).join(" ");
 }
 
-function getCity(row: Record<string, string>): string {
+export function getCity(row: Record<string, string>): string {
   return findColumn(row, "CITY", "City", "city", "TOWN", "Town");
 }
 
-function getZip(row: Record<string, string>): string {
+export function getZip(row: Record<string, string>): string {
   return findColumn(row,
     "ZIP", "Zip", "zip", "ZIP_CODE", "Zip Code", "ZipCode",
     "zip_code", "ZIPCODE", "Postal", "POSTAL", "postal_code"
   );
 }
 
-function getRepName(row: Record<string, string>): string {
+export function getRepName(row: Record<string, string>): string {
   return findColumn(row,
     "SALESMAN_NAME", "Salesman Name", "SalesmanName", "salesman",
     "REP_NAME", "Rep Name", "RepName", "rep_name", "rep",
@@ -221,7 +221,7 @@ function getRepName(row: Record<string, string>): string {
   );
 }
 
-function getAccountNumber(row: Record<string, string>): string {
+export function getAccountNumber(row: Record<string, string>): string {
   return findColumn(row,
     "ACCT_NBR", "Account Number", "AccountNumber", "account_number",
     "ACCOUNT_NUMBER", "Acct", "ACCT", "acct_number", "Account",
@@ -230,13 +230,91 @@ function getAccountNumber(row: Record<string, string>): string {
   );
 }
 
-function getWoStatus(row: Record<string, string>): string {
+export function getWoStatus(row: Record<string, string>): string {
   return findColumn(row,
     "WO_STATUS", "Status", "STATUS", "status", "Work Order Status",
     "wo_status", "WorkOrderStatus", "ORDER_STATUS", "Order Status",
     "order_status", "JOB_STATUS", "Job Status", "job_status",
     "install_status", "Install Status", "INSTALL_STATUS"
   );
+}
+
+export function getWorkOrderNumber(row: Record<string, string>): string {
+  return findColumn(row,
+    "WORK_ORDER_NBR", "Work_Order_Nbr", "Work Order Number", "WorkOrderNumber",
+    "work_order_nbr", "WO_NBR", "wo_nbr", "WO_NUMBER", "wo_number"
+  );
+}
+
+export function getScheduleDate(row: Record<string, string>): string {
+  return findColumn(row,
+    "SCHEDULE_DT", "Schedule_Dt", "Schedule Date", "ScheduleDate",
+    "schedule_date", "SCHEDULED_DATE", "scheduled_dt"
+  );
+}
+
+export function getCheckInDate(row: Record<string, string>): string {
+  return findColumn(row,
+    "CHECK_IN_DT", "Check_In_Dt", "Check In Date", "CheckInDate",
+    "check_in_date", "CHECKIN_DATE", "checkin_dt", "INSTALL_DATE", "Install Date"
+  );
+}
+
+export function getCancelCode(row: Record<string, string>): string {
+  return findColumn(row,
+    "WO_CANCEL_CODE", "Cancel_Code", "Cancel Code", "CancelCode",
+    "wo_cancel_code", "CANCEL_CODE", "cancel_code"
+  );
+}
+
+export function getCancelCodeDesc(row: Record<string, string>): string {
+  return findColumn(row,
+    "WO_CANCEL_CODE_DESC", "Cancel_Code_Desc", "Cancel Code Description",
+    "wo_cancel_code_desc", "CANCEL_REASON", "Cancel Reason", "cancel_reason"
+  );
+}
+
+export function getInternetMdm(row: Record<string, string>): string {
+  return findColumn(row,
+    "WO_INTERNET_MDM", "Internet_Mdm", "Internet MDM", "InternetMdm",
+    "wo_internet_mdm", "INTERNET_SPEED", "Internet Speed", "internet_speed",
+    "SPEED_TIER", "Speed Tier", "speed_tier"
+  );
+}
+
+export function getSalesmanNumber(row: Record<string, string>): string {
+  return findColumn(row,
+    "SALESMAN_NBR", "Salesman_Nbr", "Salesman Number", "SalesmanNumber",
+    "salesman_nbr", "SALES_NBR", "sales_nbr", "REP_NBR", "rep_nbr"
+  );
+}
+
+export function getOffice(row: Record<string, string>): string {
+  return findColumn(row,
+    "OFFICE", "Office", "office", "BRANCH", "Branch", "branch",
+    "LOCATION", "Location", "location"
+  );
+}
+
+export function getDataInstallsQty(row: Record<string, string>): string {
+  return findColumn(row,
+    "DATA_INSTALLS_QTY", "Data_Installs_Qty", "Data Installs", "data_installs_qty",
+    "DATA_QTY", "data_qty", "DataInstalls", "INTERNET_INSTALLS_QTY"
+  ).trim();
+}
+
+export function getMobileInstallsQty(row: Record<string, string>): string {
+  return findColumn(row,
+    "MOBILE_INSTALLS_QTY", "Mobile_Installs_Qty", "Mobile Installs", "mobile_installs_qty",
+    "MOBILE_QTY", "mobile_qty", "MobileInstalls"
+  ).trim();
+}
+
+export function getVideoInstallsQty(row: Record<string, string>): string {
+  return findColumn(row,
+    "VIDEO_INSTALLS_QTY", "Video_Installs_Qty", "Video Installs", "video_installs_qty",
+    "VIDEO_QTY", "video_qty", "VideoInstalls"
+  ).trim();
 }
 
 export function getWorkOrderType(row: Record<string, string>): string {
