@@ -1607,44 +1607,41 @@ export const storage = {
   
   // Manager scope: returns all rep IDs a manager can see (direct + indirect via supervisors)
   async getManagerScope(managerId: string): Promise<{ directRepIds: string[]; indirectRepIds: string[]; supervisorIds: string[]; allRepIds: string[]; allRepRepIds: string[] }> {
-    // Get supervisors assigned to this manager
     const supervisors = await db.query.users.findMany({
       where: and(eq(users.assignedManagerId, managerId), eq(users.role, "LEAD"), eq(users.status, "ACTIVE"))
     });
     const supervisorIds = supervisors.map(s => s.id);
+    const supervisorRepIds = supervisors.map(s => s.repId);
     
-    // Get ALL reps directly assigned to manager (regardless of supervisor)
     const directReps = await db.query.users.findMany({
       where: and(
         eq(users.assignedManagerId, managerId),
-        eq(users.role, "REP"),
+        inArray(users.role, ["REP", "MDU"]),
         eq(users.status, "ACTIVE")
       )
     });
     const directRepIds = directReps.map(r => r.id);
     const directRepRepIds = directReps.map(r => r.repId);
     
-    // Get reps indirectly assigned (via supervisors) - these may also be in directReps
     const indirectRepIds: string[] = [];
     const indirectRepRepIds: string[] = [];
     for (const supervisorId of supervisorIds) {
       const supervisedReps = await db.query.users.findMany({
-        where: and(eq(users.assignedSupervisorId, supervisorId), eq(users.role, "REP"), eq(users.status, "ACTIVE"))
+        where: and(eq(users.assignedSupervisorId, supervisorId), inArray(users.role, ["REP", "MDU"]), eq(users.status, "ACTIVE"))
       });
       indirectRepIds.push(...supervisedReps.map(r => r.id));
       indirectRepRepIds.push(...supervisedReps.map(r => r.repId));
     }
     
-    // Combine and dedupe
-    const allRepIds = Array.from(new Set([...directRepIds, ...indirectRepIds]));
-    const allRepRepIds = Array.from(new Set([...directRepRepIds, ...indirectRepRepIds]));
+    const allRepIds = Array.from(new Set([...directRepIds, ...indirectRepIds, ...supervisorIds]));
+    const allRepRepIds = Array.from(new Set([...directRepRepIds, ...indirectRepRepIds, ...supervisorRepIds]));
     
     return {
       directRepIds,
       indirectRepIds,
       supervisorIds,
       allRepIds,
-      allRepRepIds, // repId strings for order filtering
+      allRepRepIds,
     };
   },
   
