@@ -737,6 +737,7 @@ export default function OrderTracker() {
       return res.json();
     },
     enabled: showNewOrderDialog && !!newOrderForm.clientId && !!newOrderForm.providerId,
+    staleTime: 0,
   });
 
   const { data: mobileAvailableServices } = useQuery<Service[]>({
@@ -750,6 +751,7 @@ export default function OrderTracker() {
       return res.json();
     },
     enabled: showMobileOrderDialog && !!mobileOrderForm.clientId && !!mobileOrderForm.providerId,
+    staleTime: 0,
   });
 
   const createMobileOrderMutation = useMutation({

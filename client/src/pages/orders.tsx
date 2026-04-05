@@ -358,7 +358,6 @@ export default function Orders() {
     }
   }, [showMobileOrderDialog, providers, mobileOrderForm.providerId]);
 
-  // Available services filtered by client and provider (for order form)
   const { data: availableServices } = useQuery<Service[]>({
     queryKey: ["/api/services/available", newOrderForm.clientId, newOrderForm.providerId],
     queryFn: async () => {
@@ -370,9 +369,9 @@ export default function Orders() {
       return res.json();
     },
     enabled: showNewOrderDialog && !!newOrderForm.clientId && !!newOrderForm.providerId,
+    staleTime: 0,
   });
 
-  // Available services filtered by client and provider (for mobile order form)
   const { data: mobileAvailableServices } = useQuery<Service[]>({
     queryKey: ["/api/services/available", mobileOrderForm.clientId, mobileOrderForm.providerId, "mobile"],
     queryFn: async () => {
@@ -384,6 +383,7 @@ export default function Orders() {
       return res.json();
     },
     enabled: showMobileOrderDialog && !!mobileOrderForm.clientId && !!mobileOrderForm.providerId,
+    staleTime: 0,
   });
 
   const { data: reps } = useQuery<User[]>({

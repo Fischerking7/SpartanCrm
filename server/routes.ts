@@ -3797,9 +3797,14 @@ export async function registerRoutes(
       
       // Get all services and filter to only those with matching rate cards
       const allServices = await storage.getServices();
+      const speedOrder: Record<string, number> = {
+        "50_MBPS": 1, "150_MBPS": 2, "300_MBPS": 3, "600_MBPS": 4,
+        "1_GIG": 5, "GiG_PLUS": 6, "Multi-Gig": 7, "2_GIG": 8, "5_GIG": 9, "Gen Internet": 10,
+      };
       const availableServices = allServices
         .filter(s => s.active && serviceIds.includes(s.id))
-        .map(s => ({ id: s.id, code: s.code, name: s.name }));
+        .map(s => ({ id: s.id, code: s.code, name: s.name }))
+        .sort((a, b) => (speedOrder[a.code] || 99) - (speedOrder[b.code] || 99));
       
       res.json(availableServices);
     } catch (error) { 
