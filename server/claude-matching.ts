@@ -248,8 +248,17 @@ export function getWorkOrderType(row: Record<string, string>): string {
 }
 
 export function isSheetRowMobile(row: Record<string, string>): boolean {
-  const woType = getWorkOrderType(row);
-  return woType === "IN";
+  const mobileQty = findColumn(row,
+    "MOBILE_INSTALLS_QTY", "Mobile_Installs_Qty", "Mobile Installs", "mobile_installs_qty",
+    "MOBILE_QTY", "mobile_qty", "MobileInstalls"
+  ).trim();
+  const dataQty = findColumn(row,
+    "DATA_INSTALLS_QTY", "Data_Installs_Qty", "Data Installs", "data_installs_qty",
+    "DATA_QTY", "data_qty", "DataInstalls", "INTERNET_INSTALLS_QTY"
+  ).trim();
+  const hasMobile = mobileQty !== "" && mobileQty !== "0";
+  const hasData = dataQty !== "" && dataQty !== "0";
+  return hasMobile && !hasData;
 }
 
 interface ScoreBreakdown {

@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
-import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc } from "drizzle-orm";
+import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc, not } from "drizzle-orm";
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
@@ -15444,21 +15444,47 @@ export async function registerRoutes(
 
         await storage.updateInstallSyncRun(syncRun.id, { totalSheetRows: sheetData.rows.length });
 
-        const pendingOrders = await storage.getPendingUnapprovedOrders();
+        const allOrders = await db.select().from(salesOrders).where(
+          or(
+            eq(salesOrders.jobStatus, "PENDING"),
+            eq(salesOrders.jobStatus, "COMPLETED"),
+          )
+        );
 
         const allProviders = await storage.getProviders();
         const providerMap = new Map(allProviders.map(p => [p.id, p.name]));
 
         const syncUsers = await storage.getUsers();
         const syncRepMap = new Map(syncUsers.map(u => [u.repId, u.name]));
-        const orderSummaries: OrderSummary[] = pendingOrders.map((order) => {
+
+        function parseCityZipFromAddress(addr: string): { city: string; zip: string; street: string } {
+          const lines = addr.split(/\n|\r\n?/).map(l => l.trim()).filter(Boolean);
+          if (lines.length >= 2) {
+            const lastLine = lines[lines.length - 1];
+            const zipMatch = lastLine.match(/(\d{5})(?:-\d{4})?$/);
+            const zip = zipMatch ? zipMatch[1] : "";
+            const cityStateMatch = lastLine.match(/^([^,]+?)[\s,]+(?:PA|NY|NJ|CT|MA|MD|DE|VA|OH|FL|CA|TX|GA|NC|SC|WV|RI|NH|VT|ME|[A-Z]{2})\s+\d{5}/i);
+            const city = cityStateMatch ? cityStateMatch[1].trim() : lastLine.replace(/[\s,]+(PA|NY|NJ|CT|MA|MD|DE|VA|OH|FL|CA|TX|GA|NC|SC|WV|RI|NH|VT|ME|[A-Z]{2})\s+\d{5}.*$/i, "").trim();
+            return { city, zip, street: lines.slice(0, -1).join(" ") };
+          }
+          return { city: "", zip: "", street: addr };
+        }
+
+        const orderSummaries: OrderSummary[] = allOrders.map((order) => {
           const providerName = order.providerId ? (providerMap.get(order.providerId) || "") : "";
           let houseNumber = order.houseNumber || "";
           let streetName = order.streetName || "";
           let aptUnit = order.aptUnit || "";
+          let city = order.city || "";
+          let zipCode = order.zipCode || "";
+
           if (!houseNumber && !streetName && order.customerAddress) {
-            streetName = order.customerAddress;
+            const parsed = parseCityZipFromAddress(order.customerAddress);
+            streetName = parsed.street;
+            if (!city) city = parsed.city;
+            if (!zipCode) zipCode = parsed.zip;
           }
+
           return {
             id: order.id,
             invoiceNumber: order.invoiceNumber || "",
@@ -15466,8 +15492,8 @@ export async function registerRoutes(
             houseNumber,
             streetName,
             aptUnit,
-            city: order.city || "",
-            zipCode: order.zipCode || "",
+            city,
+            zipCode,
             serviceType: order.serviceType || "",
             providerName,
             repName: syncRepMap.get(order.repId) || "",
