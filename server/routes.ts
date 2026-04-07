@@ -16010,11 +16010,14 @@ export async function registerRoutes(
 
   app.post("/api/admin/carrier-profiles", auth, requirePermission("admin:carrier:profiles"), async (req: AuthRequest, res) => {
     try {
-      const jsonFields = ["columnMapping", "speedTierMap", "statusCodeMap", "signatureHeaders"] as const;
-      for (const field of jsonFields) {
-        if (req.body[field]) {
+      const jsonTextFields = ["columnMapping", "speedTierMap", "statusCodeMap"] as const;
+      for (const field of jsonTextFields) {
+        if (req.body[field] && typeof req.body[field] === "string") {
           try { JSON.parse(req.body[field]); } catch { return res.status(400).json({ message: `Invalid JSON in ${field}` }); }
         }
+      }
+      if (req.body.signatureHeaders && !Array.isArray(req.body.signatureHeaders)) {
+        return res.status(400).json({ message: "signatureHeaders must be an array of strings" });
       }
       const profile = await storage.createCarrierProfile(req.body);
       res.json(profile);
@@ -16025,11 +16028,14 @@ export async function registerRoutes(
 
   app.put("/api/admin/carrier-profiles/:id", auth, requirePermission("admin:carrier:profiles"), async (req: AuthRequest, res) => {
     try {
-      const jsonFields = ["columnMapping", "speedTierMap", "statusCodeMap", "signatureHeaders"] as const;
-      for (const field of jsonFields) {
-        if (req.body[field]) {
+      const jsonTextFields = ["columnMapping", "speedTierMap", "statusCodeMap"] as const;
+      for (const field of jsonTextFields) {
+        if (req.body[field] && typeof req.body[field] === "string") {
           try { JSON.parse(req.body[field]); } catch { return res.status(400).json({ message: `Invalid JSON in ${field}` }); }
         }
+      }
+      if (req.body.signatureHeaders && !Array.isArray(req.body.signatureHeaders)) {
+        return res.status(400).json({ message: "signatureHeaders must be an array of strings" });
       }
       const profile = await storage.updateCarrierProfile(req.params.id, req.body);
       if (!profile) return res.status(404).json({ message: "Not found" });
