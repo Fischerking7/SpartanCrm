@@ -620,7 +620,6 @@ export async function matchInstallationsToOrders(
   const dedupSkipped: MatchingResponse["dedupSkipped"] = [];
   const validStatuses = new Set(["CP", "CN", "OP", "ND", "COMPLETED", "CONNECTED", "OPEN", "NO DISPATCH", "CANCELED", "CANCELLED", "INSTALLED", "ACTIVE", "PENDING", "SCHEDULED", "IN PROGRESS", "DONE"]);
   const rowClassifications = { new: 0, changed: 0, unchanged: 0 };
-  const changedWoEntries: Array<{ row: SheetRow; prevEntry: DedupEntry }> = [];
 
   for (const row of sheetRows) {
     const woNumber = extractField(row.data, "work_order_number", carrierCtx, getWorkOrderNumber).trim();

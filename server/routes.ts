@@ -16675,7 +16675,6 @@ export async function registerRoutes(
 
     const finalOrder = await storage.updateOrder(orderId, {
       baseCommissionEarned: baseCommission,
-      incentiveEarned: "0",
       appliedRateCardId,
       calcAt: new Date(),
       overrideDeduction: totalDeductions.toFixed(2),

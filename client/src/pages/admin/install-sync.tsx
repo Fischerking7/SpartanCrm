@@ -270,7 +270,7 @@ export default function InstallSync() {
     onSuccess: (data) => {
       setFixAllDialogOpen(false);
       const newFixed = new Set(fixedOrderIds);
-      data.results?.filter((r: any) => r.success).forEach((r: any) => newFixed.add(r.orderId));
+      data.results?.filter((r: { success: boolean; orderId: string }) => r.success).forEach((r: { orderId: string }) => newFixed.add(r.orderId));
       setFixedOrderIds(newFixed);
       toast({ title: "Bulk Fix Complete", description: data.message });
     },
