@@ -634,7 +634,6 @@ export async function matchInstallationsToOrders(
         const missingPriorData = !prev.woStatus && !prev.rowHash;
         if (statusChanged || hashChanged || missingPriorData) {
           rowClassifications.changed++;
-          changedWoEntries.push({ row, prevEntry: prev });
           matchableRows.push(row);
         } else {
           rowClassifications.unchanged++;
