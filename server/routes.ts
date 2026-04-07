@@ -15609,6 +15609,7 @@ export async function registerRoutes(
         let approvedCount = 0;
         const approvedOrders: any[] = [];
         const statusUpdatedOrders: any[] = [];
+        const pendingWoRecords: Array<{ workOrderNumber: string; carrierProfileId: string; syncRunId: string; matchedOrderId: string; serviceLineType?: string }> = [];
 
         const speedTierMap: Record<string, string> = carrierCtx
           ? carrierCtx.speedTierMap
@@ -15838,7 +15839,7 @@ export async function registerRoutes(
             }
 
             if (woNumber) {
-              await storage.createProcessedWorkOrder({
+              pendingWoRecords.push({
                 workOrderNumber: woNumber,
                 carrierProfileId: effectiveProfileId,
                 syncRunId: syncRun.id,
@@ -15868,6 +15869,10 @@ export async function registerRoutes(
               userId: user.id,
             });
           }
+        }
+
+        for (const woRec of pendingWoRecords) {
+          await storage.createProcessedWorkOrder(woRec);
         }
 
         let emailSent = false;

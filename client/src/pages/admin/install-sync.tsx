@@ -398,7 +398,7 @@ export default function InstallSync() {
               </div>
             )}
 
-            {(result.matches.length > 0 || result.unmatched.length > 0) && (
+            {(result.matches.length > 0 || result.unmatched.length > 0 || (result.dedupSkipped && result.dedupSkipped.length > 0)) && (
               <Button
                 variant="ghost"
                 size="sm"
