@@ -16597,6 +16597,123 @@ export async function registerRoutes(
 
   // ===== Speed Tier Auto-Correct =====
 
+  async function buildSpeedTierMap(): Promise<Record<string, string>> {
+    const defaultMap: Record<string, string> = { "50": "50_MBPS", "150": "150_MBPS", "300": "300_MBPS", "600": "600_MBPS", "1000": "1_GIG", "1200": "GiG_PLUS", "2000": "2_GIG", "5000": "5_GIG" };
+    const profiles = await storage.getCarrierProfiles();
+    for (const p of profiles) {
+      if (p.speedTierMapJson) {
+        try {
+          const parsed = JSON.parse(p.speedTierMapJson);
+          if (Object.keys(parsed).length > 0) return { ...defaultMap, ...parsed };
+        } catch { /* skip */ }
+      }
+    }
+    return defaultMap;
+  }
+
+  interface CorrectionResult {
+    orderId: string;
+    oldService: string;
+    newService: string;
+    oldCommission: string;
+    newCommission: string;
+  }
+
+  async function correctSingleMismatch(
+    orderId: string,
+    carrierSpeed: string,
+    userId: string,
+    allServices: Awaited<ReturnType<typeof storage.getServices>>,
+    speedTierMap: Record<string, string>,
+  ): Promise<CorrectionResult> {
+    const serviceByCode = new Map(allServices.map(s => [s.code, s]));
+    const order = await storage.getOrderById(orderId);
+    if (!order) throw new Error("Order not found");
+
+    const expectedCode = speedTierMap[carrierSpeed];
+    if (!expectedCode) throw new Error(`Unknown speed tier: ${carrierSpeed}`);
+
+    const newService = serviceByCode.get(expectedCode);
+    if (!newService) throw new Error(`No service found for code: ${expectedCode}`);
+
+    const oldServiceId = order.serviceId;
+    const oldService = allServices.find(s => s.id === oldServiceId);
+    const beforeJson = JSON.stringify(order);
+    const correctedOrder: SalesOrder = { ...order, serviceId: newService.id };
+
+    await storage.deleteCommissionLineItemsByOrderId(orderId);
+    await storage.updateOrder(orderId, { serviceId: newService.id });
+
+    const rateCard = await storage.findMatchingRateCard(correctedOrder, order.dateSold);
+    let baseCommission = "0";
+    let appliedRateCardId: string | null = null;
+    let totalDeductions = 0;
+
+    if (rateCard) {
+      const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, correctedOrder);
+      await storage.createCommissionLineItems(orderId, lineItems);
+      const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
+      appliedRateCardId = rateCard.id;
+
+      const salesRep = order.repId ? await storage.getUserByRepId(order.repId) : null;
+      const userRole = salesRep?.role || "REP";
+      const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
+
+      if (roleOverride) {
+        if (!order.isMobileOrder) { totalDeductions += parseFloat(roleOverride.overrideDeduction || "0"); if (order.tvSold) totalDeductions += parseFloat(roleOverride.tvOverrideDeduction || "0"); }
+        if (order.mobileSold) totalDeductions += parseFloat(roleOverride.mobileOverrideDeduction || "0");
+      } else {
+        if (!order.isMobileOrder) { totalDeductions += parseFloat(rateCard.overrideDeduction || "0"); if (order.tvSold) totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0"); }
+        if (order.mobileSold) totalDeductions += parseFloat(rateCard.mobileOverrideDeduction || "0");
+      }
+      baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
+    }
+
+    const finalOrder = await storage.updateOrder(orderId, {
+      baseCommissionEarned: baseCommission,
+      appliedRateCardId,
+      calcAt: new Date(),
+      overrideDeduction: totalDeductions.toFixed(2),
+    });
+
+    const arExpectation = await storage.getArExpectationByOrderId(orderId);
+    if (arExpectation) {
+      const newBase = parseFloat(finalOrder.baseCommissionEarned || "0");
+      const newIncentive = parseFloat(finalOrder.incentiveEarned || "0");
+      const newOverride = parseFloat(finalOrder.overrideDeduction || "0");
+      const newExpectedCents = Math.round((newBase + newIncentive + newOverride) * 100);
+      const newVarianceCents = arExpectation.actualAmountCents - newExpectedCents;
+      await storage.updateArExpectation(arExpectation.id, { expectedAmountCents: newExpectedCents, varianceAmountCents: newVarianceCents, hasVariance: newVarianceCents !== 0 });
+    }
+
+    const existingOverrides = await storage.getOverrideEarningsByOrder(orderId);
+    if (existingOverrides.length > 0 && totalDeductions > 0) {
+      const perOverrideAmount = totalDeductions.toFixed(2);
+      for (const oe of existingOverrides) {
+        await db.update(overrideEarnings)
+          .set({ amount: perOverrideAmount })
+          .where(eq(overrideEarnings.id, oe.id));
+      }
+    }
+
+    await storage.createAuditLog({
+      action: "install_sync_auto_correct",
+      tableName: "sales_orders",
+      recordId: orderId,
+      beforeJson,
+      afterJson: JSON.stringify(finalOrder),
+      userId,
+    });
+
+    return {
+      orderId,
+      oldService: oldService?.name || oldServiceId,
+      newService: newService.name,
+      oldCommission: order.baseCommissionEarned || "0",
+      newCommission: baseCommission,
+    };
+  }
+
   app.post("/api/admin/install-sync/correct-mismatch", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
@@ -16609,118 +16726,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "orderId and carrierSpeed are required" });
       }
 
-      const order = await storage.getOrderById(orderId);
-      if (!order) {
-        return res.status(404).json({ message: "Order not found" });
-      }
-
       const allServices = await storage.getServices();
-      const serviceByCode = new Map(allServices.map(s => [s.code, s]));
+      const speedTierMap = await buildSpeedTierMap();
+      const result = await correctSingleMismatch(orderId, carrierSpeed, user.id, allServices, speedTierMap);
 
-      const profiles = await storage.getCarrierProfiles();
-      let speedTierMap: Record<string, string> = { "50": "50_MBPS", "150": "150_MBPS", "300": "300_MBPS", "600": "600_MBPS", "1000": "1_GIG", "1200": "GiG_PLUS", "2000": "2_GIG", "5000": "5_GIG" };
-      if (profiles.length > 0) {
-        for (const p of profiles) {
-          if (p.speedTierMapJson) {
-            try {
-              const parsed = JSON.parse(p.speedTierMapJson);
-              if (Object.keys(parsed).length > 0) {
-                speedTierMap = { ...speedTierMap, ...parsed };
-                break;
-              }
-            } catch { /* skip */ }
-          }
-        }
-      }
-
-      const expectedCode = speedTierMap[carrierSpeed];
-      if (!expectedCode) {
-        return res.status(400).json({ message: `Unknown speed tier: ${carrierSpeed}` });
-      }
-
-      const newService = serviceByCode.get(expectedCode);
-      if (!newService) {
-        return res.status(400).json({ message: `No service found for code: ${expectedCode}` });
-      }
-
-      const oldServiceId = order.serviceId;
-      const oldService = allServices.find(s => s.id === oldServiceId);
-
-      const beforeJson = JSON.stringify(order);
-
-      await storage.deleteCommissionLineItemsByOrderId(orderId);
-
-      const updatedOrder = await storage.updateOrder(orderId, { serviceId: newService.id });
-
-      const rateCard = await storage.findMatchingRateCard({ ...order, serviceId: newService.id } as any, order.dateSold);
-      let baseCommission = "0";
-      let appliedRateCardId: string | null = null;
-      let totalDeductions = 0;
-
-      if (rateCard) {
-        const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, { ...order, serviceId: newService.id } as any);
-        await storage.createCommissionLineItems(orderId, lineItems);
-        const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
-        appliedRateCardId = rateCard.id;
-
-        const salesRep = order.repId ? await storage.getUserByRepId(order.repId) : null;
-        const userRole = salesRep?.role || "REP";
-        const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
-        const isMobileOnlyOrder = !!(order as any).isMobileOrder;
-
-        if (roleOverride) {
-          const overrideAmts = { base: parseFloat(roleOverride.overrideDeduction || "0"), tv: parseFloat(roleOverride.tvOverrideDeduction || "0"), mobile: parseFloat(roleOverride.mobileOverrideDeduction || "0") };
-          if (!isMobileOnlyOrder) { totalDeductions += overrideAmts.base; if (order.tvSold) totalDeductions += overrideAmts.tv; }
-          if (order.mobileSold) totalDeductions += overrideAmts.mobile;
-        } else {
-          const overrideAmts = { base: parseFloat(rateCard.overrideDeduction || "0"), tv: parseFloat(rateCard.tvOverrideDeduction || "0"), mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0") };
-          if (!isMobileOnlyOrder) { totalDeductions += overrideAmts.base; if (order.tvSold) totalDeductions += overrideAmts.tv; }
-          if (order.mobileSold) totalDeductions += overrideAmts.mobile;
-        }
-        baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
-      }
-
-      const finalOrder = await storage.updateOrder(orderId, {
-        baseCommissionEarned: baseCommission,
-        appliedRateCardId,
-        calcAt: new Date(),
-        overrideDeduction: totalDeductions.toFixed(2),
-      });
-
-      try {
-        const arExpectation = await storage.getArExpectationByOrderId(orderId);
-        if (arExpectation) {
-          const newBase = parseFloat(finalOrder.baseCommissionEarned || "0");
-          const newIncentive = parseFloat(finalOrder.incentiveEarned || "0");
-          const newOverride = parseFloat(finalOrder.overrideDeduction || "0");
-          const newExpectedCents = Math.round((newBase + newIncentive + newOverride) * 100);
-          const newVarianceCents = arExpectation.actualAmountCents - newExpectedCents;
-          await storage.updateArExpectation(arExpectation.id, { expectedAmountCents: newExpectedCents, varianceAmountCents: newVarianceCents, hasVariance: newVarianceCents !== 0 });
-        }
-      } catch (arErr) {
-        console.error("[AutoCorrect] Failed to cascade commission change to AR:", arErr);
-      }
-
-      await storage.createAuditLog({
-        action: "install_sync_auto_correct",
-        tableName: "sales_orders",
-        recordId: orderId,
-        beforeJson,
-        afterJson: JSON.stringify({ ...finalOrder, _oldServiceId: oldServiceId, _newServiceId: newService.id, _carrierSpeed: carrierSpeed }),
-        userId: user.id,
-      });
-
-      res.json({
-        orderId,
-        oldService: oldService?.name || oldServiceId,
-        newService: newService.name,
-        oldCommission: order.baseCommissionEarned,
-        newCommission: baseCommission,
-        order: finalOrder,
-      });
-    } catch (error: any) {
-      console.error("[AutoCorrect] Error:", error.message);
-      res.status(500).json({ message: error.message || "Auto-correct failed" });
+      res.json(result);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error("[AutoCorrect] Error:", msg);
+      res.status(500).json({ message: msg || "Auto-correct failed" });
     }
   });
 
@@ -16737,77 +16751,27 @@ export async function registerRoutes(
       }
 
       const allServices = await storage.getServices();
-      const svcByCode = new Map(allServices.map(s => [s.code, s]));
+      const speedTierMap = await buildSpeedTierMap();
 
-      const profiles = await storage.getCarrierProfiles();
-      let bulkSpeedMap: Record<string, string> = { "50": "50_MBPS", "150": "150_MBPS", "300": "300_MBPS", "600": "600_MBPS", "1000": "1_GIG", "1200": "GiG_PLUS", "2000": "2_GIG", "5000": "5_GIG" };
-      for (const p of profiles) {
-        if (p.speedTierMapJson) {
-          try { const parsed = JSON.parse(p.speedTierMapJson); if (Object.keys(parsed).length > 0) { bulkSpeedMap = { ...bulkSpeedMap, ...parsed }; break; } } catch { /* skip */ }
+      const results = await db.transaction(async () => {
+        const txResults: Array<CorrectionResult & { success: boolean; error?: string }> = [];
+        for (const { orderId, carrierSpeed } of corrections) {
+          const corrResult = await correctSingleMismatch(orderId, carrierSpeed, user.id, allServices, speedTierMap);
+          txResults.push({ ...corrResult, success: true });
         }
-      }
+        return txResults;
+      });
 
-      const results: Array<{ orderId: string; oldService: string; newService: string; oldCommission: string; newCommission: string; success: boolean; error?: string }> = [];
-
-      for (const { orderId, carrierSpeed } of corrections) {
-        try {
-          const order = await storage.getOrderById(orderId);
-          if (!order) { results.push({ orderId, oldService: "", newService: "", oldCommission: "", newCommission: "", success: false, error: "Order not found" }); continue; }
-
-          const expectedCode = bulkSpeedMap[carrierSpeed];
-          if (!expectedCode) { results.push({ orderId, oldService: "", newService: "", oldCommission: "", newCommission: "", success: false, error: `Unknown speed: ${carrierSpeed}` }); continue; }
-
-          const newSvc = svcByCode.get(expectedCode);
-          if (!newSvc) { results.push({ orderId, oldService: "", newService: "", oldCommission: "", newCommission: "", success: false, error: `No service for code: ${expectedCode}` }); continue; }
-
-          const oldSvc = allServices.find(s => s.id === order.serviceId);
-          const beforeJson = JSON.stringify(order);
-          await storage.deleteCommissionLineItemsByOrderId(orderId);
-          await storage.updateOrder(orderId, { serviceId: newSvc.id });
-
-          const rc = await storage.findMatchingRateCard({ ...order, serviceId: newSvc.id } as any, order.dateSold);
-          let baseCom = "0"; let applRcId: string | null = null; let totalDed = 0;
-          if (rc) {
-            const li = await storage.calculateCommissionLineItemsAsync(rc, { ...order, serviceId: newSvc.id } as any);
-            await storage.createCommissionLineItems(orderId, li);
-            const gross = li.reduce((s, i) => s + parseFloat(i.totalAmount || "0"), 0);
-            applRcId = rc.id;
-            const rep = order.repId ? await storage.getUserByRepId(order.repId) : null;
-            const ro = await storage.getRoleOverrideForRateCard(rc.id, rep?.role || "REP");
-            const isMob = !!(order as any).isMobileOrder;
-            if (ro) { if (!isMob) { totalDed += parseFloat(ro.overrideDeduction || "0"); if (order.tvSold) totalDed += parseFloat(ro.tvOverrideDeduction || "0"); } if (order.mobileSold) totalDed += parseFloat(ro.mobileOverrideDeduction || "0"); }
-            else { if (!isMob) { totalDed += parseFloat(rc.overrideDeduction || "0"); if (order.tvSold) totalDed += parseFloat(rc.tvOverrideDeduction || "0"); } if (order.mobileSold) totalDed += parseFloat((rc as any).mobileOverrideDeduction || "0"); }
-            baseCom = Math.max(0, gross - totalDed).toFixed(2);
-          }
-          const finalOrd = await storage.updateOrder(orderId, { baseCommissionEarned: baseCom, appliedRateCardId: applRcId, calcAt: new Date(), overrideDeduction: totalDed.toFixed(2) });
-
-          try {
-            const arExp = await storage.getArExpectationByOrderId(orderId);
-            if (arExp) {
-              const newBase = parseFloat(finalOrd.baseCommissionEarned || "0");
-              const newInc = parseFloat(finalOrd.incentiveEarned || "0");
-              const newOvr = parseFloat(finalOrd.overrideDeduction || "0");
-              const newExpCents = Math.round((newBase + newInc + newOvr) * 100);
-              const newVar = arExp.actualAmountCents - newExpCents;
-              await storage.updateArExpectation(arExp.id, { expectedAmountCents: newExpCents, varianceAmountCents: newVar, hasVariance: newVar !== 0 });
-            }
-          } catch (arErr) {
-            console.error("[BulkAutoCorrect] AR cascade failed for order:", orderId, arErr);
-          }
-
-          await storage.createAuditLog({ action: "install_sync_bulk_auto_correct", tableName: "sales_orders", recordId: orderId, beforeJson, afterJson: JSON.stringify(finalOrd), userId: user.id });
-
-          results.push({ orderId, oldService: oldSvc?.name || "", newService: newSvc.name, oldCommission: order.baseCommissionEarned || "0", newCommission: baseCom, success: true });
-        } catch (itemErr: any) {
-          results.push({ orderId, oldService: "", newService: "", oldCommission: "", newCommission: "", success: false, error: itemErr.message });
-        }
-      }
-
-      const successCount = results.filter(r => r.success).length;
-      res.json({ message: `Corrected ${successCount}/${corrections.length} mismatches`, successCount, totalCount: corrections.length, results });
-    } catch (error: any) {
-      console.error("[BulkAutoCorrect] Error:", error.message);
-      res.status(500).json({ message: error.message || "Bulk auto-correct failed" });
+      res.json({
+        message: `Corrected ${results.length}/${corrections.length} mismatches`,
+        successCount: results.length,
+        totalCount: corrections.length,
+        results,
+      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error("[BulkAutoCorrect] Error:", msg);
+      res.status(500).json({ message: msg || "Bulk auto-correct failed" });
     }
   });
 
