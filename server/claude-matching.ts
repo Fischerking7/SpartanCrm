@@ -473,8 +473,9 @@ function scoreMatch(row: Record<string, string>, order: OrderSummary, ctx: Carri
       }
     }
   }
+  const sheetRepRaw = extractField(row, "rep_name", ctx, getRepName);
   if (repScore === 0) {
-    const sheetRep = normalize(extractField(row, "rep_name", ctx, getRepName));
+    const sheetRep = normalize(sheetRepRaw);
     const orderRep = normalize(order.repName || "");
     if (sheetRep && orderRep) {
       repScore = nameTokenMatch(sheetRep, orderRep);
@@ -515,7 +516,7 @@ function scoreMatch(row: Record<string, string>, order: OrderSummary, ctx: Carri
     const hasAddr = sheetAddr.length > 0;
     const hasCity = sheetCity.length > 0;
     const hasZip = sheetZip.length > 0;
-    const hasRep = repScore > 0;
+    const hasRep = sheetRepRaw.length > 0;
     const fieldsAvailable = 1 + (hasAddr ? 1 : 0) + (hasCity ? 1 : 0) + (hasZip ? 1 : 0) + (hasRep ? 1 : 0);
 
     if (fieldsAvailable <= 2) {
