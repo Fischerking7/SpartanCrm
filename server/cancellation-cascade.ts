@@ -128,7 +128,7 @@ export async function cancelOrderCascade(
       if (!dryRun) {
         const finalizedPayRunIds = finalizedPayRuns.map(pr => pr.id);
         const paidItems = await db
-          .select({ amountCents: payStatementLineItems.amountCents })
+          .select({ amount: payStatementLineItems.amount })
           .from(payStatementLineItems)
           .innerJoin(payStatements, eq(payStatementLineItems.payStatementId, payStatements.id))
           .where(
@@ -138,7 +138,7 @@ export async function cancelOrderCascade(
             )
           );
         const commissionPaidCents = paidItems.reduce(
-          (sum, li) => sum + (li.amountCents || 0),
+          (sum, li) => sum + Math.round(parseFloat(li.amount || "0") * 100),
           0
         );
 
@@ -202,7 +202,7 @@ export async function cancelOrderCascade(
           afterJson: JSON.stringify({
             salesOrderId: orderId,
             overrideType: earning.overrideType,
-            recipientUserId: earning.userId,
+            recipientUserId: earning.recipientUserId,
             amountCents: Math.round(parseFloat(earning.amount) * 100),
             syncRunId,
           }),
