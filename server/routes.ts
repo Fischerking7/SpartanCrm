@@ -16101,36 +16101,39 @@ export async function registerRoutes(
       if (!carrierProfileId) return res.status(400).json({ message: "carrierProfileId required" });
 
       const csvContent = req.file.buffer.toString("utf-8");
-      const lines = csvContent.split(/\r?\n/).filter(l => l.trim());
-      if (lines.length < 2) return res.status(400).json({ message: "CSV must have at least a header and one data row" });
+      const rows = parse(csvContent, { columns: true, skip_empty_lines: true, trim: true, relax_column_count: true }) as Record<string, string>[];
+      if (rows.length === 0) return res.status(400).json({ message: "CSV must have at least a header and one data row" });
 
-      const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-      const salesmanIdx = headers.findIndex(h => h.includes("salesman") || h.includes("rep_nbr") || h.includes("carrier_id"));
-      const repIdIdx = headers.findIndex(h => h === "rep_id" || h === "repid" || h.includes("user_rep_id"));
+      const headers = Object.keys(rows[0]).map(h => h.toLowerCase());
+      const salesmanCol = headers.find(h => h.includes("salesman") || h.includes("rep_nbr") || h.includes("carrier_id"));
+      const repIdCol = headers.find(h => h === "rep_id" || h === "repid" || h.includes("user_rep_id"));
 
-      if (salesmanIdx === -1 || repIdIdx === -1) {
+      if (!salesmanCol || !repIdCol) {
         return res.status(400).json({ message: "CSV must have columns for salesman number and rep ID" });
       }
+
+      const origHeaders = Object.keys(rows[0]);
+      const salesmanKey = origHeaders.find(h => h.toLowerCase() === salesmanCol)!;
+      const repIdKey = origHeaders.find(h => h.toLowerCase() === repIdCol)!;
 
       const mappings: { carrierProfileId: string; salesmanNbr: string; userId: string }[] = [];
       const errors: string[] = [];
 
-      for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(",").map(c => c.trim());
-        const salesmanNbr = cols[salesmanIdx];
-        const repId = cols[repIdIdx];
+      for (let i = 0; i < rows.length; i++) {
+        const salesmanNbr = (rows[i][salesmanKey] || "").trim();
+        const repId = (rows[i][repIdKey] || "").trim();
         if (!salesmanNbr || !repId) continue;
 
         const user = await storage.getUserByRepId(repId);
         if (!user) {
-          errors.push(`Row ${i + 1}: Rep ID '${repId}' not found`);
+          errors.push(`Row ${i + 2}: Rep ID '${repId}' not found`);
           continue;
         }
         mappings.push({ carrierProfileId, salesmanNbr, userId: user.id });
       }
 
       const created = await storage.bulkCreateCarrierRepMappings(mappings);
-      res.json({ imported: created.length, errors, total: lines.length - 1 });
+      res.json({ imported: created.length, errors, total: rows.length });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
