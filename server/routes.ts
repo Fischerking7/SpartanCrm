@@ -15726,7 +15726,7 @@ export async function registerRoutes(
 
             if (match.isUpgrade) {
               const upgradeNote = `Upgrade WO#${woNumber || "unknown"} applied`;
-              if (!order.notes?.includes("Upgrade WO#")) {
+              if (!order.notes?.includes(upgradeNote)) {
                 updates.notes = (updates.notes || order.notes || "") ? `${updates.notes || order.notes || ""}\n${upgradeNote}`.trim() : upgradeNote;
                 autoFilledFields.push("Upgrade");
               }
