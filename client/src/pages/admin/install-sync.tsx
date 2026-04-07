@@ -52,12 +52,23 @@ interface CarrierInsights {
   };
 }
 
+interface ScoreBreakdown {
+  nameScore: number;
+  addressScore: number;
+  cityScore: number;
+  zipScore: number;
+  repScore: number;
+  acctScore: number;
+  confidenceTier: "definitive" | "high" | "medium" | "low";
+}
+
 interface SyncResult {
   syncRunId: string;
   totalSheetRows: number;
   matchedCount: number;
   approvedCount: number;
   unmatchedCount: number;
+  dedupSkippedCount: number;
   emailSent: boolean;
   summary: string;
   matches: Array<{
@@ -68,11 +79,22 @@ interface SyncResult {
     orderCustomerName: string;
     confidence: number;
     reasoning: string;
+    scoreBreakdown?: ScoreBreakdown;
+    serviceLineType?: string;
+    workOrderNumber?: string;
+    isUpgrade?: boolean;
   }>;
   unmatched: Array<{
     rowIndex: number;
     data: Record<string, string>;
     reason: string;
+  }>;
+  dedupSkipped: Array<{
+    rowIndex: number;
+    data: Record<string, string>;
+    workOrderNumber: string;
+    previousSyncRunId: string;
+    matchedOrderId: string;
   }>;
   carrierInsights?: CarrierInsights;
 }
@@ -303,7 +325,7 @@ export default function InstallSync() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
               <div className="text-center p-3 rounded-lg bg-muted/50">
                 <div className="text-2xl font-bold" data-testid="text-total-rows">{result.totalSheetRows}</div>
                 <div className="text-xs text-muted-foreground">Sheet Rows</div>
@@ -320,6 +342,12 @@ export default function InstallSync() {
                 <div className="text-2xl font-bold text-amber-600" data-testid="text-unmatched-count">{result.unmatchedCount}</div>
                 <div className="text-xs text-muted-foreground">Unmatched</div>
               </div>
+              {(result.dedupSkippedCount > 0) && (
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <div className="text-2xl font-bold text-gray-500" data-testid="text-dedup-count">{result.dedupSkippedCount}</div>
+                  <div className="text-xs text-muted-foreground">Dedup Skipped</div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2" data-testid="text-summary">
@@ -390,9 +418,10 @@ export default function InstallSync() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Row</TableHead>
-                        <TableHead>Sheet Data</TableHead>
                         <TableHead>Matched Order</TableHead>
                         <TableHead>Confidence</TableHead>
+                        <TableHead>Score Breakdown</TableHead>
+                        <TableHead>Service</TableHead>
                         <TableHead>Reasoning</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -400,21 +429,75 @@ export default function InstallSync() {
                       {result.matches.map((match, i) => (
                         <TableRow key={i}>
                           <TableCell className="font-mono text-xs">{match.sheetRowIndex}</TableCell>
-                          <TableCell className="text-xs max-w-[200px] truncate">
-                            {Object.entries(match.sheetData).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(", ")}
-                          </TableCell>
                           <TableCell>
                             <div className="text-xs">
                               <div className="font-medium">{match.orderCustomerName}</div>
                               <div className="text-muted-foreground font-mono">{match.orderInvoice || match.orderId.slice(0, 8)}</div>
+                              {match.workOrderNumber && <div className="text-muted-foreground">WO#{match.workOrderNumber}</div>}
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={match.confidence >= 80 ? "default" : match.confidence >= 70 ? "secondary" : "outline"}>
-                              {match.confidence}%
-                            </Badge>
+                            <div className="flex flex-col items-start gap-1">
+                              <Badge variant={match.confidence >= 80 ? "default" : match.confidence >= 70 ? "secondary" : "outline"}>
+                                {match.confidence}%
+                              </Badge>
+                              {match.scoreBreakdown && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  {match.scoreBreakdown.confidenceTier}
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-[10px] font-mono whitespace-nowrap">
+                            {match.scoreBreakdown ? (
+                              <div className="space-y-0.5">
+                                <div>Name: {match.scoreBreakdown.nameScore}%</div>
+                                <div>Addr: {match.scoreBreakdown.addressScore}%</div>
+                                <div>City: {match.scoreBreakdown.cityScore}%</div>
+                                <div>ZIP: {match.scoreBreakdown.zipScore}%</div>
+                                <div>Rep: {match.scoreBreakdown.repScore}%</div>
+                                <div>Acct: {match.scoreBreakdown.acctScore}%</div>
+                              </div>
+                            ) : <span className="text-muted-foreground">N/A</span>}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <div className="flex flex-col gap-0.5">
+                              {match.serviceLineType && <Badge variant="outline" className="text-[10px]">{match.serviceLineType}</Badge>}
+                              {match.isUpgrade && <Badge variant="secondary" className="text-[10px]">Upgrade</Badge>}
+                            </div>
                           </TableCell>
                           <TableCell className="text-xs max-w-[200px]">{match.reasoning}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {expandedDetails && result.dedupSkipped && result.dedupSkipped.length > 0 && (
+              <div>
+                <h4 className="font-medium mb-2 flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-gray-500" />
+                  Previously Synced (Dedup Skipped) ({result.dedupSkipped.length})
+                </h4>
+                <div className="overflow-x-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Row</TableHead>
+                        <TableHead>Work Order</TableHead>
+                        <TableHead>Data</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {result.dedupSkipped.slice(0, 20).map((item, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="font-mono text-xs">{item.rowIndex}</TableCell>
+                          <TableCell className="text-xs font-mono">{item.workOrderNumber}</TableCell>
+                          <TableCell className="text-xs max-w-[300px] truncate">
+                            {Object.entries(item.data).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(", ")}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

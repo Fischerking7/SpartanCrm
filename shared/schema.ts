@@ -2154,6 +2154,19 @@ export const insertInstallSyncRunSchema = createInsertSchema(installSyncRuns).om
 export type InstallSyncRun = typeof installSyncRuns.$inferSelect;
 export type InsertInstallSyncRun = z.infer<typeof insertInstallSyncRunSchema>;
 
+export const processedWorkOrders = pgTable("processed_work_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  workOrderNumber: text("work_order_number").notNull(),
+  carrierProfileId: varchar("carrier_profile_id").references(() => carrierProfiles.id),
+  syncRunId: varchar("sync_run_id").notNull().references(() => installSyncRuns.id),
+  matchedOrderId: varchar("matched_order_id").notNull().references(() => salesOrders.id),
+  serviceLineType: text("service_line_type"),
+  processedAt: timestamp("processed_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("processed_wo_carrier_unique").on(table.workOrderNumber, table.carrierProfileId),
+]);
+export type ProcessedWorkOrder = typeof processedWorkOrders.$inferSelect;
+
 export const carrierImportSchedules = pgTable("carrier_import_schedules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   clientId: varchar("client_id").notNull().references(() => clients.id),

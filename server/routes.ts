@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc, not } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
@@ -17,7 +17,7 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import rateLimit from "express-rate-limit";
 import { encryptSsn, decryptSsn, extractSsnLast4, maskSsn } from "./encryption";
 import { fetchGoogleSheet, parseUploadedCsv } from "./google-sheets";
-import { matchInstallationsToOrders, normalizeWoStatus, type OrderSummary, getCustomerName, getAddress, getCity, getZip, getRepName, getAccountNumber, getWoStatus, getWorkOrderNumber, getScheduleDate, getCheckInDate, getCancelCode, getCancelCodeDesc, getInternetMdm, getSalesmanNumber, getOffice, getWorkOrderType, getDataInstallsQty, getMobileInstallsQty, getVideoInstallsQty, detectCarrierProfile, buildCarrierContext, extractField, type CarrierContext } from "./claude-matching";
+import { matchInstallationsToOrders, normalizeWoStatus, type OrderSummary, type DedupEntry, getCustomerName, getAddress, getCity, getZip, getRepName, getAccountNumber, getWoStatus, getWorkOrderNumber, getScheduleDate, getCheckInDate, getCancelCode, getCancelCodeDesc, getInternetMdm, getSalesmanNumber, getOffice, getWorkOrderType, getDataInstallsQty, getMobileInstallsQty, getVideoInstallsQty, detectCarrierProfile, buildCarrierContext, extractField, determineServiceLine, type CarrierContext } from "./claude-matching";
 import { emailService } from "./email";
 import { getOrCreateReserve, applyWithholding, applyChargebackToReserve, applyEquipmentRecovery, handleRepSeparation, checkAndReleaseMaturedReserves, calculateWithholding, isReserveEligibleRole } from "./reserves/reserveService";
 import { generatePayStub, generatePayStubsForPayRun } from "./payStubGenerator";
@@ -15595,7 +15595,17 @@ export async function registerRoutes(
           }
         }
 
-        const matchResult = await matchInstallationsToOrders(sheetData.rows, orderSummaries, carrierCtx);
+        const allProcessed = await db.select().from(processedWorkOrders).where(
+          carrierCtx?.profile?.id
+            ? eq(processedWorkOrders.carrierProfileId, carrierCtx.profile.id)
+            : isNull(processedWorkOrders.carrierProfileId)
+        );
+        const processedWoMap = new Map<string, DedupEntry>();
+        for (const pw of allProcessed) {
+          processedWoMap.set(pw.workOrderNumber.toUpperCase(), { syncRunId: pw.syncRunId, matchedOrderId: pw.matchedOrderId });
+        }
+
+        const matchResult = await matchInstallationsToOrders(sheetData.rows, orderSummaries, carrierCtx, processedWoMap);
 
         let approvedCount = 0;
         const approvedOrders: any[] = [];
@@ -15707,11 +15717,36 @@ export async function registerRoutes(
               }
             }
 
-            const woNumber = extractField(match.sheetData, "work_order_number", carrierCtx, getWorkOrderNumber);
+            const woNumber = match.workOrderNumber || extractField(match.sheetData, "work_order_number", carrierCtx, getWorkOrderNumber);
             if (woNumber && !order.notes?.includes(`WO#${woNumber}`)) {
               const woNote = `WO#${woNumber}`;
               updates.notes = (updates.notes || order.notes || "") ? `${updates.notes || order.notes || ""}\n${woNote}`.trim() : woNote;
               autoFilledFields.push("Work Order #");
+            }
+
+            if (match.isUpgrade) {
+              const upgradeNote = `Upgrade WO#${woNumber || "unknown"} applied`;
+              if (!order.notes?.includes("Upgrade WO#")) {
+                updates.notes = (updates.notes || order.notes || "") ? `${updates.notes || order.notes || ""}\n${upgradeNote}`.trim() : upgradeNote;
+                autoFilledFields.push("Upgrade");
+              }
+            }
+
+            if (match.serviceLineType && match.serviceLineType !== "INTERNET") {
+              const checkInDtSvc = extractField(match.sheetData, "check_in_date", carrierCtx, getCheckInDate);
+              if (checkInDtSvc) {
+                const parsedSvc = new Date(checkInDtSvc);
+                if (!isNaN(parsedSvc.getTime())) {
+                  const svcDate = parsedSvc.toISOString().split("T")[0];
+                  if (match.serviceLineType === "TV" && !order.tvInstallDate) {
+                    updates.tvInstallDate = svcDate;
+                    autoFilledFields.push("TV Install Date");
+                  } else if (match.serviceLineType === "MOBILE" && !order.mobileInstallDate) {
+                    updates.mobileInstallDate = svcDate;
+                    autoFilledFields.push("Mobile Install Date");
+                  }
+                }
+              }
             }
 
             const carrierSpeed = extractField(match.sheetData, "internet_speed", carrierCtx, getInternetMdm);
@@ -15720,15 +15755,23 @@ export async function registerRoutes(
               if (orderService) {
                 const expectedCode = speedTierMap[carrierSpeed];
                 if (expectedCode && orderService.code !== expectedCode && orderService.code !== "Gen Internet") {
-                  const expectedService = serviceByCode.get(expectedCode);
-                  carrierInsights.mismatches.push({
-                    orderId: order.id,
-                    orderInvoice: order.invoiceNumber || "",
-                    customerName: order.customerName,
-                    crmService: orderService.name,
-                    carrierSpeed: carrierSpeed,
-                    carrierSpeedLabel: expectedService?.name || `${carrierSpeed} Mbps`,
-                  });
+                  if (match.isUpgrade) {
+                    const upgradedService = serviceByCode.get(expectedCode);
+                    if (upgradedService) {
+                      updates.serviceId = upgradedService.id;
+                      autoFilledFields.push(`Service Tier Upgraded → ${upgradedService.name}`);
+                    }
+                  } else {
+                    const expectedService = serviceByCode.get(expectedCode);
+                    carrierInsights.mismatches.push({
+                      orderId: order.id,
+                      orderInvoice: order.invoiceNumber || "",
+                      customerName: order.customerName,
+                      crmService: orderService.name,
+                      carrierSpeed: carrierSpeed,
+                      carrierSpeedLabel: expectedService?.name || `${carrierSpeed} Mbps`,
+                    });
+                  }
                 }
               }
             }
@@ -15793,6 +15836,16 @@ export async function registerRoutes(
                 updates.approvedByUserId = null;
                 updates.approvedAt = null;
               }
+            }
+
+            if (woNumber) {
+              await storage.createProcessedWorkOrder({
+                workOrderNumber: woNumber,
+                carrierProfileId: carrierCtx?.profile?.id || null,
+                syncRunId: syncRun.id,
+                matchedOrderId: match.orderId,
+                serviceLineType: match.serviceLineType || null,
+              });
             }
 
             if (Object.keys(updates).length === 0) continue;
@@ -15954,8 +16007,13 @@ export async function registerRoutes(
               orderCustomerName: m.orderCustomerName,
               confidence: m.confidence,
               reasoning: m.reasoning,
+              scoreBreakdown: m.scoreBreakdown,
+              serviceLineType: m.serviceLineType,
+              workOrderNumber: m.workOrderNumber,
+              isUpgrade: m.isUpgrade,
             })),
             unmatched: matchResult.unmatched,
+            dedupSkipped: matchResult.dedupSkipped,
             carrierInsights,
           }),
           completedAt: new Date(),
@@ -15967,10 +16025,12 @@ export async function registerRoutes(
           matchedCount: matchResult.matches.length,
           approvedCount,
           unmatchedCount: matchResult.unmatched.length,
+          dedupSkippedCount: matchResult.dedupSkipped.length,
           emailSent,
           summary: matchResult.summary,
           matches: matchResult.matches,
           unmatched: matchResult.unmatched,
+          dedupSkipped: matchResult.dedupSkipped,
           carrierInsights,
         });
       } catch (innerError: any) {

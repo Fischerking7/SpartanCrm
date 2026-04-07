@@ -97,6 +97,16 @@ export interface OrderSummary {
   isMobileOrder?: boolean;
 }
 
+export interface ScoreDetail {
+  nameScore: number;
+  addressScore: number;
+  cityScore: number;
+  zipScore: number;
+  repScore: number;
+  acctScore: number;
+  confidenceTier: "definitive" | "high" | "medium" | "low";
+}
+
 export interface MatchResult {
   sheetRowIndex: number;
   sheetData: Record<string, string>;
@@ -105,11 +115,16 @@ export interface MatchResult {
   orderCustomerName: string;
   confidence: number;
   reasoning: string;
+  scoreBreakdown?: ScoreDetail;
+  serviceLineType?: string;
+  workOrderNumber?: string;
+  isUpgrade?: boolean;
 }
 
 export interface MatchingResponse {
   matches: MatchResult[];
   unmatched: { rowIndex: number; data: Record<string, string>; reason: string }[];
+  dedupSkipped: { rowIndex: number; data: Record<string, string>; workOrderNumber: string; previousSyncRunId: string; matchedOrderId: string }[];
   summary: string;
 }
 
@@ -426,6 +441,7 @@ interface ScoreBreakdown {
   acctScore: number;
   total: number;
   reasons: string[];
+  confidenceTier: "definitive" | "high" | "medium" | "low";
 }
 
 function scoreMatch(row: Record<string, string>, order: OrderSummary, ctx: CarrierContext | null = null): ScoreBreakdown {
@@ -535,7 +551,26 @@ function scoreMatch(row: Record<string, string>, order: OrderSummary, ctx: Carri
 
   total = Math.max(0, Math.min(100, total + mobileTypeBonus));
 
-  return { nameScore, addressScore, cityScore, zipScore, repScore, acctScore, total, reasons };
+  let confidenceTier: "definitive" | "high" | "medium" | "low" = "low";
+  if (acctScore === 1 && nameScore >= 0.4) confidenceTier = "definitive";
+  else if (acctScore === 1) confidenceTier = "high";
+  else if (addressScore >= 0.7 && nameScore >= 0.7 && repScore >= 0.7) confidenceTier = "high";
+  else if (nameScore >= 0.5 && addressScore >= 0.4) confidenceTier = "medium";
+
+  return { nameScore, addressScore, cityScore, zipScore, repScore, acctScore, total, reasons, confidenceTier };
+}
+
+export function determineServiceLine(row: Record<string, string>, ctx: CarrierContext | null = null): string {
+  const dataQty = extractField(row, "data_installs_qty", ctx, getDataInstallsQty).trim();
+  const videoQty = extractField(row, "video_installs_qty", ctx, getVideoInstallsQty).trim();
+  const mobileQty = extractField(row, "mobile_installs_qty", ctx, getMobileInstallsQty).trim();
+  const hasData = dataQty !== "" && dataQty !== "0";
+  const hasVideo = videoQty !== "" && videoQty !== "0";
+  const hasMobile = mobileQty !== "" && mobileQty !== "0";
+  if (hasMobile && !hasData && !hasVideo) return "MOBILE";
+  if (hasVideo && !hasData && !hasMobile) return "TV";
+  if (hasData) return "INTERNET";
+  return "INTERNET";
 }
 
 export function normalizeWoStatus(row: Record<string, string>, ctx: CarrierContext | null = null): string {
@@ -555,20 +590,42 @@ export function normalizeWoStatus(row: Record<string, string>, ctx: CarrierConte
 
 const MATCH_THRESHOLD = 45;
 
+export interface DedupEntry {
+  syncRunId: string;
+  matchedOrderId: string;
+}
+
 export async function matchInstallationsToOrders(
   sheetRows: SheetRow[],
   orders: OrderSummary[],
   carrierCtx: CarrierContext | null = null,
+  processedWoMap?: Map<string, DedupEntry>,
 ): Promise<MatchingResponse> {
   if (sheetRows.length === 0) {
-    return { matches: [], unmatched: [], summary: "No installation records to match." };
+    return { matches: [], unmatched: [], dedupSkipped: [], summary: "No installation records to match." };
   }
 
   const matchableRows: SheetRow[] = [];
   const skippedRows: { rowIndex: number; data: Record<string, string>; reason: string }[] = [];
+  const dedupSkipped: MatchingResponse["dedupSkipped"] = [];
   const validStatuses = new Set(["CP", "CN", "OP", "ND", "COMPLETED", "CONNECTED", "OPEN", "NO DISPATCH", "CANCELED", "CANCELLED", "INSTALLED", "ACTIVE", "PENDING", "SCHEDULED", "IN PROGRESS", "DONE"]);
 
   for (const row of sheetRows) {
+    const woNumber = extractField(row.data, "work_order_number", carrierCtx, getWorkOrderNumber).trim();
+    if (woNumber && processedWoMap) {
+      const prev = processedWoMap.get(woNumber.toUpperCase());
+      if (prev) {
+        dedupSkipped.push({
+          rowIndex: row.rowIndex,
+          data: row.data,
+          workOrderNumber: woNumber,
+          previousSyncRunId: prev.syncRunId,
+          matchedOrderId: prev.matchedOrderId,
+        });
+        continue;
+      }
+    }
+
     const woStatus = extractField(row.data, "wo_status", carrierCtx, getWoStatus).trim().toUpperCase();
     if (!woStatus || validStatuses.has(woStatus)) {
       matchableRows.push(row);
@@ -584,7 +641,7 @@ export async function matchInstallationsToOrders(
   }
   const statusStr = Object.entries(statusCounts).map(([k, v]) => `${k}:${v}`).join(", ");
 
-  console.log(`[Install Sync] Filtered: ${matchableRows.length} matchable (${statusStr}), ${skippedRows.length} skipped out of ${sheetRows.length} total rows`);
+  console.log(`[Install Sync] Filtered: ${matchableRows.length} matchable (${statusStr}), ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped out of ${sheetRows.length} total rows`);
 
   if (matchableRows.length > 0) {
     const sampleRow = matchableRows[0].data;
@@ -601,7 +658,7 @@ export async function matchInstallationsToOrders(
   }
 
   if (matchableRows.length === 0) {
-    return { matches: [], unmatched: skippedRows, summary: `No matchable installation records found. ${skippedRows.length} rows skipped.` };
+    return { matches: [], unmatched: skippedRows, dedupSkipped, summary: `No matchable installation records found. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced.` };
   }
 
   if (orders.length === 0) {
@@ -611,37 +668,47 @@ export async function matchInstallationsToOrders(
         ...matchableRows.map(r => ({ rowIndex: r.rowIndex, data: r.data, reason: "No pending orders in the system to match against." })),
         ...skippedRows,
       ],
+      dedupSkipped,
       summary: "No pending orders available for matching.",
     };
   }
 
   console.log(`[Install Sync] Matching ${matchableRows.length} sheet rows against ${orders.length} orders (threshold: ${MATCH_THRESHOLD}%)`);
 
-  const candidates: { rowIndex: number; data: Record<string, string>; orderId: string; score: ScoreBreakdown }[] = [];
+  const candidates: { rowIndex: number; data: Record<string, string>; orderId: string; score: ScoreBreakdown; serviceLine: string; woNumber: string; woType: string }[] = [];
 
   for (const row of matchableRows) {
+    const serviceLine = determineServiceLine(row.data, carrierCtx);
+    const woNumber = extractField(row.data, "work_order_number", carrierCtx, getWorkOrderNumber).trim();
+    const woType = extractField(row.data, "work_order_type", carrierCtx, getWorkOrderType).trim().toUpperCase();
     for (const order of orders) {
       const score = scoreMatch(row.data, order, carrierCtx);
       if (score.total >= MATCH_THRESHOLD) {
-        candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score });
+        candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score, serviceLine, woNumber, woType });
       }
     }
   }
 
   candidates.sort((a, b) => b.score.total - a.score.total);
 
-  const usedOrderIds = new Set<string>();
   const usedRowIndices = new Set<number>();
+  const orderServiceLineUsed = new Map<string, Set<string>>();
   const validMatches: MatchResult[] = [];
   const orderMap = new Map(orders.map(o => [o.id, o]));
 
   for (const c of candidates) {
-    if (usedOrderIds.has(c.orderId) || usedRowIndices.has(c.rowIndex)) continue;
+    if (usedRowIndices.has(c.rowIndex)) continue;
     const order = orderMap.get(c.orderId);
     if (!order) continue;
 
-    usedOrderIds.add(c.orderId);
+    const orderServiceLines = orderServiceLineUsed.get(c.orderId) || new Set();
+    if (orderServiceLines.has(c.serviceLine)) continue;
+
     usedRowIndices.add(c.rowIndex);
+    orderServiceLines.add(c.serviceLine);
+    orderServiceLineUsed.set(c.orderId, orderServiceLines);
+
+    const isUpgrade = c.woType === "UP";
 
     validMatches.push({
       sheetRowIndex: c.rowIndex,
@@ -651,6 +718,18 @@ export async function matchInstallationsToOrders(
       orderCustomerName: order.customerName,
       confidence: Math.min(100, c.score.total),
       reasoning: c.score.reasons.join("; ") || "Matched by deterministic scoring",
+      scoreBreakdown: {
+        nameScore: Math.round(c.score.nameScore * 100),
+        addressScore: Math.round(c.score.addressScore * 100),
+        cityScore: Math.round(c.score.cityScore * 100),
+        zipScore: Math.round(c.score.zipScore * 100),
+        repScore: Math.round(c.score.repScore * 100),
+        acctScore: Math.round(c.score.acctScore * 100),
+        confidenceTier: c.score.confidenceTier,
+      },
+      serviceLineType: c.serviceLine,
+      workOrderNumber: c.woNumber || undefined,
+      isUpgrade,
     });
   }
 
@@ -680,11 +759,12 @@ export async function matchInstallationsToOrders(
 
   const allUnmatched = [...unmatchedRows, ...skippedRows];
 
-  console.log(`[Install Sync] Done: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped`);
+  console.log(`[Install Sync] Done: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped`);
 
   return {
     matches: validMatches,
     unmatched: allUnmatched,
-    summary: `Matched ${validMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped (unrecognized status).`,
+    dedupSkipped,
+    summary: `Matched ${validMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced (dedup).`,
   };
 }
