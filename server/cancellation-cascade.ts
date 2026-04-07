@@ -289,18 +289,19 @@ export async function cancelOrderCascade(
         .where(eq(rollingReserves.userId, repUserId));
 
       if (reserve) {
-        item.reserveReversedCents = order.reserveWithheldCents;
+        const effectiveReversalCents = Math.min(order.reserveWithheldCents, reserve.currentBalanceCents);
+        item.reserveReversedCents = effectiveReversalCents;
 
-        if (!dryRun) {
-          const newBalance = reserve.currentBalanceCents - order.reserveWithheldCents;
+        if (!dryRun && effectiveReversalCents > 0) {
+          const newBalance = reserve.currentBalanceCents - effectiveReversalCents;
 
           await db.insert(reserveTransactions).values({
             reserveId: reserve.id,
             userId: repUserId,
             transactionType: "ADJUSTMENT",
-            amountCents: order.reserveWithheldCents,
+            amountCents: effectiveReversalCents,
             isCredit: false,
-            balanceAfterCents: Math.max(0, newBalance),
+            balanceAfterCents: newBalance,
             salesOrderId: orderId,
             description: `Reserve reversal for canceled order ${order.invoiceNumber || orderId} (sync run: ${syncRunId})`,
             processedByUserId: actingUserId,
@@ -314,7 +315,7 @@ export async function cancelOrderCascade(
           await db
             .update(rollingReserves)
             .set({
-              currentBalanceCents: Math.max(0, newBalance),
+              currentBalanceCents: newBalance,
               status: newStatus,
               updatedAt: new Date(),
             })
@@ -340,8 +341,8 @@ export async function cancelOrderCascade(
             tableName: "reserve_transactions",
             recordId: orderId,
             afterJson: JSON.stringify({
-              reversedCents: order.reserveWithheldCents,
-              newBalance: Math.max(0, newBalance),
+              reversedCents: effectiveReversalCents,
+              newBalance: newBalance,
               syncRunId,
             }),
             userId: actingUserId,
