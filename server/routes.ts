@@ -16675,6 +16675,7 @@ export async function registerRoutes(
 
     const finalOrder = await storage.updateOrder(orderId, {
       baseCommissionEarned: baseCommission,
+      incentiveEarned: "0",
       appliedRateCardId,
       calcAt: new Date(),
       overrideDeduction: totalDeductions.toFixed(2),
@@ -16691,7 +16692,7 @@ export async function registerRoutes(
     }
 
     const existingOverrides = await storage.getOverrideEarningsByOrder(orderId);
-    if (existingOverrides.length > 0 && totalDeductions > 0) {
+    if (existingOverrides.length > 0) {
       const perOverrideAmount = totalDeductions.toFixed(2);
       for (const oe of existingOverrides) {
         await d.update(overrideEarnings)
@@ -16760,10 +16761,10 @@ export async function registerRoutes(
       const speedTierMap = await buildSpeedTierMap();
 
       const results = await db.transaction(async (tx) => {
-        const txResults: CorrectionResult[] = [];
+        const txResults: Array<CorrectionResult & { success: boolean }> = [];
         for (const { orderId, carrierSpeed } of corrections) {
           const corrResult = await correctSingleMismatch(orderId, carrierSpeed, user.id, allServices, speedTierMap, tx);
-          txResults.push(corrResult);
+          txResults.push({ ...corrResult, success: true });
         }
         return txResults;
       });
