@@ -125,11 +125,16 @@ export default function CarrierRepMappings() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("carrierProfileId", carrierProfileId);
-      const headers = getAuthHeaders();
-      delete (headers as any)["Content-Type"];
+      const authHeaders = getAuthHeaders();
+      const uploadHeaders: Record<string, string> = {};
+      for (const [key, val] of Object.entries(authHeaders)) {
+        if (key.toLowerCase() !== "content-type") {
+          uploadHeaders[key] = val;
+        }
+      }
       const res = await fetch("/api/admin/carrier-rep-mappings/bulk-import", {
         method: "POST",
-        headers,
+        headers: uploadHeaders,
         body: fd,
       });
       if (!res.ok) throw new Error((await res.json()).message || "Failed");

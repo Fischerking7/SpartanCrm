@@ -16010,6 +16010,12 @@ export async function registerRoutes(
 
   app.post("/api/admin/carrier-profiles", auth, requirePermission("admin:carrier:profiles"), async (req: AuthRequest, res) => {
     try {
+      const jsonFields = ["columnMapping", "speedTierMap", "statusCodeMap", "signatureHeaders"] as const;
+      for (const field of jsonFields) {
+        if (req.body[field]) {
+          try { JSON.parse(req.body[field]); } catch { return res.status(400).json({ message: `Invalid JSON in ${field}` }); }
+        }
+      }
       const profile = await storage.createCarrierProfile(req.body);
       res.json(profile);
     } catch (error: any) {
@@ -16019,6 +16025,12 @@ export async function registerRoutes(
 
   app.put("/api/admin/carrier-profiles/:id", auth, requirePermission("admin:carrier:profiles"), async (req: AuthRequest, res) => {
     try {
+      const jsonFields = ["columnMapping", "speedTierMap", "statusCodeMap", "signatureHeaders"] as const;
+      for (const field of jsonFields) {
+        if (req.body[field]) {
+          try { JSON.parse(req.body[field]); } catch { return res.status(400).json({ message: `Invalid JSON in ${field}` }); }
+        }
+      }
       const profile = await storage.updateCarrierProfile(req.params.id, req.body);
       if (!profile) return res.status(404).json({ message: "Not found" });
       res.json(profile);

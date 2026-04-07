@@ -38,9 +38,12 @@ export function buildCarrierContext(
   repMappings: CarrierRepMapping[],
   userMap: Map<string, { name: string; repId: string }>,
 ): CarrierContext {
-  const columnMapping = JSON.parse(profile.columnMapping || "{}") as Record<string, string[]>;
-  const speedTierMap = JSON.parse(profile.speedTierMap || "{}") as Record<string, string>;
-  const statusCodeMap = JSON.parse(profile.statusCodeMap || "{}") as Record<string, string>;
+  let columnMapping: Record<string, string[]> = {};
+  let speedTierMap: Record<string, string> = {};
+  let statusCodeMap: Record<string, string> = {};
+  try { columnMapping = JSON.parse(profile.columnMapping || "{}"); } catch { console.warn(`[Carrier] Invalid columnMapping JSON for profile ${profile.name}, using defaults`); }
+  try { speedTierMap = JSON.parse(profile.speedTierMap || "{}"); } catch { console.warn(`[Carrier] Invalid speedTierMap JSON for profile ${profile.name}, using defaults`); }
+  try { statusCodeMap = JSON.parse(profile.statusCodeMap || "{}"); } catch { console.warn(`[Carrier] Invalid statusCodeMap JSON for profile ${profile.name}, using defaults`); }
 
   const repMap = new Map<string, { userId: string; repId: string; userName: string }>();
   for (const m of repMappings) {
