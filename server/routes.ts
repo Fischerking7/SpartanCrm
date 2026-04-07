@@ -15603,10 +15603,36 @@ export async function registerRoutes(
         autoFilledFields.push("Work Order #");
       }
 
-      if (woStatus === "CP" && order.jobStatus !== "COMPLETED") {
-        updates.jobStatus = "COMPLETED";
-      } else if (woStatus === "CN" && order.jobStatus !== "CANCELED") {
-        updates.jobStatus = "CANCELED";
+      if (woStatus === "CP") {
+        if (order.jobStatus !== "COMPLETED") {
+          updates.jobStatus = "COMPLETED";
+        }
+        if (!order.approvalStatus || order.approvalStatus === "UNAPPROVED") {
+          updates.approvalStatus = "APPROVED";
+          updates.approvedAt = new Date();
+          if (!order.repRoleAtSale && order.repId) {
+            const salesRep = await storage.getUserByRepId(order.repId);
+            updates.repRoleAtSale = salesRep?.role || "REP";
+          }
+        }
+      } else if (woStatus === "CN") {
+        if (order.jobStatus !== "CANCELED") {
+          updates.jobStatus = "CANCELED";
+        }
+        if (order.approvalStatus === "APPROVED") {
+          updates.approvalStatus = "UNAPPROVED";
+          updates.approvedByUserId = null;
+          updates.approvedAt = null;
+        }
+      } else if (woStatus === "OP" || woStatus === "ND") {
+        if (order.jobStatus !== "PENDING") {
+          updates.jobStatus = "PENDING";
+        }
+        if (order.approvalStatus === "APPROVED") {
+          updates.approvalStatus = "UNAPPROVED";
+          updates.approvedByUserId = null;
+          updates.approvedAt = null;
+        }
       }
 
       if (Object.keys(updates).length > 0) {
@@ -15736,6 +15762,11 @@ export async function registerRoutes(
         const profileName = carrierCtxLocal.profile.name.toUpperCase();
         const matchProvider = allProviders.find(p => p.name.toUpperCase().includes(profileName) || profileName.includes(p.name.toUpperCase()));
         if (matchProvider) providerId = matchProvider.id;
+        const matchClient = allClients.find(c => c.name.toUpperCase().includes(profileName) || profileName.includes(c.name.toUpperCase()));
+        if (matchClient) clientId = matchClient.id;
+      }
+      if (!clientId && allClients.length === 1) {
+        clientId = allClients[0].id;
       }
 
       let serviceId = allServices[0]?.id;

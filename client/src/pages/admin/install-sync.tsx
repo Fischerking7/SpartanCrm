@@ -145,7 +145,8 @@ export default function InstallSync() {
   const [createFormData, setCreateFormData] = useState<{
     customerName: string; address: string; city: string; repName: string;
     acctNbr: string; woStatus: string; internetSpeed: string;
-  }>({ customerName: "", address: "", city: "", repName: "", acctNbr: "", woStatus: "", internetSpeed: "" });
+    installDate: string; scheduleDate: string;
+  }>({ customerName: "", address: "", city: "", repName: "", acctNbr: "", woStatus: "", internetSpeed: "", installDate: "", scheduleDate: "" });
 
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedUnmatched, setSelectedUnmatched] = useState<Set<number>>(new Set());
@@ -297,6 +298,7 @@ export default function InstallSync() {
           setResult({
             ...result,
             matchedCount: result.matchedCount + 1,
+            unmatchedCount: Math.max(0, result.unmatchedCount - 1),
             carrierInsights: {
               ...ci2,
               missingOrders: ci2.missingOrders.filter(mo => mo !== createRow),
@@ -941,6 +943,11 @@ export default function InstallSync() {
                                 className="text-xs h-7"
                                 onClick={() => {
                                   setCreateRow(mo);
+                                  const rd = mo.rawData || {};
+                                  const findVal = (patterns: string[]) => {
+                                    const key = Object.keys(rd).find(k => patterns.some(p => k.toLowerCase().includes(p)));
+                                    return key ? rd[key] : "";
+                                  };
                                   setCreateFormData({
                                     customerName: mo.customerName || "",
                                     address: mo.address || "",
@@ -949,6 +956,8 @@ export default function InstallSync() {
                                     acctNbr: mo.acctNbr || "",
                                     woStatus: mo.woStatus || "",
                                     internetSpeed: mo.internetSpeed || "",
+                                    installDate: findVal(["check_in", "checkin", "install_date"]),
+                                    scheduleDate: findVal(["schedule", "sched_date"]),
                                   });
                                   setCreateDialogOpen(true);
                                 }}
@@ -1237,6 +1246,26 @@ export default function InstallSync() {
                     />
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Install Date</Label>
+                    <Input
+                      type="date"
+                      value={createFormData.installDate}
+                      onChange={(e) => setCreateFormData(prev => ({ ...prev, installDate: e.target.value }))}
+                      data-testid="input-create-install-date"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Schedule Date</Label>
+                    <Input
+                      type="date"
+                      value={createFormData.scheduleDate}
+                      onChange={(e) => setCreateFormData(prev => ({ ...prev, scheduleDate: e.target.value }))}
+                      data-testid="input-create-schedule-date"
+                    />
+                  </div>
+                </div>
                 <div className="text-xs text-muted-foreground">
                   WO Type: {createRow.woType === "IN" ? "Install" : createRow.woType === "UP" ? "Upgrade" : createRow.woType || "—"}
                 </div>
@@ -1262,6 +1291,16 @@ export default function InstallSync() {
                       applyOverride(createFormData.acctNbr, createRow.acctNbr || "", ["account", "acct"]);
                       applyOverride(createFormData.internetSpeed, createRow.internetSpeed || "", ["speed", "internet", "mdm"]);
                       applyOverride(createFormData.woStatus, createRow.woStatus || "", ["status"]);
+                      if (createFormData.installDate) {
+                        const checkInKey = Object.keys(mergedData).find(k => k.toLowerCase().includes("check_in") || k.toLowerCase().includes("checkin") || k.toLowerCase().includes("install_date"));
+                        if (checkInKey) mergedData[checkInKey] = createFormData.installDate;
+                        else mergedData["check_in_date"] = createFormData.installDate;
+                      }
+                      if (createFormData.scheduleDate) {
+                        const schedKey = Object.keys(mergedData).find(k => k.toLowerCase().includes("schedule") || k.toLowerCase().includes("sched_date"));
+                        if (schedKey) mergedData[schedKey] = createFormData.scheduleDate;
+                        else mergedData["schedule_date"] = createFormData.scheduleDate;
+                      }
                       createOrderMutation.mutate(mergedData);
                     }
                   }}
