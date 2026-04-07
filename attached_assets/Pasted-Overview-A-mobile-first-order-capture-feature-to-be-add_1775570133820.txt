@@ -1,0 +1,111 @@
+Overview
+A mobile-first order capture feature to be added to the Ironcrest CRM. When a rep completes a sale using Astound's external buy flow, they screenshot the order confirmation. This module uses AI vision to extract order data from that screenshot and pre-populates a new CRM order form — eliminating manual double-entry.
+Problem Being Solved
+Reps currently complete orders in Astound's external buy flow, then manually re-enter all order information into the Ironcrest CRM. This causes:
+Data entry errors
+Time loss at the door
+Rep friction and compliance drop-off
+Scope
+In scope:
+Screenshot upload or camera capture on mobile
+AI vision extraction of order fields
+Pre-populated CRM order form with extracted data
+Rep review and confirmation step before submission
+Error handling for low-confidence extractions
+Logging of raw screenshot and extracted data for audit
+Out of scope:
+Any direct integration with Astound's systems or API
+Changes to the existing order submission flow after confirmation
+Changes to commission logic, install sync, or pay run modules
+User Flow
+Rep completes order in Astound's buy flow on their device
+Rep navigates to New Order in Ironcrest CRM
+Rep selects "Capture from Screenshot" instead of manual entry
+Rep uploads screenshot or takes photo of order confirmation screen
+System sends image to AI vision model
+Extracted fields populate the order form automatically
+Rep reviews pre-filled form, corrects any errors
+Rep submits — order enters CRM normally from this point forward
+Fields to Extract
+From the Astound order confirmation screen:
+Field
+Required
+Customer First Name
+Yes
+Customer Last Name
+Yes
+Service Address
+Yes
+City / State / ZIP
+Yes
+Account Number
+Yes
+Services Ordered (Internet / TV / Mobile)
+Yes
+Install Date
+Yes
+Order Confirmation Number
+Yes
+Plan / Package Name
+If visible
+Monthly Rate
+If visible
+AI Vision Integration
+Model: OpenAI GPT-4o vision endpoint (or Claude claude-sonnet-4-6 vision — swap based on cost/performance testing)
+Input: Base64-encoded image from screenshot
+Output: Structured JSON matching CRM order schema
+Prompt strategy: Provide the model with the expected field list and instruct it to return null for any field it cannot confidently read
+Confidence handling: If more than 2 required fields return null, flag the extraction as low-confidence and prompt rep to complete manually
+Frontend Requirements
+Mobile-optimized UI (existing shadcn/ui components)
+Camera access via device browser or PWA
+Image preview before submission to AI
+Side-by-side view: screenshot on left, pre-filled form on right (tablet) or toggle view (phone)
+Field-level indicators showing which fields were AI-extracted vs. manually entered
+Clear "Edit" affordance on every pre-filled field
+Backend Requirements
+New API endpoint: POST /api/orders/capture
+Accepts: multipart form with image file
+Processes: sends image to vision API, receives JSON, maps to order schema
+Returns: pre-filled order object to frontend
+Stores: raw image in secure storage (S3 or equivalent) linked to order record for audit trail
+Does NOT create the order — only returns extracted data; order creation uses existing endpoint
+Database Changes
+Add to orders table:
+capture_method — enum: manual, screenshot_capture
+capture_image_url — string, nullable
+capture_raw_json — jsonb, nullable (stores raw AI extraction output)
+Error States
+Condition
+Behavior
+Image too blurry or low resolution
+Prompt rep to retake
+AI returns low-confidence extraction
+Highlight missing fields, allow manual completion
+Vision API timeout or failure
+Fall back to manual entry, log error
+Screenshot is not an Astound order confirmation
+Detect and warn rep
+Security & Compliance
+Screenshots contain PII — images must be encrypted at rest
+Image storage access restricted to OPERATIONS, ACCOUNTING, ADMIN roles
+Images retained for 90 days then purged (configurable)
+All extraction attempts logged with timestamp and user ID
+What This Does Not Touch
+To be explicitly preserved without modification:
+Install Sync / AI matching logic
+Commission calculation engine
+Pay run and chargeback logic
+Rolling reserve logic
+Override commission chain
+Onboarding portal
+QuickBooks integration
+Role-based access control and org hierarchy
+Any existing order submission logic post-confirmation
+Suggested Build Order
+Backend vision endpoint (capture + extract + return JSON)
+Field mapping layer (AI JSON → CRM order schema)
+Frontend capture UI (upload / camera)
+Pre-fill and review form
+Audit storage (image + raw extraction log)
+Error handling and edge case polish
