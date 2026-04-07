@@ -2157,7 +2157,7 @@ export type InsertInstallSyncRun = z.infer<typeof insertInstallSyncRunSchema>;
 export const processedWorkOrders = pgTable("processed_work_orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   workOrderNumber: text("work_order_number").notNull(),
-  carrierProfileId: varchar("carrier_profile_id").references(() => carrierProfiles.id),
+  carrierProfileId: varchar("carrier_profile_id").notNull().default("__none__"),
   syncRunId: varchar("sync_run_id").notNull().references(() => installSyncRuns.id),
   matchedOrderId: varchar("matched_order_id").notNull().references(() => salesOrders.id),
   serviceLineType: text("service_line_type"),

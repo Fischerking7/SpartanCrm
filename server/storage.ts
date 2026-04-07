@@ -4553,18 +4553,19 @@ export const storage = {
   async getInstallSyncRuns(limit = 50) {
     return db.select().from(installSyncRuns).orderBy(desc(installSyncRuns.createdAt)).limit(limit);
   },
-  async getProcessedWorkOrder(workOrderNumber: string, carrierProfileId: string | null) {
-    if (!carrierProfileId) {
-      const [row] = await db.select().from(processedWorkOrders)
-        .where(and(eq(processedWorkOrders.workOrderNumber, workOrderNumber), isNull(processedWorkOrders.carrierProfileId)));
-      return row || null;
-    }
+  async getProcessedWorkOrder(workOrderNumber: string, carrierProfileId: string) {
     const [row] = await db.select().from(processedWorkOrders)
       .where(and(eq(processedWorkOrders.workOrderNumber, workOrderNumber), eq(processedWorkOrders.carrierProfileId, carrierProfileId)));
     return row || null;
   },
-  async createProcessedWorkOrder(data: { workOrderNumber: string; carrierProfileId: string | null; syncRunId: string; matchedOrderId: string; serviceLineType?: string }) {
-    const [row] = await db.insert(processedWorkOrders).values(data as any).onConflictDoNothing().returning();
+  async createProcessedWorkOrder(data: { workOrderNumber: string; carrierProfileId: string; syncRunId: string; matchedOrderId: string; serviceLineType?: string }) {
+    const [row] = await db.insert(processedWorkOrders).values({
+      workOrderNumber: data.workOrderNumber,
+      carrierProfileId: data.carrierProfileId,
+      syncRunId: data.syncRunId,
+      matchedOrderId: data.matchedOrderId,
+      serviceLineType: data.serviceLineType,
+    }).onConflictDoNothing().returning();
     return row || null;
   },
   async getProcessedWorkOrdersBySyncRun(syncRunId: string) {

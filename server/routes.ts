@@ -15595,10 +15595,9 @@ export async function registerRoutes(
           }
         }
 
+        const effectiveProfileId = carrierCtx?.profile?.id || "__none__";
         const allProcessed = await db.select().from(processedWorkOrders).where(
-          carrierCtx?.profile?.id
-            ? eq(processedWorkOrders.carrierProfileId, carrierCtx.profile.id)
-            : isNull(processedWorkOrders.carrierProfileId)
+          eq(processedWorkOrders.carrierProfileId, effectiveProfileId)
         );
         const processedWoMap = new Map<string, DedupEntry>();
         for (const pw of allProcessed) {
@@ -15841,10 +15840,10 @@ export async function registerRoutes(
             if (woNumber) {
               await storage.createProcessedWorkOrder({
                 workOrderNumber: woNumber,
-                carrierProfileId: carrierCtx?.profile?.id || null,
+                carrierProfileId: effectiveProfileId,
                 syncRunId: syncRun.id,
                 matchedOrderId: match.orderId,
-                serviceLineType: match.serviceLineType || null,
+                serviceLineType: match.serviceLineType || undefined,
               });
             }
 

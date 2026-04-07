@@ -522,12 +522,9 @@ function scoreMatch(row: Record<string, string>, order: OrderSummary, ctx: Carri
   }
 
   let total: number;
-  if (acctScore === 1 && nameScore >= 0.4) {
-    total = 95;
-    reasons.unshift("High-confidence: account + name match");
-  } else if (acctScore === 1) {
-    total = 85;
-    reasons.unshift("Account number matched (name weak)");
+  if (acctScore === 1) {
+    total = nameScore >= 0.4 ? 97 : 95;
+    reasons.unshift(nameScore >= 0.4 ? "Definitive: account + name match" : "Account number exact match");
   } else {
     const hasAddr = sheetAddr.length > 0;
     const hasCity = sheetCity.length > 0;
@@ -552,8 +549,7 @@ function scoreMatch(row: Record<string, string>, order: OrderSummary, ctx: Carri
   total = Math.max(0, Math.min(100, total + mobileTypeBonus));
 
   let confidenceTier: "definitive" | "high" | "medium" | "low" = "low";
-  if (acctScore === 1 && nameScore >= 0.4) confidenceTier = "definitive";
-  else if (acctScore === 1) confidenceTier = "high";
+  if (acctScore === 1) confidenceTier = nameScore >= 0.4 ? "definitive" : "high";
   else if (addressScore >= 0.7 && nameScore >= 0.7 && repScore >= 0.7) confidenceTier = "high";
   else if (nameScore >= 0.5 && addressScore >= 0.4) confidenceTier = "medium";
 
