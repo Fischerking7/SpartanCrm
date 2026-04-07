@@ -4553,6 +4553,10 @@ export const storage = {
   async getInstallSyncRuns(limit = 50) {
     return db.select().from(installSyncRuns).orderBy(desc(installSyncRuns.createdAt)).limit(limit);
   },
+  async getInstallSyncRunById(id: string) {
+    const [run] = await db.select().from(installSyncRuns).where(eq(installSyncRuns.id, id));
+    return run || null;
+  },
   async getProcessedWorkOrder(workOrderNumber: string, carrierProfileId: string) {
     const [row] = await db.select().from(processedWorkOrders)
       .where(and(eq(processedWorkOrders.workOrderNumber, workOrderNumber), eq(processedWorkOrders.carrierProfileId, carrierProfileId)));

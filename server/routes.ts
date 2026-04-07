@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
-import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc, not } from "drizzle-orm";
+import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc, not, ilike } from "drizzle-orm";
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
@@ -15486,6 +15486,321 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/install-sync/search-orders", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const q = (req.query.q as string || "").trim();
+      if (q.length < 2) {
+        return res.json([]);
+      }
+      const qUpper = `%${q}%`;
+      const results = await db.select({
+        id: salesOrders.id,
+        invoiceNumber: salesOrders.invoiceNumber,
+        customerName: salesOrders.customerName,
+        customerAddress: salesOrders.customerAddress,
+        houseNumber: salesOrders.houseNumber,
+        streetName: salesOrders.streetName,
+        city: salesOrders.city,
+        zipCode: salesOrders.zipCode,
+        accountNumber: salesOrders.accountNumber,
+        repId: salesOrders.repId,
+        jobStatus: salesOrders.jobStatus,
+        approvalStatus: salesOrders.approvalStatus,
+        dateSold: salesOrders.dateSold,
+        serviceId: salesOrders.serviceId,
+      }).from(salesOrders).where(
+        or(
+          ilike(salesOrders.customerName, qUpper),
+          ilike(salesOrders.customerAddress, qUpper),
+          ilike(salesOrders.streetName, qUpper),
+          ilike(salesOrders.accountNumber, qUpper),
+          ilike(salesOrders.invoiceNumber, qUpper),
+          ilike(salesOrders.houseNumber, qUpper),
+          ilike(salesOrders.city, qUpper),
+        )
+      ).orderBy(desc(salesOrders.createdAt)).limit(20);
+
+      const allUsers = await storage.getUsers();
+      const repMap = new Map(allUsers.map(u => [u.repId, u.name]));
+      const enriched = results.map(r => ({
+        ...r,
+        repName: r.repId ? (repMap.get(r.repId) || r.repId) : "",
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Search failed" });
+    }
+  });
+
+  app.post("/api/admin/install-sync/manual-link", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const { syncRunId, orderId, carrierRowData, carrierProfileId } = req.body;
+      if (!syncRunId || !orderId || !carrierRowData) {
+        return res.status(400).json({ message: "syncRunId, orderId, and carrierRowData are required" });
+      }
+
+      const order = await storage.getOrderById(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      let carrierCtxLocal: CarrierContext | null = null;
+      if (carrierProfileId) {
+        const profile = await storage.getCarrierProfileById(carrierProfileId);
+        if (profile) {
+          const repMappings = await storage.getCarrierRepMappings(profile.id);
+          const allUsersCtx = await storage.getUsers();
+          const userIdMap = new Map(allUsersCtx.map(u => [u.id, { name: u.name, repId: u.repId }]));
+          carrierCtxLocal = buildCarrierContext(profile, repMappings, userIdMap);
+        }
+      }
+
+      const beforeJson = JSON.stringify(order);
+      const updates: Record<string, any> = {};
+      const autoFilledFields: string[] = [];
+
+      const sheetAcctNbr = extractField(carrierRowData, "account_number", carrierCtxLocal, getAccountNumber);
+      if (sheetAcctNbr && !order.accountNumber) {
+        updates.accountNumber = sheetAcctNbr;
+        autoFilledFields.push("Account Number");
+      }
+
+      const woStatus = normalizeWoStatus(carrierRowData, carrierCtxLocal);
+      const checkInDt = extractField(carrierRowData, "check_in_date", carrierCtxLocal, getCheckInDate);
+      if (checkInDt && !order.installDate && woStatus === "CP") {
+        const parsed = new Date(checkInDt);
+        if (!isNaN(parsed.getTime())) {
+          updates.installDate = parsed.toISOString().split("T")[0];
+          autoFilledFields.push("Install Date");
+        }
+      }
+
+      if (woStatus === "CN") {
+        const cancelCode = extractField(carrierRowData, "cancel_code", carrierCtxLocal, getCancelCode);
+        const cancelDesc = extractField(carrierRowData, "cancel_code_desc", carrierCtxLocal, getCancelCodeDesc);
+        if (cancelCode || cancelDesc) {
+          const cancelMarker = cancelCode ? `[${cancelCode}]` : (cancelDesc || "");
+          if (!order.notes?.includes(cancelMarker)) {
+            const cancelNote = `Carrier Cancel: ${cancelCode ? `[${cancelCode}] ` : ""}${cancelDesc || ""}`.trim();
+            updates.notes = order.notes ? `${order.notes}\n${cancelNote}` : cancelNote;
+            autoFilledFields.push("Cancel Reason");
+          }
+        }
+      }
+
+      const woNumber = extractField(carrierRowData, "work_order_number", carrierCtxLocal, getWorkOrderNumber);
+      if (woNumber && !order.notes?.includes(`WO#${woNumber}`)) {
+        const woNote = `WO#${woNumber}`;
+        updates.notes = (updates.notes || order.notes || "") ? `${updates.notes || order.notes || ""}\n${woNote}`.trim() : woNote;
+        autoFilledFields.push("Work Order #");
+      }
+
+      if (woStatus === "CP" && order.jobStatus !== "COMPLETED") {
+        updates.jobStatus = "COMPLETED";
+      } else if (woStatus === "CN" && order.jobStatus !== "CANCELED") {
+        updates.jobStatus = "CANCELED";
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await storage.updateOrder(orderId, updates);
+      }
+
+      const updatedOrder = await storage.getOrderById(orderId);
+
+      await storage.createAuditLog({
+        action: "install_sync_manual_link",
+        tableName: "sales_orders",
+        recordId: orderId,
+        beforeJson,
+        afterJson: JSON.stringify(updatedOrder),
+        userId: user.id,
+      });
+
+      if (woNumber) {
+        const effectiveProfileId = carrierProfileId || "__none__";
+        await storage.createProcessedWorkOrder({
+          workOrderNumber: woNumber,
+          carrierProfileId: effectiveProfileId,
+          syncRunId,
+          matchedOrderId: orderId,
+        });
+      }
+
+      const syncRun = await storage.getInstallSyncRunById(syncRunId);
+      if (syncRun) {
+        await storage.updateInstallSyncRun(syncRunId, {
+          matchedCount: (syncRun.matchedCount || 0) + 1,
+          unmatchedCount: Math.max(0, (syncRun.unmatchedCount || 0) - 1),
+        });
+      }
+
+      res.json({
+        orderId,
+        autoFilledFields,
+        updatedOrder,
+      });
+    } catch (error: any) {
+      console.error("[Install Sync] Manual link error:", error.message);
+      res.status(500).json({ message: error.message || "Manual link failed" });
+    }
+  });
+
+  app.post("/api/admin/install-sync/create-order", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["ADMIN", "OPERATIONS"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const { syncRunId, carrierRowData, carrierProfileId } = req.body;
+      if (!syncRunId || !carrierRowData) {
+        return res.status(400).json({ message: "syncRunId and carrierRowData are required" });
+      }
+
+      let carrierCtxLocal: CarrierContext | null = null;
+      if (carrierProfileId) {
+        const profile = await storage.getCarrierProfileById(carrierProfileId);
+        if (profile) {
+          const repMappings = await storage.getCarrierRepMappings(profile.id);
+          const allUsersCtx = await storage.getUsers();
+          const userIdMap = new Map(allUsersCtx.map(u => [u.id, { name: u.name, repId: u.repId }]));
+          carrierCtxLocal = buildCarrierContext(profile, repMappings, userIdMap);
+        }
+      }
+
+      const customerName = extractField(carrierRowData, "customer_name", carrierCtxLocal, getCustomerName);
+      if (!customerName) {
+        return res.status(400).json({ message: "Customer name is required in carrier data" });
+      }
+
+      const address = extractField(carrierRowData, "address", carrierCtxLocal, getAddress);
+      const city = extractField(carrierRowData, "city", carrierCtxLocal, getCity);
+      const zip = extractField(carrierRowData, "zip", carrierCtxLocal, getZip);
+      const repName = extractField(carrierRowData, "rep_name", carrierCtxLocal, getRepName);
+      const acctNbr = extractField(carrierRowData, "account_number", carrierCtxLocal, getAccountNumber);
+      const internetSpeed = extractField(carrierRowData, "internet_speed", carrierCtxLocal, getInternetMdm);
+      const checkInDt = extractField(carrierRowData, "check_in_date", carrierCtxLocal, getCheckInDate);
+      const scheduleDt = extractField(carrierRowData, "schedule_date", carrierCtxLocal, getScheduleDate);
+      const woNumber = extractField(carrierRowData, "work_order_number", carrierCtxLocal, getWorkOrderNumber);
+      const woStatus = normalizeWoStatus(carrierRowData, carrierCtxLocal);
+      const salesmanNumber = extractField(carrierRowData, "salesman_number", carrierCtxLocal, getSalesmanNumber);
+
+      let repId: string | null = null;
+      if (carrierCtxLocal && salesmanNumber) {
+        const mapping = carrierCtxLocal.repMappings.find(m => m.carrierSalesmanNumber === salesmanNumber);
+        if (mapping) repId = mapping.repId;
+      }
+      if (!repId && repName) {
+        const allUsers = await storage.getUsers();
+        const nameUpper = repName.toUpperCase().trim();
+        const matchedUser = allUsers.find(u => u.name.toUpperCase().trim() === nameUpper);
+        if (matchedUser) repId = matchedUser.repId;
+      }
+
+      const allProviders = await storage.getProviders();
+      const allClients = await storage.getClients();
+      const allServices = await storage.getServices();
+
+      let providerId = allProviders[0]?.id;
+      let clientId = allClients[0]?.id;
+      if (carrierCtxLocal?.profile) {
+        const profileName = carrierCtxLocal.profile.name.toUpperCase();
+        const matchProvider = allProviders.find(p => p.name.toUpperCase().includes(profileName) || profileName.includes(p.name.toUpperCase()));
+        if (matchProvider) providerId = matchProvider.id;
+      }
+
+      let serviceId = allServices[0]?.id;
+      if (internetSpeed) {
+        const speedTierMap: Record<string, string> = carrierCtxLocal
+          ? carrierCtxLocal.speedTierMap
+          : { "50": "50_MBPS", "150": "150_MBPS", "300": "300_MBPS", "600": "600_MBPS", "1000": "1_GIG", "1200": "GiG_PLUS", "2000": "2_GIG", "5000": "5_GIG" };
+        const expectedCode = speedTierMap[internetSpeed];
+        if (expectedCode) {
+          const svc = allServices.find(s => s.code === expectedCode);
+          if (svc) serviceId = svc.id;
+        }
+      }
+
+      if (!providerId || !clientId || !serviceId) {
+        return res.status(400).json({ message: "Unable to determine provider, client, or service. Please configure these first." });
+      }
+
+      let installDate: string | undefined;
+      if (checkInDt) {
+        const parsed = new Date(checkInDt);
+        if (!isNaN(parsed.getTime())) installDate = parsed.toISOString().split("T")[0];
+      }
+
+      let dateSold = new Date().toISOString().split("T")[0];
+      if (scheduleDt) {
+        const parsed = new Date(scheduleDt);
+        if (!isNaN(parsed.getTime())) dateSold = parsed.toISOString().split("T")[0];
+      }
+
+      let jobStatus: "PENDING" | "COMPLETED" | "CANCELED" = "PENDING";
+      if (woStatus === "CP") jobStatus = "COMPLETED";
+      else if (woStatus === "CN") jobStatus = "CANCELED";
+
+      const notes = woNumber ? `WO#${woNumber}\nCreated from carrier data (Install Sync)` : "Created from carrier data (Install Sync)";
+
+      const newOrder = await storage.createOrder({
+        repId: repId || "UNASSIGNED",
+        clientId,
+        providerId,
+        serviceId,
+        dateSold,
+        installDate,
+        customerName,
+        customerAddress: address || undefined,
+        houseNumber: undefined,
+        streetName: address || undefined,
+        city: city || undefined,
+        zipCode: zip || undefined,
+        accountNumber: acctNbr || undefined,
+        jobStatus,
+        notes,
+      });
+
+      await storage.createAuditLog({
+        action: "install_sync_create_order",
+        tableName: "sales_orders",
+        recordId: newOrder.id,
+        beforeJson: null,
+        afterJson: JSON.stringify(newOrder),
+        userId: user.id,
+      });
+
+      if (woNumber) {
+        const effectiveProfileId = carrierProfileId || "__none__";
+        await storage.createProcessedWorkOrder({
+          workOrderNumber: woNumber,
+          carrierProfileId: effectiveProfileId,
+          syncRunId,
+          matchedOrderId: newOrder.id,
+        });
+      }
+
+      const syncRun = await storage.getInstallSyncRunById(syncRunId);
+      if (syncRun) {
+        await storage.updateInstallSyncRun(syncRunId, {
+          matchedCount: (syncRun.matchedCount || 0) + 1,
+        });
+      }
+
+      res.json({ order: newOrder });
+    } catch (error: any) {
+      console.error("[Install Sync] Create order error:", error.message);
+      res.status(500).json({ message: error.message || "Create order failed" });
+    }
+  });
+
   const syncUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 
   app.post("/api/admin/install-sync/run", auth, syncUpload.single("file"), async (req: AuthRequest, res) => {
@@ -15990,6 +16305,7 @@ export async function registerRoutes(
               woStatus: normalizeWoStatus(row, carrierCtx),
               woType: extractField(row, "work_order_type", carrierCtx, getWorkOrderType),
               internetSpeed: extractField(row, "internet_speed", carrierCtx, getInternetMdm),
+              rawData: row,
             });
           }
         }
@@ -16025,6 +16341,7 @@ export async function registerRoutes(
 
         res.json({
           syncRunId: syncRun.id,
+          carrierProfileId: effectiveProfileId,
           totalSheetRows: sheetData.rows.length,
           matchedCount: matchResult.matches.length,
           approvedCount,

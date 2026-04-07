@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,8 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Link2, Play, CheckCircle2, XCircle, Clock, FileSpreadsheet, Mail, AlertTriangle, ChevronDown, ChevronUp, BarChart3, ArrowRightLeft, Search, Zap } from "lucide-react";
+import { Upload, Link2, Play, CheckCircle2, XCircle, Clock, FileSpreadsheet, Mail, AlertTriangle, ChevronDown, ChevronUp, BarChart3, ArrowRightLeft, Search, Zap, Plus, LinkIcon, Loader2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface CarrierInsights {
@@ -36,6 +38,7 @@ interface CarrierInsights {
     woStatus: string;
     woType: string;
     internetSpeed: string;
+    rawData?: Record<string, string>;
   }>;
   carrierStats: {
     totalRows: number;
@@ -64,6 +67,7 @@ interface ScoreBreakdown {
 
 interface SyncResult {
   syncRunId: string;
+  carrierProfileId?: string;
   totalSheetRows: number;
   matchedCount: number;
   approvedCount: number;
@@ -130,6 +134,22 @@ export default function InstallSync() {
   const [expandedDetails, setExpandedDetails] = useState(false);
   const [expandedInsights, setExpandedInsights] = useState(true);
 
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkRow, setLinkRow] = useState<SyncResult["unmatched"][0] | null>(null);
+  const [linkSearch, setLinkSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createRow, setCreateRow] = useState<CarrierInsights["missingOrders"][0] | null>(null);
+
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedUnmatched, setSelectedUnmatched] = useState<Set<number>>(new Set());
+  const [bulkLinkDialogOpen, setBulkLinkDialogOpen] = useState(false);
+  const [bulkLinkSearch, setBulkLinkSearch] = useState("");
+  const [bulkSearchResults, setBulkSearchResults] = useState<any[]>([]);
+  const [bulkSearchLoading, setBulkSearchLoading] = useState(false);
+
   const historyQuery = useQuery<SyncRun[]>({
     queryKey: ["/api/admin/install-sync/history"],
   });
@@ -178,6 +198,113 @@ export default function InstallSync() {
     onError: (error: Error) => {
       toast({ title: "Sync Failed", description: error.message, variant: "destructive" });
     },
+  });
+
+  const searchOrders = useCallback(async (query: string, setResults: (r: any[]) => void, setLoading: (b: boolean) => void) => {
+    if (query.trim().length < 2) { setResults([]); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/install-sync/search-orders?q=${encodeURIComponent(query)}`, {
+        headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+      });
+      if (res.ok) setResults(await res.json());
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, []);
+
+  const manualLinkMutation = useMutation({
+    mutationFn: async ({ orderId, carrierRowData }: { orderId: string; carrierRowData: Record<string, string> }) => {
+      const res = await apiRequest("POST", "/api/admin/install-sync/manual-link", {
+        syncRunId: result?.syncRunId,
+        orderId,
+        carrierRowData,
+        carrierProfileId: result?.carrierProfileId,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Linked", description: `Order linked. ${data.autoFilledFields?.length ? `Updated: ${data.autoFilledFields.join(", ")}` : ""}` });
+      if (result && linkRow) {
+        setResult({
+          ...result,
+          matchedCount: result.matchedCount + 1,
+          unmatchedCount: Math.max(0, result.unmatchedCount - 1),
+          unmatched: result.unmatched.filter(u => u.rowIndex !== linkRow.rowIndex),
+        });
+      }
+      setLinkDialogOpen(false);
+      setLinkRow(null);
+      setLinkSearch("");
+      setSearchResults([]);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/install-sync/history"] });
+    },
+    onError: (e: Error) => toast({ title: "Link failed", description: e.message, variant: "destructive" }),
+  });
+
+  const bulkLinkMutation = useMutation({
+    mutationFn: async ({ orderId, rows }: { orderId: string; rows: SyncResult["unmatched"] }) => {
+      const results = [];
+      for (const row of rows) {
+        const res = await apiRequest("POST", "/api/admin/install-sync/manual-link", {
+          syncRunId: result?.syncRunId,
+          orderId,
+          carrierRowData: row.data,
+          carrierProfileId: result?.carrierProfileId,
+        });
+        results.push(await res.json());
+      }
+      return results;
+    },
+    onSuccess: (data) => {
+      toast({ title: "Bulk Link Complete", description: `${data.length} row(s) linked` });
+      if (result) {
+        const linkedIndexes = new Set(Array.from(selectedUnmatched));
+        setResult({
+          ...result,
+          matchedCount: result.matchedCount + data.length,
+          unmatchedCount: Math.max(0, result.unmatchedCount - data.length),
+          unmatched: result.unmatched.filter((_, i) => !linkedIndexes.has(i)),
+        });
+      }
+      setBulkLinkDialogOpen(false);
+      setSelectedUnmatched(new Set());
+      setBulkMode(false);
+      setBulkLinkSearch("");
+      setBulkSearchResults([]);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/install-sync/history"] });
+    },
+    onError: (e: Error) => toast({ title: "Bulk link failed", description: e.message, variant: "destructive" }),
+  });
+
+  const createOrderMutation = useMutation({
+    mutationFn: async (carrierRowData: Record<string, string>) => {
+      const res = await apiRequest("POST", "/api/admin/install-sync/create-order", {
+        syncRunId: result?.syncRunId,
+        carrierRowData,
+        carrierProfileId: result?.carrierProfileId,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Order Created", description: `Invoice: ${data.order?.invoiceNumber || "N/A"}` });
+      if (result && createRow) {
+        const ci2 = result.carrierInsights;
+        if (ci2) {
+          setResult({
+            ...result,
+            matchedCount: result.matchedCount + 1,
+            carrierInsights: {
+              ...ci2,
+              missingOrders: ci2.missingOrders.filter(mo => mo !== createRow),
+            },
+          });
+        }
+      }
+      setCreateDialogOpen(false);
+      setCreateRow(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/install-sync/history"] });
+    },
+    onError: (e: Error) => toast({ title: "Create failed", description: e.message, variant: "destructive" }),
   });
 
   const canRun = (sourceMode === "sheet" && sheetUrl.trim()) || (sourceMode === "upload" && selectedFile);
@@ -508,27 +635,76 @@ export default function InstallSync() {
 
             {expandedDetails && result.unmatched.length > 0 && (
               <div>
-                <h4 className="font-medium mb-2 flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-500" />
-                  Unmatched Records ({result.unmatched.length})
-                </h4>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    Unmatched Records ({result.unmatched.length})
+                  </h4>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={bulkMode ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => { setBulkMode(!bulkMode); setSelectedUnmatched(new Set()); }}
+                      data-testid="button-bulk-mode"
+                    >
+                      <LinkIcon className="h-3 w-3 mr-1" />
+                      {bulkMode ? "Cancel Bulk" : "Bulk Link"}
+                    </Button>
+                    {bulkMode && selectedUnmatched.size > 0 && (
+                      <Button
+                        size="sm"
+                        onClick={() => { setBulkLinkDialogOpen(true); setBulkLinkSearch(""); setBulkSearchResults([]); }}
+                        data-testid="button-bulk-link-selected"
+                      >
+                        Link {selectedUnmatched.size} Selected
+                      </Button>
+                    )}
+                  </div>
+                </div>
                 <div className="overflow-x-auto rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        {bulkMode && <TableHead className="w-8"></TableHead>}
                         <TableHead>Row</TableHead>
                         <TableHead>Data</TableHead>
                         <TableHead>Reason</TableHead>
+                        <TableHead className="w-24"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {result.unmatched.slice(0, 20).map((item, i) => (
+                      {result.unmatched.slice(0, 30).map((item, i) => (
                         <TableRow key={i}>
+                          {bulkMode && (
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedUnmatched.has(i)}
+                                onCheckedChange={(checked) => {
+                                  const next = new Set(selectedUnmatched);
+                                  if (checked) next.add(i); else next.delete(i);
+                                  setSelectedUnmatched(next);
+                                }}
+                                data-testid={`checkbox-unmatched-${i}`}
+                              />
+                            </TableCell>
+                          )}
                           <TableCell className="font-mono text-xs">{item.rowIndex}</TableCell>
-                          <TableCell className="text-xs max-w-[300px] truncate">
+                          <TableCell className="text-xs max-w-[250px] truncate">
                             {Object.entries(item.data).slice(0, 4).map(([k, v]) => `${k}: ${v}`).join(", ")}
                           </TableCell>
                           <TableCell className="text-xs">{item.reason}</TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-xs h-7"
+                              onClick={() => { setLinkRow(item); setLinkDialogOpen(true); setLinkSearch(""); setSearchResults([]); }}
+                              data-testid={`button-link-order-${i}`}
+                            >
+                              <LinkIcon className="h-3 w-3 mr-1" />
+                              Link
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -732,6 +908,7 @@ export default function InstallSync() {
                           <TableHead>Status</TableHead>
                           <TableHead>Type</TableHead>
                           <TableHead>Speed</TableHead>
+                          <TableHead className="w-24"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -753,6 +930,18 @@ export default function InstallSync() {
                             </TableCell>
                             <TableCell className="text-xs">{mo.woType === "IN" ? "Install" : mo.woType === "UP" ? "Upgrade" : mo.woType || "-"}</TableCell>
                             <TableCell className="text-xs">{mo.internetSpeed ? `${mo.internetSpeed} Mbps` : "-"}</TableCell>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs h-7"
+                                onClick={() => { setCreateRow(mo); setCreateDialogOpen(true); }}
+                                data-testid={`button-create-order-${i}`}
+                              >
+                                <Plus className="h-3 w-3 mr-1" />
+                                Create
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -830,6 +1019,173 @@ export default function InstallSync() {
           )}
         </CardContent>
       </Card>
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Link to Existing Order</DialogTitle>
+            <DialogDescription>
+              {linkRow && (
+                <span className="text-xs">
+                  Row {linkRow.rowIndex}: {Object.entries(linkRow.data).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(", ")}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Search by name, address, account #, or invoice..."
+                value={linkSearch}
+                onChange={(e) => setLinkSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") searchOrders(linkSearch, setSearchResults, setSearchLoading); }}
+                data-testid="input-link-search"
+              />
+              <Button
+                size="sm"
+                onClick={() => searchOrders(linkSearch, setSearchResults, setSearchLoading)}
+                disabled={searchLoading || linkSearch.trim().length < 2}
+                data-testid="button-link-search"
+              >
+                {searchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              </Button>
+            </div>
+            {searchResults.length > 0 && (
+              <div className="max-h-[300px] overflow-y-auto rounded-md border divide-y">
+                {searchResults.map((order: any) => (
+                  <div
+                    key={order.id}
+                    className="p-2 hover:bg-muted/50 cursor-pointer flex items-center justify-between"
+                    onClick={() => {
+                      if (linkRow) {
+                        manualLinkMutation.mutate({ orderId: order.id, carrierRowData: linkRow.data });
+                      }
+                    }}
+                    data-testid={`link-result-${order.id}`}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{order.customerName}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {order.invoiceNumber} · {order.customerAddress || [order.houseNumber, order.streetName].filter(Boolean).join(" ")}{order.city ? `, ${order.city}` : ""}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Rep: {order.repName || "—"} · Acct: {order.accountNumber || "—"} · {order.approvalStatus || order.jobStatus || "—"}
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="sm" className="shrink-0 ml-2" disabled={manualLinkMutation.isPending}>
+                      {manualLinkMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <LinkIcon className="h-3 w-3" />}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {searchResults.length === 0 && linkSearch.trim().length >= 2 && !searchLoading && (
+              <p className="text-xs text-muted-foreground text-center py-4">No orders found. Try a different search term.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkLinkDialogOpen} onOpenChange={setBulkLinkDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Bulk Link {selectedUnmatched.size} Row(s)</DialogTitle>
+            <DialogDescription>
+              All selected rows will be linked to the same order. Search for the target order below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Search by name, address, account #, or invoice..."
+                value={bulkLinkSearch}
+                onChange={(e) => setBulkLinkSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") searchOrders(bulkLinkSearch, setBulkSearchResults, setBulkSearchLoading); }}
+                data-testid="input-bulk-link-search"
+              />
+              <Button
+                size="sm"
+                onClick={() => searchOrders(bulkLinkSearch, setBulkSearchResults, setBulkSearchLoading)}
+                disabled={bulkSearchLoading || bulkLinkSearch.trim().length < 2}
+                data-testid="button-bulk-link-search"
+              >
+                {bulkSearchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              </Button>
+            </div>
+            {bulkSearchResults.length > 0 && (
+              <div className="max-h-[300px] overflow-y-auto rounded-md border divide-y">
+                {bulkSearchResults.map((order: any) => (
+                  <div
+                    key={order.id}
+                    className="p-2 hover:bg-muted/50 cursor-pointer flex items-center justify-between"
+                    onClick={() => {
+                      if (result) {
+                        const rows = result.unmatched.filter((_, i) => selectedUnmatched.has(i));
+                        bulkLinkMutation.mutate({ orderId: order.id, rows });
+                      }
+                    }}
+                    data-testid={`bulk-link-result-${order.id}`}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{order.customerName}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {order.invoiceNumber} · {order.customerAddress || [order.houseNumber, order.streetName].filter(Boolean).join(" ")}{order.city ? `, ${order.city}` : ""}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Rep: {order.repName || "—"} · Acct: {order.accountNumber || "—"} · {order.approvalStatus || order.jobStatus || "—"}
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="sm" className="shrink-0 ml-2" disabled={bulkLinkMutation.isPending}>
+                      {bulkLinkMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="text-xs">Link All</span>}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {bulkSearchResults.length === 0 && bulkLinkSearch.trim().length >= 2 && !bulkSearchLoading && (
+              <p className="text-xs text-muted-foreground text-center py-4">No orders found.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Order from Carrier Data</DialogTitle>
+            <DialogDescription>
+              A new sales order will be created using the carrier row data. The system will auto-map the rep, service, and provider.
+            </DialogDescription>
+          </DialogHeader>
+          {createRow && (
+            <div className="space-y-3">
+              <div className="rounded-md border p-3 bg-muted/30 space-y-1">
+                <div className="text-sm"><span className="font-medium">Customer:</span> {createRow.customerName || "—"}</div>
+                <div className="text-sm"><span className="font-medium">Address:</span> {createRow.address || "—"}{createRow.city ? `, ${createRow.city}` : ""}</div>
+                <div className="text-sm"><span className="font-medium">Rep:</span> {createRow.repName || "—"}</div>
+                <div className="text-sm"><span className="font-medium">Account #:</span> {createRow.acctNbr || "—"}</div>
+                <div className="text-sm"><span className="font-medium">Status:</span> {createRow.woStatus || "—"}</div>
+                <div className="text-sm"><span className="font-medium">Speed:</span> {createRow.internetSpeed ? `${createRow.internetSpeed} Mbps` : "—"}</div>
+                <div className="text-sm"><span className="font-medium">WO Type:</span> {createRow.woType === "IN" ? "Install" : createRow.woType === "UP" ? "Upgrade" : createRow.woType || "—"}</div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCreateDialogOpen(false)} data-testid="button-cancel-create">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (createRow.rawData) createOrderMutation.mutate(createRow.rawData);
+                  }}
+                  disabled={createOrderMutation.isPending}
+                  data-testid="button-confirm-create"
+                >
+                  {createOrderMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                  Create Order
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
