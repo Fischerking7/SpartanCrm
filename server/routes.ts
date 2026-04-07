@@ -15922,20 +15922,25 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Only ADMIN or OPERATIONS can run install sync" });
       }
 
-      const { sheetUrl, emailTo, autoApprove, dryRun } = req.body;
+      const { sheetUrl, emailTo, autoApprove } = req.body;
       const shouldAutoApprove = autoApprove === "true" || autoApprove === true;
-      const isDryRun = dryRun === "true" || dryRun === true;
+      const isDryRun = req.query.dryRun === "true" || req.body.dryRun === "true" || req.body.dryRun === true;
 
       const { emptyCancellationImpact } = await import("./cancellation-cascade");
       const cancellationImpact = emptyCancellationImpact();
 
-      const syncRun = await storage.createInstallSyncRun({
-        sheetUrl: sheetUrl || null,
-        sourceType: req.file ? "csv_upload" : "google_sheet",
-        emailTo: emailTo || null,
-        runByUserId: user.id,
-        status: "RUNNING",
-      });
+      let syncRun: any;
+      if (!isDryRun) {
+        syncRun = await storage.createInstallSyncRun({
+          sheetUrl: sheetUrl || null,
+          sourceType: req.file ? "csv_upload" : "google_sheet",
+          emailTo: emailTo || null,
+          runByUserId: user.id,
+          status: "RUNNING",
+        });
+      } else {
+        syncRun = { id: `dry-run-${Date.now()}` };
+      }
 
       try {
         let sheetData;
@@ -15948,7 +15953,9 @@ export async function registerRoutes(
           throw new Error("Please provide either a Google Sheet URL or upload a CSV file.");
         }
 
-        await storage.updateInstallSyncRun(syncRun.id, { totalSheetRows: sheetData.rows.length });
+        if (!isDryRun) {
+          await storage.updateInstallSyncRun(syncRun.id, { totalSheetRows: sheetData.rows.length });
+        }
 
         const allOrders = await db.select().from(salesOrders).where(
           or(
@@ -16287,7 +16294,6 @@ export async function registerRoutes(
                 const { cancelOrderCascade } = await import("./cancellation-cascade");
                 const cascadeItem = await cancelOrderCascade(match.orderId, syncRun.id, user.id, isDryRun);
                 cancellationImpact.items.push(cascadeItem);
-                cancellationImpact.ordersCanceled++;
                 cancellationImpact.overridesReversedCount += cascadeItem.overridesReversed;
                 cancellationImpact.overridesReversedAmountCents += cascadeItem.overridesReversedAmountCents;
                 cancellationImpact.arExpectationsVoided += cascadeItem.arExpectationsVoided;
@@ -16299,6 +16305,8 @@ export async function registerRoutes(
                   delete updates.approvalStatus;
                   delete updates.approvedByUserId;
                   delete updates.approvedAt;
+                } else {
+                  cancellationImpact.ordersCanceled++;
                 }
               } catch (cascadeErr: any) {
                 console.error(`[InstallSync] Cancellation cascade error for order ${match.orderId}:`, cascadeErr.message);
@@ -16455,34 +16463,36 @@ export async function registerRoutes(
           }
         }
 
-        await storage.updateInstallSyncRun(syncRun.id, {
-          totalSheetRows: sheetData.rows.length,
-          matchedCount: matchResult.matches.length,
-          approvedCount,
-          unmatchedCount: matchResult.unmatched.length,
-          emailSent,
-          status: "COMPLETED",
-          summary: matchResult.summary,
-          matchDetails: JSON.stringify({
-            matches: matchResult.matches.map((m) => ({
-              sheetRowIndex: m.sheetRowIndex,
-              sheetData: m.sheetData,
-              orderId: m.orderId,
-              orderInvoice: m.orderInvoice,
-              orderCustomerName: m.orderCustomerName,
-              confidence: m.confidence,
-              reasoning: m.reasoning,
-              scoreBreakdown: m.scoreBreakdown,
-              serviceLineType: m.serviceLineType,
-              workOrderNumber: m.workOrderNumber,
-              isUpgrade: m.isUpgrade,
-            })),
-            unmatched: matchResult.unmatched,
-            dedupSkipped: matchResult.dedupSkipped,
-            carrierInsights,
-          }),
-          completedAt: new Date(),
-        });
+        if (!isDryRun) {
+          await storage.updateInstallSyncRun(syncRun.id, {
+            totalSheetRows: sheetData.rows.length,
+            matchedCount: matchResult.matches.length,
+            approvedCount,
+            unmatchedCount: matchResult.unmatched.length,
+            emailSent,
+            status: "COMPLETED",
+            summary: matchResult.summary,
+            matchDetails: JSON.stringify({
+              matches: matchResult.matches.map((m) => ({
+                sheetRowIndex: m.sheetRowIndex,
+                sheetData: m.sheetData,
+                orderId: m.orderId,
+                orderInvoice: m.orderInvoice,
+                orderCustomerName: m.orderCustomerName,
+                confidence: m.confidence,
+                reasoning: m.reasoning,
+                scoreBreakdown: m.scoreBreakdown,
+                serviceLineType: m.serviceLineType,
+                workOrderNumber: m.workOrderNumber,
+                isUpgrade: m.isUpgrade,
+              })),
+              unmatched: matchResult.unmatched,
+              dedupSkipped: matchResult.dedupSkipped,
+              carrierInsights,
+            }),
+            completedAt: new Date(),
+          });
+        }
 
         res.json({
           syncRunId: syncRun.id,
@@ -16498,15 +16508,17 @@ export async function registerRoutes(
           unmatched: matchResult.unmatched,
           dedupSkipped: matchResult.dedupSkipped,
           carrierInsights,
-          cancellationImpact: cancellationImpact.ordersCanceled > 0 ? cancellationImpact : undefined,
+          cancellationImpact: cancellationImpact.items.length > 0 ? cancellationImpact : undefined,
           isDryRun,
         });
       } catch (innerError: any) {
-        await storage.updateInstallSyncRun(syncRun.id, {
-          status: "FAILED",
-          errorMessage: innerError.message,
-          completedAt: new Date(),
-        });
+        if (!isDryRun) {
+          await storage.updateInstallSyncRun(syncRun.id, {
+            status: "FAILED",
+            errorMessage: innerError.message,
+            completedAt: new Date(),
+          });
+        }
         throw innerError;
       }
     } catch (error: any) {

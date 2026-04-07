@@ -126,8 +126,20 @@ export async function cancelOrderCascade(
       item.payRunId = payRunRef.id;
 
       if (!dryRun) {
-        const commissionPaidCents = Math.round(
-          parseFloat(order.baseCommissionEarned || "0") * 100
+        const finalizedPayRunIds = finalizedPayRuns.map(pr => pr.id);
+        const paidItems = await db
+          .select({ amountCents: payStatementLineItems.amountCents })
+          .from(payStatementLineItems)
+          .innerJoin(payStatements, eq(payStatementLineItems.payStatementId, payStatements.id))
+          .where(
+            and(
+              eq(payStatementLineItems.salesOrderId, orderId),
+              inArray(payStatements.payRunId, finalizedPayRunIds)
+            )
+          );
+        const commissionPaidCents = paidItems.reduce(
+          (sum, li) => sum + (li.amountCents || 0),
+          0
         );
 
         await db.insert(systemExceptions).values({

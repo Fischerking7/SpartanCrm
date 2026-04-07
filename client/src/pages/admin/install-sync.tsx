@@ -195,9 +195,11 @@ export default function InstallSync() {
       }
       if (emailTo) formData.append("emailTo", emailTo);
       formData.append("autoApprove", String(autoApprove));
-      if (dryRunMode) formData.append("dryRun", "true");
+      const syncUrl = dryRunMode
+        ? "/api/admin/install-sync/run?dryRun=true"
+        : "/api/admin/install-sync/run";
 
-      const response = await fetch("/api/admin/install-sync/run", {
+      const response = await fetch(syncUrl, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${sessionStorage.getItem("token")}`,
