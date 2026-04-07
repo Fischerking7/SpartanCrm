@@ -71,6 +71,8 @@ import {
   type ClientColumnMapping, type InsertClientColumnMapping,
   userActivityLogs, type UserActivityLog, type InsertUserActivityLog,
   installSyncRuns, type InstallSyncRun, type InsertInstallSyncRun,
+  carrierProfiles, type CarrierProfile, type InsertCarrierProfile,
+  carrierRepMappings, type CarrierRepMapping, type InsertCarrierRepMapping,
 } from "@shared/schema";
 
 export const storage = {
@@ -4799,5 +4801,54 @@ export const storage = {
       ...r,
       repName: repMap.get(r.repId) || r.repId,
     }));
+  },
+
+  async getCarrierProfiles() {
+    return db.select().from(carrierProfiles).orderBy(asc(carrierProfiles.name));
+  },
+  async getCarrierProfileById(id: string) {
+    return db.query.carrierProfiles.findFirst({ where: eq(carrierProfiles.id, id) });
+  },
+  async getCarrierProfileByName(name: string) {
+    return db.query.carrierProfiles.findFirst({ where: eq(carrierProfiles.name, name) });
+  },
+  async createCarrierProfile(data: InsertCarrierProfile) {
+    const [profile] = await db.insert(carrierProfiles).values(data).returning();
+    return profile;
+  },
+  async updateCarrierProfile(id: string, data: Partial<InsertCarrierProfile>) {
+    const [updated] = await db.update(carrierProfiles).set({ ...data, updatedAt: new Date() }).where(eq(carrierProfiles.id, id)).returning();
+    return updated;
+  },
+  async deleteCarrierProfile(id: string) {
+    await db.delete(carrierRepMappings).where(eq(carrierRepMappings.carrierProfileId, id));
+    await db.delete(carrierProfiles).where(eq(carrierProfiles.id, id));
+  },
+
+  async getCarrierRepMappings(carrierProfileId?: string) {
+    if (carrierProfileId) {
+      return db.select().from(carrierRepMappings).where(eq(carrierRepMappings.carrierProfileId, carrierProfileId)).orderBy(asc(carrierRepMappings.salesmanNbr));
+    }
+    return db.select().from(carrierRepMappings).orderBy(asc(carrierRepMappings.salesmanNbr));
+  },
+  async getCarrierRepMappingBySalesmanNbr(carrierProfileId: string, salesmanNbr: string) {
+    return db.query.carrierRepMappings.findFirst({
+      where: and(eq(carrierRepMappings.carrierProfileId, carrierProfileId), eq(carrierRepMappings.salesmanNbr, salesmanNbr)),
+    });
+  },
+  async createCarrierRepMapping(data: InsertCarrierRepMapping) {
+    const [mapping] = await db.insert(carrierRepMappings).values(data).returning();
+    return mapping;
+  },
+  async updateCarrierRepMapping(id: string, data: Partial<InsertCarrierRepMapping>) {
+    const [updated] = await db.update(carrierRepMappings).set({ ...data, updatedAt: new Date() }).where(eq(carrierRepMappings.id, id)).returning();
+    return updated;
+  },
+  async deleteCarrierRepMapping(id: string) {
+    await db.delete(carrierRepMappings).where(eq(carrierRepMappings.id, id));
+  },
+  async bulkCreateCarrierRepMappings(mappings: InsertCarrierRepMapping[]) {
+    if (mappings.length === 0) return [];
+    return db.insert(carrierRepMappings).values(mappings).onConflictDoNothing().returning();
   },
 };

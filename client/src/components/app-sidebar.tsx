@@ -51,6 +51,7 @@ import {
   User,
   Activity,
   RefreshCw,
+  Radio,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -113,6 +114,8 @@ const MENU = {
   onboarding: { title: "Onboarding", url: "/onboarding", icon: ClipboardList },
   onboardingReview: { title: "Onboarding Review", url: "/admin/onboarding-review", icon: CheckSquare },
   installSync: { title: "Install Sync", url: "/admin/install-sync", icon: RefreshCw },
+  carrierProfiles: { title: "Carrier Profiles", url: "/admin/carrier-profiles", icon: Radio },
+  carrierRepMappings: { title: "Rep Mappings", url: "/admin/carrier-rep-mappings", icon: Users },
   payroll: { title: "Payroll", url: "/admin/payroll", icon: Calendar },
   advPayroll: { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
   quickbooks: { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
@@ -185,6 +188,8 @@ const adminSettingsItems: MenuItem[] = [
   MENU.quickbooks,
   MENU.userActivity,
   MENU.installSync,
+  MENU.carrierProfiles,
+  MENU.carrierRepMappings,
   MENU.onboardingReview,
 ];
 

@@ -2411,3 +2411,40 @@ export const insertSystemExceptionSchema = createInsertSchema(systemExceptions).
 });
 export type SystemException = typeof systemExceptions.$inferSelect;
 export type InsertSystemException = z.infer<typeof insertSystemExceptionSchema>;
+
+export const carrierProfiles = pgTable("carrier_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  providerId: varchar("provider_id").references(() => providers.id),
+  columnMapping: text("column_mapping").notNull().default("{}"),
+  speedTierMap: text("speed_tier_map").notNull().default("{}"),
+  statusCodeMap: text("status_code_map").notNull().default("{}"),
+  signatureHeaders: text("signature_headers").array().notNull().default(sql`'{}'::text[]`),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCarrierProfileSchema = createInsertSchema(carrierProfiles).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type CarrierProfile = typeof carrierProfiles.$inferSelect;
+export type InsertCarrierProfile = z.infer<typeof insertCarrierProfileSchema>;
+
+export const carrierRepMappings = pgTable("carrier_rep_mappings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  carrierProfileId: varchar("carrier_profile_id").notNull().references(() => carrierProfiles.id),
+  salesmanNbr: text("salesman_nbr").notNull(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("crm_carrier_salesman_idx").on(table.carrierProfileId, table.salesmanNbr),
+  unique("crm_carrier_salesman_unique").on(table.carrierProfileId, table.salesmanNbr),
+]);
+
+export const insertCarrierRepMappingSchema = createInsertSchema(carrierRepMappings).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type CarrierRepMapping = typeof carrierRepMappings.$inferSelect;
+export type InsertCarrierRepMapping = z.infer<typeof insertCarrierRepMappingSchema>;

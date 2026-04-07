@@ -133,6 +133,8 @@ export const PERMISSIONS = {
   'admin:integrations': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
   'admin:seeddata': ['OPERATIONS', 'EXECUTIVE'],
   'admin:schedpay': ['ADMIN', 'OPERATIONS', 'ACCOUNTING', 'EXECUTIVE'],
+  'admin:carrier:profiles': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
+  'admin:carrier:repmappings': ['ADMIN', 'OPERATIONS', 'EXECUTIVE'],
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;

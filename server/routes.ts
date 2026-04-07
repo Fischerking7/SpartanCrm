@@ -17,7 +17,7 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import rateLimit from "express-rate-limit";
 import { encryptSsn, decryptSsn, extractSsnLast4, maskSsn } from "./encryption";
 import { fetchGoogleSheet, parseUploadedCsv } from "./google-sheets";
-import { matchInstallationsToOrders, normalizeWoStatus, type OrderSummary, getCustomerName, getAddress, getCity, getZip, getRepName, getAccountNumber, getWoStatus, getWorkOrderNumber, getScheduleDate, getCheckInDate, getCancelCode, getCancelCodeDesc, getInternetMdm, getSalesmanNumber, getOffice, getWorkOrderType, getDataInstallsQty, getMobileInstallsQty, getVideoInstallsQty } from "./claude-matching";
+import { matchInstallationsToOrders, normalizeWoStatus, type OrderSummary, getCustomerName, getAddress, getCity, getZip, getRepName, getAccountNumber, getWoStatus, getWorkOrderNumber, getScheduleDate, getCheckInDate, getCancelCode, getCancelCodeDesc, getInternetMdm, getSalesmanNumber, getOffice, getWorkOrderType, getDataInstallsQty, getMobileInstallsQty, getVideoInstallsQty, detectCarrierProfile, buildCarrierContext, type CarrierContext } from "./claude-matching";
 import { emailService } from "./email";
 import { getOrCreateReserve, applyWithholding, applyChargebackToReserve, applyEquipmentRecovery, handleRepSeparation, checkAndReleaseMaturedReserves, calculateWithholding, isReserveEligibleRole } from "./reserves/reserveService";
 import { generatePayStub, generatePayStubsForPayRun } from "./payStubGenerator";
@@ -907,6 +907,75 @@ async function migrateDeletedUserRepIds(): Promise<void> {
   }
 }
 
+async function seedCarrierProfiles(): Promise<void> {
+  try {
+    const allProviders = await storage.getProviders();
+    const seeded: string[] = [];
+
+    const defaultStatusCodeMap: Record<string, string> = {
+      "CP": "CP", "COMPLETED": "CP", "CONNECTED": "CP", "INSTALLED": "CP", "DONE": "CP",
+      "CN": "CN", "CANCELED": "CN", "CANCELLED": "CN",
+      "OP": "OP", "OPEN": "OP", "IN PROGRESS": "OP", "ACTIVE": "OP", "PENDING": "OP", "SCHEDULED": "OP",
+      "ND": "ND", "NO DISPATCH": "ND", "NO_DISPATCH": "ND",
+    };
+
+    if (!await storage.getCarrierProfileByName("Astound")) {
+      const astoundProvider = allProviders.find(p => p.name.toLowerCase().includes("astound"));
+      await storage.createCarrierProfile({
+        name: "Astound",
+        providerId: astoundProvider?.id || null,
+        columnMapping: JSON.stringify({
+          customer_name: ["CUSTOMER_NAME"], address: ["ADDR_LINE_1"], address2: ["ADDR_LINE_2"],
+          city: ["CITY"], zip: ["ZIP"], rep_name: ["SALESMAN_NAME"], account_number: ["ACCT_NBR"],
+          wo_status: ["WO_STATUS"], work_order_number: ["WORK_ORDER_NBR"], schedule_date: ["SCHEDULE_DT"],
+          check_in_date: ["CHECK_IN_DT"], cancel_code: ["WO_CANCEL_CODE"], cancel_code_desc: ["WO_CANCEL_CODE_DESC"],
+          internet_speed: ["WO_INTERNET_MDM"], salesman_number: ["SALESMAN_NBR"], office: ["OFFICE"],
+          work_order_type: ["WORK_ORDER_TYPE"], data_installs_qty: ["DATA_INSTALLS_QTY"],
+          mobile_installs_qty: ["MOBILE_INSTALLS_QTY"], video_installs_qty: ["VIDEO_INSTALLS_QTY"],
+        }),
+        speedTierMap: JSON.stringify({ "50": "50_MBPS", "150": "150_MBPS", "300": "300_MBPS", "600": "600_MBPS", "1000": "1_GIG", "1200": "GiG_PLUS", "2000": "2_GIG", "5000": "5_GIG" }),
+        statusCodeMap: JSON.stringify(defaultStatusCodeMap),
+        signatureHeaders: ["ACCT_NBR", "WORK_ORDER_NBR", "WO_STATUS", "SALESMAN_NAME", "WO_INTERNET_MDM"],
+        active: true,
+      });
+      seeded.push("Astound");
+    }
+
+    if (!await storage.getCarrierProfileByName("Optimum")) {
+      const optimumProvider = allProviders.find(p => p.name.toLowerCase().includes("optimum"));
+      await storage.createCarrierProfile({
+        name: "Optimum",
+        providerId: optimumProvider?.id || null,
+        columnMapping: JSON.stringify({
+          customer_name: ["CUSTOMER_NAME", "Customer Name", "Subscriber Name"],
+          address: ["ADDRESS", "Service Address", "ADDR_LINE_1"], address2: ["APT", "Unit", "ADDR_LINE_2"],
+          city: ["CITY", "City"], zip: ["ZIP", "Zip Code", "ZIP_CODE"],
+          rep_name: ["REP_NAME", "Sales Rep", "SALESMAN_NAME"], account_number: ["ACCOUNT_NUMBER", "Account", "ACCT_NBR"],
+          wo_status: ["STATUS", "Order Status", "WO_STATUS"], work_order_number: ["WORK_ORDER_NBR", "Work Order", "WO_NUMBER"],
+          schedule_date: ["SCHEDULE_DATE", "Scheduled Date", "SCHEDULE_DT"],
+          check_in_date: ["INSTALL_DATE", "Install Date", "CHECK_IN_DT"],
+          cancel_code: ["CANCEL_CODE", "Cancel Code"], cancel_code_desc: ["CANCEL_REASON", "Cancel Reason"],
+          internet_speed: ["SPEED_TIER", "Internet Speed", "INTERNET_SPEED"],
+          salesman_number: ["REP_NBR", "Salesman Number", "SALESMAN_NBR"], office: ["OFFICE", "Branch", "Location"],
+          work_order_type: ["ORDER_TYPE", "Work Order Type", "WORK_ORDER_TYPE"],
+          data_installs_qty: ["DATA_INSTALLS_QTY", "Internet Installs"],
+          mobile_installs_qty: ["MOBILE_INSTALLS_QTY", "Mobile Installs"],
+          video_installs_qty: ["VIDEO_INSTALLS_QTY", "Video Installs"],
+        }),
+        speedTierMap: JSON.stringify({ "300": "300_MBPS", "500": "500_MBPS", "1000": "1_GIG", "Optimum 300": "300_MBPS", "Optimum 500": "500_MBPS", "Optimum 1 Gig": "1_GIG" }),
+        statusCodeMap: JSON.stringify(defaultStatusCodeMap),
+        signatureHeaders: ["SPEED_TIER", "REP_NAME", "INSTALL_DATE"],
+        active: true,
+      });
+      seeded.push("Optimum");
+    }
+
+    if (seeded.length > 0) console.log(`[Seed] Carrier profiles created: ${seeded.join(", ")}`);
+  } catch (error) {
+    console.error("[Seed] Error seeding carrier profiles:", error);
+  }
+}
+
 function normalizeCustomerName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -1032,6 +1101,7 @@ export async function registerRoutes(
   // Bootstrap OPERATIONS and ADMIN on first run
   await bootstrapFounder();
   await bootstrapAdmin();
+  await seedCarrierProfiles();
 
   // Auth routes - with rate limiting
   app.post("/api/auth/login", authLimiter, async (req, res) => {
@@ -15510,16 +15580,29 @@ export async function registerRoutes(
           };
         });
 
-        const matchResult = await matchInstallationsToOrders(sheetData.rows, orderSummaries);
+        let carrierCtx: CarrierContext | null = null;
+        if (sheetData.rows.length > 0) {
+          const headers = Object.keys(sheetData.rows[0].data);
+          const profiles = await storage.getCarrierProfiles();
+          const detectedProfile = detectCarrierProfile(headers, profiles);
+          if (detectedProfile) {
+            const repMappings = await storage.getCarrierRepMappings(detectedProfile.id);
+            const allUsersForCtx = await storage.getUsers();
+            const userIdMap = new Map(allUsersForCtx.map(u => [u.id, u.name]));
+            carrierCtx = buildCarrierContext(detectedProfile, repMappings, userIdMap);
+            console.log(`[Install Sync] Detected carrier profile: ${detectedProfile.name}`);
+          }
+        }
+
+        const matchResult = await matchInstallationsToOrders(sheetData.rows, orderSummaries, carrierCtx);
 
         let approvedCount = 0;
         const approvedOrders: any[] = [];
         const statusUpdatedOrders: any[] = [];
 
-        const speedTierMap: Record<string, string> = {
-          "50": "50_MBPS", "150": "150_MBPS", "300": "300_MBPS", "600": "600_MBPS",
-          "1000": "1_GIG", "1200": "GiG_PLUS", "2000": "2_GIG", "5000": "5_GIG",
-        };
+        const speedTierMap: Record<string, string> = carrierCtx
+          ? carrierCtx.speedTierMap
+          : { "50": "50_MBPS", "150": "150_MBPS", "300": "300_MBPS", "600": "600_MBPS", "1000": "1_GIG", "1200": "GiG_PLUS", "2000": "2_GIG", "5000": "5_GIG" };
         const allServicesForSync = await storage.getServices();
         const serviceByCode = new Map(allServicesForSync.map(s => [s.code, s]));
         const serviceById = new Map(allServicesForSync.map(s => [s.id, s]));
@@ -15546,7 +15629,7 @@ export async function registerRoutes(
         };
 
         for (const row of sheetData.rows) {
-          const status = normalizeWoStatus(row.data);
+          const status = normalizeWoStatus(row.data, carrierCtx);
           if (status === "CP") carrierInsights.carrierStats.completedCount++;
           else if (status === "CN") carrierInsights.carrierStats.canceledCount++;
           else if (status === "OP") carrierInsights.carrierStats.openCount++;
@@ -15586,7 +15669,7 @@ export async function registerRoutes(
         if (matchResult.matches.length > 0) {
           const now = new Date();
           for (const match of matchResult.matches) {
-            const woStatus = normalizeWoStatus(match.sheetData || {});
+            const woStatus = normalizeWoStatus(match.sheetData || {}, carrierCtx);
 
             const order = await storage.getOrderById(match.orderId);
             if (!order) continue;
@@ -15846,7 +15929,7 @@ export async function registerRoutes(
               city: getCity(row),
               repName,
               acctNbr: getAccountNumber(row),
-              woStatus: normalizeWoStatus(row),
+              woStatus: normalizeWoStatus(row, carrierCtx),
               woType: getWorkOrderType(row),
               internetSpeed: getInternetMdm(row),
             });
@@ -15900,6 +15983,137 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("[Install Sync] Error:", error.message);
       res.status(500).json({ message: error.message || "Install sync failed" });
+    }
+  });
+
+  // ===== Carrier Profiles & Rep Mappings =====
+
+  app.get("/api/admin/carrier-profiles", auth, requirePermission("admin:carrier:profiles"), async (req: AuthRequest, res) => {
+    try {
+      const profiles = await storage.getCarrierProfiles();
+      res.json(profiles);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/carrier-profiles/:id", auth, requirePermission("admin:carrier:profiles"), async (req: AuthRequest, res) => {
+    try {
+      const profile = await storage.getCarrierProfileById(req.params.id);
+      if (!profile) return res.status(404).json({ message: "Not found" });
+      res.json(profile);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/carrier-profiles", auth, requirePermission("admin:carrier:profiles"), async (req: AuthRequest, res) => {
+    try {
+      const profile = await storage.createCarrierProfile(req.body);
+      res.json(profile);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/admin/carrier-profiles/:id", auth, requirePermission("admin:carrier:profiles"), async (req: AuthRequest, res) => {
+    try {
+      const profile = await storage.updateCarrierProfile(req.params.id, req.body);
+      if (!profile) return res.status(404).json({ message: "Not found" });
+      res.json(profile);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/carrier-profiles/:id", auth, requirePermission("admin:carrier:profiles"), async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteCarrierProfile(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/carrier-rep-mappings", auth, requirePermission("admin:carrier:repmappings"), async (req: AuthRequest, res) => {
+    try {
+      const carrierProfileId = req.query.carrierProfileId as string | undefined;
+      const mappings = await storage.getCarrierRepMappings(carrierProfileId);
+      res.json(mappings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/carrier-rep-mappings", auth, requirePermission("admin:carrier:repmappings"), async (req: AuthRequest, res) => {
+    try {
+      const mapping = await storage.createCarrierRepMapping(req.body);
+      res.json(mapping);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/admin/carrier-rep-mappings/:id", auth, requirePermission("admin:carrier:repmappings"), async (req: AuthRequest, res) => {
+    try {
+      const mapping = await storage.updateCarrierRepMapping(req.params.id, req.body);
+      if (!mapping) return res.status(404).json({ message: "Not found" });
+      res.json(mapping);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/carrier-rep-mappings/:id", auth, requirePermission("admin:carrier:repmappings"), async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteCarrierRepMapping(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  const carrierRepCsvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
+
+  app.post("/api/admin/carrier-rep-mappings/bulk-import", auth, requirePermission("admin:carrier:repmappings"), carrierRepCsvUpload.single("file"), async (req: AuthRequest, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "CSV file required" });
+      const carrierProfileId = req.body.carrierProfileId;
+      if (!carrierProfileId) return res.status(400).json({ message: "carrierProfileId required" });
+
+      const csvContent = req.file.buffer.toString("utf-8");
+      const lines = csvContent.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) return res.status(400).json({ message: "CSV must have at least a header and one data row" });
+
+      const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+      const salesmanIdx = headers.findIndex(h => h.includes("salesman") || h.includes("rep_nbr") || h.includes("carrier_id"));
+      const repIdIdx = headers.findIndex(h => h === "rep_id" || h === "repid" || h.includes("user_rep_id"));
+
+      if (salesmanIdx === -1 || repIdIdx === -1) {
+        return res.status(400).json({ message: "CSV must have columns for salesman number and rep ID" });
+      }
+
+      const mappings: { carrierProfileId: string; salesmanNbr: string; userId: string }[] = [];
+      const errors: string[] = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(",").map(c => c.trim());
+        const salesmanNbr = cols[salesmanIdx];
+        const repId = cols[repIdIdx];
+        if (!salesmanNbr || !repId) continue;
+
+        const user = await storage.getUserByRepId(repId);
+        if (!user) {
+          errors.push(`Row ${i + 1}: Rep ID '${repId}' not found`);
+          continue;
+        }
+        mappings.push({ carrierProfileId, salesmanNbr, userId: user.id });
+      }
+
+      const created = await storage.bulkCreateCarrierRepMappings(mappings);
+      res.json({ imported: created.length, errors, total: lines.length - 1 });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
     }
   });
 

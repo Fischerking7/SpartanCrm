@@ -63,6 +63,8 @@ import AdminDisputes from "@/pages/admin-disputes";
 import OrderTracker from "@/pages/order-tracker";
 import UserActivityPage from "@/pages/admin/user-activity";
 import InstallSync from "@/pages/admin/install-sync";
+import CarrierProfiles from "@/pages/admin/carrier-profiles";
+import CarrierRepMappings from "@/pages/admin/carrier-rep-mappings";
 import Onboarding from "@/pages/onboarding";
 import AdminOnboardingReview from "@/pages/admin/onboarding-review";
 import NotFound from "@/pages/not-found";
@@ -272,6 +274,8 @@ function Router() {
             <Route path="/admin/employee-credentials" component={AdminEmployeeCredentials} />
             <Route path="/admin/disputes" component={AdminDisputes} />
             <Route path="/admin/install-sync" component={InstallSync} />
+            <Route path="/admin/carrier-profiles" component={CarrierProfiles} />
+            <Route path="/admin/carrier-rep-mappings" component={CarrierRepMappings} />
             <Route path="/admin/onboarding-review" component={AdminOnboardingReview} />
           </>
         )}
