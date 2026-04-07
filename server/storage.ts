@@ -4562,14 +4562,26 @@ export const storage = {
       .where(and(eq(processedWorkOrders.workOrderNumber, workOrderNumber), eq(processedWorkOrders.carrierProfileId, carrierProfileId)));
     return row || null;
   },
-  async createProcessedWorkOrder(data: { workOrderNumber: string; carrierProfileId: string; syncRunId: string; matchedOrderId: string; serviceLineType?: string }) {
+  async createProcessedWorkOrder(data: { workOrderNumber: string; carrierProfileId: string; syncRunId: string; matchedOrderId: string; serviceLineType?: string; woStatus?: string; rowHash?: string }) {
     const [row] = await db.insert(processedWorkOrders).values({
       workOrderNumber: data.workOrderNumber,
       carrierProfileId: data.carrierProfileId,
       syncRunId: data.syncRunId,
       matchedOrderId: data.matchedOrderId,
       serviceLineType: data.serviceLineType,
+      woStatus: data.woStatus,
+      rowHash: data.rowHash,
     }).onConflictDoNothing().returning();
+    return row || null;
+  },
+  async updateProcessedWorkOrder(id: string, data: { syncRunId: string; matchedOrderId?: string; woStatus?: string; rowHash?: string }) {
+    const [row] = await db.update(processedWorkOrders).set({
+      syncRunId: data.syncRunId,
+      ...(data.matchedOrderId !== undefined && { matchedOrderId: data.matchedOrderId }),
+      ...(data.woStatus !== undefined && { woStatus: data.woStatus }),
+      ...(data.rowHash !== undefined && { rowHash: data.rowHash }),
+      processedAt: new Date(),
+    }).where(eq(processedWorkOrders.id, id)).returning();
     return row || null;
   },
   async getProcessedWorkOrdersBySyncRun(syncRunId: string) {

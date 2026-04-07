@@ -124,8 +124,9 @@ export interface MatchResult {
 export interface MatchingResponse {
   matches: MatchResult[];
   unmatched: { rowIndex: number; data: Record<string, string>; reason: string }[];
-  dedupSkipped: { rowIndex: number; data: Record<string, string>; workOrderNumber: string; previousSyncRunId: string; matchedOrderId: string }[];
+  dedupSkipped: { rowIndex: number; data: Record<string, string>; workOrderNumber: string; previousSyncRunId: string; matchedOrderId: string; classification?: "unchanged" | "changed" }[];
   summary: string;
+  rowClassifications?: { new: number; changed: number; unchanged: number };
 }
 
 function normalize(s: string): string {
@@ -589,6 +590,18 @@ const MATCH_THRESHOLD = 45;
 export interface DedupEntry {
   syncRunId: string;
   matchedOrderId: string;
+  woStatus?: string;
+  rowHash?: string;
+  processedWoId?: string;
+}
+
+export type RowClassification = "new" | "changed" | "unchanged";
+
+export function computeRowHash(row: Record<string, string>, ctx: CarrierContext | null): string {
+  const wo = extractField(row, "work_order_number", ctx, getWorkOrderNumber).trim().toUpperCase();
+  const status = extractField(row, "wo_status", ctx, getWoStatus).trim().toUpperCase();
+  const checkIn = extractField(row, "check_in_date", ctx, getCheckInDate).trim();
+  return `${wo}|${status}|${checkIn}`;
 }
 
 export async function matchInstallationsToOrders(
@@ -596,34 +609,55 @@ export async function matchInstallationsToOrders(
   orders: OrderSummary[],
   carrierCtx: CarrierContext | null = null,
   processedWoMap?: Map<string, DedupEntry>,
+  incrementalOnly: boolean = false,
 ): Promise<MatchingResponse> {
   if (sheetRows.length === 0) {
-    return { matches: [], unmatched: [], dedupSkipped: [], summary: "No installation records to match." };
+    return { matches: [], unmatched: [], dedupSkipped: [], summary: "No installation records to match.", rowClassifications: { new: 0, changed: 0, unchanged: 0 } };
   }
 
   const matchableRows: SheetRow[] = [];
   const skippedRows: { rowIndex: number; data: Record<string, string>; reason: string }[] = [];
   const dedupSkipped: MatchingResponse["dedupSkipped"] = [];
   const validStatuses = new Set(["CP", "CN", "OP", "ND", "COMPLETED", "CONNECTED", "OPEN", "NO DISPATCH", "CANCELED", "CANCELLED", "INSTALLED", "ACTIVE", "PENDING", "SCHEDULED", "IN PROGRESS", "DONE"]);
+  const rowClassifications = { new: 0, changed: 0, unchanged: 0 };
+  const changedWoEntries: Array<{ row: SheetRow; prevEntry: DedupEntry }> = [];
 
   for (const row of sheetRows) {
     const woNumber = extractField(row.data, "work_order_number", carrierCtx, getWorkOrderNumber).trim();
     if (woNumber && processedWoMap) {
       const prev = processedWoMap.get(woNumber.toUpperCase());
       if (prev) {
-        dedupSkipped.push({
-          rowIndex: row.rowIndex,
-          data: row.data,
-          workOrderNumber: woNumber,
-          previousSyncRunId: prev.syncRunId,
-          matchedOrderId: prev.matchedOrderId,
-        });
+        const currentStatus = normalizeWoStatus(row.data, carrierCtx);
+        const currentHash = computeRowHash(row.data, carrierCtx);
+        const statusChanged = prev.woStatus && prev.woStatus !== currentStatus;
+        const hashChanged = prev.rowHash && prev.rowHash !== currentHash;
+
+        if (statusChanged || hashChanged) {
+          rowClassifications.changed++;
+          changedWoEntries.push({ row, prevEntry: prev });
+          matchableRows.push(row);
+        } else {
+          rowClassifications.unchanged++;
+          if (incrementalOnly) {
+            dedupSkipped.push({
+              rowIndex: row.rowIndex,
+              data: row.data,
+              workOrderNumber: woNumber,
+              previousSyncRunId: prev.syncRunId,
+              matchedOrderId: prev.matchedOrderId,
+              classification: "unchanged" as const,
+            });
+          } else {
+            matchableRows.push(row);
+          }
+        }
         continue;
       }
     }
 
     const woStatus = extractField(row.data, "wo_status", carrierCtx, getWoStatus).trim().toUpperCase();
     if (!woStatus || validStatuses.has(woStatus)) {
+      rowClassifications.new++;
       matchableRows.push(row);
     } else {
       skippedRows.push({ rowIndex: row.rowIndex, data: row.data, reason: `Skipped: status is '${woStatus}' (not a recognized status)` });
@@ -654,7 +688,7 @@ export async function matchInstallationsToOrders(
   }
 
   if (matchableRows.length === 0) {
-    return { matches: [], unmatched: skippedRows, dedupSkipped, summary: `No matchable installation records found. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced.` };
+    return { matches: [], unmatched: skippedRows, dedupSkipped, summary: `No matchable installation records found. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced.`, rowClassifications };
   }
 
   if (orders.length === 0) {
@@ -666,6 +700,7 @@ export async function matchInstallationsToOrders(
       ],
       dedupSkipped,
       summary: "No pending orders available for matching.",
+      rowClassifications,
     };
   }
 
@@ -755,12 +790,13 @@ export async function matchInstallationsToOrders(
 
   const allUnmatched = [...unmatchedRows, ...skippedRows];
 
-  console.log(`[Install Sync] Done: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped`);
+  console.log(`[Install Sync] Done: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped (new:${rowClassifications.new} changed:${rowClassifications.changed} unchanged:${rowClassifications.unchanged})`);
 
   return {
     matches: validMatches,
     unmatched: allUnmatched,
     dedupSkipped,
     summary: `Matched ${validMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced (dedup).`,
+    rowClassifications,
   };
 }

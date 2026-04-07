@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Link2, Play, CheckCircle2, XCircle, Clock, FileSpreadsheet, Mail, AlertTriangle, ChevronDown, ChevronUp, BarChart3, ArrowRightLeft, Search, Zap, Plus, LinkIcon, Loader2 } from "lucide-react";
+import { Upload, Link2, Play, CheckCircle2, XCircle, Clock, FileSpreadsheet, Mail, AlertTriangle, ChevronDown, ChevronUp, BarChart3, ArrowRightLeft, Search, Zap, Plus, LinkIcon, Loader2, Wrench, RefreshCw } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface CarrierInsights {
@@ -126,6 +126,7 @@ interface SyncResult {
   carrierInsights?: CarrierInsights;
   cancellationImpact?: CancellationImpact;
   isDryRun?: boolean;
+  rowClassifications?: { new: number; changed: number; unchanged: number };
 }
 
 interface SyncRun {
@@ -137,6 +138,10 @@ interface SyncRun {
   matchedCount: number;
   approvedCount: number;
   unmatchedCount: number;
+  newCount: number;
+  changedCount: number;
+  unchangedCount: number;
+  isIncremental: boolean;
   emailSent: boolean;
   status: string;
   summary: string | null;
@@ -174,7 +179,9 @@ export default function InstallSync() {
   }>({ customerName: "", address: "", city: "", repName: "", acctNbr: "", woStatus: "", internetSpeed: "", installDate: "", scheduleDate: "" });
 
   const [dryRunMode, setDryRunMode] = useState(false);
+  const [incrementalOnly, setIncrementalOnly] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
+  const [fixAllDialogOpen, setFixAllDialogOpen] = useState(false);
   const [selectedUnmatched, setSelectedUnmatched] = useState<Set<number>>(new Set());
   const [bulkLinkDialogOpen, setBulkLinkDialogOpen] = useState(false);
   const [bulkLinkSearch, setBulkLinkSearch] = useState("");
@@ -195,6 +202,7 @@ export default function InstallSync() {
       }
       if (emailTo) formData.append("emailTo", emailTo);
       formData.append("autoApprove", String(autoApprove));
+      if (incrementalOnly) formData.append("incrementalOnly", "true");
       const syncUrl = dryRunMode
         ? "/api/admin/install-sync/run?dryRun=true"
         : "/api/admin/install-sync/run";
@@ -231,6 +239,44 @@ export default function InstallSync() {
     },
     onError: (error: Error) => {
       toast({ title: "Sync Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const [fixingOrderIds, setFixingOrderIds] = useState<Set<string>>(new Set());
+  const [fixedOrderIds, setFixedOrderIds] = useState<Set<string>>(new Set());
+
+  const fixMismatchMutation = useMutation({
+    mutationFn: async ({ orderId, carrierSpeed }: { orderId: string; carrierSpeed: string }) => {
+      setFixingOrderIds(prev => new Set(prev).add(orderId));
+      const res = await apiRequest("POST", "/api/admin/install-sync/correct-mismatch", { orderId, carrierSpeed });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setFixingOrderIds(prev => { const s = new Set(prev); s.delete(data.orderId); return s; });
+      setFixedOrderIds(prev => new Set(prev).add(data.orderId));
+      toast({ title: "Fixed", description: `${data.oldService} → ${data.newService} (commission: $${data.oldCommission} → $${data.newCommission})` });
+    },
+    onError: (error: Error, variables) => {
+      setFixingOrderIds(prev => { const s = new Set(prev); s.delete(variables.orderId); return s; });
+      toast({ title: "Fix Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const fixAllMismatchesMutation = useMutation({
+    mutationFn: async (corrections: Array<{ orderId: string; carrierSpeed: string }>) => {
+      const res = await apiRequest("POST", "/api/admin/install-sync/bulk-correct-mismatches", { corrections });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setFixAllDialogOpen(false);
+      const newFixed = new Set(fixedOrderIds);
+      data.results?.filter((r: any) => r.success).forEach((r: any) => newFixed.add(r.orderId));
+      setFixedOrderIds(newFixed);
+      toast({ title: "Bulk Fix Complete", description: data.message });
+    },
+    onError: (error: Error) => {
+      setFixAllDialogOpen(false);
+      toast({ title: "Bulk Fix Failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -480,6 +526,21 @@ export default function InstallSync() {
                 </span>
               </div>
             </div>
+            <div className="space-y-2">
+              <Label>Incremental Mode</Label>
+              <div className="flex items-center gap-2 pt-1">
+                <Switch
+                  checked={incrementalOnly}
+                  onCheckedChange={setIncrementalOnly}
+                  data-testid="switch-incremental"
+                />
+                <span className="text-sm text-muted-foreground">
+                  {incrementalOnly
+                    ? "Only process new & changed rows (skip unchanged)"
+                    : "Process all rows regardless of previous syncs"}
+                </span>
+              </div>
+            </div>
           </div>
 
           <div className="pt-2">
@@ -538,6 +599,23 @@ export default function InstallSync() {
                 </div>
               )}
             </div>
+
+            {result.rowClassifications && (result.rowClassifications.new > 0 || result.rowClassifications.changed > 0 || result.rowClassifications.unchanged > 0) && (
+              <div className="grid grid-cols-3 gap-3 mt-3">
+                <div className="text-center p-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div className="text-lg font-bold text-green-600" data-testid="text-new-rows">{result.rowClassifications.new}</div>
+                  <div className="text-xs text-muted-foreground flex items-center justify-center gap-1"><Plus className="h-3 w-3" />New Rows</div>
+                </div>
+                <div className="text-center p-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <div className="text-lg font-bold text-amber-600" data-testid="text-changed-rows">{result.rowClassifications.changed}</div>
+                  <div className="text-xs text-muted-foreground flex items-center justify-center gap-1"><RefreshCw className="h-3 w-3" />Changed</div>
+                </div>
+                <div className="text-center p-2 rounded-lg bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-800">
+                  <div className="text-lg font-bold text-gray-500" data-testid="text-unchanged-rows">{result.rowClassifications.unchanged}</div>
+                  <div className="text-xs text-muted-foreground flex items-center justify-center gap-1"><CheckCircle2 className="h-3 w-3" />Unchanged</div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2" data-testid="text-summary">
               <p className="text-sm">{result.summary}</p>
@@ -923,10 +1001,27 @@ export default function InstallSync() {
 
               {ci.mismatches.length > 0 && (
                 <div>
-                  <h4 className="font-medium mb-2 flex items-center gap-2">
-                    <ArrowRightLeft className="h-4 w-4 text-amber-600" />
-                    Speed Tier Mismatches ({ci.mismatches.length})
-                  </h4>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <ArrowRightLeft className="h-4 w-4 text-amber-600" />
+                      Speed Tier Mismatches ({ci.mismatches.length})
+                    </h4>
+                    {ci.mismatches.filter(mm => !fixedOrderIds.has(mm.orderId)).length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setFixAllDialogOpen(true)}
+                        disabled={fixAllMismatchesMutation.isPending}
+                        data-testid="button-fix-all-mismatches"
+                      >
+                        {fixAllMismatchesMutation.isPending ? (
+                          <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Fixing...</>
+                        ) : (
+                          <><Wrench className="h-3 w-3 mr-1" />Fix All ({ci.mismatches.filter(mm => !fixedOrderIds.has(mm.orderId)).length})</>
+                        )}
+                      </Button>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground mb-2">
                     The service sold in the CRM doesn't match what the carrier shows as installed.
                   </p>
@@ -938,11 +1033,12 @@ export default function InstallSync() {
                           <TableHead>Customer</TableHead>
                           <TableHead>CRM Service</TableHead>
                           <TableHead>Carrier Installed</TableHead>
+                          <TableHead className="w-20"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {ci.mismatches.map((mm, i) => (
-                          <TableRow key={i}>
+                          <TableRow key={i} className={fixedOrderIds.has(mm.orderId) ? "opacity-50" : ""}>
                             <TableCell className="font-mono text-xs">{mm.orderInvoice || mm.orderId.slice(0, 8)}</TableCell>
                             <TableCell className="text-sm">{mm.customerName}</TableCell>
                             <TableCell>
@@ -951,11 +1047,53 @@ export default function InstallSync() {
                             <TableCell>
                               <Badge variant="destructive" className="text-xs">{mm.carrierSpeedLabel}</Badge>
                             </TableCell>
+                            <TableCell>
+                              {fixedOrderIds.has(mm.orderId) ? (
+                                <Badge variant="default" className="text-xs bg-green-600"><CheckCircle2 className="h-3 w-3 mr-1" />Fixed</Badge>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => fixMismatchMutation.mutate({ orderId: mm.orderId, carrierSpeed: mm.carrierSpeed })}
+                                  disabled={fixingOrderIds.has(mm.orderId)}
+                                  data-testid={`button-fix-mismatch-${mm.orderId}`}
+                                >
+                                  {fixingOrderIds.has(mm.orderId) ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <><Wrench className="h-3 w-3 mr-1" />Fix</>
+                                  )}
+                                </Button>
+                              )}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   </div>
+                  <Dialog open={fixAllDialogOpen} onOpenChange={setFixAllDialogOpen}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Fix All Speed Tier Mismatches</DialogTitle>
+                        <DialogDescription>
+                          This will update the service on {ci.mismatches.filter(mm => !fixedOrderIds.has(mm.orderId)).length} order(s) to match the carrier-installed speed tier and recalculate commissions. This action cannot be undone.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setFixAllDialogOpen(false)}>Cancel</Button>
+                        <Button
+                          onClick={() => {
+                            const unfixed = ci.mismatches.filter(mm => !fixedOrderIds.has(mm.orderId));
+                            fixAllMismatchesMutation.mutate(unfixed.map(mm => ({ orderId: mm.orderId, carrierSpeed: mm.carrierSpeed })));
+                          }}
+                          disabled={fixAllMismatchesMutation.isPending}
+                          data-testid="button-confirm-fix-all"
+                        >
+                          {fixAllMismatchesMutation.isPending ? "Fixing..." : "Fix All"}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               )}
 
@@ -1167,6 +1305,7 @@ export default function InstallSync() {
                     <TableHead>Rows</TableHead>
                     <TableHead>Matched</TableHead>
                     <TableHead>Approved</TableHead>
+                    <TableHead>Diff</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Run By</TableHead>
                   </TableRow>
@@ -1178,13 +1317,29 @@ export default function InstallSync() {
                         {new Date(run.createdAt).toLocaleString()}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="text-xs">
-                          {run.sourceType === "csv_upload" ? "CSV" : "Sheet"}
-                        </Badge>
+                        <div className="flex items-center gap-1">
+                          <Badge variant="outline" className="text-xs">
+                            {run.sourceType === "csv_upload" ? "CSV" : "Sheet"}
+                          </Badge>
+                          {run.isIncremental && (
+                            <Badge variant="secondary" className="text-xs">Incr</Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm">{run.totalSheetRows}</TableCell>
                       <TableCell className="text-sm">{run.matchedCount}</TableCell>
                       <TableCell className="text-sm font-medium text-green-600">{run.approvedCount}</TableCell>
+                      <TableCell className="text-xs">
+                        {(run.newCount > 0 || run.changedCount > 0 || run.unchangedCount > 0) ? (
+                          <span className="flex items-center gap-1">
+                            {run.newCount > 0 && <span className="text-green-600">+{run.newCount}</span>}
+                            {run.changedCount > 0 && <span className="text-amber-600">~{run.changedCount}</span>}
+                            {run.unchangedCount > 0 && <span className="text-gray-400">={run.unchangedCount}</span>}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Badge
                           variant={run.status === "COMPLETED" ? "default" : run.status === "FAILED" ? "destructive" : "secondary"}
