@@ -15873,6 +15873,14 @@ export async function registerRoutes(
                   (mo: any) => mo.acctNbr !== acctNbr || mo.customerName !== customerName
                 );
               }
+              if (details.unmatched) {
+                const unmatchedIdx = details.unmatched.findIndex((u: any) =>
+                  u.data && JSON.stringify(u.data) === JSON.stringify(carrierRowData)
+                );
+                if (unmatchedIdx >= 0) {
+                  details.unmatched.splice(unmatchedIdx, 1);
+                }
+              }
               updateData.matchDetails = JSON.stringify(details);
             }
           } catch { /* ignore parse errors */ }

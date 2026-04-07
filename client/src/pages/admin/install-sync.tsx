@@ -294,15 +294,27 @@ export default function InstallSync() {
       toast({ title: "Order Created", description: `Invoice: ${data.order?.invoiceNumber || "N/A"}` });
       if (result && createRow) {
         const ci2 = result.carrierInsights;
+        const rawDataStr = createRow.rawData ? JSON.stringify(createRow.rawData) : null;
+        const updatedUnmatched = rawDataStr
+          ? result.unmatched.filter(u => JSON.stringify(u.data) !== rawDataStr)
+          : result.unmatched;
         if (ci2) {
           setResult({
             ...result,
             matchedCount: result.matchedCount + 1,
             unmatchedCount: Math.max(0, result.unmatchedCount - 1),
+            unmatched: updatedUnmatched,
             carrierInsights: {
               ...ci2,
               missingOrders: ci2.missingOrders.filter(mo => mo !== createRow),
             },
+          });
+        } else {
+          setResult({
+            ...result,
+            matchedCount: result.matchedCount + 1,
+            unmatchedCount: Math.max(0, result.unmatchedCount - 1),
+            unmatched: updatedUnmatched,
           });
         }
       }
