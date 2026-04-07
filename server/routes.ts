@@ -16692,11 +16692,22 @@ export async function registerRoutes(
 
     const existingOverrides = await storage.getOverrideEarningsByOrder(orderId);
     if (existingOverrides.length > 0) {
-      const perOverrideAmount = totalDeductions.toFixed(2);
-      for (const oe of existingOverrides) {
-        await d.update(overrideEarnings)
-          .set({ amount: perOverrideAmount })
-          .where(eq(overrideEarnings.id, oe.id));
+      const oldDeduction = parseFloat(order.overrideDeduction || "0");
+      if (oldDeduction > 0 && totalDeductions > 0) {
+        const ratio = totalDeductions / oldDeduction;
+        for (const oe of existingOverrides) {
+          const oldAmount = parseFloat(oe.amount || "0");
+          const newAmount = (oldAmount * ratio).toFixed(2);
+          await d.update(overrideEarnings)
+            .set({ amount: newAmount })
+            .where(eq(overrideEarnings.id, oe.id));
+        }
+      } else if (totalDeductions === 0) {
+        for (const oe of existingOverrides) {
+          await d.update(overrideEarnings)
+            .set({ amount: "0.00" })
+            .where(eq(overrideEarnings.id, oe.id));
+        }
       }
     }
 
