@@ -16300,7 +16300,6 @@ export async function registerRoutes(
 
             if (Object.keys(updates).length === 0) continue;
 
-            let skipCancelForReview = false;
             if (woStatus === "CN" && order.approvalStatus === "APPROVED") {
               try {
                 const { cancelOrderCascade } = await import("./cancellation-cascade");
@@ -16319,10 +16318,10 @@ export async function registerRoutes(
                   cancellationImpact.reserveAdjustedCents += cascadeItem.reserveReversedCents;
                   if (cascadeItem.flaggedForReview) {
                     cancellationImpact.flaggedForReviewCount++;
-                    skipCancelForReview = true;
                   } else {
                     cancellationImpact.ordersCanceled++;
-                    skipCancelForReview = true;
+                    const txOrder = await storage.getOrderById(match.orderId);
+                    if (txOrder) statusUpdatedOrders.push(txOrder);
                   }
                 } else {
                   const cascadeItem = await cancelOrderCascade(match.orderId, syncRunId, user.id, true);
@@ -16340,12 +16339,11 @@ export async function registerRoutes(
               } catch (cascadeErr: unknown) {
                 const errMsg = cascadeErr instanceof Error ? cascadeErr.message : String(cascadeErr);
                 console.error(`[InstallSync] Cancellation cascade error for order ${match.orderId}:`, errMsg);
-                skipCancelForReview = true;
               }
+              continue;
             }
 
             if (isDryRun) continue;
-            if (skipCancelForReview && Object.keys(updates).length === 0) continue;
 
             const updatedOrder = await storage.updateOrder(match.orderId, updates);
 
