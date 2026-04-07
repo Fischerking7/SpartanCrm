@@ -11,10 +11,11 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
+import { ScreenshotCapture, AiFieldIndicator, MissingFieldsWarning } from "@/components/screenshot-capture";
 import { 
   Plus, CheckCircle, Zap, ClipboardList, ArrowRight, 
   Phone, MapPin, User, Calendar, Tv, Smartphone, 
-  Building2, RefreshCw, ChevronDown, ChevronUp
+  Building2, RefreshCw, ChevronDown, ChevronUp, Camera
 } from "lucide-react";
 import type { Client, Provider, Service } from "@shared/schema";
 
@@ -50,6 +51,12 @@ export default function MobileOrderEntry() {
   const [mode, setMode] = useState<"standard" | "quick">("standard");
   const [form, setForm] = useState<QuickOrderForm>(getDefaultForm());
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showCapture, setShowCapture] = useState(false);
+  const [aiExtractedFields, setAiExtractedFields] = useState<Set<string>>(new Set());
+  const [captureConfidence, setCaptureConfidence] = useState<Record<string, string>>({});
+  const [captureImagePath, setCaptureImagePath] = useState<string | null>(null);
+  const [captureRawJson, setCaptureRawJson] = useState<Record<string, unknown> | null>(null);
+  const [captureMissingFields, setCaptureMissingFields] = useState<string[]>([]);
   const [recentOrders, setRecentOrders] = useState<Array<{ customerName: string; provider: string; time: string }>>([]);
   const [orderCount, setOrderCount] = useState(0);
 
@@ -84,6 +91,28 @@ export default function MobileOrderEntry() {
     enabled: !!form.clientId && !!form.providerId,
   });
 
+  const handleCaptureExtracted = (result: { orderData: Record<string, string>; confidence: Record<string, string>; imageObjectPath: string; rawExtraction: Record<string, unknown>; missingRequired: string[]; extractedFields: string[] }) => {
+    const { orderData, confidence, imageObjectPath, rawExtraction, missingRequired, extractedFields } = result;
+    const newFields = new Set<string>();
+    
+    setForm(f => {
+      const updated = { ...f };
+      if (orderData.customerName) { updated.customerName = orderData.customerName; newFields.add("customerName"); }
+      if (orderData.customerPhone) { updated.customerPhone = orderData.customerPhone; newFields.add("customerPhone"); }
+      if (orderData.customerAddress) { updated.customerAddress = orderData.customerAddress; newFields.add("customerAddress"); }
+      if (orderData.providerId) { updated.providerId = orderData.providerId; newFields.add("providerId"); }
+      if (orderData.serviceId) { updated.serviceId = orderData.serviceId; newFields.add("serviceId"); }
+      return updated;
+    });
+
+    setAiExtractedFields(newFields);
+    setCaptureConfidence(confidence || {});
+    setCaptureImagePath(imageObjectPath);
+    setCaptureRawJson(rawExtraction);
+    setCaptureMissingFields(missingRequired || []);
+    setShowCapture(false);
+  };
+
   const createOrderMutation = useMutation({
     mutationFn: async (orderData: QuickOrderForm) => {
       const res = await fetch("/api/orders", {
@@ -103,6 +132,9 @@ export default function MobileOrderEntry() {
           mobileLines: orderData.hasMobile && orderData.mobileLinesQty > 0
             ? Array(orderData.mobileLinesQty).fill({ mobileProductType: "NEW", mobilePortedStatus: "NEW" })
             : [],
+          captureMethod: captureImagePath ? "screenshot_capture" : "manual",
+          captureImageUrl: captureImagePath,
+          captureRawJson: captureRawJson,
         }),
       });
       if (!res.ok) {
@@ -126,6 +158,13 @@ export default function MobileOrderEntry() {
         description: `Order for ${submittedForm.customerName} created successfully`,
       });
       
+      setAiExtractedFields(new Set());
+      setCaptureConfidence({});
+      setCaptureImagePath(null);
+      setCaptureRawJson(null);
+      setCaptureMissingFields([]);
+      setShowCapture(false);
+
       if (mode === "quick") {
         setForm({
           ...getDefaultForm(),
@@ -187,6 +226,30 @@ export default function MobileOrderEntry() {
       </div>
 
       <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        {!showCapture && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full border-dashed border-primary/50 text-primary"
+            onClick={() => setShowCapture(true)}
+            data-testid="button-capture-from-screenshot"
+          >
+            <Camera className="h-4 w-4 mr-2" />
+            Capture from Screenshot
+          </Button>
+        )}
+
+        {showCapture && (
+          <ScreenshotCapture
+            onExtracted={handleCaptureExtracted}
+            onClose={() => setShowCapture(false)}
+          />
+        )}
+
+        {captureMissingFields.length > 2 && (
+          <MissingFieldsWarning missingFields={captureMissingFields} />
+        )}
+
         {mode === "quick" && (
           <Card className="border-dashed border-primary/50 bg-primary/5">
             <CardContent className="p-3">
@@ -210,7 +273,10 @@ export default function MobileOrderEntry() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="provider" className="text-sm">Provider *</Label>
+              <Label htmlFor="provider" className="text-sm flex items-center gap-1.5">
+                Provider *
+                {aiExtractedFields.has("providerId") && <AiFieldIndicator fieldName="providerId" confidence={captureConfidence.providerId} />}
+              </Label>
               <Select 
                 value={form.providerId} 
                 onValueChange={(v) => setForm(f => ({ ...f, providerId: v, serviceId: "" }))}
@@ -244,7 +310,10 @@ export default function MobileOrderEntry() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="service" className="text-sm">Service *</Label>
+              <Label htmlFor="service" className="text-sm flex items-center gap-1.5">
+                Service *
+                {aiExtractedFields.has("serviceId") && <AiFieldIndicator fieldName="serviceId" confidence={captureConfidence.serviceId} />}
+              </Label>
               <Select 
                 value={form.serviceId} 
                 onValueChange={(v) => setForm(f => ({ ...f, serviceId: v }))}
@@ -272,7 +341,10 @@ export default function MobileOrderEntry() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="customerName" className="text-sm">Customer Name *</Label>
+              <Label htmlFor="customerName" className="text-sm flex items-center gap-1.5">
+                Customer Name *
+                {aiExtractedFields.has("customerName") && <AiFieldIndicator fieldName="customerName" confidence={captureConfidence.customerName} />}
+              </Label>
               <Input
                 id="customerName"
                 value={form.customerName}
@@ -288,6 +360,7 @@ export default function MobileOrderEntry() {
               <Label htmlFor="customerPhone" className="text-sm flex items-center gap-1.5">
                 <Phone className="h-3.5 w-3.5" />
                 Phone
+                {aiExtractedFields.has("customerPhone") && <AiFieldIndicator fieldName="customerPhone" confidence={captureConfidence.customerPhone} />}
               </Label>
               <Input
                 id="customerPhone"
@@ -306,6 +379,7 @@ export default function MobileOrderEntry() {
                 <Label htmlFor="customerAddress" className="text-sm flex items-center gap-1.5">
                   <MapPin className="h-3.5 w-3.5" />
                   Address
+                  {aiExtractedFields.has("customerAddress") && <AiFieldIndicator fieldName="customerAddress" confidence={captureConfidence.customerAddress} />}
                 </Label>
                 <Input
                   id="customerAddress"

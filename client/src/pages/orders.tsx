@@ -17,7 +17,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag, Smartphone, ThumbsUp, ThumbsDown, DollarSign, Package } from "lucide-react";
+import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag, Smartphone, ThumbsUp, ThumbsDown, DollarSign, Package, Camera } from "lucide-react";
+import { ScreenshotCapture, AiFieldIndicator, MissingFieldsWarning } from "@/components/screenshot-capture";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { SalesOrder, Client, Provider, Service, User, CommissionLineItem, RateCard } from "@shared/schema";
 
@@ -65,6 +66,12 @@ export default function Orders() {
   const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("global");
   const [approvalFilter, setApprovalFilter] = useState<string>("all");
   const [repFilter, setRepFilter] = useState<string>("all");
+  const [showCapture, setShowCapture] = useState(false);
+  const [aiExtractedFields, setAiExtractedFields] = useState<Set<string>>(new Set());
+  const [captureConfidence, setCaptureConfidence] = useState<Record<string, string>>({});
+  const [captureImagePath, setCaptureImagePath] = useState<string | null>(null);
+  const [captureRawJson, setCaptureRawJson] = useState<Record<string, unknown> | null>(null);
+  const [captureMissingFields, setCaptureMissingFields] = useState<string[]>([]);
   
 
   const getTodayDate = () => {
@@ -466,6 +473,9 @@ export default function Orders() {
           hasTv: orderData.hasTv,
           hasMobile: false,
           mobileLines: [],
+          captureMethod: captureImagePath ? "screenshot_capture" : "manual",
+          captureImageUrl: captureImagePath,
+          captureRawJson: captureRawJson,
         }),
       });
       if (!res.ok) {
@@ -521,6 +531,36 @@ export default function Orders() {
     },
   });
 
+  const handleCaptureExtracted = (result: { orderData: Record<string, string>; confidence: Record<string, string>; imageObjectPath: string; rawExtraction: Record<string, unknown>; missingRequired: string[]; extractedFields: string[] }) => {
+    const { orderData, confidence, imageObjectPath, rawExtraction, missingRequired, extractedFields } = result;
+    const newFields = new Set<string>();
+    
+    setNewOrderForm(f => {
+      const updated = { ...f };
+      if (orderData.customerName) { updated.customerName = orderData.customerName; newFields.add("customerName"); }
+      if (orderData.customerPhone) { updated.customerPhone = orderData.customerPhone; newFields.add("customerPhone"); }
+      if (orderData.customerEmail) { updated.customerEmail = orderData.customerEmail; newFields.add("customerEmail"); }
+      if (orderData.customerAddress) { updated.customerAddress = orderData.customerAddress; newFields.add("customerAddress"); }
+      if (orderData.houseNumber) { updated.houseNumber = orderData.houseNumber; newFields.add("houseNumber"); }
+      if (orderData.streetName) { updated.streetName = orderData.streetName; newFields.add("streetName"); }
+      if (orderData.aptUnit) { updated.aptUnit = orderData.aptUnit; newFields.add("aptUnit"); }
+      if (orderData.city) { updated.city = orderData.city; newFields.add("city"); }
+      if (orderData.zipCode) { updated.zipCode = orderData.zipCode; newFields.add("zipCode"); }
+      if (orderData.accountNumber) { updated.accountNumber = orderData.accountNumber; newFields.add("accountNumber"); }
+      if (orderData.installDate) { updated.installDate = orderData.installDate; newFields.add("installDate"); }
+      if (orderData.providerId) { updated.providerId = orderData.providerId; newFields.add("providerId"); }
+      if (orderData.serviceId) { updated.serviceId = orderData.serviceId; newFields.add("serviceId"); }
+      return updated;
+    });
+
+    setAiExtractedFields(newFields);
+    setCaptureConfidence(confidence || {});
+    setCaptureImagePath(imageObjectPath);
+    setCaptureRawJson(rawExtraction);
+    setCaptureMissingFields(missingRequired || []);
+    setShowCapture(false);
+  };
+
   const resetNewOrderForm = () => {
     setNewOrderForm({
       repId: "",
@@ -543,6 +583,12 @@ export default function Orders() {
       customerEmail: "",
       hasTv: false,
     });
+    setShowCapture(false);
+    setAiExtractedFields(new Set());
+    setCaptureConfidence({});
+    setCaptureImagePath(null);
+    setCaptureRawJson(null);
+    setCaptureMissingFields([]);
   };
 
   const updateJobStatusMutation = useMutation({
@@ -2309,6 +2355,26 @@ export default function Orders() {
             <DialogDescription>Enter the order details below</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 overflow-y-auto flex-1 pr-2">
+            {!showCapture ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-dashed border-primary/50 text-primary"
+                onClick={() => setShowCapture(true)}
+                data-testid="button-capture-from-screenshot"
+              >
+                <Camera className="h-4 w-4 mr-2" />
+                Capture from Screenshot
+              </Button>
+            ) : (
+              <ScreenshotCapture
+                onExtracted={handleCaptureExtracted}
+                onClose={() => setShowCapture(false)}
+              />
+            )}
+            {captureMissingFields.length > 2 && (
+              <MissingFieldsWarning missingFields={captureMissingFields} />
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {isAdmin && (
                 <div className="space-y-2">
@@ -2365,7 +2431,10 @@ export default function Orders() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Provider</Label>
+                <Label className="flex items-center gap-1.5">
+                  Provider
+                  {aiExtractedFields.has("providerId") && <AiFieldIndicator fieldName="providerId" confidence={captureConfidence.providerId} />}
+                </Label>
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.providerId}
@@ -2400,7 +2469,10 @@ export default function Orders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Install Date</Label>
+                <Label className="flex items-center gap-1.5">
+                  Install Date
+                  {aiExtractedFields.has("installDate") && <AiFieldIndicator fieldName="installDate" confidence={captureConfidence.installDate} />}
+                </Label>
                 <Input 
                   type="date" 
                   value={newOrderForm.installDate}
@@ -2463,7 +2535,10 @@ export default function Orders() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Account Number</Label>
+                <Label className="flex items-center gap-1.5">
+                  Account Number
+                  {aiExtractedFields.has("accountNumber") && <AiFieldIndicator fieldName="accountNumber" confidence={captureConfidence.accountNumber} />}
+                </Label>
                 <Input 
                   placeholder="Enter account number" 
                   value={newOrderForm.accountNumber}
@@ -2472,7 +2547,10 @@ export default function Orders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Service</Label>
+                <Label className="flex items-center gap-1.5">
+                  Service
+                  {aiExtractedFields.has("serviceId") && <AiFieldIndicator fieldName="serviceId" confidence={captureConfidence.serviceId} />}
+                </Label>
                 {!newOrderForm.clientId || !newOrderForm.providerId ? (
                   <p className="text-sm text-muted-foreground">Select client and provider first</p>
                 ) : isTouchDevice ? (
@@ -2500,7 +2578,10 @@ export default function Orders() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Customer Name *</Label>
+                <Label className="flex items-center gap-1.5">
+                  Customer Name *
+                  {aiExtractedFields.has("customerName") && <AiFieldIndicator fieldName="customerName" confidence={captureConfidence.customerName} />}
+                </Label>
                 <Input 
                   placeholder="Enter customer name" 
                   value={newOrderForm.customerName}
@@ -2509,7 +2590,10 @@ export default function Orders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Customer Phone</Label>
+                <Label className="flex items-center gap-1.5">
+                  Customer Phone
+                  {aiExtractedFields.has("customerPhone") && <AiFieldIndicator fieldName="customerPhone" confidence={captureConfidence.customerPhone} />}
+                </Label>
                 <Input 
                   placeholder="Enter phone number" 
                   value={newOrderForm.customerPhone}
@@ -2518,7 +2602,10 @@ export default function Orders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Customer Email</Label>
+                <Label className="flex items-center gap-1.5">
+                  Customer Email
+                  {aiExtractedFields.has("customerEmail") && <AiFieldIndicator fieldName="customerEmail" confidence={captureConfidence.customerEmail} />}
+                </Label>
                 <Input 
                   placeholder="Enter email address" 
                   value={newOrderForm.customerEmail}
@@ -2529,7 +2616,10 @@ export default function Orders() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="space-y-2">
-                <Label>House #/Bldg</Label>
+                <Label className="flex items-center gap-1.5">
+                  House #/Bldg
+                  {aiExtractedFields.has("houseNumber") && <AiFieldIndicator fieldName="houseNumber" confidence={captureConfidence.houseNumber} />}
+                </Label>
                 <Input 
                   placeholder="123"
                   value={newOrderForm.houseNumber}
@@ -2538,7 +2628,10 @@ export default function Orders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Street</Label>
+                <Label className="flex items-center gap-1.5">
+                  Street
+                  {aiExtractedFields.has("streetName") && <AiFieldIndicator fieldName="streetName" confidence={captureConfidence.streetName} />}
+                </Label>
                 <Input 
                   placeholder="Main St"
                   value={newOrderForm.streetName}
@@ -2547,7 +2640,10 @@ export default function Orders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Apt/Unit</Label>
+                <Label className="flex items-center gap-1.5">
+                  Apt/Unit
+                  {aiExtractedFields.has("aptUnit") && <AiFieldIndicator fieldName="aptUnit" confidence={captureConfidence.aptUnit} />}
+                </Label>
                 <Input 
                   placeholder="Apt 4B"
                   value={newOrderForm.aptUnit}
@@ -2556,7 +2652,10 @@ export default function Orders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>City</Label>
+                <Label className="flex items-center gap-1.5">
+                  City
+                  {aiExtractedFields.has("city") && <AiFieldIndicator fieldName="city" confidence={captureConfidence.city} />}
+                </Label>
                 <Input 
                   placeholder="City"
                   value={newOrderForm.city}
@@ -2565,7 +2664,10 @@ export default function Orders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Zip Code</Label>
+                <Label className="flex items-center gap-1.5">
+                  Zip Code
+                  {aiExtractedFields.has("zipCode") && <AiFieldIndicator fieldName="zipCode" confidence={captureConfidence.zipCode} />}
+                </Label>
                 <Input 
                   placeholder="12345"
                   value={newOrderForm.zipCode}

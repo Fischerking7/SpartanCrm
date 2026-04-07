@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, decimal, timestamp, date, pgEnum, uniqueIndex, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, decimal, timestamp, date, pgEnum, uniqueIndex, unique, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -26,6 +26,7 @@ export const mobilePortedStatusEnum = pgEnum("mobile_ported_status", ["PORTED", 
 export const serviceCategoryEnum = pgEnum("service_category", ["INTERNET", "MOBILE", "VIDEO"]);
 export const installTypeEnum = pgEnum("install_type", ["AGENT_INSTALL", "DIRECT_SHIP", "TECH_INSTALL"]);
 export const mduOrderStatusEnum = pgEnum("mdu_order_status", ["PENDING", "APPROVED", "REJECTED"]);
+export const captureMethodEnum = pgEnum("capture_method", ["manual", "screenshot_capture"]);
 
 
 // Finance module enums
@@ -319,6 +320,9 @@ export const salesOrders = pgTable("sales_orders", {
   reserveWithholdingApplied: boolean("reserve_withholding_applied").notNull().default(false),
   carrierMaturityType: varchar("carrier_maturity_type", { length: 30 }),
   maturityExpiresAt: timestamp("maturity_expires_at"),
+  captureMethod: captureMethodEnum("capture_method").default("manual"),
+  captureImageUrl: text("capture_image_url"),
+  captureRawJson: jsonb("capture_raw_json"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

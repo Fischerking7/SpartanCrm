@@ -2356,6 +2356,293 @@ export async function registerRoutes(
     }
   });
 
+  const captureUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
+  app.post("/api/orders/capture", auth, captureUpload.single("image"), async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+
+      const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+      if (!allowedTypes.includes(file.mimetype)) {
+        return res.status(400).json({ message: "Invalid image type. Supported: JPEG, PNG, WebP, GIF" });
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "screenshot_capture_attempt",
+        tableName: "sales_orders",
+        recordId: null,
+        afterJson: JSON.stringify({ fileName: file.originalname, fileSize: file.size, mimeType: file.mimetype }),
+      });
+
+      let imageObjectPath: string | null = null;
+      try {
+        const { ObjectStorageService } = await import("./replit_integrations/object_storage/objectStorage");
+        const objectStorageService = new ObjectStorageService();
+        const uploadUrl = await objectStorageService.getObjectEntityUploadURL();
+        
+        const uploadResponse = await fetch(uploadUrl, {
+          method: "PUT",
+          body: file.buffer,
+          headers: { "Content-Type": file.mimetype },
+        });
+        if (uploadResponse.ok) {
+          imageObjectPath = await objectStorageService.trySetObjectEntityAclPolicy(
+            uploadUrl,
+            { owner: user.id, visibility: "private" }
+          );
+        }
+      } catch (storageError) {
+        console.error("Failed to store capture image:", storageError);
+      }
+
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const anthropic = new Anthropic({
+        apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
+      });
+
+      const base64Image = file.buffer.toString("base64");
+      const mediaType = file.mimetype as "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+
+      const extractionPrompt = `You are analyzing a screenshot of an order confirmation screen from a telecom/internet service provider (likely Astound or similar). Extract the following fields from the image. Return ONLY a valid JSON object with these fields:
+
+{
+  "customerName": "Full customer name",
+  "customerAddress": "Full address as shown",
+  "houseNumber": "House/building number",
+  "streetName": "Street name",
+  "aptUnit": "Apartment or unit number if any",
+  "city": "City name",
+  "zipCode": "ZIP or postal code",
+  "accountNumber": "Account or order confirmation number",
+  "planPackage": "Service plan or package name",
+  "monthlyRate": "Monthly rate/price as shown",
+  "installDate": "Installation/scheduled date in YYYY-MM-DD format",
+  "confirmationNumber": "Order confirmation number",
+  "customerPhone": "Customer phone number",
+  "customerEmail": "Customer email address",
+  "confidence": {
+    "customerName": "high|medium|low",
+    "customerAddress": "high|medium|low",
+    "accountNumber": "high|medium|low",
+    "planPackage": "high|medium|low",
+    "monthlyRate": "high|medium|low",
+    "installDate": "high|medium|low",
+    "confirmationNumber": "high|medium|low",
+    "customerPhone": "high|medium|low",
+    "customerEmail": "high|medium|low"
+  }
+}
+
+Rules:
+- If a field is not visible or cannot be determined, set it to null
+- Set confidence to "low" for guessed values, "medium" for partially visible, "high" for clearly readable
+- Parse dates into YYYY-MM-DD format when possible
+- For address, try to break it into components (houseNumber, streetName, aptUnit, city, zipCode)
+- Return ONLY the JSON object, no other text`;
+
+      interface ExtractionResult {
+        customerName?: string | null;
+        customerPhone?: string | null;
+        customerEmail?: string | null;
+        customerAddress?: string | null;
+        houseNumber?: string | null;
+        streetName?: string | null;
+        aptUnit?: string | null;
+        city?: string | null;
+        zipCode?: string | null;
+        accountNumber?: string | null;
+        confirmationNumber?: string | null;
+        planPackage?: string | null;
+        monthlyRate?: string | null;
+        installDate?: string | null;
+        confidence?: Record<string, string>;
+      }
+
+      let extractedData: ExtractionResult | null = null;
+      let extractionError: string | null = null;
+
+      try {
+        const response = await anthropic.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1024,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: mediaType, data: base64Image } },
+              { type: "text", text: extractionPrompt },
+            ],
+          }],
+        });
+
+        const textContent = response.content.find((c) => c.type === "text");
+        if (textContent && textContent.type === "text") {
+          const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            extractedData = JSON.parse(jsonMatch[0]) as ExtractionResult;
+          } else {
+            extractionError = "Could not parse AI response as JSON";
+          }
+        } else {
+          extractionError = "No text response from AI";
+        }
+      } catch (aiError: unknown) {
+        console.error("AI extraction error:", aiError);
+        const errMsg = aiError instanceof Error ? aiError.message : "";
+        const errCode = (aiError as { code?: string })?.code;
+        if (errMsg.includes("timeout") || errCode === "ETIMEDOUT") {
+          extractionError = "AI processing timed out. Please try again or enter details manually.";
+        } else {
+          extractionError = "Failed to process image. The image may be blurry or not an order confirmation screen.";
+        }
+      }
+
+      if (extractionError || !extractedData) {
+        await storage.createAuditLog({
+          userId: user.id,
+          action: "screenshot_capture_failed",
+          tableName: "sales_orders",
+          recordId: null,
+          afterJson: JSON.stringify({ error: extractionError, imageObjectPath }),
+        });
+        return res.status(422).json({ message: extractionError || "Failed to extract data from image", imageObjectPath });
+      }
+
+      let serviceId: string | null = null;
+      if (extractedData.planPackage) {
+        const allServices = await storage.getServices();
+        const planName = (extractedData.planPackage as string).toLowerCase();
+        const matchedService = allServices.find((s) => 
+          s.name.toLowerCase().includes(planName) || planName.includes(s.name.toLowerCase())
+        );
+        if (matchedService) {
+          serviceId = matchedService.id;
+        }
+      }
+
+      let providerId: string | null = null;
+      const allProviders = await storage.getProviders();
+      const astoundProvider = allProviders.find((p) => 
+        p.name.toLowerCase().includes("astound") || p.name.toLowerCase().includes("rcn") || p.name.toLowerCase().includes("grande")
+      );
+      if (astoundProvider) {
+        providerId = astoundProvider.id;
+      }
+
+      let installDate: string | null = null;
+      if (extractedData.installDate) {
+        const dateMatch = extractedData.installDate.match(/^\d{4}-\d{2}-\d{2}$/);
+        if (dateMatch) {
+          installDate = extractedData.installDate;
+        } else {
+          try {
+            const parsed = new Date(extractedData.installDate);
+            if (!isNaN(parsed.getTime())) {
+              installDate = parsed.toISOString().split("T")[0];
+            }
+          } catch {}
+        }
+      }
+
+      const missingRequired: string[] = [];
+      if (!extractedData.customerName) missingRequired.push("customerName");
+      if (!extractedData.customerAddress && !extractedData.houseNumber) missingRequired.push("address");
+      if (!extractedData.accountNumber && !extractedData.confirmationNumber) missingRequired.push("accountNumber");
+      if (!extractedData.planPackage) missingRequired.push("planPackage");
+      if (!installDate) missingRequired.push("installDate");
+      if (!extractedData.customerPhone) missingRequired.push("customerPhone");
+      if (!extractedData.monthlyRate) missingRequired.push("monthlyRate");
+
+      const orderData: Record<string, string | number | null> = {
+        customerName: extractedData.customerName || null,
+        customerAddress: extractedData.customerAddress || null,
+        houseNumber: extractedData.houseNumber || null,
+        streetName: extractedData.streetName || null,
+        aptUnit: extractedData.aptUnit || null,
+        city: extractedData.city || null,
+        zipCode: extractedData.zipCode || null,
+        accountNumber: extractedData.accountNumber || extractedData.confirmationNumber || null,
+        confirmationNumber: extractedData.confirmationNumber || null,
+        customerPhone: extractedData.customerPhone || null,
+        customerEmail: extractedData.customerEmail || null,
+        installDate,
+        serviceId,
+        providerId,
+        planPackage: extractedData.planPackage || null,
+        monthlyRate: extractedData.monthlyRate || null,
+      };
+
+      const confidence = extractedData.confidence || {};
+      const extractedFields: string[] = [];
+      for (const [key, value] of Object.entries(orderData)) {
+        if (value !== null) {
+          extractedFields.push(key);
+        }
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "screenshot_capture_success",
+        tableName: "sales_orders",
+        recordId: null,
+        afterJson: JSON.stringify({ 
+          extractedFields, 
+          missingRequired,
+          imageObjectPath,
+          fieldCount: extractedFields.length,
+        }),
+      });
+
+      res.json({
+        orderData,
+        rawExtraction: extractedData,
+        confidence,
+        imageObjectPath,
+        missingRequired,
+        extractedFields,
+        warning: missingRequired.length > 2 
+          ? "Multiple required fields could not be extracted. Please review and complete manually." 
+          : null,
+      });
+    } catch (error) {
+      console.error("Capture endpoint error:", error);
+      res.status(500).json({ message: "Failed to process screenshot capture" });
+    }
+  });
+
+  app.get("/api/orders/:id/capture-image", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const allowedRoles = ["OPERATIONS", "ACCOUNTING", "ADMIN", "EXECUTIVE"];
+      if (!allowedRoles.includes(user.role)) {
+        return res.status(403).json({ message: "Not authorized to view capture images" });
+      }
+
+      const order = await storage.getOrderById(req.params.id);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      if (!order.captureImageUrl) {
+        return res.status(404).json({ message: "No capture image for this order" });
+      }
+
+      const { ObjectStorageService, ObjectNotFoundError } = await import("./replit_integrations/object_storage/objectStorage");
+      const objectStorageService = new ObjectStorageService();
+      const objectFile = await objectStorageService.getObjectEntityFile(order.captureImageUrl);
+      await objectStorageService.downloadObject(objectFile, res);
+    } catch (error: unknown) {
+      console.error("Capture image access error:", error);
+      if (error instanceof Error && error.name === "ObjectNotFoundError") {
+        return res.status(404).json({ message: "Capture image not found" });
+      }
+      res.status(500).json({ message: "Failed to retrieve capture image" });
+    }
+  });
+
   app.post("/api/orders", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
@@ -2379,7 +2666,8 @@ export async function registerRoutes(
       // Base order data (non-mobile fields)
       const baseFields = ["clientId", "providerId", "serviceId", "dateSold", "customerName",
         "customerPhone", "customerEmail", "customerAddress", "houseNumber", "streetName", "aptUnit", "city", "zipCode",
-        "accountNumber", "installDate", "tvInstallDate", "mobileInstallDate", "notes"];
+        "accountNumber", "installDate", "tvInstallDate", "mobileInstallDate", "notes",
+        "captureMethod", "captureImageUrl", "captureRawJson"];
       
       const baseOrderData: Record<string, any> = {};
       for (const field of baseFields) {
