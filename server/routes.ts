@@ -16619,13 +16619,17 @@ export async function registerRoutes(
     newCommission: string;
   }
 
+  type TxDb = typeof db;
+
   async function correctSingleMismatch(
     orderId: string,
     carrierSpeed: string,
     userId: string,
     allServices: Awaited<ReturnType<typeof storage.getServices>>,
     speedTierMap: Record<string, string>,
+    txDb?: TxDb,
   ): Promise<CorrectionResult> {
+    const d = txDb ?? db;
     const serviceByCode = new Map(allServices.map(s => [s.code, s]));
     const order = await storage.getOrderById(orderId);
     if (!order) throw new Error("Order not found");
@@ -16641,8 +16645,8 @@ export async function registerRoutes(
     const beforeJson = JSON.stringify(order);
     const correctedOrder: SalesOrder = { ...order, serviceId: newService.id };
 
-    await storage.deleteCommissionLineItemsByOrderId(orderId);
-    await storage.updateOrder(orderId, { serviceId: newService.id });
+    await storage.deleteCommissionLineItemsByOrderId(orderId, d);
+    await storage.updateOrder(orderId, { serviceId: newService.id }, d);
 
     const rateCard = await storage.findMatchingRateCard(correctedOrder, order.dateSold);
     let baseCommission = "0";
@@ -16651,7 +16655,7 @@ export async function registerRoutes(
 
     if (rateCard) {
       const lineItems = await storage.calculateCommissionLineItemsAsync(rateCard, correctedOrder);
-      await storage.createCommissionLineItems(orderId, lineItems);
+      await storage.createCommissionLineItems(orderId, lineItems, d);
       const grossCommission = lineItems.reduce((sum, item) => sum + parseFloat(item.totalAmount || "0"), 0);
       appliedRateCardId = rateCard.id;
 
@@ -16674,7 +16678,7 @@ export async function registerRoutes(
       appliedRateCardId,
       calcAt: new Date(),
       overrideDeduction: totalDeductions.toFixed(2),
-    });
+    }, d);
 
     const arExpectation = await storage.getArExpectationByOrderId(orderId);
     if (arExpectation) {
@@ -16683,14 +16687,14 @@ export async function registerRoutes(
       const newOverride = parseFloat(finalOrder.overrideDeduction || "0");
       const newExpectedCents = Math.round((newBase + newIncentive + newOverride) * 100);
       const newVarianceCents = arExpectation.actualAmountCents - newExpectedCents;
-      await storage.updateArExpectation(arExpectation.id, { expectedAmountCents: newExpectedCents, varianceAmountCents: newVarianceCents, hasVariance: newVarianceCents !== 0 });
+      await storage.updateArExpectation(arExpectation.id, { expectedAmountCents: newExpectedCents, varianceAmountCents: newVarianceCents, hasVariance: newVarianceCents !== 0 }, d);
     }
 
     const existingOverrides = await storage.getOverrideEarningsByOrder(orderId);
     if (existingOverrides.length > 0 && totalDeductions > 0) {
       const perOverrideAmount = totalDeductions.toFixed(2);
       for (const oe of existingOverrides) {
-        await db.update(overrideEarnings)
+        await d.update(overrideEarnings)
           .set({ amount: perOverrideAmount })
           .where(eq(overrideEarnings.id, oe.id));
       }
@@ -16703,7 +16707,7 @@ export async function registerRoutes(
       beforeJson,
       afterJson: JSON.stringify(finalOrder),
       userId,
-    });
+    }, d);
 
     return {
       orderId,
@@ -16728,7 +16732,9 @@ export async function registerRoutes(
 
       const allServices = await storage.getServices();
       const speedTierMap = await buildSpeedTierMap();
-      const result = await correctSingleMismatch(orderId, carrierSpeed, user.id, allServices, speedTierMap);
+      const result = await db.transaction(async (tx) => {
+        return correctSingleMismatch(orderId, carrierSpeed, user.id, allServices, speedTierMap, tx);
+      });
 
       res.json(result);
     } catch (error: unknown) {
@@ -16753,11 +16759,11 @@ export async function registerRoutes(
       const allServices = await storage.getServices();
       const speedTierMap = await buildSpeedTierMap();
 
-      const results = await db.transaction(async () => {
-        const txResults: Array<CorrectionResult & { success: boolean; error?: string }> = [];
+      const results = await db.transaction(async (tx) => {
+        const txResults: CorrectionResult[] = [];
         for (const { orderId, carrierSpeed } of corrections) {
-          const corrResult = await correctSingleMismatch(orderId, carrierSpeed, user.id, allServices, speedTierMap);
-          txResults.push({ ...corrResult, success: true });
+          const corrResult = await correctSingleMismatch(orderId, carrierSpeed, user.id, allServices, speedTierMap, tx);
+          txResults.push(corrResult);
         }
         return txResults;
       });

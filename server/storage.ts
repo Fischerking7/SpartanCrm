@@ -743,8 +743,9 @@ export const storage = {
     const [item] = await db.insert(commissionLineItems).values(data).returning();
     return item;
   },
-  async deleteCommissionLineItemsByOrderId(orderId: string) {
-    await db.delete(commissionLineItems).where(eq(commissionLineItems.salesOrderId, orderId));
+  async deleteCommissionLineItemsByOrderId(orderId: string, txDb?: TxDb) {
+    const d = txDb ?? db;
+    await d.delete(commissionLineItems).where(eq(commissionLineItems.salesOrderId, orderId));
   },
   async getMobileCommissionTotalsByOrderIds(orderIds: string[]): Promise<Map<string, string>> {
     if (orderIds.length === 0) return new Map();
@@ -4353,8 +4354,9 @@ export const storage = {
     });
   },
 
-  async updateArExpectation(id: string, data: Partial<ArExpectation>) {
-    const [result] = await db.update(arExpectations)
+  async updateArExpectation(id: string, data: Partial<ArExpectation>, txDb?: TxDb) {
+    const d = txDb ?? db;
+    const [result] = await d.update(arExpectations)
       .set({ ...data, updatedAt: new Date() })
       .where(eq(arExpectations.id, id))
       .returning();

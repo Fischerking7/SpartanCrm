@@ -632,7 +632,8 @@ export async function matchInstallationsToOrders(
         const statusChanged = prev.woStatus && prev.woStatus !== currentStatus;
         const hashChanged = prev.rowHash && prev.rowHash !== currentHash;
 
-        if (statusChanged || hashChanged) {
+        const missingPriorData = !prev.woStatus && !prev.rowHash;
+        if (statusChanged || hashChanged || missingPriorData) {
           rowClassifications.changed++;
           changedWoEntries.push({ row, prevEntry: prev });
           matchableRows.push(row);
