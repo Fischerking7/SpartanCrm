@@ -194,18 +194,21 @@ export async function cancelOrderCascade(
         .delete(overrideEarnings)
         .where(eq(overrideEarnings.salesOrderId, orderId));
 
-      await db.insert(auditLogs).values({
-        action: "cancellation_cascade_overrides_reversed",
-        tableName: "override_earnings",
-        recordId: orderId,
-        afterJson: JSON.stringify({
-          reversedCount: earnings.length,
-          reversedAmountCents: item.overridesReversedAmountCents,
-          earningIds: earnings.map((e) => e.id),
-          syncRunId,
-        }),
-        userId: actingUserId,
-      });
+      for (const earning of earnings) {
+        await db.insert(auditLogs).values({
+          action: "cancellation_cascade_override_reversed",
+          tableName: "override_earnings",
+          recordId: earning.id,
+          afterJson: JSON.stringify({
+            salesOrderId: orderId,
+            overrideType: earning.overrideType,
+            recipientUserId: earning.userId,
+            amountCents: Math.round(parseFloat(earning.amount) * 100),
+            syncRunId,
+          }),
+          userId: actingUserId,
+        });
+      }
     }
   }
 

@@ -15649,6 +15649,10 @@ export async function registerRoutes(
           }
         } catch (cascadeErr: any) {
           console.error(`[Install Sync] Manual link cancellation cascade error:`, cascadeErr.message);
+          delete updates.jobStatus;
+          delete updates.approvalStatus;
+          delete updates.approvedByUserId;
+          delete updates.approvedAt;
         }
       }
 
@@ -16310,6 +16314,11 @@ export async function registerRoutes(
                 }
               } catch (cascadeErr: any) {
                 console.error(`[InstallSync] Cancellation cascade error for order ${match.orderId}:`, cascadeErr.message);
+                skipCancelForReview = true;
+                delete updates.jobStatus;
+                delete updates.approvalStatus;
+                delete updates.approvedByUserId;
+                delete updates.approvedAt;
               }
             }
 
