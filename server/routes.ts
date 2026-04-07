@@ -15680,9 +15680,12 @@ export async function registerRoutes(
                 reasoning: "Manual link by admin",
                 manualLink: true,
               });
-              details.unmatched = details.unmatched.filter((u: any) =>
-                JSON.stringify(u.data) !== JSON.stringify(carrierRowData)
+              const linkedRowIndex = details.unmatched.findIndex((u: any) =>
+                u.rowIndex !== undefined && u.data && JSON.stringify(u.data) === JSON.stringify(carrierRowData)
               );
+              if (linkedRowIndex >= 0) {
+                details.unmatched.splice(linkedRowIndex, 1);
+              }
               updateData.matchDetails = JSON.stringify(details);
             }
           } catch { /* ignore parse errors */ }
@@ -15756,8 +15759,8 @@ export async function registerRoutes(
       const allClients = await storage.getClients();
       const allServices = await storage.getServices();
 
-      let providerId = allProviders[0]?.id;
-      let clientId = allClients[0]?.id;
+      let providerId: string | undefined;
+      let clientId: string | undefined;
       if (carrierCtxLocal?.profile) {
         const profileName = carrierCtxLocal.profile.name.toUpperCase();
         const matchProvider = allProviders.find(p => p.name.toUpperCase().includes(profileName) || profileName.includes(p.name.toUpperCase()));
@@ -15765,8 +15768,13 @@ export async function registerRoutes(
         const matchClient = allClients.find(c => c.name.toUpperCase().includes(profileName) || profileName.includes(c.name.toUpperCase()));
         if (matchClient) clientId = matchClient.id;
       }
-      if (!clientId && allClients.length === 1) {
-        clientId = allClients[0].id;
+      if (!providerId && allProviders.length === 1) providerId = allProviders[0].id;
+      if (!clientId && allClients.length === 1) clientId = allClients[0].id;
+      if (!providerId) {
+        return res.status(400).json({ message: "Could not determine provider from carrier data. Multiple providers exist and none match the carrier profile." });
+      }
+      if (!clientId) {
+        return res.status(400).json({ message: "Could not determine client from carrier data. Multiple clients exist and none match the carrier profile." });
       }
 
       let serviceId = allServices[0]?.id;

@@ -679,7 +679,7 @@ export default function InstallSync() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {result.unmatched.slice(0, 30).map((item, i) => (
+                      {result.unmatched.map((item, i) => (
                         <TableRow key={i}>
                           {bulkMode && (
                             <TableCell>
