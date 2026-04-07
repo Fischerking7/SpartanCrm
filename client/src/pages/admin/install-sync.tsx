@@ -65,6 +65,29 @@ interface ScoreBreakdown {
   confidenceTier: "definitive" | "high" | "medium" | "low";
 }
 
+interface CancellationImpactItem {
+  orderId: string;
+  orderInvoice: string;
+  customerName: string;
+  overridesReversed: number;
+  overridesReversedAmountCents: number;
+  arExpectationsVoided: number;
+  reserveReversedCents: number;
+  flaggedForReview: boolean;
+  flagReason?: string;
+  payRunId?: string;
+}
+
+interface CancellationImpact {
+  ordersCanceled: number;
+  overridesReversedCount: number;
+  overridesReversedAmountCents: number;
+  arExpectationsVoided: number;
+  reserveAdjustedCents: number;
+  flaggedForReviewCount: number;
+  items: CancellationImpactItem[];
+}
+
 interface SyncResult {
   syncRunId: string;
   carrierProfileId?: string;
@@ -101,6 +124,8 @@ interface SyncResult {
     matchedOrderId: string;
   }>;
   carrierInsights?: CarrierInsights;
+  cancellationImpact?: CancellationImpact;
+  isDryRun?: boolean;
 }
 
 interface SyncRun {
@@ -148,6 +173,7 @@ export default function InstallSync() {
     installDate: string; scheduleDate: string;
   }>({ customerName: "", address: "", city: "", repName: "", acctNbr: "", woStatus: "", internetSpeed: "", installDate: "", scheduleDate: "" });
 
+  const [dryRunMode, setDryRunMode] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedUnmatched, setSelectedUnmatched] = useState<Set<number>>(new Set());
   const [bulkLinkDialogOpen, setBulkLinkDialogOpen] = useState(false);
@@ -169,6 +195,7 @@ export default function InstallSync() {
       }
       if (emailTo) formData.append("emailTo", emailTo);
       formData.append("autoApprove", String(autoApprove));
+      if (dryRunMode) formData.append("dryRun", "true");
 
       const response = await fetch("/api/admin/install-sync/run", {
         method: "POST",
@@ -436,6 +463,21 @@ export default function InstallSync() {
                 </span>
               </div>
             </div>
+            <div className="space-y-2">
+              <Label>Dry Run Mode</Label>
+              <div className="flex items-center gap-2 pt-1">
+                <Switch
+                  checked={dryRunMode}
+                  onCheckedChange={setDryRunMode}
+                  data-testid="switch-dry-run"
+                />
+                <span className="text-sm text-muted-foreground">
+                  {dryRunMode
+                    ? "Preview only — no changes will be written"
+                    : "Changes will be applied normally"}
+                </span>
+              </div>
+            </div>
           </div>
 
           <div className="pt-2">
@@ -516,6 +558,15 @@ export default function InstallSync() {
                 const cancelCount = ci2?.carrierStats?.canceledCount || 0;
                 if (cancelCount > 0)
                   lines.push({ icon: XCircle, color: "text-red-500", text: `${cancelCount} carrier cancellation${cancelCount !== 1 ? "s" : ""} in this batch (${ci2?.carrierStats?.cancelRate || 0}% cancel rate)` });
+                if (result.cancellationImpact && result.cancellationImpact.ordersCanceled > 0) {
+                  const ci3 = result.cancellationImpact;
+                  const parts: string[] = [];
+                  if (ci3.overridesReversedCount > 0) parts.push(`${ci3.overridesReversedCount} overrides reversed`);
+                  if (ci3.arExpectationsVoided > 0) parts.push(`${ci3.arExpectationsVoided} AR voided`);
+                  if (ci3.reserveAdjustedCents > 0) parts.push(`$${(ci3.reserveAdjustedCents / 100).toFixed(2)} reserve adjusted`);
+                  if (ci3.flaggedForReviewCount > 0) parts.push(`${ci3.flaggedForReviewCount} flagged for review`);
+                  lines.push({ icon: AlertTriangle, color: "text-orange-600", text: `${ci3.ordersCanceled} cancellation${ci3.ordersCanceled !== 1 ? "s" : ""} with downstream reversals${parts.length > 0 ? ` (${parts.join(", ")})` : ""}${result.isDryRun ? " [DRY RUN]" : ""}` });
+                }
                 if (result.unmatchedCount > 0 && !ci2?.missingOrders?.length)
                   lines.push({ icon: AlertTriangle, color: "text-amber-500", text: `${result.unmatchedCount} sheet row${result.unmatchedCount !== 1 ? "s" : ""} could not be matched to any CRM order` });
 
@@ -987,7 +1038,100 @@ export default function InstallSync() {
                 </div>
               )}
 
-              {ci.autoFilled.length === 0 && ci.mismatches.length === 0 && ci.missingOrders.length === 0 && (
+              {result?.cancellationImpact && result.cancellationImpact.ordersCanceled > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-red-600" />
+                    Cancellation Impact ({result.cancellationImpact.ordersCanceled} order{result.cancellationImpact.ordersCanceled !== 1 ? "s" : ""})
+                    {result.isDryRun && <Badge variant="secondary" className="text-xs">DRY RUN</Badge>}
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                    <div className="text-center p-2 rounded-lg border bg-red-50 dark:bg-red-950/30" data-testid="stat-overrides-reversed">
+                      <div className="text-lg font-bold text-red-700 dark:text-red-400">{result.cancellationImpact.overridesReversedCount}</div>
+                      <div className="text-xs text-red-600 dark:text-red-500">Overrides Reversed</div>
+                      {result.cancellationImpact.overridesReversedAmountCents > 0 && (
+                        <div className="text-xs text-muted-foreground">${(result.cancellationImpact.overridesReversedAmountCents / 100).toFixed(2)}</div>
+                      )}
+                    </div>
+                    <div className="text-center p-2 rounded-lg border bg-amber-50 dark:bg-amber-950/30" data-testid="stat-ar-voided">
+                      <div className="text-lg font-bold text-amber-700 dark:text-amber-400">{result.cancellationImpact.arExpectationsVoided}</div>
+                      <div className="text-xs text-amber-600 dark:text-amber-500">AR Voided</div>
+                    </div>
+                    <div className="text-center p-2 rounded-lg border bg-blue-50 dark:bg-blue-950/30" data-testid="stat-reserve-adjusted">
+                      <div className="text-lg font-bold text-blue-700 dark:text-blue-400">${(result.cancellationImpact.reserveAdjustedCents / 100).toFixed(2)}</div>
+                      <div className="text-xs text-blue-600 dark:text-blue-500">Reserve Adjusted</div>
+                    </div>
+                    <div className="text-center p-2 rounded-lg border bg-orange-50 dark:bg-orange-950/30" data-testid="stat-flagged-review">
+                      <div className="text-lg font-bold text-orange-700 dark:text-orange-400">{result.cancellationImpact.flaggedForReviewCount}</div>
+                      <div className="text-xs text-orange-600 dark:text-orange-500">Needs Review</div>
+                    </div>
+                  </div>
+                  {result.cancellationImpact.items.length > 0 && (
+                    <div className="overflow-x-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Invoice</TableHead>
+                            <TableHead>Customer</TableHead>
+                            <TableHead>Overrides</TableHead>
+                            <TableHead>AR</TableHead>
+                            <TableHead>Reserve</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {result.cancellationImpact.items.map((item, i) => (
+                            <TableRow key={i} className={item.flaggedForReview ? "bg-orange-50/50 dark:bg-orange-950/20" : ""}>
+                              <TableCell className="font-mono text-xs">{item.orderInvoice || item.orderId.slice(0, 8)}</TableCell>
+                              <TableCell className="text-sm">{item.customerName}</TableCell>
+                              <TableCell className="text-xs">
+                                {item.overridesReversed > 0 ? (
+                                  <span className="text-red-600">{item.overridesReversed} (${(item.overridesReversedAmountCents / 100).toFixed(2)})</span>
+                                ) : "-"}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {item.arExpectationsVoided > 0 ? (
+                                  <span className="text-amber-600">{item.arExpectationsVoided} voided</span>
+                                ) : "-"}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {item.reserveReversedCents > 0 ? (
+                                  <span className="text-blue-600">${(item.reserveReversedCents / 100).toFixed(2)}</span>
+                                ) : "-"}
+                              </TableCell>
+                              <TableCell>
+                                {item.flaggedForReview ? (
+                                  <Badge variant="destructive" className="text-xs" data-testid={`badge-flagged-${i}`}>
+                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                    Manual Review
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary" className="text-xs">Reversed</Badge>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                  {result.cancellationImpact.items.some(it => it.flaggedForReview) && (
+                    <div className="mt-2 rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30 p-3">
+                      <div className="flex items-start gap-2 text-sm text-orange-700 dark:text-orange-400">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <div>
+                          <div className="font-medium">Orders flagged for manual review</div>
+                          {result.cancellationImpact.items.filter(it => it.flaggedForReview).map((it, i) => (
+                            <div key={i} className="text-xs mt-1">{it.flagReason}</div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {ci.autoFilled.length === 0 && ci.mismatches.length === 0 && ci.missingOrders.length === 0 && !result?.cancellationImpact && (
                 <p className="text-sm text-muted-foreground text-center py-2">
                   No auto-fills, mismatches, or missing orders detected.
                 </p>

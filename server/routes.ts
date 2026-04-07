@@ -15636,6 +15636,16 @@ export async function registerRoutes(
         }
       }
 
+      let manualLinkCancellationImpact;
+      if (woStatus === "CN" && order.approvalStatus === "APPROVED") {
+        try {
+          const { cancelOrderCascade } = await import("./cancellation-cascade");
+          manualLinkCancellationImpact = await cancelOrderCascade(orderId, syncRunId, user.id);
+        } catch (cascadeErr: any) {
+          console.error(`[Install Sync] Manual link cancellation cascade error:`, cascadeErr.message);
+        }
+      }
+
       if (Object.keys(updates).length > 0) {
         await storage.updateOrder(orderId, updates);
       }
@@ -15698,6 +15708,7 @@ export async function registerRoutes(
         orderId,
         autoFilledFields,
         updatedOrder,
+        cancellationImpact: manualLinkCancellationImpact || undefined,
       });
     } catch (error: any) {
       console.error("[Install Sync] Manual link error:", error.message);
@@ -15905,8 +15916,12 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Only ADMIN or OPERATIONS can run install sync" });
       }
 
-      const { sheetUrl, emailTo, autoApprove } = req.body;
+      const { sheetUrl, emailTo, autoApprove, dryRun } = req.body;
       const shouldAutoApprove = autoApprove === "true" || autoApprove === true;
+      const isDryRun = dryRun === "true" || dryRun === true;
+
+      const { emptyCancellationImpact } = await import("./cancellation-cascade");
+      const cancellationImpact = emptyCancellationImpact();
 
       const syncRun = await storage.createInstallSyncRun({
         sheetUrl: sheetUrl || null,
@@ -16260,6 +16275,24 @@ export async function registerRoutes(
 
             if (Object.keys(updates).length === 0) continue;
 
+            if (woStatus === "CN" && order.approvalStatus === "APPROVED") {
+              try {
+                const { cancelOrderCascade } = await import("./cancellation-cascade");
+                const cascadeItem = await cancelOrderCascade(match.orderId, syncRun.id, user.id, isDryRun);
+                cancellationImpact.items.push(cascadeItem);
+                cancellationImpact.ordersCanceled++;
+                cancellationImpact.overridesReversedCount += cascadeItem.overridesReversed;
+                cancellationImpact.overridesReversedAmountCents += cascadeItem.overridesReversedAmountCents;
+                cancellationImpact.arExpectationsVoided += cascadeItem.arExpectationsVoided;
+                cancellationImpact.reserveAdjustedCents += cascadeItem.reserveReversedCents;
+                if (cascadeItem.flaggedForReview) cancellationImpact.flaggedForReviewCount++;
+              } catch (cascadeErr: any) {
+                console.error(`[InstallSync] Cancellation cascade error for order ${match.orderId}:`, cascadeErr.message);
+              }
+            }
+
+            if (isDryRun) continue;
+
             const updatedOrder = await storage.updateOrder(match.orderId, updates);
 
             if (updatedOrder && updates.approvalStatus === "APPROVED") {
@@ -16281,12 +16314,14 @@ export async function registerRoutes(
           }
         }
 
-        for (const woRec of pendingWoRecords) {
-          await storage.createProcessedWorkOrder(woRec);
+        if (!isDryRun) {
+          for (const woRec of pendingWoRecords) {
+            await storage.createProcessedWorkOrder(woRec);
+          }
         }
 
         let emailSent = false;
-        if (emailTo && approvedOrders.length > 0) {
+        if (!isDryRun && emailTo && approvedOrders.length > 0) {
           const allServices = await storage.getServices();
           const serviceMap = new Map(allServices.map(s => [s.id, s.name]));
           const allClients = await storage.getClients();
@@ -16448,6 +16483,8 @@ export async function registerRoutes(
           unmatched: matchResult.unmatched,
           dedupSkipped: matchResult.dedupSkipped,
           carrierInsights,
+          cancellationImpact: cancellationImpact.ordersCanceled > 0 ? cancellationImpact : undefined,
+          isDryRun,
         });
       } catch (innerError: any) {
         await storage.updateInstallSyncRun(syncRun.id, {
