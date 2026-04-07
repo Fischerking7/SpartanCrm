@@ -15641,6 +15641,12 @@ export async function registerRoutes(
         try {
           const { cancelOrderCascade } = await import("./cancellation-cascade");
           manualLinkCancellationImpact = await cancelOrderCascade(orderId, syncRunId, user.id);
+          if (manualLinkCancellationImpact.flaggedForReview) {
+            delete updates.jobStatus;
+            delete updates.approvalStatus;
+            delete updates.approvedByUserId;
+            delete updates.approvedAt;
+          }
         } catch (cascadeErr: any) {
           console.error(`[Install Sync] Manual link cancellation cascade error:`, cascadeErr.message);
         }
@@ -16275,6 +16281,7 @@ export async function registerRoutes(
 
             if (Object.keys(updates).length === 0) continue;
 
+            let skipCancelForReview = false;
             if (woStatus === "CN" && order.approvalStatus === "APPROVED") {
               try {
                 const { cancelOrderCascade } = await import("./cancellation-cascade");
@@ -16285,13 +16292,21 @@ export async function registerRoutes(
                 cancellationImpact.overridesReversedAmountCents += cascadeItem.overridesReversedAmountCents;
                 cancellationImpact.arExpectationsVoided += cascadeItem.arExpectationsVoided;
                 cancellationImpact.reserveAdjustedCents += cascadeItem.reserveReversedCents;
-                if (cascadeItem.flaggedForReview) cancellationImpact.flaggedForReviewCount++;
+                if (cascadeItem.flaggedForReview) {
+                  cancellationImpact.flaggedForReviewCount++;
+                  skipCancelForReview = true;
+                  delete updates.jobStatus;
+                  delete updates.approvalStatus;
+                  delete updates.approvedByUserId;
+                  delete updates.approvedAt;
+                }
               } catch (cascadeErr: any) {
                 console.error(`[InstallSync] Cancellation cascade error for order ${match.orderId}:`, cascadeErr.message);
               }
             }
 
             if (isDryRun) continue;
+            if (skipCancelForReview && Object.keys(updates).length === 0) continue;
 
             const updatedOrder = await storage.updateOrder(match.orderId, updates);
 
