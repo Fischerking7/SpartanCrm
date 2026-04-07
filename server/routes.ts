@@ -15620,7 +15620,7 @@ export async function registerRoutes(
         tableName: "sales_orders",
         recordId: orderId,
         beforeJson,
-        afterJson: JSON.stringify(updatedOrder),
+        afterJson: JSON.stringify({ ...updatedOrder, _syncRunId: syncRunId, _manualLink: true }),
         userId: user.id,
       });
 
@@ -15795,7 +15795,7 @@ export async function registerRoutes(
         tableName: "sales_orders",
         recordId: newOrder.id,
         beforeJson: null,
-        afterJson: JSON.stringify(newOrder),
+        afterJson: JSON.stringify({ ...newOrder, _syncRunId: syncRunId, _manualCreate: true }),
         userId: user.id,
       });
 
@@ -15813,6 +15813,7 @@ export async function registerRoutes(
       if (syncRun) {
         const updateData: Record<string, any> = {
           matchedCount: (syncRun.matchedCount || 0) + 1,
+          unmatchedCount: Math.max(0, (syncRun.unmatchedCount || 0) - 1),
         };
         if (syncRun.matchDetails) {
           try {

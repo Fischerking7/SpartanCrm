@@ -1249,10 +1249,19 @@ export default function InstallSync() {
                   onClick={() => {
                     if (createRow.rawData) {
                       const mergedData = { ...createRow.rawData };
-                      if (createFormData.customerName !== createRow.customerName) {
-                        const nameKeys = Object.keys(mergedData).filter(k => k.toLowerCase().includes("customer") || k.toLowerCase().includes("name"));
-                        if (nameKeys.length > 0) mergedData[nameKeys[0]] = createFormData.customerName;
-                      }
+                      const applyOverride = (formVal: string, origVal: string, keyPatterns: string[]) => {
+                        if (formVal !== origVal) {
+                          const key = Object.keys(mergedData).find(k => keyPatterns.some(p => k.toLowerCase().includes(p)));
+                          if (key) mergedData[key] = formVal;
+                        }
+                      };
+                      applyOverride(createFormData.customerName, createRow.customerName || "", ["customer", "name"]);
+                      applyOverride(createFormData.address, createRow.address || "", ["address", "addr"]);
+                      applyOverride(createFormData.city, createRow.city || "", ["city"]);
+                      applyOverride(createFormData.repName, createRow.repName || "", ["salesman", "rep", "technician"]);
+                      applyOverride(createFormData.acctNbr, createRow.acctNbr || "", ["account", "acct"]);
+                      applyOverride(createFormData.internetSpeed, createRow.internetSpeed || "", ["speed", "internet", "mdm"]);
+                      applyOverride(createFormData.woStatus, createRow.woStatus || "", ["status"]);
                       createOrderMutation.mutate(mergedData);
                     }
                   }}
