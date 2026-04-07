@@ -560,7 +560,7 @@ export default function InstallSync() {
                 const cancelCount = ci2?.carrierStats?.canceledCount || 0;
                 if (cancelCount > 0)
                   lines.push({ icon: XCircle, color: "text-red-500", text: `${cancelCount} carrier cancellation${cancelCount !== 1 ? "s" : ""} in this batch (${ci2?.carrierStats?.cancelRate || 0}% cancel rate)` });
-                if (result.cancellationImpact && result.cancellationImpact.ordersCanceled > 0) {
+                if (result.cancellationImpact && (result.cancellationImpact.ordersCanceled > 0 || result.cancellationImpact.flaggedForReviewCount > 0)) {
                   const ci3 = result.cancellationImpact;
                   const parts: string[] = [];
                   if (ci3.overridesReversedCount > 0) parts.push(`${ci3.overridesReversedCount} overrides reversed`);
@@ -1040,11 +1040,11 @@ export default function InstallSync() {
                 </div>
               )}
 
-              {result?.cancellationImpact && result.cancellationImpact.ordersCanceled > 0 && (
+              {result?.cancellationImpact && (result.cancellationImpact.ordersCanceled > 0 || result.cancellationImpact.flaggedForReviewCount > 0) && (
                 <div>
                   <h4 className="font-medium mb-2 flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-red-600" />
-                    Cancellation Impact ({result.cancellationImpact.ordersCanceled} order{result.cancellationImpact.ordersCanceled !== 1 ? "s" : ""})
+                    Cancellation Impact ({result.cancellationImpact.ordersCanceled} canceled{result.cancellationImpact.flaggedForReviewCount > 0 ? `, ${result.cancellationImpact.flaggedForReviewCount} flagged for review` : ""})
                     {result.isDryRun && <Badge variant="secondary" className="text-xs">DRY RUN</Badge>}
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
