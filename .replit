@@ -59,3 +59,7 @@ QB_REDIRECT_URI = "https://spartansystems-ironcrestsoution-crm.replit.app/api/au
 SMTP_PORT = "587"
 SMTP_SECURE = "false"
 SMTP_HOST = "smtp.office365.com"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
