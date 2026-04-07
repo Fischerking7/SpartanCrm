@@ -15636,10 +15636,32 @@ export async function registerRoutes(
 
       const syncRun = await storage.getInstallSyncRunById(syncRunId);
       if (syncRun) {
-        await storage.updateInstallSyncRun(syncRunId, {
+        const updateData: Record<string, any> = {
           matchedCount: (syncRun.matchedCount || 0) + 1,
           unmatchedCount: Math.max(0, (syncRun.unmatchedCount || 0) - 1),
-        });
+        };
+        if (syncRun.matchDetails) {
+          try {
+            const details = JSON.parse(syncRun.matchDetails);
+            if (details.matches && details.unmatched) {
+              details.matches.push({
+                sheetRowIndex: -1,
+                sheetData: carrierRowData,
+                orderId,
+                orderInvoice: updatedOrder?.invoiceNumber || "",
+                orderCustomerName: updatedOrder?.customerName || "",
+                confidence: 100,
+                reasoning: "Manual link by admin",
+                manualLink: true,
+              });
+              details.unmatched = details.unmatched.filter((u: any) =>
+                JSON.stringify(u.data) !== JSON.stringify(carrierRowData)
+              );
+              updateData.matchDetails = JSON.stringify(details);
+            }
+          } catch { /* ignore parse errors */ }
+        }
+        await storage.updateInstallSyncRun(syncRunId, updateData);
       }
 
       res.json({
@@ -15694,7 +15716,7 @@ export async function registerRoutes(
 
       let repId: string | null = null;
       if (carrierCtxLocal && salesmanNumber) {
-        const mapping = carrierCtxLocal.repMappings.find(m => m.carrierSalesmanNumber === salesmanNumber);
+        const mapping = carrierCtxLocal.repMappings.get(salesmanNumber.toUpperCase());
         if (mapping) repId = mapping.repId;
       }
       if (!repId && repName) {
@@ -15789,9 +15811,33 @@ export async function registerRoutes(
 
       const syncRun = await storage.getInstallSyncRunById(syncRunId);
       if (syncRun) {
-        await storage.updateInstallSyncRun(syncRunId, {
+        const updateData: Record<string, any> = {
           matchedCount: (syncRun.matchedCount || 0) + 1,
-        });
+        };
+        if (syncRun.matchDetails) {
+          try {
+            const details = JSON.parse(syncRun.matchDetails);
+            if (details.matches) {
+              details.matches.push({
+                sheetRowIndex: -1,
+                sheetData: carrierRowData,
+                orderId: newOrder.id,
+                orderInvoice: newOrder.invoiceNumber || "",
+                orderCustomerName: newOrder.customerName || "",
+                confidence: 100,
+                reasoning: "Order created from carrier data",
+                manualCreate: true,
+              });
+              if (details.carrierInsights?.missingOrders) {
+                details.carrierInsights.missingOrders = details.carrierInsights.missingOrders.filter(
+                  (mo: any) => mo.acctNbr !== acctNbr || mo.customerName !== customerName
+                );
+              }
+              updateData.matchDetails = JSON.stringify(details);
+            }
+          } catch { /* ignore parse errors */ }
+        }
+        await storage.updateInstallSyncRun(syncRunId, updateData);
       }
 
       res.json({ order: newOrder });

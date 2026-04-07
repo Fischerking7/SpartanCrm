@@ -142,6 +142,10 @@ export default function InstallSync() {
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createRow, setCreateRow] = useState<CarrierInsights["missingOrders"][0] | null>(null);
+  const [createFormData, setCreateFormData] = useState<{
+    customerName: string; address: string; city: string; repName: string;
+    acctNbr: string; woStatus: string; internetSpeed: string;
+  }>({ customerName: "", address: "", city: "", repName: "", acctNbr: "", woStatus: "", internetSpeed: "" });
 
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedUnmatched, setSelectedUnmatched] = useState<Set<number>>(new Set());
@@ -935,7 +939,19 @@ export default function InstallSync() {
                                 variant="ghost"
                                 size="sm"
                                 className="text-xs h-7"
-                                onClick={() => { setCreateRow(mo); setCreateDialogOpen(true); }}
+                                onClick={() => {
+                                  setCreateRow(mo);
+                                  setCreateFormData({
+                                    customerName: mo.customerName || "",
+                                    address: mo.address || "",
+                                    city: mo.city || "",
+                                    repName: mo.repName || "",
+                                    acctNbr: mo.acctNbr || "",
+                                    woStatus: mo.woStatus || "",
+                                    internetSpeed: mo.internetSpeed || "",
+                                  });
+                                  setCreateDialogOpen(true);
+                                }}
                                 data-testid={`button-create-order-${i}`}
                               >
                                 <Plus className="h-3 w-3 mr-1" />
@@ -1153,19 +1169,77 @@ export default function InstallSync() {
           <DialogHeader>
             <DialogTitle>Create Order from Carrier Data</DialogTitle>
             <DialogDescription>
-              A new sales order will be created using the carrier row data. The system will auto-map the rep, service, and provider.
+              Review and adjust the pre-filled fields below, then create the order. The system will auto-map rep, service, and provider.
             </DialogDescription>
           </DialogHeader>
           {createRow && (
             <div className="space-y-3">
-              <div className="rounded-md border p-3 bg-muted/30 space-y-1">
-                <div className="text-sm"><span className="font-medium">Customer:</span> {createRow.customerName || "—"}</div>
-                <div className="text-sm"><span className="font-medium">Address:</span> {createRow.address || "—"}{createRow.city ? `, ${createRow.city}` : ""}</div>
-                <div className="text-sm"><span className="font-medium">Rep:</span> {createRow.repName || "—"}</div>
-                <div className="text-sm"><span className="font-medium">Account #:</span> {createRow.acctNbr || "—"}</div>
-                <div className="text-sm"><span className="font-medium">Status:</span> {createRow.woStatus || "—"}</div>
-                <div className="text-sm"><span className="font-medium">Speed:</span> {createRow.internetSpeed ? `${createRow.internetSpeed} Mbps` : "—"}</div>
-                <div className="text-sm"><span className="font-medium">WO Type:</span> {createRow.woType === "IN" ? "Install" : createRow.woType === "UP" ? "Upgrade" : createRow.woType || "—"}</div>
+              <div className="space-y-2">
+                <div>
+                  <Label className="text-xs">Customer Name</Label>
+                  <Input
+                    value={createFormData.customerName}
+                    onChange={(e) => setCreateFormData(prev => ({ ...prev, customerName: e.target.value }))}
+                    data-testid="input-create-customer-name"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Address</Label>
+                    <Input
+                      value={createFormData.address}
+                      onChange={(e) => setCreateFormData(prev => ({ ...prev, address: e.target.value }))}
+                      data-testid="input-create-address"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">City</Label>
+                    <Input
+                      value={createFormData.city}
+                      onChange={(e) => setCreateFormData(prev => ({ ...prev, city: e.target.value }))}
+                      data-testid="input-create-city"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Rep Name</Label>
+                    <Input
+                      value={createFormData.repName}
+                      onChange={(e) => setCreateFormData(prev => ({ ...prev, repName: e.target.value }))}
+                      data-testid="input-create-rep-name"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Account #</Label>
+                    <Input
+                      value={createFormData.acctNbr}
+                      onChange={(e) => setCreateFormData(prev => ({ ...prev, acctNbr: e.target.value }))}
+                      data-testid="input-create-account"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Speed (Mbps)</Label>
+                    <Input
+                      value={createFormData.internetSpeed}
+                      onChange={(e) => setCreateFormData(prev => ({ ...prev, internetSpeed: e.target.value }))}
+                      data-testid="input-create-speed"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">WO Status</Label>
+                    <Input
+                      value={createFormData.woStatus}
+                      onChange={(e) => setCreateFormData(prev => ({ ...prev, woStatus: e.target.value }))}
+                      data-testid="input-create-status"
+                    />
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  WO Type: {createRow.woType === "IN" ? "Install" : createRow.woType === "UP" ? "Upgrade" : createRow.woType || "—"}
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setCreateDialogOpen(false)} data-testid="button-cancel-create">
@@ -1173,9 +1247,16 @@ export default function InstallSync() {
                 </Button>
                 <Button
                   onClick={() => {
-                    if (createRow.rawData) createOrderMutation.mutate(createRow.rawData);
+                    if (createRow.rawData) {
+                      const mergedData = { ...createRow.rawData };
+                      if (createFormData.customerName !== createRow.customerName) {
+                        const nameKeys = Object.keys(mergedData).filter(k => k.toLowerCase().includes("customer") || k.toLowerCase().includes("name"));
+                        if (nameKeys.length > 0) mergedData[nameKeys[0]] = createFormData.customerName;
+                      }
+                      createOrderMutation.mutate(mergedData);
+                    }
                   }}
-                  disabled={createOrderMutation.isPending}
+                  disabled={createOrderMutation.isPending || !createFormData.customerName.trim()}
                   data-testid="button-confirm-create"
                 >
                   {createOrderMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
