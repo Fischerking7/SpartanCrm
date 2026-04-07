@@ -17,7 +17,7 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import rateLimit from "express-rate-limit";
 import { encryptSsn, decryptSsn, extractSsnLast4, maskSsn } from "./encryption";
 import { fetchGoogleSheet, parseUploadedCsv } from "./google-sheets";
-import { matchInstallationsToOrders, normalizeWoStatus, type OrderSummary, getCustomerName, getAddress, getCity, getZip, getRepName, getAccountNumber, getWoStatus, getWorkOrderNumber, getScheduleDate, getCheckInDate, getCancelCode, getCancelCodeDesc, getInternetMdm, getSalesmanNumber, getOffice, getWorkOrderType, getDataInstallsQty, getMobileInstallsQty, getVideoInstallsQty, detectCarrierProfile, buildCarrierContext, type CarrierContext } from "./claude-matching";
+import { matchInstallationsToOrders, normalizeWoStatus, type OrderSummary, getCustomerName, getAddress, getCity, getZip, getRepName, getAccountNumber, getWoStatus, getWorkOrderNumber, getScheduleDate, getCheckInDate, getCancelCode, getCancelCodeDesc, getInternetMdm, getSalesmanNumber, getOffice, getWorkOrderType, getDataInstallsQty, getMobileInstallsQty, getVideoInstallsQty, detectCarrierProfile, buildCarrierContext, extractField, type CarrierContext } from "./claude-matching";
 import { emailService } from "./email";
 import { getOrCreateReserve, applyWithholding, applyChargebackToReserve, applyEquipmentRecovery, handleRepSeparation, checkAndReleaseMaturedReserves, calculateWithholding, isReserveEligibleRole } from "./reserves/reserveService";
 import { generatePayStub, generatePayStubsForPayRun } from "./payStubGenerator";
@@ -15572,6 +15572,7 @@ export async function registerRoutes(
             serviceType: order.serviceType || "",
             providerName,
             repName: syncRepMap.get(order.repId) || "",
+            repId: order.repId,
             dateSold: order.dateSold || "",
             jobStatus: order.jobStatus,
             approvalStatus: order.approvalStatus,
@@ -15588,7 +15589,7 @@ export async function registerRoutes(
           if (detectedProfile) {
             const repMappings = await storage.getCarrierRepMappings(detectedProfile.id);
             const allUsersForCtx = await storage.getUsers();
-            const userIdMap = new Map(allUsersForCtx.map(u => [u.id, u.name]));
+            const userIdMap = new Map(allUsersForCtx.map(u => [u.id, { name: u.name, repId: u.repId }]));
             carrierCtx = buildCarrierContext(detectedProfile, repMappings, userIdMap);
             console.log(`[Install Sync] Detected carrier profile: ${detectedProfile.name}`);
           }
@@ -15635,7 +15636,7 @@ export async function registerRoutes(
           else if (status === "OP") carrierInsights.carrierStats.openCount++;
           else if (status === "ND") carrierInsights.carrierStats.noDispatchCount++;
 
-          const repName = getRepName(row.data);
+          const repName = extractField(row.data, "rep_name", carrierCtx, getRepName);
           if (repName) {
             if (!carrierInsights.carrierStats.byRep[repName]) {
               carrierInsights.carrierStats.byRep[repName] = { total: 0, completed: 0, canceled: 0, open: 0 };
@@ -15646,13 +15647,13 @@ export async function registerRoutes(
             else if (status === "OP") carrierInsights.carrierStats.byRep[repName].open++;
           }
 
-          const speed = getInternetMdm(row.data);
+          const speed = extractField(row.data, "internet_speed", carrierCtx, getInternetMdm);
           if (speed) {
             const label = speedTierMap[speed] || `${speed} Mbps`;
             carrierInsights.carrierStats.bySpeedTier[label] = (carrierInsights.carrierStats.bySpeedTier[label] || 0) + 1;
           }
 
-          const office = getOffice(row.data).toUpperCase();
+          const office = extractField(row.data, "office", carrierCtx, getOffice).toUpperCase();
           if (office.includes("IRON CREST") || office.includes("IRONCREST")) {
             carrierInsights.carrierStats.ironCrestRows++;
           } else if (office) {
@@ -15678,13 +15679,13 @@ export async function registerRoutes(
             const updates: Record<string, any> = {};
             const autoFilledFields: string[] = [];
 
-            const sheetAcctNbr = getAccountNumber(match.sheetData);
+            const sheetAcctNbr = extractField(match.sheetData, "account_number", carrierCtx, getAccountNumber);
             if (sheetAcctNbr && !order.accountNumber) {
               updates.accountNumber = sheetAcctNbr;
               autoFilledFields.push("Account Number");
             }
 
-            const checkInDt = getCheckInDate(match.sheetData);
+            const checkInDt = extractField(match.sheetData, "check_in_date", carrierCtx, getCheckInDate);
             if (checkInDt && !order.installDate && woStatus === "CP") {
               const parsed = new Date(checkInDt);
               if (!isNaN(parsed.getTime())) {
@@ -15694,8 +15695,8 @@ export async function registerRoutes(
             }
 
             if (woStatus === "CN") {
-              const cancelCode = getCancelCode(match.sheetData);
-              const cancelDesc = getCancelCodeDesc(match.sheetData);
+              const cancelCode = extractField(match.sheetData, "cancel_code", carrierCtx, getCancelCode);
+              const cancelDesc = extractField(match.sheetData, "cancel_code_desc", carrierCtx, getCancelCodeDesc);
               if (cancelCode || cancelDesc) {
                 const cancelMarker = cancelCode ? `[${cancelCode}]` : (cancelDesc || "");
                 if (!order.notes?.includes(cancelMarker)) {
@@ -15706,14 +15707,14 @@ export async function registerRoutes(
               }
             }
 
-            const woNumber = getWorkOrderNumber(match.sheetData);
+            const woNumber = extractField(match.sheetData, "work_order_number", carrierCtx, getWorkOrderNumber);
             if (woNumber && !order.notes?.includes(`WO#${woNumber}`)) {
               const woNote = `WO#${woNumber}`;
               updates.notes = (updates.notes || order.notes || "") ? `${updates.notes || order.notes || ""}\n${woNote}`.trim() : woNote;
               autoFilledFields.push("Work Order #");
             }
 
-            const carrierSpeed = getInternetMdm(match.sheetData);
+            const carrierSpeed = extractField(match.sheetData, "internet_speed", carrierCtx, getInternetMdm);
             if (carrierSpeed && order.serviceId) {
               const orderService = serviceById.get(order.serviceId);
               if (orderService) {
@@ -15910,10 +15911,10 @@ export async function registerRoutes(
           const rowIndex = sheetData.rows[i].rowIndex;
           if (matchedSheetIndexes.has(rowIndex)) continue;
           const row = sheetData.rows[i].data;
-          const office = getOffice(row).toUpperCase();
+          const office = extractField(row, "office", carrierCtx, getOffice).toUpperCase();
           if (!office.includes("IRON CREST") && !office.includes("IRONCREST")) continue;
 
-          const repName = getRepName(row);
+          const repName = extractField(row, "rep_name", carrierCtx, getRepName);
           if (!repName) continue;
           const repUpper = repName.toUpperCase().trim();
           const isKnownRep = crmRepNames.has(repUpper) ||
@@ -15924,14 +15925,14 @@ export async function registerRoutes(
 
           if (isKnownRep) {
             carrierInsights.missingOrders.push({
-              customerName: getCustomerName(row),
-              address: getAddress(row),
-              city: getCity(row),
+              customerName: extractField(row, "customer_name", carrierCtx, getCustomerName),
+              address: extractField(row, "address", carrierCtx, getAddress),
+              city: extractField(row, "city", carrierCtx, getCity),
               repName,
-              acctNbr: getAccountNumber(row),
+              acctNbr: extractField(row, "account_number", carrierCtx, getAccountNumber),
               woStatus: normalizeWoStatus(row, carrierCtx),
-              woType: getWorkOrderType(row),
-              internetSpeed: getInternetMdm(row),
+              woType: extractField(row, "work_order_type", carrierCtx, getWorkOrderType),
+              internetSpeed: extractField(row, "internet_speed", carrierCtx, getInternetMdm),
             });
           }
         }

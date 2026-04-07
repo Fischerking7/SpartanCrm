@@ -6,7 +6,7 @@ export interface CarrierContext {
   columnMapping: Record<string, string[]>;
   speedTierMap: Record<string, string>;
   statusCodeMap: Record<string, string>;
-  repMappings: Map<string, string>;
+  repMappings: Map<string, { userId: string; repId: string; userName: string }>;
 }
 
 export function detectCarrierProfile(headers: string[], profiles: CarrierProfile[]): CarrierProfile | null {
@@ -36,17 +36,17 @@ export function detectCarrierProfile(headers: string[], profiles: CarrierProfile
 export function buildCarrierContext(
   profile: CarrierProfile,
   repMappings: CarrierRepMapping[],
-  userMap: Map<string, string>,
+  userMap: Map<string, { name: string; repId: string }>,
 ): CarrierContext {
   const columnMapping = JSON.parse(profile.columnMapping || "{}") as Record<string, string[]>;
   const speedTierMap = JSON.parse(profile.speedTierMap || "{}") as Record<string, string>;
   const statusCodeMap = JSON.parse(profile.statusCodeMap || "{}") as Record<string, string>;
 
-  const repMap = new Map<string, string>();
+  const repMap = new Map<string, { userId: string; repId: string; userName: string }>();
   for (const m of repMappings) {
-    const userName = userMap.get(m.userId);
-    if (userName) {
-      repMap.set(m.salesmanNbr.toUpperCase(), userName);
+    const user = userMap.get(m.userId);
+    if (user) {
+      repMap.set(m.salesmanNbr.toUpperCase(), { userId: m.userId, repId: user.repId, userName: user.name });
     }
   }
 
@@ -66,7 +66,7 @@ function findColumnWithProfile(row: Record<string, string>, field: string, ctx: 
   return "";
 }
 
-function extractField(row: Record<string, string>, field: string, ctx: CarrierContext | null, fallback: (...args: any[]) => string): string {
+export function extractField(row: Record<string, string>, field: string, ctx: CarrierContext | null, fallback: (...args: any[]) => string): string {
   if (ctx) {
     const val = findColumnWithProfile(row, field, ctx);
     if (val) return val;
@@ -86,6 +86,7 @@ export interface OrderSummary {
   serviceType: string;
   providerName: string;
   repName: string;
+  repId: string;
   dateSold: string;
   jobStatus: string;
   approvalStatus: string;
@@ -450,14 +451,23 @@ function scoreMatch(row: Record<string, string>, order: OrderSummary, ctx: Carri
   if (zipScore > 0) reasons.push("ZIP matched");
 
   let repScore = 0;
+  let repMappedDeterministic = false;
   const salesmanNbr = extractField(row, "salesman_number", ctx, getSalesmanNumber).trim().toUpperCase();
   if (ctx && salesmanNbr && ctx.repMappings.has(salesmanNbr)) {
-    const mappedRepName = ctx.repMappings.get(salesmanNbr)!;
-    const orderRep = normalize(order.repName || "");
-    const mappedNorm = normalize(mappedRepName);
-    if (mappedNorm && orderRep) {
-      repScore = nameTokenMatch(mappedNorm, orderRep);
-      if (repScore >= 0.7) reasons.push(`Rep mapped via carrier ID ${salesmanNbr}`);
+    const mappedUser = ctx.repMappings.get(salesmanNbr)!;
+    const orderRepId = order.repId || "";
+    if (orderRepId && mappedUser.repId === orderRepId) {
+      repScore = 1.0;
+      repMappedDeterministic = true;
+      reasons.push(`Rep confirmed via carrier ID ${salesmanNbr} → ${mappedUser.userName}`);
+    } else {
+      const orderRep = normalize(order.repName || "");
+      const mappedNorm = normalize(mappedUser.userName);
+      if (mappedNorm && orderRep && nameTokenMatch(mappedNorm, orderRep) >= 0.7) {
+        repScore = 1.0;
+        repMappedDeterministic = true;
+        reasons.push(`Rep mapped via carrier ID ${salesmanNbr} → ${mappedUser.userName}`);
+      }
     }
   }
   if (repScore === 0) {
@@ -575,12 +585,12 @@ export async function matchInstallationsToOrders(
   if (matchableRows.length > 0) {
     const sampleRow = matchableRows[0].data;
     const detectedCols = {
-      name: getCustomerName(sampleRow) ? "found" : "MISSING",
-      address: getAddress(sampleRow) ? "found" : "MISSING",
-      city: getCity(sampleRow) ? "found" : "MISSING",
-      zip: getZip(sampleRow) ? "found" : "MISSING",
-      rep: getRepName(sampleRow) ? "found" : "MISSING",
-      acct: getAccountNumber(sampleRow) ? "found" : "MISSING",
+      name: extractField(sampleRow, "customer_name", carrierCtx, getCustomerName) ? "found" : "MISSING",
+      address: extractField(sampleRow, "address", carrierCtx, getAddress) ? "found" : "MISSING",
+      city: extractField(sampleRow, "city", carrierCtx, getCity) ? "found" : "MISSING",
+      zip: extractField(sampleRow, "zip", carrierCtx, getZip) ? "found" : "MISSING",
+      rep: extractField(sampleRow, "rep_name", carrierCtx, getRepName) ? "found" : "MISSING",
+      acct: extractField(sampleRow, "account_number", carrierCtx, getAccountNumber) ? "found" : "MISSING",
     };
     console.log(`[Install Sync] Column detection: ${JSON.stringify(detectedCols)}`);
     console.log(`[Install Sync] Available headers: ${Object.keys(sampleRow).join(", ")}`);
@@ -652,8 +662,8 @@ export async function matchInstallationsToOrders(
           bestReasons = s.reasons;
         }
       }
-      const customerName = getCustomerName(r.data);
-      const addr = getAddress(r.data);
+      const customerName = extractField(r.data, "customer_name", carrierCtx, getCustomerName);
+      const addr = extractField(r.data, "address", carrierCtx, getAddress);
       const detail = customerName ? ` (customer: ${customerName})` : addr ? ` (address: ${addr.slice(0, 40)})` : "";
       return {
         rowIndex: r.rowIndex,
