@@ -1,5 +1,6 @@
 import { eq, and, inArray, isNotNull } from "drizzle-orm";
-import { db } from "./db";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { db as defaultDb } from "./db";
 import {
   overrideEarnings,
   arExpectations,
@@ -54,8 +55,10 @@ export async function cancelOrderCascade(
   orderId: string,
   syncRunId: string,
   actingUserId: string,
-  dryRun: boolean = false
+  dryRun: boolean = false,
+  txDb?: NodePgDatabase
 ): Promise<CancellationImpactItem> {
+  const db = txDb || defaultDb;
   const [order] = await db
     .select()
     .from(salesOrders)

@@ -15640,23 +15640,30 @@ export async function registerRoutes(
       if (woStatus === "CN" && order.approvalStatus === "APPROVED") {
         try {
           const { cancelOrderCascade } = await import("./cancellation-cascade");
-          manualLinkCancellationImpact = await cancelOrderCascade(orderId, syncRunId, user.id);
-          if (manualLinkCancellationImpact.flaggedForReview) {
-            delete updates.jobStatus;
-            delete updates.approvalStatus;
-            delete updates.approvedByUserId;
-            delete updates.approvedAt;
-          }
-        } catch (cascadeErr: any) {
-          console.error(`[Install Sync] Manual link cancellation cascade error:`, cascadeErr.message);
+          await db.transaction(async (tx) => {
+            manualLinkCancellationImpact = await cancelOrderCascade(orderId, syncRunId, user.id, false, tx as unknown as typeof db);
+            if (manualLinkCancellationImpact.flaggedForReview) {
+              delete updates.jobStatus;
+              delete updates.approvalStatus;
+              delete updates.approvedByUserId;
+              delete updates.approvedAt;
+            }
+            if (Object.keys(updates).length > 0) {
+              await tx.update(salesOrders).set(updates).where(eq(salesOrders.id, orderId));
+            }
+          });
+        } catch (cascadeErr: unknown) {
+          const errMsg = cascadeErr instanceof Error ? cascadeErr.message : String(cascadeErr);
+          console.error(`[Install Sync] Manual link cancellation cascade error:`, errMsg);
           delete updates.jobStatus;
           delete updates.approvalStatus;
           delete updates.approvedByUserId;
           delete updates.approvedAt;
+          if (Object.keys(updates).length > 0) {
+            await storage.updateOrder(orderId, updates);
+          }
         }
-      }
-
-      if (Object.keys(updates).length > 0) {
+      } else if (Object.keys(updates).length > 0) {
         await storage.updateOrder(orderId, updates);
       }
 
@@ -15933,17 +15940,18 @@ export async function registerRoutes(
       const { emptyCancellationImpact } = await import("./cancellation-cascade");
       const cancellationImpact = emptyCancellationImpact();
 
-      let syncRun: any;
+      let syncRunId: string;
       if (!isDryRun) {
-        syncRun = await storage.createInstallSyncRun({
+        const syncRunRecord = await storage.createInstallSyncRun({
           sheetUrl: sheetUrl || null,
           sourceType: req.file ? "csv_upload" : "google_sheet",
           emailTo: emailTo || null,
           runByUserId: user.id,
           status: "RUNNING",
         });
+        syncRunId = syncRunRecord.id;
       } else {
-        syncRun = { id: `dry-run-${Date.now()}` };
+        syncRunId = `dry-run-${Date.now()}`;
       }
 
       try {
@@ -15958,7 +15966,7 @@ export async function registerRoutes(
         }
 
         if (!isDryRun) {
-          await storage.updateInstallSyncRun(syncRun.id, { totalSheetRows: sheetData.rows.length });
+          await storage.updateInstallSyncRun(syncRunId, { totalSheetRows: sheetData.rows.length });
         }
 
         const allOrders = await db.select().from(salesOrders).where(
@@ -16284,7 +16292,7 @@ export async function registerRoutes(
               pendingWoRecords.push({
                 workOrderNumber: woNumber,
                 carrierProfileId: effectiveProfileId,
-                syncRunId: syncRun.id,
+                syncRunId: syncRunId,
                 matchedOrderId: match.orderId,
                 serviceLineType: match.serviceLineType || undefined,
               });
@@ -16296,29 +16304,43 @@ export async function registerRoutes(
             if (woStatus === "CN" && order.approvalStatus === "APPROVED") {
               try {
                 const { cancelOrderCascade } = await import("./cancellation-cascade");
-                const cascadeItem = await cancelOrderCascade(match.orderId, syncRun.id, user.id, isDryRun);
-                cancellationImpact.items.push(cascadeItem);
-                cancellationImpact.overridesReversedCount += cascadeItem.overridesReversed;
-                cancellationImpact.overridesReversedAmountCents += cascadeItem.overridesReversedAmountCents;
-                cancellationImpact.arExpectationsVoided += cascadeItem.arExpectationsVoided;
-                cancellationImpact.reserveAdjustedCents += cascadeItem.reserveReversedCents;
-                if (cascadeItem.flaggedForReview) {
-                  cancellationImpact.flaggedForReviewCount++;
-                  skipCancelForReview = true;
-                  delete updates.jobStatus;
-                  delete updates.approvalStatus;
-                  delete updates.approvedByUserId;
-                  delete updates.approvedAt;
+                if (!isDryRun) {
+                  const cascadeItem = await db.transaction(async (tx) => {
+                    const item = await cancelOrderCascade(match.orderId, syncRunId, user.id, false, tx as unknown as typeof db);
+                    if (!item.flaggedForReview) {
+                      await tx.update(salesOrders).set(updates).where(eq(salesOrders.id, match.orderId));
+                    }
+                    return item;
+                  });
+                  cancellationImpact.items.push(cascadeItem);
+                  cancellationImpact.overridesReversedCount += cascadeItem.overridesReversed;
+                  cancellationImpact.overridesReversedAmountCents += cascadeItem.overridesReversedAmountCents;
+                  cancellationImpact.arExpectationsVoided += cascadeItem.arExpectationsVoided;
+                  cancellationImpact.reserveAdjustedCents += cascadeItem.reserveReversedCents;
+                  if (cascadeItem.flaggedForReview) {
+                    cancellationImpact.flaggedForReviewCount++;
+                    skipCancelForReview = true;
+                  } else {
+                    cancellationImpact.ordersCanceled++;
+                    skipCancelForReview = true;
+                  }
                 } else {
-                  cancellationImpact.ordersCanceled++;
+                  const cascadeItem = await cancelOrderCascade(match.orderId, syncRunId, user.id, true);
+                  cancellationImpact.items.push(cascadeItem);
+                  cancellationImpact.overridesReversedCount += cascadeItem.overridesReversed;
+                  cancellationImpact.overridesReversedAmountCents += cascadeItem.overridesReversedAmountCents;
+                  cancellationImpact.arExpectationsVoided += cascadeItem.arExpectationsVoided;
+                  cancellationImpact.reserveAdjustedCents += cascadeItem.reserveReversedCents;
+                  if (cascadeItem.flaggedForReview) {
+                    cancellationImpact.flaggedForReviewCount++;
+                  } else {
+                    cancellationImpact.ordersCanceled++;
+                  }
                 }
-              } catch (cascadeErr: any) {
-                console.error(`[InstallSync] Cancellation cascade error for order ${match.orderId}:`, cascadeErr.message);
+              } catch (cascadeErr: unknown) {
+                const errMsg = cascadeErr instanceof Error ? cascadeErr.message : String(cascadeErr);
+                console.error(`[InstallSync] Cancellation cascade error for order ${match.orderId}:`, errMsg);
                 skipCancelForReview = true;
-                delete updates.jobStatus;
-                delete updates.approvalStatus;
-                delete updates.approvedByUserId;
-                delete updates.approvedAt;
               }
             }
 
@@ -16473,7 +16495,7 @@ export async function registerRoutes(
         }
 
         if (!isDryRun) {
-          await storage.updateInstallSyncRun(syncRun.id, {
+          await storage.updateInstallSyncRun(syncRunId, {
             totalSheetRows: sheetData.rows.length,
             matchedCount: matchResult.matches.length,
             approvedCount,
@@ -16504,7 +16526,7 @@ export async function registerRoutes(
         }
 
         res.json({
-          syncRunId: syncRun.id,
+          syncRunId: syncRunId,
           carrierProfileId: effectiveProfileId,
           totalSheetRows: sheetData.rows.length,
           matchedCount: matchResult.matches.length,
@@ -16520,11 +16542,12 @@ export async function registerRoutes(
           cancellationImpact: cancellationImpact.items.length > 0 ? cancellationImpact : undefined,
           isDryRun,
         });
-      } catch (innerError: any) {
+      } catch (innerError: unknown) {
+        const innerMsg = innerError instanceof Error ? innerError.message : String(innerError);
         if (!isDryRun) {
-          await storage.updateInstallSyncRun(syncRun.id, {
+          await storage.updateInstallSyncRun(syncRunId, {
             status: "FAILED",
-            errorMessage: innerError.message,
+            errorMessage: innerMsg,
             completedAt: new Date(),
           });
         }
