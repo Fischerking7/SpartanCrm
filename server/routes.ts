@@ -15610,6 +15610,7 @@ export async function registerRoutes(
         if (!order.approvalStatus || order.approvalStatus === "UNAPPROVED") {
           updates.approvalStatus = "APPROVED";
           updates.approvedAt = new Date();
+          updates.approvedByUserId = user.id;
           if (!order.repRoleAtSale && order.repId) {
             const salesRep = await storage.getUserByRepId(order.repId);
             updates.repRoleAtSale = salesRep?.role || "REP";
