@@ -42,7 +42,7 @@ export const financePeriodStatusEnum = pgEnum("finance_period_status", ["DRAFT",
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  repId: text("rep_id").notNull().unique(),
+  repId: text("rep_id").notNull(),
   email: text("email"),
   phone: text("phone"),
   role: userRoleEnum("role").notNull().default("REP"),
