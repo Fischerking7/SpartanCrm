@@ -16673,8 +16673,10 @@ export async function registerRoutes(
       baseCommission = Math.max(0, grossCommission - totalDeductions).toFixed(2);
     }
 
+    const incentiveEarned = "0";
     const finalOrder = await storage.updateOrder(orderId, {
       baseCommissionEarned: baseCommission,
+      incentiveEarned,
       appliedRateCardId,
       calcAt: new Date(),
       overrideDeduction: totalDeductions.toFixed(2),
