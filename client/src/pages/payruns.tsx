@@ -453,11 +453,15 @@ export default function PayRuns() {
   });
 
   const fetchPayRunSummary = async (payRunId: string) => {
+    setPayRunSummary(null);
     setSummaryLoading(true);
     try {
       const res = await fetch(`/api/admin/payruns/${payRunId}/summary`, { headers: getAuthHeaders() });
       if (res.ok) {
-        setPayRunSummary(await res.json());
+        const data = await res.json();
+        if (data.payRunId === payRunId) {
+          setPayRunSummary(data);
+        }
       }
     } catch { /* summary is non-blocking */ }
     setSummaryLoading(false);
