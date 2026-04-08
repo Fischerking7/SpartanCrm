@@ -4715,8 +4715,8 @@ Rules:
         totalIncentives += incentives;
         
         const stmtLineItems = await storage.getPayStatementLineItems(stmt.id);
-        const hasCarryForwardCredit = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_CREDIT");
-        const hasCarryForwardDeduction = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_DEDUCTION");
+        const hasCarryForwardCredit = stmtLineItems.some(li => li.category === "CARRY_FORWARD_CREDIT");
+        const hasCarryForwardDeduction = stmtLineItems.some(li => li.category === "CARRY_FORWARD_DEDUCTION");
         const hasCarryForward = hasCarryForwardCredit || hasCarryForwardDeduction;
         const hasNegative = hasCarryForwardCredit;
         if (hasCarryForwardCredit) warnings.push(`${stmt.userId} has negative balance carry-forward to next period`);
@@ -4900,7 +4900,6 @@ Rules:
       const statements = await storage.getPayStatements(req.params.id);
       const allUsers = await storage.getUsers();
       const userMap = new Map(allUsers.map(u => [u.id, u]));
-      const repIdMap = new Map(allUsers.map(u => [u.repId, u]));
 
       let totalGross = 0;
       let totalNet = 0;
@@ -4952,8 +4951,8 @@ Rules:
         }
 
         const stmtLineItems = await storage.getPayStatementLineItems(stmt.id);
-        const hasCarryForwardCredit = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_CREDIT");
-        const hasCarryForwardDeduction = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_DEDUCTION");
+        const hasCarryForwardCredit = stmtLineItems.some(li => li.category === "CARRY_FORWARD_CREDIT");
+        const hasCarryForwardDeduction = stmtLineItems.some(li => li.category === "CARRY_FORWARD_DEDUCTION");
         if (hasCarryForwardCredit) {
           flaggedItems.push({ type: "carry_forward_new", severity: "warning", message: `${repName} has negative balance carry-forward to next period`, repId: stmt.userId });
         }
