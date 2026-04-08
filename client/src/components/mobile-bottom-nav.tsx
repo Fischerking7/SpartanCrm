@@ -4,8 +4,6 @@ import { useLocation } from "wouter";
 import { LayoutDashboard, ShoppingCart, Zap, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const fieldRoles = ["REP", "MDU", "LEAD"];
-
 interface NavItem {
   label: string;
   icon: React.ReactNode;
@@ -17,7 +15,7 @@ export function MobileBottomNav() {
   const { user } = useAuth();
   const [location, setLocation] = useLocation();
 
-  if (!isMobile || !user || !fieldRoles.includes(user.role)) {
+  if (!isMobile || !user) {
     return null;
   }
 

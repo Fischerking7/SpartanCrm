@@ -209,7 +209,7 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
       };
     case "MDU":
       return {
-        sales: [MENU.dashboard, MENU.mduOrders, MENU.orderTracker],
+        sales: [MENU.dashboard, MENU.mduOrders, MENU.orderTracker, MENU.quickEntry],
         ...base,
       };
     case "LEAD":
@@ -234,7 +234,7 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
       };
     default:
       return {
-        sales: [MENU.dashboard, MENU.orderTracker],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry],
         ...base,
       };
   }
