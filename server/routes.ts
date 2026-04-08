@@ -12042,63 +12042,6 @@ Rules:
     }
   });
 
-  // Scheduled Pay Runs
-  app.get("/api/admin/scheduled-pay-runs", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
-    try {
-      const schedules = await storage.getScheduledPayRuns();
-      res.json(schedules);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/admin/scheduled-pay-runs/:id", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
-    try {
-      const schedule = await storage.getScheduledPayRunById(req.params.id);
-      if (!schedule) return res.status(404).json({ message: "Schedule not found" });
-      res.json(schedule);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/admin/scheduled-pay-runs", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
-    try {
-      const schedule = await storage.createScheduledPayRun({
-        ...req.body,
-        createdByUserId: req.user!.id,
-      });
-      await storage.createAuditLog({
-        action: "scheduled_pay_run_created",
-        tableName: "scheduled_pay_runs",
-        recordId: schedule.id,
-        afterJson: JSON.stringify(schedule),
-        userId: req.user!.id,
-      });
-      res.status(201).json(schedule);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.patch("/api/admin/scheduled-pay-runs/:id", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
-    try {
-      const schedule = await storage.updateScheduledPayRun(req.params.id, req.body);
-      res.json(schedule);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.delete("/api/admin/scheduled-pay-runs/:id", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
-    try {
-      await storage.deleteScheduledPayRun(req.params.id);
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
   // Commission Forecasts
   app.get("/api/admin/commission-forecasts", auth, requirePermission("reports:financial"), async (req: AuthRequest, res) => {
     try {
@@ -12594,6 +12537,16 @@ Rules:
     }
   });
 
+  app.get("/api/admin/scheduled-pay-runs/:id", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
+    try {
+      const schedule = await storage.getScheduledPayRunById(req.params.id);
+      if (!schedule) return res.status(404).json({ message: "Schedule not found" });
+      res.json(schedule);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Create scheduled pay run
   app.post("/api/admin/scheduled-pay-runs", auth, requirePermission("admin:schedpay"), async (req: AuthRequest, res) => {
     try {
@@ -12601,7 +12554,7 @@ Rules:
       const { name, frequency, dayOfWeek, dayOfMonth, secondDayOfMonth, autoCreatePayRun, autoLinkOrders } = req.body;
       
       // Calculate next run date
-      const nextRunAt = calculateNextRunFromNow(frequency, dayOfWeek, dayOfMonth);
+      const nextRunAt = calculateNextRunFromNow(frequency, dayOfWeek, dayOfMonth, secondDayOfMonth);
       
       const schedule = await storage.createScheduledPayRun({
         name,
@@ -12646,9 +12599,13 @@ Rules:
       if (autoCreatePayRun !== undefined) updates.autoCreatePayRun = autoCreatePayRun;
       if (autoLinkOrders !== undefined) updates.autoLinkOrders = autoLinkOrders;
       
-      // Recalculate next run if frequency changed
-      if (frequency !== undefined) {
-        updates.nextRunAt = calculateNextRunFromNow(frequency, dayOfWeek, dayOfMonth);
+      if (frequency !== undefined || dayOfWeek !== undefined || dayOfMonth !== undefined || secondDayOfMonth !== undefined) {
+        const existing = await storage.getScheduledPayRunById(id);
+        const effFrequency = frequency ?? existing?.frequency ?? "MONTHLY";
+        const effDayOfWeek = dayOfWeek !== undefined ? dayOfWeek : existing?.dayOfWeek;
+        const effDayOfMonth = dayOfMonth !== undefined ? dayOfMonth : existing?.dayOfMonth;
+        const effSecondDay = secondDayOfMonth !== undefined ? secondDayOfMonth : existing?.secondDayOfMonth;
+        updates.nextRunAt = calculateNextRunFromNow(effFrequency, effDayOfWeek, effDayOfMonth, effSecondDay);
       }
       
       const schedule = await storage.updateScheduledPayRun(id, updates);
@@ -18234,7 +18191,7 @@ Rules:
 }
 
 // Helper function for scheduled pay runs
-function calculateNextRunFromNow(frequency: string, dayOfWeek?: number | null, dayOfMonth?: number | null): Date {
+function calculateNextRunFromNow(frequency: string, dayOfWeek?: number | null, dayOfMonth?: number | null, secondDayOfMonth?: number | null): Date {
   const now = new Date();
   let next = new Date(now);
   
@@ -18251,14 +18208,20 @@ function calculateNextRunFromNow(frequency: string, dayOfWeek?: number | null, d
     case "BIWEEKLY":
       next.setDate(next.getDate() + 14);
       break;
-    case "SEMIMONTHLY":
-      if (now.getDate() < 15) {
-        next.setDate(15);
+    case "SEMIMONTHLY": {
+      const d1 = dayOfMonth || 1;
+      const d2 = secondDayOfMonth || 16;
+      const currentDay = now.getDate();
+      if (currentDay < d1) {
+        next.setDate(d1);
+      } else if (currentDay < d2) {
+        next.setDate(d2);
       } else {
         next.setMonth(next.getMonth() + 1);
-        next.setDate(1);
+        next.setDate(Math.min(d1, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
       }
       break;
+    }
     case "MONTHLY":
     default:
       next.setMonth(next.getMonth() + 1);

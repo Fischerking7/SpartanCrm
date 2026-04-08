@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent, TrendingUp, ArrowDown, ArrowUp, Shield, Loader2 } from "lucide-react";
+import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent, TrendingUp, ArrowDown, ArrowUp, Shield, Loader2, Timer } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -135,6 +135,19 @@ export default function PayRuns() {
       return res.json();
     },
   });
+
+  const { data: scheduledRuns } = useQuery<{ id: string; name: string; frequency: string; nextRunAt: string | null; isActive: boolean }[]>({
+    queryKey: ["/api/admin/scheduled-pay-runs"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/scheduled-pay-runs", { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const nextScheduledRun = scheduledRuns
+    ?.filter(s => s.isActive && s.nextRunAt)
+    ?.sort((a, b) => new Date(a.nextRunAt!).getTime() - new Date(b.nextRunAt!).getTime())?.[0] || null;
 
   const { data: unlinkedOrders } = useQuery<SalesOrder[]>({
     queryKey: ["/api/admin/payruns/unlinked-orders", selectedPayRun?.weekEndingDate],
@@ -871,6 +884,33 @@ export default function PayRuns() {
           New Pay Run
         </Button>
       </div>
+
+      {nextScheduledRun && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-lg border bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800" data-testid="next-scheduled-run-indicator">
+          <Timer className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+              Next Scheduled Pay Run: <span className="font-semibold">{nextScheduledRun.name}</span>
+            </p>
+            <p className="text-xs text-blue-700 dark:text-blue-400">
+              {(() => {
+                const nextDate = new Date(nextScheduledRun.nextRunAt!);
+                const now = new Date();
+                const diffMs = nextDate.getTime() - now.getTime();
+                const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                const dateStr = nextDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+                if (diffDays <= 0) return `Scheduled for today (${dateStr})`;
+                if (diffDays === 1) return `Tomorrow (${dateStr})`;
+                return `In ${diffDays} days (${dateStr})`;
+              })()}
+              {" \u00B7 "}
+              {nextScheduledRun.frequency === "BIWEEKLY" ? "Bi-Weekly" :
+               nextScheduledRun.frequency === "SEMIMONTHLY" ? "Semi-Monthly" :
+               nextScheduledRun.frequency.charAt(0) + nextScheduledRun.frequency.slice(1).toLowerCase()}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
