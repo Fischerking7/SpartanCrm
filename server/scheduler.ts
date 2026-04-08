@@ -244,6 +244,14 @@ export const scheduler = {
         createdByUserId: schedule.createdByUserId || "SYSTEM",
       });
       
+      await storage.createAuditLog({
+        action: "scheduled_payrun_created",
+        tableName: "pay_runs",
+        recordId: payRun.id,
+        afterJson: JSON.stringify({ name: payRun.name, periodStart, periodEnd, scheduleName: schedule.name }),
+        userId: schedule.createdByUserId || "SYSTEM",
+      });
+
       if (schedule.autoLinkOrders) {
         await this.autoLinkOrders(payRun.id, periodStart, periodEnd);
       }
@@ -289,6 +297,15 @@ export const scheduler = {
       linked++;
     }
     
+    if (linked > 0) {
+      await storage.createAuditLog({
+        action: "link_all_orders_to_payrun",
+        tableName: "pay_runs",
+        recordId: payRunId,
+        afterJson: JSON.stringify({ orderCount: linked, autoLinked: true }),
+        userId: "SYSTEM",
+      });
+    }
     console.log(`[Scheduler] Linked ${linked} orders to pay run`);
     return linked;
   },

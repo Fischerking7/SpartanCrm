@@ -4994,6 +4994,8 @@ Rules:
         payroll_full_cycle: "Full Payroll Cycle Run",
         payroll_finalize: "Pay Run Finalized (Payroll)",
         apply_override_distribution: "Override Distribution Applied",
+        create_override_distribution: "Override Distribution Created",
+        delete_override_distribution: "Override Distribution Removed",
         generate_pay_stubs: "Pay Stubs Generated",
         payroll_auto_build: "Auto-Built from Ready Orders",
         scheduled_payrun_created: "Automated Pay Run Created",
@@ -5015,6 +5017,11 @@ Rules:
             if (afterData.periodStart) parts.push(`period: ${afterData.periodStart} – ${afterData.periodEnd || "?"}`);
             if (afterData.weekEndingDate) parts.push(`week ending: ${afterData.weekEndingDate}`);
             if (afterData.overrideDistributions) parts.push(`${afterData.overrideDistributions} distributions`);
+            if (afterData.calculatedAmount) parts.push(`amount: $${afterData.calculatedAmount}`);
+            if (afterData.allocationType) parts.push(`type: ${afterData.allocationType}`);
+            if (afterData.distributionId) parts.push(`dist: ${afterData.distributionId.substring(0, 8)}`);
+            if (afterData.scheduleName) parts.push(`schedule: "${afterData.scheduleName}"`);
+            if (afterData.autoLinked) parts.push("(auto-linked)");
             details = parts.join(", ");
           }
         } catch {}
@@ -5598,6 +5605,7 @@ Rules:
         afterJson: JSON.stringify(distribution),
         userId: req.user!.id,
       });
+      await logPayrollAudit({ payRunId: req.params.id, action: "create_override_distribution", userId: req.user!.id, details: { recipientUserId, allocationType, allocationValue, calculatedAmount: calculatedAmount.toFixed(2) } });
       
       res.json(distribution);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
@@ -5612,6 +5620,7 @@ Rules:
         recordId: req.params.id,
         userId: req.user!.id,
       });
+      await logPayrollAudit({ payRunId: req.params.payRunId, action: "delete_override_distribution", userId: req.user!.id, details: { distributionId: req.params.id } });
       res.json({ success: true });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
