@@ -203,6 +203,7 @@ export async function generatePayStub(
   let newCarryForwardCents = 0;
   let netPayCents: number;
 
+  const consolidatePendingCfs = netPayBeforeCf <= 0 && totalPendingCfCents > 0;
   if (netPayBeforeCf <= 0) {
     carryForwardAppliedCents = 0;
     newCarryForwardCents = Math.abs(netPayBeforeCf) + totalPendingCfCents;
@@ -490,6 +491,24 @@ export async function generatePayStub(
     }
   }
 
+  if (consolidatePendingCfs) {
+    for (const cf of pendingCarryForwards) {
+      await storage.updateCarryForwardBalance(cf.id, {
+        status: "APPLIED",
+        remainingAmountCents: 0,
+        resolvedPayStatementId: statement.id,
+      }, txDb);
+
+      await storage.createAuditLog({
+        action: "carry_forward_consolidated",
+        tableName: "carry_forward_balances",
+        recordId: cf.id,
+        afterJson: JSON.stringify({ consolidatedIntoCents: newCarryForwardCents, payStatementId: statement.id }),
+        userId,
+      }, txDb);
+    }
+  }
+
   if (newCarryForwardCents > 0) {
     await storage.createPayStatementLineItemFull({
       payStatementId: statement.id,
@@ -507,7 +526,9 @@ export async function generatePayStub(
       originPayRunId: payRunId,
       originPayStatementId: statement.id,
       status: "PENDING",
-      notes: `Auto-created: net pay was -$${(newCarryForwardCents / 100).toFixed(2)} after deductions`,
+      notes: consolidatePendingCfs
+        ? `Consolidated: prior balance $${(totalPendingCfCents / 100).toFixed(2)} + new shortfall $${(Math.abs(netPayBeforeCf) / 100).toFixed(2)}`
+        : `Auto-created: net pay was -$${(newCarryForwardCents / 100).toFixed(2)} after deductions`,
     }, txDb);
 
     await storage.createAuditLog({
@@ -700,6 +721,7 @@ async function generatePayStubFromPayRun(
   let newCarryForwardCents2 = 0;
   let netPayCents: number;
 
+  const consolidatePendingCfs2 = netPayBeforeCf2 <= 0 && totalPendingCfCents2 > 0;
   if (netPayBeforeCf2 <= 0) {
     carryForwardAppliedCents2 = 0;
     newCarryForwardCents2 = Math.abs(netPayBeforeCf2) + totalPendingCfCents2;
@@ -985,6 +1007,24 @@ async function generatePayStubFromPayRun(
     }
   }
 
+  if (consolidatePendingCfs2) {
+    for (const cf of pendingCarryForwards2) {
+      await storage.updateCarryForwardBalance(cf.id, {
+        status: "APPLIED",
+        remainingAmountCents: 0,
+        resolvedPayStatementId: statement.id,
+      }, txDb);
+
+      await storage.createAuditLog({
+        action: "carry_forward_consolidated",
+        tableName: "carry_forward_balances",
+        recordId: cf.id,
+        afterJson: JSON.stringify({ consolidatedIntoCents: newCarryForwardCents2, payStatementId: statement.id }),
+        userId,
+      }, txDb);
+    }
+  }
+
   if (newCarryForwardCents2 > 0) {
     await storage.createPayStatementLineItemFull({
       payStatementId: statement.id,
@@ -1002,7 +1042,9 @@ async function generatePayStubFromPayRun(
       originPayRunId: payRunId,
       originPayStatementId: statement.id,
       status: "PENDING",
-      notes: `Auto-created: net pay was -$${(newCarryForwardCents2 / 100).toFixed(2)} after deductions`,
+      notes: consolidatePendingCfs2
+        ? `Consolidated: prior balance $${(totalPendingCfCents2 / 100).toFixed(2)} + new shortfall $${(Math.abs(netPayBeforeCf2) / 100).toFixed(2)}`
+        : `Auto-created: net pay was -$${(newCarryForwardCents2 / 100).toFixed(2)} after deductions`,
     }, txDb);
 
     await storage.createAuditLog({
