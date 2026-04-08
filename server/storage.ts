@@ -4927,8 +4927,27 @@ export const storage = {
   async cleanupCarryForwardForStatement(payStatementId: string): Promise<void> {
     await db.delete(carryForwardBalances)
       .where(eq(carryForwardBalances.originPayStatementId, payStatementId));
-    await db.update(carryForwardBalances)
-      .set({ resolvedPayStatementId: null, status: "PENDING", remainingAmountCents: sql`amount_cents`, updatedAt: new Date() })
-      .where(eq(carryForwardBalances.resolvedPayStatementId, payStatementId));
+
+    const lineItems = await this.getPayStatementLineItems(payStatementId);
+    const cfDeductions = lineItems.filter((li: any) => li.category === "CARRY_FORWARD_DEDUCTION" && li.sourceId);
+
+    for (const li of cfDeductions) {
+      const appliedCents = Math.round(Math.abs(parseFloat(li.amount || "0")) * 100);
+      if (appliedCents > 0 && li.sourceId) {
+        const cfRecord = await db.select().from(carryForwardBalances).where(eq(carryForwardBalances.id, li.sourceId)).limit(1);
+        if (cfRecord.length > 0) {
+          const restored = cfRecord[0].remainingAmountCents + appliedCents;
+          const newStatus = restored >= cfRecord[0].amountCents ? "PENDING" : "PARTIAL";
+          await db.update(carryForwardBalances)
+            .set({
+              remainingAmountCents: Math.min(restored, cfRecord[0].amountCents),
+              status: newStatus,
+              resolvedPayStatementId: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(carryForwardBalances.id, li.sourceId));
+        }
+      }
+    }
   },
 };
