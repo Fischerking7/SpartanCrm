@@ -4954,6 +4954,74 @@ Rules:
     }
   });
 
+  app.get("/api/admin/payruns/:id/audit-trail", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+
+      const options: { startDate?: Date; endDate?: Date } = {};
+      if (req.query.startDate) options.startDate = new Date(req.query.startDate as string);
+      if (req.query.endDate) options.endDate = new Date(req.query.endDate as string);
+
+      const logs = await storage.getAuditLogsByRecordId(req.params.id, options);
+
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, { name: u.name, repId: u.repId }]));
+
+      const actionLabels: Record<string, string> = {
+        create_payrun: "Pay Run Created",
+        payrun_orders_linked: "Orders Auto-Linked",
+        link_orders_to_payrun: "Orders Linked",
+        link_all_orders_to_payrun: "All Eligible Orders Linked",
+        unlink_orders_from_payrun: "Orders Unlinked",
+        submit_payrun_review: "Submitted for Review",
+        submit_payrun_approval: "Submitted for Approval",
+        approve_payrun: "Pay Run Approved",
+        reject_payrun: "Pay Run Rejected",
+        finalize_payrun: "Pay Run Finalized",
+        mark_payrun_paid: "Marked as Paid",
+        delete_payrun: "Pay Run Deleted",
+        payroll_generate_stubs: "Pay Stubs Generated",
+        payroll_full_cycle: "Full Payroll Cycle Run",
+        payroll_finalize: "Pay Run Finalized (Payroll)",
+        apply_override_distribution: "Override Distribution Applied",
+        generate_pay_stubs: "Pay Stubs Generated",
+        payroll_auto_build: "Auto-Built from Ready Orders",
+        scheduled_payrun_created: "Automated Pay Run Created",
+      };
+
+      const enriched = logs.map(log => {
+        const user = log.userId ? userMap.get(log.userId) : null;
+        let details = "";
+        try {
+          const afterData = log.afterJson ? JSON.parse(log.afterJson) : null;
+          if (afterData) {
+            if (afterData.orderCount !== undefined) details = `${afterData.orderCount} orders`;
+            if (afterData.stubCount !== undefined) details += details ? `, ${afterData.stubCount} stubs` : `${afterData.stubCount} stubs`;
+            if (afterData.statementCount !== undefined) details += details ? `, ${afterData.statementCount} statements` : `${afterData.statementCount} statements`;
+            if (afterData.finalized !== undefined) details += details ? `, finalized: ${afterData.finalized}` : `finalized: ${afterData.finalized}`;
+          }
+        } catch {}
+
+        return {
+          id: log.id,
+          action: log.action,
+          actionLabel: actionLabels[log.action] || log.action.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+          actorName: user?.name || "System",
+          actorRepId: user?.repId || null,
+          details,
+          tableName: log.tableName,
+          timestamp: log.createdAt,
+        };
+      });
+
+      res.json(enriched);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed";
+      res.status(500).json({ message: msg });
+    }
+  });
+
   app.get("/api/admin/payruns/:id/summary", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);

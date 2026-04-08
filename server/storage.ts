@@ -1164,6 +1164,14 @@ export const storage = {
       limit: 1,
     });
   },
+  async getAuditLogsByRecordId(recordId: string, options?: { startDate?: Date; endDate?: Date }) {
+    const conditions = [eq(auditLogs.recordId, recordId)];
+    if (options?.startDate) conditions.push(gte(auditLogs.createdAt, options.startDate));
+    if (options?.endDate) conditions.push(lte(auditLogs.createdAt, options.endDate));
+    return db.select().from(auditLogs)
+      .where(and(...conditions))
+      .orderBy(auditLogs.createdAt);
+  },
 
   // Export Batches
   async getExportBatches() {

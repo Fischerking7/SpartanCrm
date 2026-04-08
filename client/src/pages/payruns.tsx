@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent, TrendingUp, ArrowDown, ArrowUp, Shield, Loader2, Timer, Mail } from "lucide-react";
+import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent, TrendingUp, ArrowDown, ArrowUp, Shield, Loader2, Timer, Mail, History, User, ChevronDown, ChevronUp } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -232,6 +232,100 @@ function EmailDeliveryStatus({ payRunId }: { payRunId: string }) {
           ))}
         </div>
       </CardContent>
+    </Card>
+  );
+}
+
+interface AuditEntry {
+  id: string;
+  action: string;
+  actionLabel: string;
+  actorName: string;
+  actorRepId: string | null;
+  details: string;
+  tableName: string;
+  timestamp: string;
+}
+
+function PayRunAuditTrail({ payRunId }: { payRunId: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const { data: auditEntries, isLoading } = useQuery<AuditEntry[]>({
+    queryKey: ["/api/admin/payruns", payRunId, "audit-trail"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/audit-trail`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: expanded,
+  });
+
+  const actionIcon = (action: string) => {
+    if (action.includes("create") || action.includes("auto_build")) return <Plus className="h-3.5 w-3.5 text-green-500" />;
+    if (action.includes("link")) return <Link className="h-3.5 w-3.5 text-blue-500" />;
+    if (action.includes("unlink")) return <Unlink className="h-3.5 w-3.5 text-orange-500" />;
+    if (action.includes("submit")) return <Send className="h-3.5 w-3.5 text-blue-500" />;
+    if (action.includes("approve")) return <Check className="h-3.5 w-3.5 text-green-500" />;
+    if (action.includes("reject")) return <XCircle className="h-3.5 w-3.5 text-red-500" />;
+    if (action.includes("finalize")) return <Lock className="h-3.5 w-3.5 text-purple-500" />;
+    if (action.includes("paid") || action.includes("mark")) return <DollarSign className="h-3.5 w-3.5 text-green-600" />;
+    if (action.includes("delete")) return <Trash2 className="h-3.5 w-3.5 text-red-500" />;
+    if (action.includes("generate") || action.includes("stubs")) return <FileText className="h-3.5 w-3.5 text-blue-500" />;
+    if (action.includes("override") || action.includes("distribution")) return <Split className="h-3.5 w-3.5 text-indigo-500" />;
+    if (action.includes("scheduled") || action.includes("full_cycle")) return <Timer className="h-3.5 w-3.5 text-teal-500" />;
+    return <History className="h-3.5 w-3.5 text-gray-500" />;
+  };
+
+  return (
+    <Card data-testid="payrun-audit-trail">
+      <CardHeader
+        className="flex flex-row items-center justify-between gap-2 pb-2 pt-3 px-4 cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <History className="h-4 w-4" />
+          Audit History
+        </CardTitle>
+        {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </CardHeader>
+      {expanded && (
+        <CardContent className="px-4 pb-3">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : !auditEntries || auditEntries.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">No audit entries found</p>
+          ) : (
+            <div className="relative space-y-0">
+              <div className="absolute left-[11px] top-3 bottom-3 w-px bg-border" />
+              {auditEntries.map((entry, idx) => (
+                <div key={entry.id} className="relative flex gap-3 py-2" data-testid={`audit-entry-${idx}`}>
+                  <div className="relative z-10 flex items-center justify-center w-6 h-6 rounded-full bg-background border">
+                    {actionIcon(entry.action)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-sm font-medium" data-testid={`audit-action-${idx}`}>{entry.actionLabel}</span>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <User className="h-3 w-3" />
+                        {entry.actorName}
+                        {entry.actorRepId && <span className="font-mono">({entry.actorRepId})</span>}
+                      </span>
+                    </div>
+                    {entry.details && (
+                      <p className="text-xs text-muted-foreground mt-0.5" data-testid={`audit-details-${idx}`}>{entry.details}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground/60 mt-0.5" data-testid={`audit-time-${idx}`}>
+                      {new Date(entry.timestamp).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }
@@ -1445,6 +1539,8 @@ export default function PayRuns() {
               {(selectedPayRun.status === "FINALIZED" || selectedPayRun.status === "PAID") && (
                 <EmailDeliveryStatus payRunId={selectedPayRun.id} />
               )}
+
+              <PayRunAuditTrail payRunId={selectedPayRun.id} />
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between gap-2">
