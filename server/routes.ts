@@ -4697,6 +4697,7 @@ Rules:
       let totalNetPay = 0;
       let totalIncentives = 0;
       const issues: string[] = [];
+      const warnings: string[] = [];
       const repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; incentives: number; hasNegative: boolean; hasCarryForward: boolean }[] = [];
       
       for (const order of orders) {
@@ -4718,8 +4719,8 @@ Rules:
         const hasCarryForwardDeduction = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_DEDUCTION");
         const hasCarryForward = hasCarryForwardCredit || hasCarryForwardDeduction;
         const hasNegative = hasCarryForwardCredit;
-        if (hasCarryForwardCredit) issues.push(`${stmt.userId} has negative balance carried forward to next period`);
-        if (hasCarryForwardDeduction) issues.push(`${stmt.userId} has prior carry-forward balance being recovered`);
+        if (hasCarryForwardCredit) warnings.push(`${stmt.userId} has negative balance carry-forward to next period`);
+        if (hasCarryForwardDeduction) warnings.push(`${stmt.userId} has prior carry-forward balance being recovered`);
         
         repSummaries.push({
           repId: stmt.userId,
@@ -4735,6 +4736,9 @@ Rules:
       
       if (orders.length === 0) issues.push("No orders linked to pay run");
       
+      const allIssues = [...issues, ...warnings];
+      const hasBlockingIssues = issues.length > 0;
+      
       res.json({
         payRunId: payRun.id,
         status: payRun.status,
@@ -4744,8 +4748,9 @@ Rules:
         totalDeductions: totalDeductions.toFixed(2),
         totalNetPay: totalNetPay.toFixed(2),
         totalIncentives: totalIncentives.toFixed(2),
-        issues,
-        canFinalize: !issues.some(i => !i.includes("carry-forward")) && payRun.status === "APPROVED",
+        issues: allIssues,
+        warnings,
+        canFinalize: !hasBlockingIssues && payRun.status === "APPROVED",
         repSummaries,
       });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
@@ -10278,6 +10283,7 @@ Rules:
       const existingStatements = await storage.getPayStatements(req.params.payRunId);
       for (const stmt of existingStatements) {
         if (stmt.status === "PAID" || stmt.status === "ISSUED") continue;
+        await storage.cleanupCarryForwardForStatement(stmt.id);
         await storage.deletePayStatementLineItems(stmt.id);
         await storage.deletePayStatementDeductions(stmt.id);
         await storage.deletePayStatement(stmt.id);

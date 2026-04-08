@@ -4924,4 +4924,11 @@ export const storage = {
       .where(eq(carryForwardBalances.userId, userId))
       .orderBy(desc(carryForwardBalances.createdAt));
   },
+  async cleanupCarryForwardForStatement(payStatementId: string): Promise<void> {
+    await db.delete(carryForwardBalances)
+      .where(eq(carryForwardBalances.originPayStatementId, payStatementId));
+    await db.update(carryForwardBalances)
+      .set({ resolvedPayStatementId: null, status: "PENDING", remainingAmountCents: sql`amount_cents`, updatedAt: new Date() })
+      .where(eq(carryForwardBalances.resolvedPayStatementId, payStatementId));
+  },
 };
