@@ -480,6 +480,10 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
                   <span className="text-muted-foreground">Advances Repayment</span>
                   <span className="text-red-600 dark:text-red-400">-{formatCurrency(data.advancesRepayment)}</span>
                 </div>
+                <div className="flex items-center justify-between" data-testid="tax-withheld-label">
+                  <span className="text-muted-foreground">Tax Withheld</span>
+                  <span className="text-muted-foreground text-sm italic">N/A — 1099 Contractor</span>
+                </div>
                 <div className="flex items-center justify-between pt-2 border-t">
                   <span className="font-semibold">Net Pay</span>
                   <span className="font-bold text-lg">{formatCurrency(data.netPay)}</span>

@@ -2,8 +2,43 @@ import { storage } from "./storage";
 import type { TxDb } from "./storage";
 import { applyWithholding, getOrCreateReserve, isReserveEligibleRole } from "./reserves/reserveService";
 import { db } from "./db";
-import { reserveTransactions } from "@shared/schema";
+import { reserveTransactions, payStatements } from "@shared/schema";
 import { eq, sql, and, isNull } from "drizzle-orm";
+
+async function computeYtd(userId: string, periodEnd: string, excludeStatementId?: string, txDb?: TxDb) {
+  const d = txDb ?? db;
+  const year = periodEnd.substring(0, 4);
+  const yearStart = `${year}-01-01`;
+  const conditions = [
+    eq(payStatements.userId, userId),
+    sql`${payStatements.periodEnd} >= ${yearStart}`,
+    sql`${payStatements.periodEnd} < ${periodEnd}`,
+  ];
+  if (excludeStatementId) {
+    conditions.push(sql`${payStatements.id} != ${excludeStatementId}`);
+  }
+  const priorStubs = await d.select().from(payStatements).where(and(...conditions));
+  let ytdGrossCents = 0;
+  let ytdDeductionsCents = 0;
+  let ytdNetCents = 0;
+  for (const s of priorStubs) {
+    ytdGrossCents += Math.round(parseFloat(s.grossCommission || "0") * 100)
+      + Math.round(parseFloat(s.overrideEarningsTotal || "0") * 100)
+      + Math.round(parseFloat(s.bonusesTotal || "0") * 100)
+      + Math.round(parseFloat(s.incentivesTotal || "0") * 100);
+    ytdDeductionsCents += Math.round(parseFloat(s.chargebacksTotal || "0") * 100)
+      + Math.round(parseFloat(s.deductionsTotal || "0") * 100)
+      + Math.round(parseFloat(s.advancesApplied || "0") * 100);
+    ytdNetCents += Math.round(parseFloat(s.netPay || "0") * 100);
+  }
+  return { ytdGrossCents, ytdDeductionsCents, ytdNetCents };
+}
+
+function buildStubNumber(periodEnd: string, userRepId: string, seq: number): string {
+  const d = new Date(periodEnd + "T00:00:00Z");
+  const ym = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `STUB-${ym}-${userRepId}-${String(seq).padStart(4, "0")}`;
+}
 
 interface PayStubResult {
   payStatementId: string;
@@ -39,7 +74,7 @@ export async function generatePayStub(
   if (!user) throw new Error(`User ${userId} not found`);
 
   const stubSeq = await storage.getNextStubSequence(payRunId, txDb);
-  const stubNumber = `PS-${payRunId.substring(0, 8).toUpperCase()}-${String(stubSeq).padStart(4, "0")}`;
+  const stubNumber = buildStubNumber(periodEnd, user.repId, stubSeq);
 
   const readyOrders = await storage.getPayrollReadyOrdersForUser(userId, periodStart, periodEnd);
 
@@ -188,7 +223,7 @@ export async function generatePayStub(
     repName: user.name || "",
     repId: user.id,
     repRole: user.role,
-    repEmail: "",
+    repEmail: user.email || "",
     stubNumber,
     totalOrders,
     totalConnects,
@@ -201,10 +236,16 @@ export async function generatePayStub(
     reserveChargebacksOffset: reserveChargebacksOffsetCents > 0 ? (reserveChargebacksOffsetCents / 100).toFixed(2) : "0",
     reserveCapAmount: reserveCapStr,
     reserveStatusLabel: reserveStatusStr,
-    ytdGross: "0",
-    ytdDeductions: "0",
-    ytdNetPay: "0",
   }, txDb);
+
+  const ytd = await computeYtd(userId, periodEnd, statement.id, txDb);
+  const currentGross = grossCommissionCents + overrideTotalCents + bonusTotalCents;
+  const currentDeductions = chargebackTotalCents + deductionTotalCents + advanceTotalCents;
+  await storage.updatePayStatement(statement.id, {
+    ytdGross: ((ytd.ytdGrossCents + currentGross) / 100).toFixed(2),
+    ytdDeductions: ((ytd.ytdDeductionsCents + currentDeductions) / 100).toFixed(2),
+    ytdNetPay: ((ytd.ytdNetCents + netPayCents) / 100).toFixed(2),
+  } as any, txDb);
 
   if (totalReserveWithheldCents > 0) {
     const d = txDb ?? db;
@@ -414,7 +455,7 @@ async function generatePayStubFromPayRun(
   if (!user) throw new Error(`User ${userId} not found`);
 
   const stubSeq = await storage.getNextStubSequence(payRunId, txDb);
-  const stubNumber = `PS-${payRunId.substring(0, 8).toUpperCase()}-${String(stubSeq).padStart(4, "0")}`;
+  const stubNumber = buildStubNumber(periodEnd, user.repId, stubSeq);
 
   const allPayRunOrders = await storage.getOrdersByPayRunId(payRunId);
   const userOrders = allPayRunOrders.filter(o => o.userId === userId);
@@ -557,7 +598,7 @@ async function generatePayStubFromPayRun(
     repName: user.name || "",
     repId: user.id,
     repRole: user.role,
-    repEmail: "",
+    repEmail: user.email || "",
     stubNumber,
     totalOrders,
     totalConnects,
@@ -570,10 +611,16 @@ async function generatePayStubFromPayRun(
     reserveChargebacksOffset: reserveChargebacksOffsetCents2 > 0 ? (reserveChargebacksOffsetCents2 / 100).toFixed(2) : "0",
     reserveCapAmount: reserveCapStr2,
     reserveStatusLabel: reserveStatusStr2,
-    ytdGross: "0",
-    ytdDeductions: "0",
-    ytdNetPay: "0",
   }, txDb);
+
+  const ytd2 = await computeYtd(userId, periodEnd, statement.id, txDb);
+  const currentGross2 = grossCommissionCents + overrideTotalCents + bonusTotalCents;
+  const currentDeductions2 = chargebackTotalCents + deductionTotalCents + advanceTotalCents;
+  await storage.updatePayStatement(statement.id, {
+    ytdGross: ((ytd2.ytdGrossCents + currentGross2) / 100).toFixed(2),
+    ytdDeductions: ((ytd2.ytdDeductionsCents + currentDeductions2) / 100).toFixed(2),
+    ytdNetPay: ((ytd2.ytdNetCents + netPayCents) / 100).toFixed(2),
+  } as any, txDb);
 
   if (totalReserveWithheldCents2 > 0) {
     const d2 = txDb ?? db;

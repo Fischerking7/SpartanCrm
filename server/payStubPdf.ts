@@ -224,6 +224,13 @@ function buildPdf(
     summaryLine("Deductions:", `-${stmt.deductionsTotal}`);
     summaryLine("Advances Applied:", `-${stmt.advancesApplied}`);
 
+    checkPage();
+    currentY = doc.y;
+    doc.text("Tax Withheld:", summaryCol, currentY);
+    doc.fillColor("gray").text("N/A — 1099 Contractor", valCol, currentY, { width: 100, align: "right" });
+    doc.fillColor("black");
+    doc.moveDown(0.3);
+
     if (stmt.reserveWithheldTotal && parseFloat(stmt.reserveWithheldTotal) > 0) {
       summaryLine("Reserve Withheld:", `-${stmt.reserveWithheldTotal}`);
     }
@@ -233,6 +240,17 @@ function buildPdf(
     doc.moveDown(0.3);
 
     summaryLine("Net Pay:", stmt.netPay, true);
+
+    doc.moveDown(0.3);
+    doc.fontSize(9).font("Helvetica-Bold").text("Year-to-Date", summaryCol);
+    doc.font("Helvetica").fontSize(9);
+    doc.moveDown(0.2);
+    const ytdGrossVal = parseFloat(stmt.ytdGross || "0");
+    const ytdDeductionsVal = parseFloat(stmt.ytdDeductions || "0");
+    const ytdNetVal = parseFloat(stmt.ytdNetPay || "0");
+    summaryLine("YTD Gross:", ytdGrossVal.toFixed(2));
+    summaryLine("YTD Deductions:", ytdDeductionsVal.toFixed(2));
+    summaryLine("YTD Net:", ytdNetVal.toFixed(2), true);
 
     const hasReserveData = (stmt.reserveWithheldTotal && parseFloat(stmt.reserveWithheldTotal) > 0) ||
       (stmt.reservePreviousBalance && parseFloat(stmt.reservePreviousBalance) > 0) ||

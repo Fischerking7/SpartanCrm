@@ -184,11 +184,9 @@ export function generatePayStatementPdf(data: PayStatementPdfData): Promise<Buff
         doc.fillColor("black");
       }
 
-      if (parseFloat(statement.taxWithheld) !== 0) {
-        doc.text("Tax Withheld", 60);
-        doc.fillColor("red").text(`-${formatCurrency(statement.taxWithheld)}`, 450, doc.y - 12, { width: 100, align: "right" });
-        doc.fillColor("black");
-      }
+      doc.text("Tax Withheld", 60);
+      doc.fillColor("gray").text("N/A — 1099 Contractor", 450, doc.y - 12, { width: 100, align: "right" });
+      doc.fillColor("black");
 
       if (statement.reserveWithheldTotal && parseFloat(statement.reserveWithheldTotal) > 0) {
         doc.text("Reserve Withheld", 60);
