@@ -25,6 +25,24 @@ import { generatePayStubPdf } from "./payStubPdf";
 import { deliverPayStubsForPayRun, queuePayStubEmail } from "./payStubEmailService";
 import archiver from "archiver";
 
+async function logPayrollAudit(params: {
+  payRunId: string;
+  action: string;
+  userId: string;
+  details?: Record<string, unknown>;
+  beforeJson?: string | null;
+  txDb?: TxDb;
+}) {
+  return storage.createAuditLog({
+    action: params.action,
+    tableName: "pay_runs",
+    recordId: params.payRunId,
+    beforeJson: params.beforeJson || null,
+    afterJson: params.details ? JSON.stringify(params.details) : null,
+    userId: params.userId,
+  }, params.txDb);
+}
+
 // Placeholder until actual MRC data is tracked
 const REVENUE_MULTIPLIER = parseFloat(process.env.REVENUE_MULTIPLIER || "5");
 
@@ -4579,17 +4597,11 @@ Rules:
         }
 
         if (eligible.length > 0) {
-          await storage.createAuditLog({
-            action: "payrun_orders_linked",
-            tableName: "pay_runs",
-            recordId: payRun.id,
-            afterJson: JSON.stringify({ orderCount: eligible.length }),
-            userId: req.user!.id,
-          });
+          await logPayrollAudit({ payRunId: payRun.id, action: "payrun_orders_linked", userId: req.user!.id, details: { orderCount: eligible.length } });
         }
       }
 
-      await storage.createAuditLog({ action: "create_payrun", tableName: "pay_runs", recordId: payRun.id, afterJson: JSON.stringify(payRun), userId: req.user!.id });
+      await logPayrollAudit({ payRunId: payRun.id, action: "create_payrun", userId: req.user!.id, details: { name: payRun.name, weekEndingDate: payRun.weekEndingDate } });
       const orders = await storage.getOrdersByPayRunId(payRun.id);
       res.json({ ...payRun, orderCount: orders.length });
     } catch (error: any) { 
@@ -4597,18 +4609,18 @@ Rules:
       res.status(500).json({ message: error.message || "Failed" }); 
     }
   });
-  app.delete("/api/admin/payruns/:id", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
+  app.delete("/api/admin/payruns/:id", auth, requirePermission("admin:payruns:delete"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
-      if (payRun.status === "FINALIZED") return res.status(400).json({ message: "Cannot delete finalized pay runs" });
+      if (!["DRAFT", "PENDING_REVIEW", "REJECTED"].includes(payRun.status)) {
+        return res.status(400).json({ message: "Only draft, pending review, or rejected pay runs can be deleted" });
+      }
       
-      // Unlink any orders first
       await storage.unlinkOrdersFromPayRun(req.params.id);
-      // Soft delete
-      const deleted = await storage.updatePayRun(req.params.id, { deletedAt: new Date() });
-      await storage.createAuditLog({ action: "delete_payrun", tableName: "pay_runs", recordId: req.params.id, beforeJson: JSON.stringify(payRun), afterJson: JSON.stringify(deleted), userId: req.user!.id });
-      res.json({ success: true });
+      await storage.deletePayRun(req.params.id);
+      await logPayrollAudit({ payRunId: req.params.id, action: "delete_payrun", userId: req.user!.id, beforeJson: JSON.stringify(payRun), details: { name: payRun.name } });
+      res.json({ success: true, message: "Pay run deleted" });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
   app.post("/api/admin/payruns/:id/submit-review", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
@@ -4627,7 +4639,7 @@ Rules:
       
       const beforeJson = JSON.stringify({ status: payRun.status });
       const updated = await storage.updatePayRun(req.params.id, { status: "PENDING_REVIEW" });
-      await storage.createAuditLog({ action: "submit_payrun_review", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
+      await logPayrollAudit({ payRunId: req.params.id, action: "submit_payrun_review", userId: req.user!.id, beforeJson, details: { status: updated.status } });
       res.json(updated);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
@@ -4640,7 +4652,7 @@ Rules:
       
       const beforeJson = JSON.stringify({ status: payRun.status });
       const updated = await storage.updatePayRun(req.params.id, { status: "PENDING_APPROVAL" });
-      await storage.createAuditLog({ action: "submit_payrun_approval", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
+      await logPayrollAudit({ payRunId: req.params.id, action: "submit_payrun_approval", userId: req.user!.id, beforeJson, details: { status: updated.status } });
       res.json(updated);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
@@ -4653,7 +4665,7 @@ Rules:
       
       const beforeJson = JSON.stringify({ status: payRun.status });
       const updated = await storage.updatePayRun(req.params.id, { status: "APPROVED" });
-      await storage.createAuditLog({ action: "approve_payrun", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
+      await logPayrollAudit({ payRunId: req.params.id, action: "approve_payrun", userId: req.user!.id, beforeJson, details: { status: updated.status } });
       res.json(updated);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
@@ -4667,23 +4679,11 @@ Rules:
       }
       
       const updated = await storage.updatePayRun(req.params.id, { status: "DRAFT" });
-      await storage.createAuditLog({ action: "reject_payrun", tableName: "pay_runs", recordId: req.params.id, beforeJson: JSON.stringify({ status: payRun.status }), afterJson: JSON.stringify(updated), userId: req.user!.id });
+      await logPayrollAudit({ payRunId: req.params.id, action: "reject_payrun", userId: req.user!.id, beforeJson: JSON.stringify({ status: payRun.status }), details: { status: updated.status } });
       res.json(updated);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
-  app.delete("/api/admin/payruns/:id", auth, requirePermission("admin:payruns:delete"), async (req: AuthRequest, res) => {
-    try {
-      const payRun = await storage.getPayRunById(req.params.id);
-      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
-      if (!["DRAFT", "PENDING_REVIEW", "REJECTED"].includes(payRun.status)) {
-        return res.status(400).json({ message: "Only draft or pending review pay runs can be deleted" });
-      }
-      await storage.deletePayRun(req.params.id);
-      await storage.createAuditLog({ action: "delete_payrun", tableName: "pay_runs", recordId: req.params.id, beforeJson: JSON.stringify(payRun), afterJson: null, userId: req.user!.id });
-      res.json({ message: "Pay run deleted" });
-    } catch (error: any) { res.status(500).json({ message: error.message || "Failed to delete pay run" }); }
-  });
 
   app.get("/api/admin/payruns/:id/variance", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
@@ -4800,13 +4800,13 @@ Rules:
             orderId: order.id,
           });
           
-          await storage.createAuditLog({
+          await logPayrollAudit({
+            payRunId: req.params.id,
             action: "apply_override_distribution",
-            tableName: "override_earnings",
-            recordId: earning.id,
-            afterJson: JSON.stringify({ ...earning, distributionId: dist.id, poolEntryId: dist.poolEntryId }),
             userId: req.user!.id,
-          }, txDb);
+            details: { earningId: earning.id, recipientId: dist.recipientUserId, amount: dist.calculatedAmount, orderId: order.id, distributionId: dist.id, poolEntryId: dist.poolEntryId },
+            txDb,
+          });
         }
         
         if (manualDistributions.length > 0) {
@@ -4863,14 +4863,14 @@ Rules:
         
         const beforeJson = JSON.stringify({ status: payRun.status });
         const updated = await storage.updatePayRun(req.params.id, { status: "FINALIZED", finalizedAt: new Date() }, txDb);
-        await storage.createAuditLog({ 
-          action: "finalize_payrun", 
-          tableName: "pay_runs", 
-          recordId: req.params.id, 
-          beforeJson, 
-          afterJson: JSON.stringify({ ...updated, overrideDistributions: distributionResults.length }), 
-          userId: req.user!.id 
-        }, txDb);
+        await logPayrollAudit({
+          payRunId: req.params.id,
+          action: "finalize_payrun",
+          userId: req.user!.id,
+          beforeJson,
+          details: { status: updated.status, overrideDistributions: distributionResults.length },
+          txDb,
+        });
         
         return { ...updated, overrideDistributions: distributionResults.length };
       });
@@ -4895,7 +4895,7 @@ Rules:
 
       const beforeJson = JSON.stringify({ status: payRun.status });
       const updated = await storage.updatePayRun(req.params.id, { status: "PAID", paidAt: new Date() });
-      await storage.createAuditLog({ action: "mark_payrun_paid", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
+      await logPayrollAudit({ payRunId: req.params.id, action: "mark_payrun_paid", userId: req.user!.id, beforeJson, details: { status: updated.status } });
       res.json(updated);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
@@ -4959,9 +4959,18 @@ Rules:
       const payRun = await storage.getPayRunById(req.params.id);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
 
-      const options: { startDate?: Date; endDate?: Date } = {};
-      if (req.query.startDate) options.startDate = new Date(req.query.startDate as string);
-      if (req.query.endDate) options.endDate = new Date(req.query.endDate as string);
+      const options: { startDate?: Date; endDate?: Date; userId?: string } = {};
+      if (req.query.startDate) {
+        const d = new Date(req.query.startDate as string);
+        if (isNaN(d.getTime())) return res.status(400).json({ message: "Invalid startDate" });
+        options.startDate = d;
+      }
+      if (req.query.endDate) {
+        const d = new Date(req.query.endDate as string);
+        if (isNaN(d.getTime())) return res.status(400).json({ message: "Invalid endDate" });
+        options.endDate = d;
+      }
+      if (req.query.userId) options.userId = req.query.userId as string;
 
       const logs = await storage.getAuditLogsByRecordId(req.params.id, options);
 
@@ -4996,10 +5005,17 @@ Rules:
         try {
           const afterData = log.afterJson ? JSON.parse(log.afterJson) : null;
           if (afterData) {
-            if (afterData.orderCount !== undefined) details = `${afterData.orderCount} orders`;
-            if (afterData.stubCount !== undefined) details += details ? `, ${afterData.stubCount} stubs` : `${afterData.stubCount} stubs`;
-            if (afterData.statementCount !== undefined) details += details ? `, ${afterData.statementCount} statements` : `${afterData.statementCount} statements`;
-            if (afterData.finalized !== undefined) details += details ? `, finalized: ${afterData.finalized}` : `finalized: ${afterData.finalized}`;
+            const parts: string[] = [];
+            if (afterData.name) parts.push(`"${afterData.name}"`);
+            if (afterData.status) parts.push(`status: ${afterData.status}`);
+            if (afterData.orderCount !== undefined) parts.push(`${afterData.orderCount} orders`);
+            if (afterData.stubCount !== undefined) parts.push(`${afterData.stubCount} stubs`);
+            if (afterData.statementCount !== undefined) parts.push(`${afterData.statementCount} statements`);
+            if (afterData.finalized !== undefined) parts.push(`finalized: ${afterData.finalized}`);
+            if (afterData.periodStart) parts.push(`period: ${afterData.periodStart} – ${afterData.periodEnd || "?"}`);
+            if (afterData.weekEndingDate) parts.push(`week ending: ${afterData.weekEndingDate}`);
+            if (afterData.overrideDistributions) parts.push(`${afterData.overrideDistributions} distributions`);
+            details = parts.join(", ");
           }
         } catch {}
 
@@ -5242,13 +5258,7 @@ Rules:
       // Also link override earnings for these orders to this pay run
       await storage.updateOverrideEarningsPayRunId(orderIds, req.params.id);
       
-      await storage.createAuditLog({ 
-        action: "link_orders_to_payrun", 
-        tableName: "pay_runs", 
-        recordId: req.params.id, 
-        afterJson: JSON.stringify({ orderIds }), 
-        userId: req.user!.id 
-      });
+      await logPayrollAudit({ payRunId: req.params.id, action: "link_orders_to_payrun", userId: req.user!.id, details: { orderCount: orders.length } });
       res.json({ linked: orders.length });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
@@ -5295,13 +5305,7 @@ Rules:
       const orders = await storage.linkOrdersToPayRun(orderIds, req.params.id);
       await storage.updateOverrideEarningsPayRunId(orderIds, req.params.id);
 
-      await storage.createAuditLog({ 
-        action: "link_all_orders_to_payrun", 
-        tableName: "pay_runs", 
-        recordId: req.params.id, 
-        afterJson: JSON.stringify({ count: orders.length }), 
-        userId: req.user!.id 
-      });
+      await logPayrollAudit({ payRunId: req.params.id, action: "link_all_orders_to_payrun", userId: req.user!.id, details: { orderCount: orders.length } });
       res.json({ linked: orders.length, message: `Linked ${orders.length} orders to pay run` });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
@@ -5321,13 +5325,7 @@ Rules:
       // Also unlink override earnings for these orders
       await storage.updateOverrideEarningsPayRunId(orderIds, null);
       
-      await storage.createAuditLog({ 
-        action: "unlink_orders_from_payrun", 
-        tableName: "pay_runs", 
-        recordId: req.params.id, 
-        afterJson: JSON.stringify({ orderIds }), 
-        userId: req.user!.id 
-      });
+      await logPayrollAudit({ payRunId: req.params.id, action: "unlink_orders_from_payrun", userId: req.user!.id, details: { orderCount: orderIds.length } });
       res.json({ unlinked: orderIds.length });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
@@ -17912,13 +17910,7 @@ Rules:
         await storage.updateOrder(order.id, { payRunId: payRun.id });
       }
 
-      await storage.createAuditLog({
-        userId: req.user!.id,
-        action: "payroll_auto_build",
-        tableName: "pay_runs",
-        recordId: payRun.id,
-        afterJson: JSON.stringify({ orderCount: readyOrders.length, periodStart, periodEnd }),
-      });
+      await logPayrollAudit({ payRunId: payRun.id, action: "payroll_auto_build", userId: req.user!.id, details: { orderCount: readyOrders.length, periodStart, periodEnd } });
 
       res.json({ payRun, orderCount: readyOrders.length });
     } catch (error: any) {
@@ -17982,13 +17974,7 @@ Rules:
 
       const results = await generatePayStubsForPayRun(req.params.payRunId, periodStart, periodEnd);
 
-      await storage.createAuditLog({
-        userId: req.user!.id,
-        action: "payroll_generate_stubs",
-        tableName: "pay_runs",
-        recordId: req.params.payRunId,
-        afterJson: JSON.stringify({ stubCount: results.length }),
-      });
+      await logPayrollAudit({ payRunId: req.params.payRunId, action: "payroll_generate_stubs", userId: req.user!.id, details: { stubCount: results.length } });
 
       res.json({ payRunId: req.params.payRunId, stubs: results });
     } catch (error: any) {
@@ -18015,13 +18001,7 @@ Rules:
 
       await storage.updatePayRun(req.params.payRunId, { status: "FINALIZED", finalizedAt: new Date() });
 
-      await storage.createAuditLog({
-        userId: req.user!.id,
-        action: "payroll_finalize",
-        tableName: "pay_runs",
-        recordId: req.params.payRunId,
-        afterJson: JSON.stringify({ statementCount: stmts.length }),
-      });
+      await logPayrollAudit({ payRunId: req.params.payRunId, action: "payroll_finalize", userId: req.user!.id, details: { statementCount: stmts.length } });
 
       res.json({ message: "Pay run finalized", statementCount: stmts.length });
 
@@ -18072,13 +18052,7 @@ Rules:
         await storage.updatePayRun(payRun.id, { status: "FINALIZED", finalizedAt: new Date() });
       }
 
-      await storage.createAuditLog({
-        userId: req.user!.id,
-        action: "payroll_full_cycle",
-        tableName: "pay_runs",
-        recordId: payRun.id,
-        afterJson: JSON.stringify({ orderCount: readyOrders.length, stubCount: stubs.length, finalized: !!finalize }),
-      });
+      await logPayrollAudit({ payRunId: payRun.id, action: "payroll_full_cycle", userId: req.user!.id, details: { orderCount: readyOrders.length, stubCount: stubs.length, finalized: !!finalize } });
 
       res.json({
         payRun,
