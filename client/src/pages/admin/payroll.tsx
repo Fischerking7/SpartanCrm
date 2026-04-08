@@ -22,14 +22,21 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 
-interface PayrollSchedule {
+interface ScheduledPayRun {
   id: string;
   name: string;
   frequency: string;
   dayOfWeek: number | null;
   dayOfMonth: number | null;
-  active: boolean;
+  secondDayOfMonth: number | null;
+  isActive: boolean;
+  autoCreatePayRun: boolean;
+  autoLinkOrders: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  createdByUserId: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 
 interface DeductionType {
@@ -88,9 +95,12 @@ function formatDate(date: string) {
 
 const scheduleSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  frequency: z.enum(["WEEKLY", "BI_WEEKLY", "SEMI_MONTHLY", "MONTHLY"]),
+  frequency: z.enum(["WEEKLY", "BIWEEKLY", "SEMIMONTHLY", "MONTHLY"]),
   dayOfWeek: z.number().min(0).max(6).nullable(),
   dayOfMonth: z.number().min(1).max(28).nullable(),
+  secondDayOfMonth: z.number().min(1).max(28).nullable(),
+  autoCreatePayRun: z.boolean(),
+  autoLinkOrders: z.boolean(),
 });
 
 const deductionTypeSchema = z.object({
@@ -119,10 +129,10 @@ function SchedulesTab() {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const { data: schedules, isLoading } = useQuery<PayrollSchedule[]>({
-    queryKey: ["/api/admin/payroll/schedules"],
+  const { data: schedules, isLoading } = useQuery<ScheduledPayRun[]>({
+    queryKey: ["/api/admin/scheduled-pay-runs"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/payroll/schedules", { 
+      const res = await fetch("/api/admin/scheduled-pay-runs", { 
         headers: getAuthHeaders(),
         credentials: "include" 
       });
@@ -138,15 +148,18 @@ function SchedulesTab() {
       frequency: "WEEKLY" as const,
       dayOfWeek: 5 as number | null,
       dayOfMonth: null as number | null,
+      secondDayOfMonth: null as number | null,
+      autoCreatePayRun: true,
+      autoLinkOrders: true,
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: z.infer<typeof scheduleSchema>) => {
-      return apiRequest("/api/admin/payroll/schedules", "POST", data);
+      return apiRequest("/api/admin/scheduled-pay-runs", "POST", data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/payroll/schedules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/scheduled-pay-runs"] });
       setDialogOpen(false);
       form.reset();
       toast({ title: "Schedule created successfully" });
@@ -157,17 +170,49 @@ function SchedulesTab() {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
-      return apiRequest(`/api/admin/payroll/schedules/${id}`, "PATCH", { active });
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      return apiRequest(`/api/admin/scheduled-pay-runs/${id}`, "PATCH", { isActive });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/payroll/schedules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/scheduled-pay-runs"] });
+      toast({ title: "Schedule updated" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest(`/api/admin/scheduled-pay-runs/${id}`, "DELETE");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/scheduled-pay-runs"] });
+      toast({ title: "Schedule deleted" });
     },
   });
 
   const getDayName = (day: number) => {
     const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     return days[day];
+  };
+
+  const getPayDayLabel = (schedule: ScheduledPayRun) => {
+    if (schedule.frequency === "WEEKLY" || schedule.frequency === "BIWEEKLY") {
+      return schedule.dayOfWeek !== null ? getDayName(schedule.dayOfWeek) : "-";
+    }
+    if (schedule.frequency === "SEMIMONTHLY") {
+      const d1 = schedule.dayOfMonth || 1;
+      const d2 = schedule.secondDayOfMonth || 16;
+      return `${d1}${ordinal(d1)} & ${d2}${ordinal(d2)}`;
+    }
+    if (schedule.frequency === "MONTHLY") {
+      return schedule.dayOfMonth ? `${schedule.dayOfMonth}${ordinal(schedule.dayOfMonth)}` : "-";
+    }
+    return "-";
+  };
+
+  const ordinal = (n: number) => {
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return s[(v - 20) % 10] || s[v] || s[0];
   };
 
   const frequency = form.watch("frequency");
@@ -178,8 +223,8 @@ function SchedulesTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold">Payroll Schedules</h3>
-          <p className="text-sm text-muted-foreground">Configure when pay periods occur</p>
+          <h3 className="text-lg font-semibold">Automated Pay Run Schedules</h3>
+          <p className="text-sm text-muted-foreground">Configure automated pay run creation and order linking</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
@@ -190,7 +235,7 @@ function SchedulesTab() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create Payroll Schedule</DialogTitle>
+              <DialogTitle>Create Automated Schedule</DialogTitle>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-4">
@@ -201,7 +246,7 @@ function SchedulesTab() {
                     <FormItem>
                       <FormLabel>Schedule Name</FormLabel>
                       <FormControl>
-                        <Input placeholder="Weekly Payroll" {...field} data-testid="input-schedule-name" />
+                        <Input placeholder="Semi-Monthly Payroll" {...field} data-testid="input-schedule-name" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -221,8 +266,8 @@ function SchedulesTab() {
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="WEEKLY">Weekly</SelectItem>
-                          <SelectItem value="BI_WEEKLY">Bi-Weekly</SelectItem>
-                          <SelectItem value="SEMI_MONTHLY">Semi-Monthly</SelectItem>
+                          <SelectItem value="BIWEEKLY">Bi-Weekly</SelectItem>
+                          <SelectItem value="SEMIMONTHLY">Semi-Monthly</SelectItem>
                           <SelectItem value="MONTHLY">Monthly</SelectItem>
                         </SelectContent>
                       </Select>
@@ -230,7 +275,7 @@ function SchedulesTab() {
                     </FormItem>
                   )}
                 />
-                {(frequency === "WEEKLY" || frequency === "BI_WEEKLY") && (
+                {(frequency === "WEEKLY" || frequency === "BIWEEKLY") && (
                   <FormField
                     control={form.control}
                     name="dayOfWeek"
@@ -258,7 +303,53 @@ function SchedulesTab() {
                     )}
                   />
                 )}
-                {["SEMI_MONTHLY", "MONTHLY"].includes(frequency) && (
+                {frequency === "SEMIMONTHLY" && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="dayOfMonth"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>First Pay Date</FormLabel>
+                          <FormControl>
+                            <Input 
+                              type="number" 
+                              min={1} 
+                              max={28} 
+                              placeholder="1" 
+                              value={field.value || ""} 
+                              onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
+                              data-testid="input-first-pay-date" 
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="secondDayOfMonth"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Second Pay Date</FormLabel>
+                          <FormControl>
+                            <Input 
+                              type="number" 
+                              min={1} 
+                              max={28} 
+                              placeholder="16" 
+                              value={field.value || ""} 
+                              onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
+                              data-testid="input-second-pay-date" 
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
+                {frequency === "MONTHLY" && (
                   <FormField
                     control={form.control}
                     name="dayOfMonth"
@@ -281,6 +372,33 @@ function SchedulesTab() {
                     )}
                   />
                 )}
+                <Separator />
+                <div className="space-y-3">
+                  <FormField
+                    control={form.control}
+                    name="autoCreatePayRun"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between">
+                        <FormLabel className="text-sm">Auto-create draft pay runs</FormLabel>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-auto-create" />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="autoLinkOrders"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between">
+                        <FormLabel className="text-sm">Auto-link eligible orders</FormLabel>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-auto-link" />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </div>
                 <DialogFooter>
                   <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-schedule">
                     {createMutation.isPending ? "Creating..." : "Create Schedule"}
@@ -297,33 +415,70 @@ function SchedulesTab() {
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Frequency</TableHead>
-            <TableHead>Pay Day</TableHead>
+            <TableHead>Pay Day(s)</TableHead>
+            <TableHead>Auto-Create</TableHead>
+            <TableHead>Auto-Link</TableHead>
+            <TableHead>Next Run</TableHead>
+            <TableHead>Last Run</TableHead>
             <TableHead>Active</TableHead>
+            <TableHead></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {schedules?.length === 0 && (
             <TableRow>
-              <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                No schedules configured. Add one to get started.
+              <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                No automated schedules configured. Add one to get started.
               </TableCell>
             </TableRow>
           )}
           {schedules?.map((schedule) => (
-            <TableRow key={schedule.id}>
+            <TableRow key={schedule.id} data-testid={`row-schedule-${schedule.id}`}>
               <TableCell className="font-medium">{schedule.name}</TableCell>
               <TableCell>
-                <Badge variant="outline">{schedule.frequency.replace("_", " ")}</Badge>
+                <Badge variant="outline">
+                  {schedule.frequency === "BIWEEKLY" ? "Bi-Weekly" : 
+                   schedule.frequency === "SEMIMONTHLY" ? "Semi-Monthly" : 
+                   schedule.frequency.charAt(0) + schedule.frequency.slice(1).toLowerCase()}
+                </Badge>
+              </TableCell>
+              <TableCell className="text-sm">{getPayDayLabel(schedule)}</TableCell>
+              <TableCell>
+                {schedule.autoCreatePayRun ? (
+                  <Badge variant="default" className="bg-green-600 text-xs">On</Badge>
+                ) : (
+                  <Badge variant="secondary" className="text-xs">Off</Badge>
+                )}
               </TableCell>
               <TableCell>
-                {schedule.dayOfWeek !== null ? getDayName(schedule.dayOfWeek) : schedule.dayOfMonth ? `${schedule.dayOfMonth}th` : "-"}
+                {schedule.autoLinkOrders ? (
+                  <Badge variant="default" className="bg-green-600 text-xs">On</Badge>
+                ) : (
+                  <Badge variant="secondary" className="text-xs">Off</Badge>
+                )}
+              </TableCell>
+              <TableCell className="text-sm text-muted-foreground">
+                {schedule.nextRunAt ? format(new Date(schedule.nextRunAt), "MMM dd, yyyy") : "-"}
+              </TableCell>
+              <TableCell className="text-sm text-muted-foreground">
+                {schedule.lastRunAt ? format(new Date(schedule.lastRunAt), "MMM dd, yyyy") : "Never"}
               </TableCell>
               <TableCell>
                 <Switch 
-                  checked={schedule.active} 
-                  onCheckedChange={(checked) => toggleMutation.mutate({ id: schedule.id, active: checked })}
+                  checked={schedule.isActive} 
+                  onCheckedChange={(checked) => toggleMutation.mutate({ id: schedule.id, isActive: checked })}
                   data-testid={`switch-schedule-${schedule.id}`}
                 />
+              </TableCell>
+              <TableCell>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => deleteMutation.mutate(schedule.id)}
+                  data-testid={`button-delete-schedule-${schedule.id}`}
+                >
+                  <Trash2 className="h-4 w-4 text-red-500" />
+                </Button>
               </TableCell>
             </TableRow>
           ))}

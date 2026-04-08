@@ -221,6 +221,8 @@ export const scheduler = {
         nextRunAt: nextRun,
       });
       
+      await this.notifyAccountingPayRunCreated(payRun, schedule);
+      
       await storage.updateBackgroundJob(job.id, {
         status: "COMPLETED",
         completedAt: new Date(),
@@ -258,9 +260,40 @@ export const scheduler = {
     return linked;
   },
 
+  async notifyAccountingPayRunCreated(payRun: any, schedule: any) {
+    try {
+      const allUsers = await storage.getUsers();
+      const accountingUsers = allUsers.filter(u => 
+        ["ACCOUNTING", "ADMIN"].includes(u.role) && 
+        u.status === "ACTIVE" && 
+        !u.deletedAt && 
+        u.email
+      );
+      
+      for (const user of accountingUsers) {
+        await emailService.queueNotification({
+          userId: user.id,
+          notificationType: "GENERAL",
+          subject: `Automated Pay Run Created: ${payRun.name}`,
+          body: `An automated pay run "${payRun.name}" has been created by the "${schedule.name}" schedule and is ready for review.\n\nPay Run ID: ${payRun.id}\nStatus: DRAFT\n\nPlease review the pay run in the Pay Runs page.`,
+          recipientEmail: user.email!,
+          relatedEntityType: "PAY_RUN",
+          relatedEntityId: payRun.id,
+        });
+      }
+      
+      console.log(`[Scheduler] Notified ${accountingUsers.length} accounting users about auto-created pay run`);
+    } catch (error) {
+      console.error("[Scheduler] Failed to notify accounting:", error);
+    }
+  },
+
   calculateNextRunDate(schedule: any): Date {
     const now = new Date();
     let next = new Date(now);
+    
+    const day1 = schedule.dayOfMonth || 1;
+    const day2 = schedule.secondDayOfMonth || 16;
     
     switch (schedule.frequency) {
       case "WEEKLY":
@@ -274,14 +307,18 @@ export const scheduler = {
       case "BIWEEKLY":
         next.setDate(next.getDate() + 14);
         break;
-      case "SEMIMONTHLY":
-        if (now.getDate() < 15) {
-          next.setDate(15);
+      case "SEMIMONTHLY": {
+        const currentDay = now.getDate();
+        if (currentDay < day1) {
+          next.setDate(day1);
+        } else if (currentDay < day2) {
+          next.setDate(day2);
         } else {
           next.setMonth(next.getMonth() + 1);
-          next.setDate(1);
+          next.setDate(Math.min(day1, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
         }
         break;
+      }
       case "MONTHLY":
       default:
         next.setMonth(next.getMonth() + 1);
