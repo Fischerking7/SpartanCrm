@@ -30,6 +30,11 @@ export async function queuePayStubEmail(
   userEmail?: string | null,
   userName?: string | null
 ): Promise<QueueResult> {
+  const currentStmt = await storage.getPayStatementById(stmt.id);
+  if (currentStmt && (currentStmt.emailDeliveryStatus === "SENT" || currentStmt.emailDeliveryStatus === "PENDING")) {
+    return { statementId: stmt.id, status: "SKIPPED", error: `Already ${currentStmt.emailDeliveryStatus.toLowerCase()}` };
+  }
+
   const email = stmt.repEmail || userEmail;
   if (!email) {
     await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "SKIPPED", emailDeliveryError: "No email address on file" });

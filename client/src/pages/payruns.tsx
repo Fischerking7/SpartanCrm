@@ -137,8 +137,12 @@ function EmailDeliveryStatus({ payRunId }: { payRunId: string }) {
         headers: getAuthHeaders(),
       });
       const data = await res.json();
-      toast({ title: data.message || "Retry complete" });
-      refetch();
+      if (!res.ok) {
+        toast({ title: data.message || "Retry failed", variant: "destructive" });
+      } else {
+        toast({ title: data.message || "Retry complete" });
+        refetch();
+      }
     } catch {
       toast({ title: "Retry failed", variant: "destructive" });
     }
@@ -1438,7 +1442,7 @@ export default function PayRuns() {
                 </Card>
               )}
 
-              {selectedPayRun.status === "FINALIZED" && (
+              {(selectedPayRun.status === "FINALIZED" || selectedPayRun.status === "PAID") && (
                 <EmailDeliveryStatus payRunId={selectedPayRun.id} />
               )}
 
