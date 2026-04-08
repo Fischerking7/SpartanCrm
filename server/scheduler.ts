@@ -170,44 +170,55 @@ export const scheduler = {
   derivePeriodBoundaries(schedule: any): { periodStart: string; periodEnd: string } {
     const now = new Date();
     const toDateStr = (d: Date) => d.toISOString().split("T")[0];
-    const periodEnd = toDateStr(now);
     
     switch (schedule.frequency) {
       case "WEEKLY": {
+        const end = new Date(now);
         const start = new Date(now);
         start.setDate(start.getDate() - 7);
-        return { periodStart: toDateStr(start), periodEnd };
+        return { periodStart: toDateStr(start), periodEnd: toDateStr(end) };
       }
       case "BIWEEKLY": {
+        const end = new Date(now);
         const start = new Date(now);
         start.setDate(start.getDate() - 14);
-        return { periodStart: toDateStr(start), periodEnd };
+        return { periodStart: toDateStr(start), periodEnd: toDateStr(end) };
       }
       case "SEMIMONTHLY": {
         const day1 = schedule.dayOfMonth || 1;
         const day2 = schedule.secondDayOfMonth || 16;
         const currentDay = now.getDate();
-        let start: Date;
+        let periodStart: Date;
+        let periodEnd: Date;
         
         if (currentDay >= day2) {
-          start = new Date(now.getFullYear(), now.getMonth(), day2);
+          periodStart = new Date(now.getFullYear(), now.getMonth(), day1);
+          periodEnd = new Date(now.getFullYear(), now.getMonth(), day2 - 1);
         } else if (currentDay >= day1) {
-          start = new Date(now.getFullYear(), now.getMonth(), day1);
+          const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          periodStart = new Date(prevMonth.getFullYear(), prevMonth.getMonth(), day2);
+          periodEnd = new Date(now.getFullYear(), now.getMonth(), day1 - 1);
         } else {
-          start = new Date(now.getFullYear(), now.getMonth() - 1, day2);
+          const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          periodStart = new Date(prevMonth.getFullYear(), prevMonth.getMonth(), day1);
+          periodEnd = new Date(prevMonth.getFullYear(), prevMonth.getMonth(), day2 - 1);
         }
-        return { periodStart: toDateStr(start), periodEnd };
+        return { periodStart: toDateStr(periodStart), periodEnd: toDateStr(periodEnd) };
       }
       case "MONTHLY":
       default: {
         const payDay = schedule.dayOfMonth || 1;
-        let start: Date;
+        let periodStart: Date;
+        let periodEnd: Date;
+        
         if (now.getDate() >= payDay) {
-          start = new Date(now.getFullYear(), now.getMonth(), payDay);
+          periodStart = new Date(now.getFullYear(), now.getMonth() - 1, payDay);
+          periodEnd = new Date(now.getFullYear(), now.getMonth(), payDay - 1);
         } else {
-          start = new Date(now.getFullYear(), now.getMonth() - 1, payDay);
+          periodStart = new Date(now.getFullYear(), now.getMonth() - 2, payDay);
+          periodEnd = new Date(now.getFullYear(), now.getMonth() - 1, payDay - 1);
         }
-        return { periodStart: toDateStr(start), periodEnd };
+        return { periodStart: toDateStr(periodStart), periodEnd: toDateStr(periodEnd) };
       }
     }
   },
