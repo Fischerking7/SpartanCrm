@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent } from "lucide-react";
+import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent, TrendingUp } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -20,6 +20,7 @@ import type { PayRun, SalesOrder } from "@shared/schema";
 interface EnrichedPayRun extends PayRun {
   orderCount: number;
   totalCommission: string;
+  totalIncentives: string;
 }
 
 interface PayRunDetails extends PayRun {
@@ -39,9 +40,10 @@ interface VarianceReport {
   totalGross: string;
   totalDeductions: string;
   totalNetPay: string;
+  totalIncentives: string;
   issues: string[];
   canFinalize: boolean;
-  repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; hasNegative: boolean }[];
+  repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; incentives: number; hasNegative: boolean }[];
 }
 
 interface PoolEntry {
@@ -547,6 +549,13 @@ export default function PayRuns() {
       ),
     },
     {
+      key: "totalIncentives",
+      header: "Incentives",
+      cell: (row: EnrichedPayRun) => (
+        <span className="font-mono text-green-600 dark:text-green-400" data-testid={`text-incentives-${row.id}`}>${row.totalIncentives}</span>
+      ),
+    },
+    {
       key: "status",
       header: "Status",
       cell: (row: EnrichedPayRun) => {
@@ -798,11 +807,12 @@ export default function PayRuns() {
     (acc, pr) => ({
       totalOrders: acc.totalOrders + pr.orderCount,
       totalCommission: acc.totalCommission + parseFloat(pr.totalCommission),
+      totalIncentives: acc.totalIncentives + parseFloat(pr.totalIncentives || "0"),
       draftCount: acc.draftCount + (pr.status === "DRAFT" ? 1 : 0),
       finalizedCount: acc.finalizedCount + (pr.status === "FINALIZED" ? 1 : 0),
     }),
-    { totalOrders: 0, totalCommission: 0, draftCount: 0, finalizedCount: 0 }
-  ) || { totalOrders: 0, totalCommission: 0, draftCount: 0, finalizedCount: 0 };
+    { totalOrders: 0, totalCommission: 0, totalIncentives: 0, draftCount: 0, finalizedCount: 0 }
+  ) || { totalOrders: 0, totalCommission: 0, totalIncentives: 0, draftCount: 0, finalizedCount: 0 };
 
   return (
     <div className="p-6 space-y-6">
@@ -851,6 +861,17 @@ export default function PayRuns() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">${totalStats.totalCommission.toFixed(2)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              Total Incentives
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-total-incentives">${totalStats.totalIncentives.toFixed(2)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -1194,7 +1215,7 @@ export default function PayRuns() {
           </DialogHeader>
           {varianceReport && (
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="p-3 bg-muted/30 rounded-lg text-center">
                   <p className="text-sm text-muted-foreground">Orders</p>
                   <p className="text-xl font-bold">{varianceReport.orderCount}</p>
@@ -1202,6 +1223,10 @@ export default function PayRuns() {
                 <div className="p-3 bg-muted/30 rounded-lg text-center">
                   <p className="text-sm text-muted-foreground">Total Gross</p>
                   <p className="text-xl font-bold font-mono">${varianceReport.totalGross}</p>
+                </div>
+                <div className="p-3 bg-muted/30 rounded-lg text-center" data-testid="text-variance-incentives">
+                  <p className="text-sm text-muted-foreground">Incentives</p>
+                  <p className="text-xl font-bold font-mono text-green-600 dark:text-green-400">${varianceReport.totalIncentives}</p>
                 </div>
                 <div className="p-3 bg-muted/30 rounded-lg text-center">
                   <p className="text-sm text-muted-foreground">Net Pay</p>
@@ -1244,6 +1269,9 @@ export default function PayRuns() {
                         <span className="font-mono">{rep.repId}</span>
                         <div className="flex items-center gap-4">
                           <span className="text-sm text-muted-foreground">Gross: ${rep.gross.toFixed(2)}</span>
+                          {rep.incentives > 0 && (
+                            <span className="text-sm text-green-600 dark:text-green-400">Incentives: ${rep.incentives.toFixed(2)}</span>
+                          )}
                           <span className="text-sm text-muted-foreground">Deductions: ${rep.deductions.toFixed(2)}</span>
                           <span className={`font-mono font-medium ${rep.hasNegative ? "text-destructive" : ""}`}>
                             Net: ${rep.net.toFixed(2)}

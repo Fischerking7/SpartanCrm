@@ -103,6 +103,7 @@ function buildPdf(
     const commissionItems = lineItems.filter((li: any) => li.category === "COMMISSION");
     const overrideItems = lineItems.filter((li: any) => li.category === "OVERRIDE");
     const bonusItems = lineItems.filter((li: any) => li.category === "BONUS");
+    const incentiveItems = lineItems.filter((li: any) => li.category === "INCENTIVE");
     const chargebackItems = lineItems.filter((li: any) => li.category === "CHARGEBACK");
 
     const checkPage = () => {
@@ -161,6 +162,10 @@ function buildPdf(
 
     for (const item of bonusItems) {
       drawSimpleItem(item.description, "Bonus", item.amount);
+    }
+
+    for (const item of incentiveItems) {
+      drawSimpleItem(item.description, "Incentive", item.amount);
     }
 
     if (chargebackItems.length > 0) {

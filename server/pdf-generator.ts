@@ -95,6 +95,7 @@ export function generatePayStatementPdf(data: PayStatementPdfData): Promise<Buff
       doc.moveDown(1);
 
       const commissionItems = lineItems.filter(li => li.category === "COMMISSION");
+      const incentiveLineItems = lineItems.filter(li => li.category === "INCENTIVE");
       const chargebackLineItems = lineItems.filter(li => li.category === "CHARGEBACK");
       const hasPerOrderNet = commissionItems.some(li => li.netAmount !== null);
 
@@ -131,6 +132,28 @@ export function generatePayStatementPdf(data: PayStatementPdfData): Promise<Buff
             doc.text(desc, 60);
             doc.text(formatCurrency(item.amount), 450, doc.y - 9, { width: 100, align: "right" });
           }
+        });
+        doc.moveDown(1);
+      }
+
+      if (incentiveLineItems.length > 0) {
+        if (doc.y > 650) doc.addPage();
+        doc.fontSize(11).font("Helvetica-Bold").text("Incentive Details", 50);
+        doc.moveDown(0.5);
+
+        doc.fontSize(9).font("Helvetica-Bold");
+        doc.text("Description", 60);
+        doc.text("Amount", 450, doc.y - 9, { width: 100, align: "right" });
+        doc.moveDown(0.3);
+        doc.moveTo(60, doc.y).lineTo(550, doc.y).stroke();
+        doc.moveDown(0.3);
+
+        doc.font("Helvetica").fontSize(9);
+        incentiveLineItems.forEach((item) => {
+          if (doc.y > 680) doc.addPage();
+          const desc = item.description.substring(0, 50);
+          doc.text(desc, 60);
+          doc.text(formatCurrency(item.amount), 450, doc.y - 9, { width: 100, align: "right" });
         });
         doc.moveDown(1);
       }

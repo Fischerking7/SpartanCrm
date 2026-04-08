@@ -4529,12 +4529,16 @@ Rules:
         const totalCommission = orders.reduce((sum, o) => 
           sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0
         );
+        const totalIncentives = orders.reduce((sum, o) => 
+          sum + parseFloat(o.incentiveEarned), 0
+        );
         const uniqueReps = new Set(orders.map(o => o.repId));
         return {
           ...pr,
           orderCount: orders.length,
           repCount: uniqueReps.size,
           totalCommission: totalCommission.toFixed(2),
+          totalIncentives: totalIncentives.toFixed(2),
         };
       }));
       res.json(enriched);
@@ -4691,8 +4695,9 @@ Rules:
       let totalGross = 0;
       let totalDeductions = 0;
       let totalNetPay = 0;
+      let totalIncentives = 0;
       const issues: string[] = [];
-      const repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; hasNegative: boolean }[] = [];
+      const repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; incentives: number; hasNegative: boolean }[] = [];
       
       for (const order of orders) {
         totalGross += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
@@ -4702,9 +4707,11 @@ Rules:
         const gross = parseFloat(stmt.grossCommission) + parseFloat(stmt.overrideEarningsTotal) + parseFloat(stmt.incentivesTotal);
         const deductions = parseFloat(stmt.deductionsTotal);
         const net = parseFloat(stmt.netPay);
+        const incentives = parseFloat(stmt.incentivesTotal);
         
         totalDeductions += deductions;
         totalNetPay += net;
+        totalIncentives += incentives;
         
         const hasNegative = net < 0;
         if (hasNegative) issues.push(`${stmt.userId} has negative net pay of $${net.toFixed(2)}`);
@@ -4715,6 +4722,7 @@ Rules:
           gross,
           deductions,
           net,
+          incentives,
           hasNegative,
         });
       }
@@ -4729,6 +4737,7 @@ Rules:
         totalGross: totalGross.toFixed(2),
         totalDeductions: totalDeductions.toFixed(2),
         totalNetPay: totalNetPay.toFixed(2),
+        totalIncentives: totalIncentives.toFixed(2),
         issues,
         canFinalize: issues.length === 0 && payRun.status === "APPROVED",
         repSummaries,
