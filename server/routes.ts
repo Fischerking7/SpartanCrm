@@ -14074,7 +14074,10 @@ Rules:
         const dataInfo = findDataTableInSheet(allRows);
         const isMasterSheet = masterSheetNames.includes(name.toLowerCase().trim());
         if (!repName && !isMasterSheet) {
-          repName = name.trim();
+          let cleanedTab = name.trim();
+          cleanedTab = cleanedTab.replace(/^\d+[-\s]*/, '');
+          cleanedTab = cleanedTab.replace(/^Iron Crest\s*[-–]\s*/i, '');
+          repName = cleanedTab.trim() || name.trim();
         }
         return {
           name,
@@ -14151,7 +14154,10 @@ Rules:
         if (!detectedRepName && selectedSheet) {
           const masterSheetNames = ['master', 'master report', 'summary', 'all reps', 'combined'];
           if (!masterSheetNames.includes(selectedSheet.toLowerCase().trim())) {
-            detectedRepName = selectedSheet.trim();
+            let cleanedTab = selectedSheet.trim();
+            cleanedTab = cleanedTab.replace(/^\d+[-\s]*/, '');
+            cleanedTab = cleanedTab.replace(/^Iron Crest\s*[-–]\s*/i, '');
+            detectedRepName = cleanedTab.trim() || selectedSheet.trim();
           }
         }
         
@@ -14544,13 +14550,15 @@ Rules:
 
         if (candidates.length === 0) continue;
 
-        // Token-based name similarity helper
+        // Token-based name similarity helper (supports prefix matching for truncated names)
         const nameTokenOverlap = (a: string, b: string): number => {
           if (!a || !b) return 0;
           const tokensA = a.split(' ').filter(Boolean);
           const tokensB = b.split(' ').filter(Boolean);
           if (tokensA.length === 0 || tokensB.length === 0) return 0;
-          const matched = tokensA.filter(t => tokensB.includes(t)).length;
+          const matched = tokensA.filter(tA => 
+            tokensB.some(tB => tA === tB || (tA.length >= 3 && tB.startsWith(tA)) || (tB.length >= 3 && tA.startsWith(tB)))
+          ).length;
           return matched / Math.max(tokensA.length, tokensB.length);
         };
 
@@ -14593,17 +14601,20 @@ Rules:
             }
           }
 
-          // Rep name matching (max 15 pts)
+          // Rep name matching (max 30 pts, penalty -30 for mismatch)
           if (row.repNameNorm && order.repName) {
             const orderRepNorm = normalizeCustomerName(order.repName);
             if (orderRepNorm === row.repNameNorm) {
-              score += 15;
-              reasons.push('exact_rep_match:+15');
+              score += 30;
+              reasons.push('exact_rep_match:+30');
             } else {
               const repOverlap = nameTokenOverlap(orderRepNorm, row.repNameNorm);
               if (repOverlap >= 0.5) {
-                score += 10;
-                reasons.push('partial_rep_match:+10');
+                score += 20;
+                reasons.push('partial_rep_match:+20');
+              } else {
+                score -= 30;
+                reasons.push('rep_mismatch:-30');
               }
             }
           }
@@ -14696,15 +14707,17 @@ Rules:
 
         if (scored.length > 0 && scored[0].score >= 50) {
           const topScore = scored[0].score;
-          const closeMatches = scored.filter(s => s.score >= 50 && topScore - s.score <= 10);
+          const topMatch = scored[0];
+          const hasRepMismatch = topMatch.reasons.some(r => r.startsWith('rep_mismatch'));
+          const hasRowRep = !!(row.repNameNorm && row.repNameNorm.length > 0);
 
-          if (closeMatches.length > 1) {
-            // Ambiguous
+          if (hasRowRep && hasRepMismatch) {
             await storage.updateFinanceImportRow(row.id, {
               matchStatus: 'AMBIGUOUS',
               matchConfidence: topScore,
               matchReason: JSON.stringify({
-                candidates: closeMatches.slice(0, 5).map(c => ({
+                note: 'Rep mismatch - requires manual review',
+                candidates: scored.filter(s => s.score >= 30).slice(0, 5).map(c => ({
                   orderId: c.order.id,
                   score: c.score,
                   reasons: c.reasons
@@ -14713,21 +14726,37 @@ Rules:
             });
             ambiguousCount++;
           } else {
-            // Matched - set expectedAmountCents from matched order's gross commission
-            const matchedOrder = scored[0].order;
-            const grossCommissionCents = Math.round(calcGrossCommission(matchedOrder) * 100);
-            await storage.updateFinanceImportRow(row.id, {
-              matchedOrderId: matchedOrder.id,
-              matchStatus: 'MATCHED',
-              matchConfidence: scored[0].score,
-              expectedAmountCents: grossCommissionCents,
-              matchReason: JSON.stringify({
-                orderId: matchedOrder.id,
-                score: scored[0].score,
-                reasons: scored[0].reasons
-              })
-            });
-            matchedCount++;
+            const closeMatches = scored.filter(s => s.score >= 50 && topScore - s.score <= 10);
+
+            if (closeMatches.length > 1) {
+              await storage.updateFinanceImportRow(row.id, {
+                matchStatus: 'AMBIGUOUS',
+                matchConfidence: topScore,
+                matchReason: JSON.stringify({
+                  candidates: closeMatches.slice(0, 5).map(c => ({
+                    orderId: c.order.id,
+                    score: c.score,
+                    reasons: c.reasons
+                  }))
+                })
+              });
+              ambiguousCount++;
+            } else {
+              const matchedOrder = scored[0].order;
+              const grossCommissionCents = Math.round(calcGrossCommission(matchedOrder) * 100);
+              await storage.updateFinanceImportRow(row.id, {
+                matchedOrderId: matchedOrder.id,
+                matchStatus: 'MATCHED',
+                matchConfidence: scored[0].score,
+                expectedAmountCents: grossCommissionCents,
+                matchReason: JSON.stringify({
+                  orderId: matchedOrder.id,
+                  score: scored[0].score,
+                  reasons: scored[0].reasons
+                })
+              });
+              matchedCount++;
+            }
           }
         }
       }
