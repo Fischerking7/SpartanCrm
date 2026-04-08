@@ -68,6 +68,8 @@ interface PayStatementDeduction {
 interface PayStatementDetails extends PayStatement {
   lineItems: PayStatementLineItem[];
   deductions: PayStatementDeduction[];
+  stubNumber?: string;
+  repEmail?: string;
 }
 
 interface YTDTotals {
@@ -214,6 +216,7 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
   const commissionItems = data?.lineItems.filter(li => li.category === "COMMISSION") || [];
   const overrideItems = data?.lineItems.filter(li => li.category === "OVERRIDE") || [];
   const bonusItems = data?.lineItems.filter(li => li.category === "BONUS") || [];
+  const incentiveItems = data?.lineItems.filter(li => li.category === "INCENTIVE") || [];
   const chargebackItems = data?.lineItems.filter(li => li.category === "CHARGEBACK") || [];
   const reserveItems = data?.lineItems.filter(li => li.category === "Reserve Withholding") || [];
   const hasPerOrderNet = commissionItems.some(li => li.netAmount !== null);
@@ -251,6 +254,18 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
                   {data.status}
                 </Badge>
               </div>
+              {data.stubNumber && (
+                <div data-testid="text-stub-number">
+                  <p className="text-muted-foreground">Stub #</p>
+                  <p className="font-medium font-mono text-xs">{data.stubNumber}</p>
+                </div>
+              )}
+              {data.repEmail && (
+                <div data-testid="text-rep-email">
+                  <p className="text-muted-foreground">Email</p>
+                  <p className="font-medium text-xs">{data.repEmail}</p>
+                </div>
+              )}
               {data.paidAt && (
                 <div>
                   <p className="text-muted-foreground">Paid On</p>
@@ -349,7 +364,7 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
               </>
             )}
 
-            {(overrideItems.length > 0 || bonusItems.length > 0) && (
+            {(overrideItems.length > 0 || bonusItems.length > 0 || incentiveItems.length > 0) && (
               <>
                 <Separator />
                 <div className="space-y-2">
@@ -375,6 +390,15 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
                       {bonusItems.map((item) => (
                         <TableRow key={item.id}>
                           <TableCell><Badge variant="outline" className="text-xs">Bonus</Badge></TableCell>
+                          <TableCell className="text-sm">{item.description}</TableCell>
+                          <TableCell className="text-right font-medium text-green-600 dark:text-green-400">
+                            {formatCurrency(item.amount)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {incentiveItems.map((item) => (
+                        <TableRow key={item.id} data-testid={`row-incentive-${item.id}`}>
+                          <TableCell><Badge variant="outline" className="text-xs">Incentive</Badge></TableCell>
                           <TableCell className="text-sm">{item.description}</TableCell>
                           <TableCell className="text-right font-medium text-green-600 dark:text-green-400">
                             {formatCurrency(item.amount)}

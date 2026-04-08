@@ -83,9 +83,13 @@ export async function generatePayStub(
   let totalConnects = 0;
   let totalMobileLines = 0;
 
+  let incentivesTotalCents = 0;
+
   for (const { order, client, provider, service } of readyOrders) {
     const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
     grossCommissionCents += Math.round(commAmount * 100);
+    const incAmount = order.incentiveEarned ? parseFloat(order.incentiveEarned) : 0;
+    incentivesTotalCents += Math.round(incAmount * 100);
     totalOrders++;
     if (order.jobStatus === "COMPLETED") totalConnects++;
     if (order.mobileLinesQty) totalMobileLines += order.mobileLinesQty;
@@ -181,7 +185,7 @@ export async function generatePayStub(
     }
   }
 
-  const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents;
+  const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents + incentivesTotalCents;
   const totalDeductions = chargebackNetPayImpactCents + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents;
   const netPayCents = grossTotal - totalDeductions;
 
@@ -213,7 +217,7 @@ export async function generatePayStub(
     grossCommission: (grossCommissionCents / 100).toFixed(2),
     overrideEarningsTotal: (overrideTotalCents / 100).toFixed(2),
     bonusesTotal: (bonusTotalCents / 100).toFixed(2),
-    incentivesTotal: "0",
+    incentivesTotal: (incentivesTotalCents / 100).toFixed(2),
     chargebacksTotal: (chargebackTotalCents / 100).toFixed(2),
     adjustmentsTotal: "0",
     deductionsTotal: (deductionTotalCents / 100).toFixed(2),
@@ -239,13 +243,14 @@ export async function generatePayStub(
   }, txDb);
 
   const ytd = await computeYtd(userId, periodEnd, statement.id, txDb);
-  const currentGross = grossCommissionCents + overrideTotalCents + bonusTotalCents;
+  const currentGross = grossCommissionCents + overrideTotalCents + bonusTotalCents + incentivesTotalCents;
   const currentDeductions = chargebackTotalCents + deductionTotalCents + advanceTotalCents;
-  await storage.updatePayStatement(statement.id, {
+  const ytdUpdate: Record<string, string> = {
     ytdGross: ((ytd.ytdGrossCents + currentGross) / 100).toFixed(2),
     ytdDeductions: ((ytd.ytdDeductionsCents + currentDeductions) / 100).toFixed(2),
     ytdNetPay: ((ytd.ytdNetCents + netPayCents) / 100).toFixed(2),
-  } as any, txDb);
+  };
+  await storage.updatePayStatement(statement.id, ytdUpdate as Partial<typeof statement>, txDb);
 
   if (totalReserveWithheldCents > 0) {
     const d = txDb ?? db;
@@ -324,6 +329,23 @@ export async function generatePayStub(
     }, txDb);
     lineItemCount++;
     await storage.linkBonusToPayRun(bonus.id, payRunId);
+  }
+
+  for (const ro of readyOrders) {
+    const incAmt = ro.order.incentiveEarned ? parseFloat(ro.order.incentiveEarned) : 0;
+    if (incAmt > 0) {
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "INCENTIVE",
+        description: `Incentive - ${ro.order.invoiceNumber || "Order"}`,
+        sourceType: "INCENTIVE",
+        sourceId: ro.order.id,
+        salesOrderId: ro.order.id,
+        invoiceNumber: ro.order.invoiceNumber || undefined,
+        amount: incAmt.toFixed(2),
+      }, txDb);
+      lineItemCount++;
+    }
   }
 
   for (const cb of userChargebacks) {
@@ -465,9 +487,13 @@ async function generatePayStubFromPayRun(
   let totalConnects = 0;
   let totalMobileLines = 0;
 
+  let incentivesTotalCents2 = 0;
+
   for (const order of userOrders) {
     const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
     grossCommissionCents += Math.round(commAmount * 100);
+    const incAmount = order.incentiveEarned ? parseFloat(order.incentiveEarned) : 0;
+    incentivesTotalCents2 += Math.round(incAmount * 100);
     totalOrders++;
     if (order.jobStatus === "COMPLETED") totalConnects++;
     if (order.mobileLinesQty) totalMobileLines += order.mobileLinesQty;
@@ -556,7 +582,7 @@ async function generatePayStubFromPayRun(
     }
   }
 
-  const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents;
+  const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents + incentivesTotalCents2;
   const totalDeductionsCalc = chargebackNetPayImpactCents2 + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents2;
   const netPayCents = grossTotal - totalDeductionsCalc;
 
@@ -588,7 +614,7 @@ async function generatePayStubFromPayRun(
     grossCommission: (grossCommissionCents / 100).toFixed(2),
     overrideEarningsTotal: (overrideTotalCents / 100).toFixed(2),
     bonusesTotal: (bonusTotalCents / 100).toFixed(2),
-    incentivesTotal: "0",
+    incentivesTotal: (incentivesTotalCents2 / 100).toFixed(2),
     chargebacksTotal: (chargebackTotalCents / 100).toFixed(2),
     adjustmentsTotal: "0",
     deductionsTotal: (deductionTotalCents / 100).toFixed(2),
@@ -614,13 +640,14 @@ async function generatePayStubFromPayRun(
   }, txDb);
 
   const ytd2 = await computeYtd(userId, periodEnd, statement.id, txDb);
-  const currentGross2 = grossCommissionCents + overrideTotalCents + bonusTotalCents;
+  const currentGross2 = grossCommissionCents + overrideTotalCents + bonusTotalCents + incentivesTotalCents2;
   const currentDeductions2 = chargebackTotalCents + deductionTotalCents + advanceTotalCents;
-  await storage.updatePayStatement(statement.id, {
+  const ytdUpdate2: Record<string, string> = {
     ytdGross: ((ytd2.ytdGrossCents + currentGross2) / 100).toFixed(2),
     ytdDeductions: ((ytd2.ytdDeductionsCents + currentDeductions2) / 100).toFixed(2),
     ytdNetPay: ((ytd2.ytdNetCents + netPayCents) / 100).toFixed(2),
-  } as any, txDb);
+  };
+  await storage.updatePayStatement(statement.id, ytdUpdate2 as Partial<typeof statement>, txDb);
 
   if (totalReserveWithheldCents2 > 0) {
     const d2 = txDb ?? db;
@@ -697,6 +724,23 @@ async function generatePayStubFromPayRun(
     }, txDb);
     lineItemCount++;
     await storage.linkBonusToPayRun(bonus.id, payRunId);
+  }
+
+  for (const uOrder of userOrders) {
+    const incAmt2 = uOrder.incentiveEarned ? parseFloat(uOrder.incentiveEarned) : 0;
+    if (incAmt2 > 0) {
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "INCENTIVE",
+        description: `Incentive - ${uOrder.invoiceNumber || "Order"}`,
+        sourceType: "INCENTIVE",
+        sourceId: uOrder.id,
+        salesOrderId: uOrder.id,
+        invoiceNumber: uOrder.invoiceNumber || undefined,
+        amount: incAmt2.toFixed(2),
+      }, txDb);
+      lineItemCount++;
+    }
   }
 
   for (const cb of userChargebacks) {

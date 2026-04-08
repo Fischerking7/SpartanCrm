@@ -220,8 +220,10 @@ function buildPdf(
     summaryLine("Gross Commission:", stmt.grossCommission);
     summaryLine("Override Earnings:", stmt.overrideEarningsTotal);
     summaryLine("Bonuses:", stmt.bonusesTotal || "0");
+    summaryLine("Incentives:", stmt.incentivesTotal || "0");
     summaryLine("Chargebacks:", `-${stmt.chargebacksTotal}`);
     summaryLine("Deductions:", `-${stmt.deductionsTotal}`);
+    summaryLine("Adjustments:", stmt.adjustmentsTotal || "0");
     summaryLine("Advances Applied:", `-${stmt.advancesApplied}`);
 
     checkPage();
