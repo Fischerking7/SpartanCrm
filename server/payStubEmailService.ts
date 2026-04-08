@@ -1,6 +1,5 @@
 import { storage } from "./storage";
 import { emailService } from "./email";
-import { generatePayStubPdf } from "./payStubPdf";
 
 function buildPayStubHtml(repName: string, periodLabel: string, netPay: string): string {
   return `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
@@ -20,89 +19,61 @@ function buildPayStubHtml(repName: string, periodLabel: string, netPay: string):
   </div>`;
 }
 
-interface DeliveryResult {
+interface QueueResult {
   statementId: string;
-  status: "SENT" | "FAILED" | "SKIPPED";
+  status: "QUEUED" | "SKIPPED";
   error?: string;
 }
 
-export async function deliverPayStubEmail(
-  stmt: { id: string; userId: string; repName: string | null; repEmail: string | null; periodStart: string; periodEnd: string; netPay: string; grossCommission: string; deductionsTotal: string; stubNumber: string | null },
+export async function queuePayStubEmail(
+  stmt: { id: string; userId: string; repName: string | null; repEmail: string | null; periodStart: string; periodEnd: string; netPay: string },
   userEmail?: string | null,
   userName?: string | null
-): Promise<DeliveryResult> {
+): Promise<QueueResult> {
   const email = stmt.repEmail || userEmail;
   if (!email) {
     await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "SKIPPED", emailDeliveryError: "No email address on file" });
     return { statementId: stmt.id, status: "SKIPPED", error: "No email address on file" };
   }
 
-  const prefs = await storage.getNotificationPreferences(stmt.userId);
-  if (prefs?.emailPayStubDelivery === false) {
+  const periodLabel = `${stmt.periodStart} to ${stmt.periodEnd}`;
+  const netPayFormatted = `$${parseFloat(stmt.netPay).toFixed(2)}`;
+  const subject = `Your Pay Statement - ${periodLabel}`;
+  const htmlBody = buildPayStubHtml(stmt.repName || userName || "Team Member", periodLabel, netPayFormatted);
+
+  const queued = await emailService.queueNotification({
+    userId: stmt.userId,
+    notificationType: "PAY_STUB_DELIVERY",
+    subject,
+    body: htmlBody,
+    recipientEmail: email,
+    relatedEntityType: "PAY_STATEMENT",
+    relatedEntityId: stmt.id,
+  });
+
+  if (!queued) {
     await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "SKIPPED", emailDeliveryError: "Opted out of pay stub emails" });
     return { statementId: stmt.id, status: "SKIPPED", error: "Opted out" };
   }
 
-  try {
-    const pdfBuffer = await generatePayStubPdf(stmt.id);
-    const periodLabel = `${stmt.periodStart} to ${stmt.periodEnd}`;
-    const netPayFormatted = `$${parseFloat(stmt.netPay).toFixed(2)}`;
-    const stubNum = stmt.stubNumber || stmt.id.slice(0, 8);
-    const subject = `Your Pay Statement - ${periodLabel}`;
-    const htmlBody = buildPayStubHtml(stmt.repName || userName || "Team Member", periodLabel, netPayFormatted);
-    const filename = `PayStub_${stubNum}_${stmt.periodStart}_${stmt.periodEnd}.pdf`;
-
-    const sent = await emailService.sendPayStubEmail(email, subject, htmlBody, pdfBuffer, filename);
-
-    if (sent) {
-      await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "SENT", emailSentAt: new Date(), emailDeliveryError: null });
-      return { statementId: stmt.id, status: "SENT" };
-    } else {
-      await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "FAILED", emailDeliveryError: "Email send failed" });
-      return { statementId: stmt.id, status: "FAILED", error: "Email send failed" };
-    }
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : "Unknown error";
-    console.error(`[PayStub Email] Failed for statement ${stmt.id}:`, errMsg);
-    await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "FAILED", emailDeliveryError: errMsg });
-    return { statementId: stmt.id, status: "FAILED", error: errMsg };
-  }
+  await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "PENDING" });
+  return { statementId: stmt.id, status: "QUEUED" };
 }
 
-export async function deliverPayStubsForPayRun(payRunId: string): Promise<DeliveryResult[]> {
+export async function deliverPayStubsForPayRun(payRunId: string): Promise<QueueResult[]> {
   const statements = await storage.getPayStatements(payRunId);
   const allUsers = await storage.getUsers();
   const userMap = new Map(allUsers.map(u => [u.id, u]));
-  const results: DeliveryResult[] = [];
+  const results: QueueResult[] = [];
 
   for (const stmt of statements) {
     const user = userMap.get(stmt.userId);
-    const result = await deliverPayStubEmail(stmt, user?.email, user?.name);
+    const result = await queuePayStubEmail(stmt, user?.email, user?.name);
     results.push(result);
   }
 
-  console.log(`[PayStub Email] Delivery complete for pay run ${payRunId}: ${results.filter(r => r.status === "SENT").length} sent, ${results.filter(r => r.status === "FAILED").length} failed, ${results.filter(r => r.status === "SKIPPED").length} skipped`);
+  const queued = results.filter(r => r.status === "QUEUED").length;
+  const skipped = results.filter(r => r.status === "SKIPPED").length;
+  console.log(`[PayStub Email] Queued for pay run ${payRunId}: ${queued} queued, ${skipped} skipped`);
   return results;
-}
-
-export async function retryFailedPayStubEmails(): Promise<{ retried: number; stillFailed: number }> {
-  const failedStatements = await storage.getPayStatementsByDeliveryStatus("FAILED");
-  if (failedStatements.length === 0) return { retried: 0, stillFailed: 0 };
-
-  const allUsers = await storage.getUsers();
-  const userMap = new Map(allUsers.map(u => [u.id, u]));
-  let retried = 0;
-  let stillFailed = 0;
-
-  for (const stmt of failedStatements) {
-    const user = userMap.get(stmt.userId);
-    const result = await deliverPayStubEmail(stmt, user?.email, user?.name);
-    if (result.status === "SENT") retried++;
-    else if (result.status === "FAILED") stillFailed++;
-  }
-
-  if (retried > 0 || stillFailed > 0) {
-    console.log(`[PayStub Email] Auto-retry: ${retried} sent, ${stillFailed} still failed`);
-  }
-  return { retried, stillFailed };
 }

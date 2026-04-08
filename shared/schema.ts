@@ -1698,7 +1698,8 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "ONBOARDING_REJECTED",
   "ONBOARDING_SUBMITTED",
   "ONBOARDING_OTP_LOCKED",
-  "COMPLIANCE_CLEARED"
+  "COMPLIANCE_CLEARED",
+  "PAY_STUB_DELIVERY"
 ]);
 
 export const notificationStatusEnum = pgEnum("notification_status", [

@@ -22,7 +22,7 @@ import { emailService } from "./email";
 import { getOrCreateReserve, applyWithholding, applyChargebackToReserve, applyEquipmentRecovery, handleRepSeparation, checkAndReleaseMaturedReserves, calculateWithholding, isReserveEligibleRole } from "./reserves/reserveService";
 import { generatePayStub, generatePayStubsForPayRun } from "./payStubGenerator";
 import { generatePayStubPdf } from "./payStubPdf";
-import { deliverPayStubsForPayRun, deliverPayStubEmail } from "./payStubEmailService";
+import { deliverPayStubsForPayRun, queuePayStubEmail } from "./payStubEmailService";
 import archiver from "archiver";
 
 // Placeholder until actual MRC data is tracked
@@ -4937,17 +4937,17 @@ Rules:
 
       const allUsers = await storage.getUsers();
       const userMap = new Map(allUsers.map(u => [u.id, u]));
-      let retried = 0;
-      let stillFailed = 0;
+      let requeued = 0;
+      let skipped = 0;
 
       for (const stmt of failedStatements) {
         const user = userMap.get(stmt.userId);
-        const result = await deliverPayStubEmail(stmt, user?.email, user?.name);
-        if (result.status === "SENT") retried++;
-        else if (result.status === "FAILED") stillFailed++;
+        const result = await queuePayStubEmail(stmt, user?.email, user?.name);
+        if (result.status === "QUEUED") requeued++;
+        else if (result.status === "SKIPPED") skipped++;
       }
 
-      res.json({ message: `Retried ${retried} of ${failedStatements.length} failed deliveries`, retried, stillFailed });
+      res.json({ message: `Requeued ${requeued} of ${failedStatements.length} failed deliveries`, requeued, skipped });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : "Failed";
       res.status(500).json({ message: msg });

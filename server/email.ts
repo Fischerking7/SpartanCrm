@@ -1,8 +1,9 @@
 import { storage } from "./storage";
+import { generatePayStubPdf } from "./payStubPdf";
 
 interface EmailContent {
   userId: string;
-  notificationType: "ORDER_SUBMITTED" | "ORDER_APPROVED" | "ORDER_REJECTED" | "PAY_RUN_FINALIZED" | "CHARGEBACK_APPLIED" | "ADVANCE_APPROVED" | "ADVANCE_REJECTED" | "PASSWORD_RESET" | "PENDING_APPROVAL_ALERT" | "LOW_PERFORMANCE_WARNING" | "GENERAL";
+  notificationType: "ORDER_SUBMITTED" | "ORDER_APPROVED" | "ORDER_REJECTED" | "PAY_RUN_FINALIZED" | "CHARGEBACK_APPLIED" | "ADVANCE_APPROVED" | "ADVANCE_REJECTED" | "PASSWORD_RESET" | "PENDING_APPROVAL_ALERT" | "LOW_PERFORMANCE_WARNING" | "GENERAL" | "PAY_STUB_DELIVERY";
   subject: string;
   body: string;
   recipientEmail: string;
@@ -45,6 +46,8 @@ export const emailService = {
         return prefs.emailPendingApprovalAlert !== false;
       case "LOW_PERFORMANCE_WARNING":
         return prefs.emailLowPerformanceWarning !== false;
+      case "PAY_STUB_DELIVERY":
+        return prefs.emailPayStubDelivery !== false;
       default:
         return true;
     }
@@ -56,35 +59,75 @@ export const emailService = {
     
     for (const notification of pending) {
       try {
-        const success = await this.sendEmail(notification);
+        let success: boolean;
+
+        if (notification.notificationType === "PAY_STUB_DELIVERY" && notification.relatedEntityId) {
+          success = await this.sendPayStubFromQueue(notification);
+        } else {
+          success = await this.sendEmail(notification);
+        }
         
         if (success) {
           await storage.updateEmailNotification(notification.id, {
             status: "SENT",
             sentAt: new Date(),
           });
+          if (notification.notificationType === "PAY_STUB_DELIVERY" && notification.relatedEntityId) {
+            await storage.updatePayStatement(notification.relatedEntityId, {
+              emailDeliveryStatus: "SENT",
+              emailSentAt: new Date(),
+              emailDeliveryError: null,
+            });
+          }
           results.sent++;
         } else {
           const newRetryCount = notification.retryCount + 1;
+          const finalStatus = newRetryCount >= 3 ? "FAILED" : "PENDING";
           await storage.updateEmailNotification(notification.id, {
-            status: newRetryCount >= 3 ? "FAILED" : "PENDING",
+            status: finalStatus,
             retryCount: newRetryCount,
             errorMessage: "Send failed",
           });
+          if (notification.notificationType === "PAY_STUB_DELIVERY" && notification.relatedEntityId && finalStatus === "FAILED") {
+            await storage.updatePayStatement(notification.relatedEntityId, {
+              emailDeliveryStatus: "FAILED",
+              emailDeliveryError: `Send failed after ${newRetryCount} attempts`,
+            });
+          }
           results.failed++;
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : "Unknown error";
         const newRetryCount = notification.retryCount + 1;
+        const finalStatus = newRetryCount >= 3 ? "FAILED" : "PENDING";
         await storage.updateEmailNotification(notification.id, {
-          status: newRetryCount >= 3 ? "FAILED" : "PENDING",
+          status: finalStatus,
           retryCount: newRetryCount,
-          errorMessage: error.message,
+          errorMessage: errMsg,
         });
+        if (notification.notificationType === "PAY_STUB_DELIVERY" && notification.relatedEntityId && finalStatus === "FAILED") {
+          await storage.updatePayStatement(notification.relatedEntityId, {
+            emailDeliveryStatus: "FAILED",
+            emailDeliveryError: `Failed after ${newRetryCount} attempts: ${errMsg}`,
+          });
+        }
         results.failed++;
       }
     }
     
     return results;
+  },
+
+  async sendPayStubFromQueue(notification: { recipientEmail: string; subject: string; body: string; relatedEntityId?: string | null }): Promise<boolean> {
+    if (!notification.relatedEntityId) return false;
+
+    const pdfBuffer = await generatePayStubPdf(notification.relatedEntityId);
+    const stmt = await storage.getPayStatementById(notification.relatedEntityId);
+    const filename = stmt
+      ? `PayStub_${stmt.stubNumber || stmt.id.slice(0, 8)}_${stmt.periodStart}_${stmt.periodEnd}.pdf`
+      : `PayStub_${notification.relatedEntityId.slice(0, 8)}.pdf`;
+
+    return this.sendPayStubEmail(notification.recipientEmail, notification.subject, notification.body, pdfBuffer, filename);
   },
 
   async sendEmail(notification: { recipientEmail: string; subject: string; body: string }): Promise<boolean> {
