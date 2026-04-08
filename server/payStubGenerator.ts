@@ -22,6 +22,12 @@ interface PayStubResult {
   lineItems: number;
 }
 
+interface ReserveWithholdingPerOrder {
+  orderId: string;
+  withheldCents: number;
+  capReached: boolean;
+}
+
 export async function generatePayStub(
   payRunId: string,
   userId: string,
@@ -87,8 +93,15 @@ export async function generatePayStub(
 
   let totalReserveWithheldCents = 0;
   const reserveLineItems: Array<{ category: string; description: string; salesOrderId?: string; invoiceNumber?: string; amount: string }> = [];
+  const reservePerOrder: ReserveWithholdingPerOrder[] = [];
+  let reservePreviousBalanceCents: number | null = null;
 
   if (isReserveEligibleRole(user.role)) {
+    try {
+      const reserveBefore = await getOrCreateReserve(userId, txDb);
+      reservePreviousBalanceCents = reserveBefore.currentBalanceCents;
+    } catch {}
+
     for (const { order } of readyOrders) {
       const orderNetCents = Math.round(
         (parseFloat(order.commissionAmount || "0")) * 100
@@ -105,6 +118,11 @@ export async function generatePayStub(
 
       if (withholdingResult.withheldCents > 0) {
         totalReserveWithheldCents += withholdingResult.withheldCents;
+        reservePerOrder.push({
+          orderId: order.id,
+          withheldCents: withholdingResult.withheldCents,
+          capReached: withholdingResult.capReached,
+        });
         reserveLineItems.push({
           category: "Reserve Withholding",
           description: `15% reserve hold — ${order.invoiceNumber || order.id}`,
@@ -129,11 +147,23 @@ export async function generatePayStub(
   const netPayCents = grossTotal - totalDeductions;
 
   let reserveBalanceAfterStr: string | undefined;
-  if (totalReserveWithheldCents > 0) {
+  let reserveCapStr: string | undefined;
+  let reserveStatusStr: string | undefined;
+  let reserveChargebacksOffsetCents = 0;
+  if (isReserveEligibleRole(user.role)) {
     try {
       const reserve = await getOrCreateReserve(userId, txDb);
       reserveBalanceAfterStr = (reserve.currentBalanceCents / 100).toFixed(2);
+      reserveCapStr = (reserve.capCents / 100).toFixed(2);
+      reserveStatusStr = reserve.status === "AT_CAP" ? "AT CAP — Withholding Paused"
+        : reserve.status === "HELD" ? "HELD — Pending Maturity Release"
+        : reserve.status === "DEFICIT" ? "DEFICIT — Withholding Resumed"
+        : `ACTIVE — Withholding ${reserve.withholdingPercent}%`;
     } catch {}
+
+    for (const cb of userChargebacks) {
+      reserveChargebacksOffsetCents += cb.reserveOffsetCents || 0;
+    }
   }
 
   const statement = await storage.createPayStatement({
@@ -163,6 +193,10 @@ export async function generatePayStub(
     companyName: "Iron Crest",
     reserveWithheldTotal: (totalReserveWithheldCents / 100).toFixed(2),
     reserveBalanceAfter: reserveBalanceAfterStr,
+    reservePreviousBalance: reservePreviousBalanceCents !== null ? (reservePreviousBalanceCents / 100).toFixed(2) : undefined,
+    reserveChargebacksOffset: reserveChargebacksOffsetCents > 0 ? (reserveChargebacksOffsetCents / 100).toFixed(2) : "0",
+    reserveCapAmount: reserveCapStr,
+    reserveStatusLabel: reserveStatusStr,
     ytdGross: "0",
     ytdDeductions: "0",
     ytdNetPay: "0",
@@ -184,6 +218,10 @@ export async function generatePayStub(
 
   for (const { order, client, provider, service } of readyOrders) {
     const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
+    const commCents = Math.round(commAmount * 100);
+    const withheldForThisOrder = reservePerOrder.find(r => r.orderId === order.id)?.withheldCents || 0;
+    const netForOrder = (commCents - withheldForThisOrder) / 100;
+
     await storage.createPayStatementLineItemFull({
       payStatementId: statement.id,
       category: "COMMISSION",
@@ -199,6 +237,8 @@ export async function generatePayStub(
       installDate: order.installDate || undefined,
       repRoleAtSale: order.repRoleAtSale || undefined,
       amount: commAmount.toFixed(2),
+      netAmount: netForOrder.toFixed(2),
+      reserveWithheldForOrder: withheldForThisOrder > 0 ? (withheldForThisOrder / 100).toFixed(2) : undefined,
     }, txDb);
     lineItemCount++;
   }
@@ -239,6 +279,44 @@ export async function generatePayStub(
     }, txDb);
     lineItemCount++;
     await storage.linkBonusToPayRun(bonus.id, payRunId);
+  }
+
+  for (const cb of userChargebacks) {
+    const cbAmountCents = Math.round(parseFloat(cb.amount || "0") * 100);
+    const fromReserveCents = cb.reserveOffsetCents || 0;
+    const fromNetPayCents = Math.max(0, cbAmountCents - fromReserveCents);
+    let chargebackSource: string;
+    if (fromReserveCents > 0 && fromNetPayCents > 0) {
+      chargebackSource = "SPLIT";
+    } else if (fromReserveCents > 0) {
+      chargebackSource = "FROM_RESERVE";
+    } else {
+      chargebackSource = "FROM_NET_PAY";
+    }
+
+    let description = `Chargeback — ${cb.invoiceNumber || cb.salesOrderId || "Order"}`;
+    if (chargebackSource === "FROM_RESERVE") {
+      description += ` (Deducted from Reserve)`;
+    } else if (chargebackSource === "FROM_NET_PAY") {
+      description += ` (Deducted from Net Pay)`;
+    } else {
+      description += ` ($${(fromReserveCents / 100).toFixed(2)} from Reserve, $${(fromNetPayCents / 100).toFixed(2)} from Net Pay)`;
+    }
+
+    await storage.createPayStatementLineItemFull({
+      payStatementId: statement.id,
+      category: "CHARGEBACK",
+      description,
+      sourceType: "CHARGEBACK",
+      sourceId: cb.id,
+      salesOrderId: cb.salesOrderId || undefined,
+      invoiceNumber: cb.invoiceNumber || undefined,
+      amount: `-${(cbAmountCents / 100).toFixed(2)}`,
+      chargebackSource,
+      chargebackFromReserveCents: Math.min(fromReserveCents, cbAmountCents),
+      chargebackFromNetPayCents: fromNetPayCents,
+    }, txDb);
+    lineItemCount++;
   }
 
   for (const d of deductions) {
@@ -345,12 +423,13 @@ async function generatePayStubFromPayRun(
   }
 
   const chargebacksByRun = await storage.getChargebacksByPayRun(payRunId);
+  const userChargebacks = chargebacksByRun.filter(c => {
+    const cbOrder = userOrders.find(o => o.id === c.salesOrderId);
+    return !!cbOrder;
+  });
   let chargebackTotalCents = 0;
-  for (const cb of chargebacksByRun) {
-    const cbOrder = userOrders.find(o => o.id === cb.salesOrderId);
-    if (cbOrder) {
-      chargebackTotalCents += Math.round(parseFloat(cb.amount || "0") * 100);
-    }
+  for (const cb of userChargebacks) {
+    chargebackTotalCents += Math.round(parseFloat(cb.amount || "0") * 100);
   }
 
   const deductions = await storage.getActiveUserDeductions(userId);
@@ -369,8 +448,15 @@ async function generatePayStubFromPayRun(
 
   let totalReserveWithheldCents2 = 0;
   const reserveLineItems2: Array<{ category: string; description: string; salesOrderId?: string; invoiceNumber?: string; amount: string }> = [];
+  const reservePerOrder2: ReserveWithholdingPerOrder[] = [];
+  let reservePreviousBalanceCents2: number | null = null;
 
   if (isReserveEligibleRole(user.role)) {
+    try {
+      const reserveBefore = await getOrCreateReserve(userId, txDb);
+      reservePreviousBalanceCents2 = reserveBefore.currentBalanceCents;
+    } catch {}
+
     for (const order of userOrders) {
       const orderNetCents = Math.round(parseFloat(order.commissionAmount || "0") * 100);
       if (orderNetCents <= 0) continue;
@@ -379,6 +465,11 @@ async function generatePayStubFromPayRun(
 
       if (withholdingResult.withheldCents > 0) {
         totalReserveWithheldCents2 += withholdingResult.withheldCents;
+        reservePerOrder2.push({
+          orderId: order.id,
+          withheldCents: withholdingResult.withheldCents,
+          capReached: withholdingResult.capReached,
+        });
         reserveLineItems2.push({
           category: "Reserve Withholding",
           description: `15% reserve hold — ${order.invoiceNumber || order.id}`,
@@ -402,11 +493,23 @@ async function generatePayStubFromPayRun(
   const netPayCents = grossTotal - totalDeductionsCalc;
 
   let reserveBalanceAfterStr2: string | undefined;
-  if (totalReserveWithheldCents2 > 0) {
+  let reserveCapStr2: string | undefined;
+  let reserveStatusStr2: string | undefined;
+  let reserveChargebacksOffsetCents2 = 0;
+  if (isReserveEligibleRole(user.role)) {
     try {
       const reserve = await getOrCreateReserve(userId, txDb);
       reserveBalanceAfterStr2 = (reserve.currentBalanceCents / 100).toFixed(2);
+      reserveCapStr2 = (reserve.capCents / 100).toFixed(2);
+      reserveStatusStr2 = reserve.status === "AT_CAP" ? "AT CAP — Withholding Paused"
+        : reserve.status === "HELD" ? "HELD — Pending Maturity Release"
+        : reserve.status === "DEFICIT" ? "DEFICIT — Withholding Resumed"
+        : `ACTIVE — Withholding ${reserve.withholdingPercent}%`;
     } catch {}
+
+    for (const cb of userChargebacks) {
+      reserveChargebacksOffsetCents2 += cb.reserveOffsetCents || 0;
+    }
   }
 
   const statement = await storage.createPayStatement({
@@ -436,6 +539,10 @@ async function generatePayStubFromPayRun(
     companyName: "Iron Crest",
     reserveWithheldTotal: (totalReserveWithheldCents2 / 100).toFixed(2),
     reserveBalanceAfter: reserveBalanceAfterStr2,
+    reservePreviousBalance: reservePreviousBalanceCents2 !== null ? (reservePreviousBalanceCents2 / 100).toFixed(2) : undefined,
+    reserveChargebacksOffset: reserveChargebacksOffsetCents2 > 0 ? (reserveChargebacksOffsetCents2 / 100).toFixed(2) : "0",
+    reserveCapAmount: reserveCapStr2,
+    reserveStatusLabel: reserveStatusStr2,
     ytdGross: "0",
     ytdDeductions: "0",
     ytdNetPay: "0",
@@ -457,6 +564,10 @@ async function generatePayStubFromPayRun(
 
   for (const order of userOrders) {
     const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
+    const commCents = Math.round(commAmount * 100);
+    const withheldForThisOrder = reservePerOrder2.find(r => r.orderId === order.id)?.withheldCents || 0;
+    const netForOrder = (commCents - withheldForThisOrder) / 100;
+
     await storage.createPayStatementLineItemFull({
       payStatementId: statement.id,
       category: "COMMISSION",
@@ -470,6 +581,8 @@ async function generatePayStubFromPayRun(
       installDate: order.installDate || undefined,
       repRoleAtSale: order.repRoleAtSale || undefined,
       amount: commAmount.toFixed(2),
+      netAmount: netForOrder.toFixed(2),
+      reserveWithheldForOrder: withheldForThisOrder > 0 ? (withheldForThisOrder / 100).toFixed(2) : undefined,
     }, txDb);
     lineItemCount++;
   }
@@ -510,6 +623,44 @@ async function generatePayStubFromPayRun(
     }, txDb);
     lineItemCount++;
     await storage.linkBonusToPayRun(bonus.id, payRunId);
+  }
+
+  for (const cb of userChargebacks) {
+    const cbAmountCents = Math.round(parseFloat(cb.amount || "0") * 100);
+    const fromReserveCents = cb.reserveOffsetCents || 0;
+    const fromNetPayCents = Math.max(0, cbAmountCents - fromReserveCents);
+    let chargebackSource: string;
+    if (fromReserveCents > 0 && fromNetPayCents > 0) {
+      chargebackSource = "SPLIT";
+    } else if (fromReserveCents > 0) {
+      chargebackSource = "FROM_RESERVE";
+    } else {
+      chargebackSource = "FROM_NET_PAY";
+    }
+
+    let description = `Chargeback — ${cb.invoiceNumber || cb.salesOrderId || "Order"}`;
+    if (chargebackSource === "FROM_RESERVE") {
+      description += ` (Deducted from Reserve)`;
+    } else if (chargebackSource === "FROM_NET_PAY") {
+      description += ` (Deducted from Net Pay)`;
+    } else {
+      description += ` ($${(fromReserveCents / 100).toFixed(2)} from Reserve, $${(fromNetPayCents / 100).toFixed(2)} from Net Pay)`;
+    }
+
+    await storage.createPayStatementLineItemFull({
+      payStatementId: statement.id,
+      category: "CHARGEBACK",
+      description,
+      sourceType: "CHARGEBACK",
+      sourceId: cb.id,
+      salesOrderId: cb.salesOrderId || undefined,
+      invoiceNumber: cb.invoiceNumber || undefined,
+      amount: `-${(cbAmountCents / 100).toFixed(2)}`,
+      chargebackSource,
+      chargebackFromReserveCents: Math.min(fromReserveCents, cbAmountCents),
+      chargebackFromNetPayCents: fromNetPayCents,
+    }, txDb);
+    lineItemCount++;
   }
 
   for (const d of deductions) {

@@ -4725,6 +4725,8 @@ export const storage = {
     invoiceNumber?: string; customerName?: string; dateSold?: string;
     serviceDescription?: string; providerName?: string; installDate?: string;
     repRoleAtSale?: string; quantity?: number; rate?: string; amount: string;
+    netAmount?: string; reserveWithheldForOrder?: string;
+    chargebackSource?: string; chargebackFromReserveCents?: number; chargebackFromNetPayCents?: number;
   }, txDb?: TxDb) {
     const d = txDb ?? db;
     const [item] = await d.insert(payStatementLineItems).values(data).returning();

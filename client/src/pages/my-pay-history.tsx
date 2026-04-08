@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { DollarSign, FileText, TrendingUp, Calendar, Eye, Wallet, Receipt, ArrowDownCircle, ArrowUpCircle, MinusCircle, Download } from "lucide-react";
+import { DollarSign, FileText, TrendingUp, Calendar, Eye, Wallet, Receipt, ArrowDownCircle, ArrowUpCircle, MinusCircle, Download, Shield } from "lucide-react";
 import { useState } from "react";
 import { format } from "date-fns";
 
@@ -31,6 +31,12 @@ interface PayStatement {
   status: string;
   paidAt: string | null;
   checkNumber: string | null;
+  reserveWithheldTotal?: string;
+  reserveBalanceAfter?: string;
+  reservePreviousBalance?: string;
+  reserveChargebacksOffset?: string;
+  reserveCapAmount?: string;
+  reserveStatusLabel?: string;
   createdAt: string;
 }
 
@@ -38,9 +44,15 @@ interface PayStatementLineItem {
   id: string;
   payStatementId: string;
   salesOrderId: string | null;
+  category: string;
   type: string;
   description: string;
   amount: string;
+  netAmount: string | null;
+  reserveWithheldForOrder: string | null;
+  chargebackSource: string | null;
+  chargebackFromReserveCents: number | null;
+  chargebackFromNetPayCents: number | null;
   createdAt: string;
 }
 
@@ -120,6 +132,69 @@ function downloadExcel(statementId: string) {
     .catch((err) => console.error("Excel download error:", err));
 }
 
+function ReserveSummarySection({ data }: { data: PayStatementDetails }) {
+  const hasReserveData = (data.reserveWithheldTotal && parseFloat(data.reserveWithheldTotal) > 0) ||
+    (data.reservePreviousBalance && parseFloat(data.reservePreviousBalance) > 0) ||
+    (data.reserveChargebacksOffset && parseFloat(data.reserveChargebacksOffset) > 0);
+
+  if (!hasReserveData) return null;
+
+  const previousBalance = data.reservePreviousBalance ? parseFloat(data.reservePreviousBalance) : null;
+  const withheldThisPeriod = data.reserveWithheldTotal ? parseFloat(data.reserveWithheldTotal) : 0;
+  const chargebacksOffset = data.reserveChargebacksOffset ? parseFloat(data.reserveChargebacksOffset) : 0;
+  const currentBalance = data.reserveBalanceAfter ? parseFloat(data.reserveBalanceAfter) : null;
+  const cap = data.reserveCapAmount ? parseFloat(data.reserveCapAmount) : 2500;
+  const statusLabel = data.reserveStatusLabel || "ACTIVE";
+
+  return (
+    <>
+      <Separator />
+      <div className="space-y-3">
+        <h3 className="font-semibold flex items-center gap-2">
+          <Shield className="h-4 w-4 text-amber-500" />
+          Rolling Reserve Status
+        </h3>
+        <div className="bg-amber-50 dark:bg-amber-950/20 rounded-lg p-4 space-y-2 text-sm">
+          {previousBalance !== null && (
+            <div className="flex items-center justify-between" data-testid="reserve-previous-balance">
+              <span className="text-muted-foreground">Previous Balance</span>
+              <span className="font-medium">{formatCurrency(previousBalance)}</span>
+            </div>
+          )}
+          {withheldThisPeriod > 0 && (
+            <div className="flex items-center justify-between" data-testid="reserve-withheld-period">
+              <span className="text-muted-foreground">Withheld This Period</span>
+              <span className="font-medium text-amber-600 dark:text-amber-400">+{formatCurrency(withheldThisPeriod)}</span>
+            </div>
+          )}
+          {chargebacksOffset > 0 && (
+            <div className="flex items-center justify-between" data-testid="reserve-chargebacks-offset">
+              <span className="text-muted-foreground">Chargebacks Offset</span>
+              <span className="font-medium text-red-600 dark:text-red-400">-{formatCurrency(chargebacksOffset)}</span>
+            </div>
+          )}
+          {currentBalance !== null && (
+            <>
+              <Separator />
+              <div className="flex items-center justify-between" data-testid="reserve-current-balance">
+                <span className="font-semibold">Current Balance</span>
+                <span className="font-bold">{formatCurrency(currentBalance)} / {formatCurrency(cap)} cap</span>
+              </div>
+              <div className="flex items-center justify-between" data-testid="reserve-status">
+                <span className="text-muted-foreground">Status</span>
+                <Badge variant="outline" className="text-xs">{statusLabel}</Badge>
+              </div>
+            </>
+          )}
+          <p className="text-xs text-muted-foreground mt-2 italic">
+            The rolling reserve is not wages. It is a conditional holdback per your Independent Contractor Agreement.
+          </p>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function StatementDetailsDialog({ statementId, isRep = false }: { statementId: string; isRep?: boolean }) {
   const [open, setOpen] = useState(false);
   
@@ -135,6 +210,13 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
     },
     enabled: open,
   });
+
+  const commissionItems = data?.lineItems.filter(li => li.category === "COMMISSION") || [];
+  const overrideItems = data?.lineItems.filter(li => li.category === "OVERRIDE") || [];
+  const bonusItems = data?.lineItems.filter(li => li.category === "BONUS") || [];
+  const chargebackItems = data?.lineItems.filter(li => li.category === "CHARGEBACK") || [];
+  const reserveItems = data?.lineItems.filter(li => li.category === "Reserve Withholding") || [];
+  const hasPerOrderNet = commissionItems.some(li => li.netAmount !== null);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -220,11 +302,58 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
               )}
             </div>
 
-            {data.lineItems.length > 0 && (
+            {commissionItems.length > 0 && (
               <>
                 <Separator />
                 <div className="space-y-2">
-                  <h3 className="font-semibold">Line Items</h3>
+                  <h3 className="font-semibold">Commission Line Items</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Description</TableHead>
+                        <TableHead className="text-right">Gross</TableHead>
+                        {hasPerOrderNet && (
+                          <>
+                            <TableHead className="text-right">Reserve</TableHead>
+                            <TableHead className="text-right">Net</TableHead>
+                          </>
+                        )}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {commissionItems.map((item) => {
+                        const withheld = item.reserveWithheldForOrder ? parseFloat(item.reserveWithheldForOrder) : 0;
+                        const net = item.netAmount ? parseFloat(item.netAmount) : parseFloat(item.amount);
+                        return (
+                          <TableRow key={item.id} data-testid={`row-commission-${item.id}`}>
+                            <TableCell className="text-sm">{item.description}</TableCell>
+                            <TableCell className="text-right font-medium text-green-600 dark:text-green-400">
+                              {formatCurrency(item.amount)}
+                            </TableCell>
+                            {hasPerOrderNet && (
+                              <>
+                                <TableCell className="text-right text-amber-600 dark:text-amber-400 text-sm">
+                                  {withheld > 0 ? `-${formatCurrency(withheld)}` : "—"}
+                                </TableCell>
+                                <TableCell className="text-right font-semibold">
+                                  {formatCurrency(net)}
+                                </TableCell>
+                              </>
+                            )}
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+
+            {(overrideItems.length > 0 || bonusItems.length > 0) && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <h3 className="font-semibold">Other Earnings</h3>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -234,17 +363,75 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {data.lineItems.map((item) => (
+                      {overrideItems.map((item) => (
                         <TableRow key={item.id}>
-                          <TableCell>
-                            <Badge variant="outline" className="text-xs">{item.type}</Badge>
-                          </TableCell>
+                          <TableCell><Badge variant="outline" className="text-xs">Override</Badge></TableCell>
                           <TableCell className="text-sm">{item.description}</TableCell>
-                          <TableCell className={`text-right font-medium ${parseFloat(item.amount) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                          <TableCell className="text-right font-medium text-green-600 dark:text-green-400">
                             {formatCurrency(item.amount)}
                           </TableCell>
                         </TableRow>
                       ))}
+                      {bonusItems.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell><Badge variant="outline" className="text-xs">Bonus</Badge></TableCell>
+                          <TableCell className="text-sm">{item.description}</TableCell>
+                          <TableCell className="text-right font-medium text-green-600 dark:text-green-400">
+                            {formatCurrency(item.amount)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+
+            {chargebackItems.length > 0 && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <h3 className="font-semibold">Chargebacks</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Source</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {chargebackItems.map((item) => {
+                        let sourceLabel = "Net Pay";
+                        let sourceBadgeVariant: "destructive" | "outline" | "secondary" = "destructive";
+                        if (item.chargebackSource === "FROM_RESERVE") {
+                          sourceLabel = "From Reserve";
+                          sourceBadgeVariant = "secondary";
+                        } else if (item.chargebackSource === "FROM_NET_PAY") {
+                          sourceLabel = "From Net Pay";
+                          sourceBadgeVariant = "destructive";
+                        } else if (item.chargebackSource === "SPLIT") {
+                          const fromRes = (item.chargebackFromReserveCents || 0) / 100;
+                          const fromNet = (item.chargebackFromNetPayCents || 0) / 100;
+                          sourceLabel = `Reserve: ${formatCurrency(fromRes)} / Net: ${formatCurrency(fromNet)}`;
+                          sourceBadgeVariant = "outline";
+                        }
+                        return (
+                          <TableRow key={item.id} data-testid={`row-chargeback-${item.id}`}>
+                            <TableCell className="text-sm">
+                              {item.description?.replace(/ \(.*\)$/, '') || "Chargeback"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={sourceBadgeVariant} className="text-xs" data-testid={`badge-chargeback-source-${item.id}`}>
+                                {sourceLabel}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right font-medium text-red-600 dark:text-red-400">
+                              {formatCurrency(item.amount)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -277,6 +464,8 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
                 </div>
               </>
             )}
+
+            <ReserveSummarySection data={data} />
 
             <Separator />
 

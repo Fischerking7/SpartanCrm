@@ -65,7 +65,6 @@ export function generatePayStatementPdf(data: PayStatementPdfData): Promise<Buff
       doc.fontSize(12).font("Helvetica-Bold").text("EARNINGS", 50);
       doc.moveDown(0.5);
 
-      const earningsStartY = doc.y;
       doc.fontSize(10).font("Helvetica");
 
       const earningsItems = [
@@ -88,23 +87,81 @@ export function generatePayStatementPdf(data: PayStatementPdfData): Promise<Buff
 
       doc.moveDown(1);
 
-      if (lineItems.length > 0) {
-        doc.fontSize(11).font("Helvetica-Bold").text("Earnings Details", 50);
+      const commissionItems = lineItems.filter(li => li.category === "COMMISSION");
+      const chargebackLineItems = lineItems.filter(li => li.category === "CHARGEBACK");
+      const hasPerOrderNet = commissionItems.some(li => li.netAmount !== null);
+
+      if (commissionItems.length > 0) {
+        doc.fontSize(11).font("Helvetica-Bold").text("Commission Details", 50);
         doc.moveDown(0.5);
 
         doc.fontSize(9).font("Helvetica-Bold");
-        doc.text("Category", 60);
-        doc.text("Description", 150, doc.y - 11);
-        doc.text("Amount", 450, doc.y - 11, { width: 100, align: "right" });
+        if (hasPerOrderNet) {
+          doc.text("Description", 60);
+          doc.text("Gross", 320, doc.y - 9, { width: 70, align: "right" });
+          doc.text("Reserve", 390, doc.y - 9, { width: 70, align: "right" });
+          doc.text("Net", 460, doc.y - 9, { width: 90, align: "right" });
+        } else {
+          doc.text("Description", 60);
+          doc.text("Amount", 450, doc.y - 9, { width: 100, align: "right" });
+        }
         doc.moveDown(0.3);
         doc.moveTo(60, doc.y).lineTo(550, doc.y).stroke();
         doc.moveDown(0.3);
 
         doc.font("Helvetica").fontSize(9);
-        lineItems.slice(0, 15).forEach((item) => {
-          doc.text(item.category || "Commission", 60);
-          doc.text(item.description.substring(0, 50), 150, doc.y - 9);
-          doc.text(formatCurrency(item.amount), 450, doc.y - 9, { width: 100, align: "right" });
+        commissionItems.slice(0, 20).forEach((item) => {
+          if (doc.y > 680) doc.addPage();
+          const desc = item.description.substring(0, 40);
+          if (hasPerOrderNet) {
+            const withheld = item.reserveWithheldForOrder ? parseFloat(item.reserveWithheldForOrder) : 0;
+            const net = item.netAmount ? parseFloat(item.netAmount) : parseFloat(item.amount);
+            doc.text(desc, 60);
+            doc.text(formatCurrency(item.amount), 320, doc.y - 9, { width: 70, align: "right" });
+            doc.text(withheld > 0 ? `-${formatCurrency(withheld)}` : "—", 390, doc.y - 9, { width: 70, align: "right" });
+            doc.text(formatCurrency(net), 460, doc.y - 9, { width: 90, align: "right" });
+          } else {
+            doc.text(desc, 60);
+            doc.text(formatCurrency(item.amount), 450, doc.y - 9, { width: 100, align: "right" });
+          }
+        });
+        doc.moveDown(1);
+      }
+
+      if (chargebackLineItems.length > 0) {
+        if (doc.y > 650) doc.addPage();
+        doc.fontSize(11).font("Helvetica-Bold").text("Chargebacks", 50);
+        doc.moveDown(0.5);
+
+        doc.fontSize(9).font("Helvetica-Bold");
+        doc.text("Description", 60);
+        doc.text("Source", 300, doc.y - 9, { width: 120 });
+        doc.text("Amount", 450, doc.y - 9, { width: 100, align: "right" });
+        doc.moveDown(0.3);
+        doc.moveTo(60, doc.y).lineTo(550, doc.y).stroke();
+        doc.moveDown(0.3);
+
+        doc.font("Helvetica").fontSize(9);
+        chargebackLineItems.forEach((item) => {
+          if (doc.y > 680) doc.addPage();
+          const desc = (item.invoiceNumber ? `Chargeback — ${item.invoiceNumber}` : item.description).substring(0, 35);
+          let sourceLabel = "Net Pay";
+          if (item.chargebackSource === "FROM_RESERVE") {
+            sourceLabel = "From Reserve";
+          } else if (item.chargebackSource === "FROM_NET_PAY") {
+            sourceLabel = "From Net Pay";
+          } else if (item.chargebackSource === "SPLIT") {
+            const fromRes = (item.chargebackFromReserveCents || 0) / 100;
+            const fromNet = (item.chargebackFromNetPayCents || 0) / 100;
+            sourceLabel = `Res: ${formatCurrency(fromRes)} / Net: ${formatCurrency(fromNet)}`;
+          }
+
+          doc.fillColor("red");
+          doc.text(desc, 60);
+          doc.fillColor("black");
+          doc.text(sourceLabel, 300, doc.y - 9, { width: 120 });
+          doc.fillColor("red").text(formatCurrency(item.amount), 450, doc.y - 9, { width: 100, align: "right" });
+          doc.fillColor("black");
         });
         doc.moveDown(1);
       }
@@ -133,6 +190,12 @@ export function generatePayStatementPdf(data: PayStatementPdfData): Promise<Buff
         doc.fillColor("black");
       }
 
+      if (statement.reserveWithheldTotal && parseFloat(statement.reserveWithheldTotal) > 0) {
+        doc.text("Reserve Withheld", 60);
+        doc.fillColor("red").text(`-${formatCurrency(statement.reserveWithheldTotal)}`, 450, doc.y - 12, { width: 100, align: "right" });
+        doc.fillColor("black");
+      }
+
       doc.text("Total Deductions", 60);
       doc.fillColor("red").text(`-${formatCurrency(statement.deductionsTotal)}`, 450, doc.y - 12, { width: 100, align: "right" });
       doc.fillColor("black");
@@ -144,6 +207,49 @@ export function generatePayStatementPdf(data: PayStatementPdfData): Promise<Buff
       doc.fontSize(14).font("Helvetica-Bold");
       doc.text("NET PAY", 60);
       doc.text(formatCurrency(statement.netPay), 400, doc.y - 17, { width: 150, align: "right" });
+
+      const hasReserveData = (statement.reserveWithheldTotal && parseFloat(statement.reserveWithheldTotal) > 0) ||
+        (statement.reservePreviousBalance && parseFloat(statement.reservePreviousBalance) > 0) ||
+        (statement.reserveChargebacksOffset && parseFloat(statement.reserveChargebacksOffset) > 0);
+
+      if (hasReserveData) {
+        doc.moveDown(1.5);
+        doc.moveTo(50, doc.y).lineTo(562, doc.y).stroke();
+        doc.moveDown(0.5);
+
+        doc.fontSize(12).font("Helvetica-Bold").text("ROLLING RESERVE STATUS", 50);
+        doc.moveDown(0.5);
+        doc.font("Helvetica").fontSize(10);
+
+        const previousBalance = statement.reservePreviousBalance ? parseFloat(statement.reservePreviousBalance) : null;
+        const withheldThisPeriod = parseFloat(statement.reserveWithheldTotal || "0");
+        const chargebacksOffset = statement.reserveChargebacksOffset ? parseFloat(statement.reserveChargebacksOffset) : 0;
+        const currentBalance = statement.reserveBalanceAfter ? parseFloat(statement.reserveBalanceAfter) : null;
+        const cap = statement.reserveCapAmount ? parseFloat(statement.reserveCapAmount) : 2500;
+        const statusLabel = statement.reserveStatusLabel || "ACTIVE";
+
+        if (previousBalance !== null) {
+          doc.text(`Previous Balance:       ${formatCurrency(previousBalance)}`, 60);
+        }
+        if (withheldThisPeriod > 0) {
+          doc.text(`Withheld This Period:   +${formatCurrency(withheldThisPeriod)}`, 60);
+        }
+        if (chargebacksOffset > 0) {
+          doc.text(`Chargebacks Offset:     -${formatCurrency(chargebacksOffset)}`, 60);
+        }
+        if (currentBalance !== null) {
+          doc.moveDown(0.3);
+          doc.font("Helvetica-Bold");
+          doc.text(`Current Balance:        ${formatCurrency(currentBalance)} / ${formatCurrency(cap)} cap`, 60);
+          doc.font("Helvetica");
+          doc.text(`Status:                 ${statusLabel}`, 60);
+        }
+
+        doc.moveDown(0.5);
+        doc.fontSize(7).fillColor("gray");
+        doc.text("Note: The rolling reserve is not wages. It is a conditional holdback per your Independent Contractor Agreement.", 60, doc.y, { width: 490 });
+        doc.fillColor("black");
+      }
 
       doc.moveDown(2);
       doc.moveTo(50, doc.y).lineTo(562, doc.y).stroke();

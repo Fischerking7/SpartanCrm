@@ -1190,6 +1190,10 @@ export const payStatements = pgTable("pay_statements", {
   reserveReleasedCents: integer("reserve_released_cents").notNull().default(0),
   reserveWithheldTotal: varchar("reserve_withheld_total").notNull().default("0"),
   reserveBalanceAfter: varchar("reserve_balance_after"),
+  reservePreviousBalance: varchar("reserve_previous_balance"),
+  reserveChargebacksOffset: varchar("reserve_chargebacks_offset"),
+  reserveCapAmount: varchar("reserve_cap_amount"),
+  reserveStatusLabel: varchar("reserve_status_label"),
   ytdGross: decimal("ytd_gross", { precision: 12, scale: 2 }).notNull().default("0"),
   ytdDeductions: decimal("ytd_deductions", { precision: 12, scale: 2 }).notNull().default("0"),
   ytdNetPay: decimal("ytd_net_pay", { precision: 12, scale: 2 }).notNull().default("0"),
@@ -1226,6 +1230,11 @@ export const payStatementLineItems = pgTable("pay_statement_line_items", {
   quantity: integer("quantity").notNull().default(1),
   rate: decimal("rate", { precision: 10, scale: 2 }),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  netAmount: decimal("net_amount", { precision: 10, scale: 2 }),
+  reserveWithheldForOrder: decimal("reserve_withheld_for_order", { precision: 10, scale: 2 }),
+  chargebackSource: varchar("chargeback_source"),
+  chargebackFromReserveCents: integer("chargeback_from_reserve_cents"),
+  chargebackFromNetPayCents: integer("chargeback_from_net_pay_cents"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
