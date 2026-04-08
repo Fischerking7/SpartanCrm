@@ -1164,11 +1164,12 @@ export const storage = {
       limit: 1,
     });
   },
-  async getAuditLogsByRecordId(recordId: string, options?: { startDate?: Date; endDate?: Date; userId?: string }) {
+  async getAuditLogsByRecordId(recordId: string, options?: { startDate?: Date; endDate?: Date; userId?: string; tableName?: string }) {
     const conditions = [eq(auditLogs.recordId, recordId)];
     if (options?.startDate) conditions.push(gte(auditLogs.createdAt, options.startDate));
     if (options?.endDate) conditions.push(lte(auditLogs.createdAt, options.endDate));
     if (options?.userId) conditions.push(eq(auditLogs.userId, options.userId));
+    if (options?.tableName) conditions.push(eq(auditLogs.tableName, options.tableName));
     return db.select().from(auditLogs)
       .where(and(...conditions))
       .orderBy(auditLogs.createdAt);

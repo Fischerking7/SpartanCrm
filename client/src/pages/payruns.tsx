@@ -259,8 +259,8 @@ function PayRunAuditTrail({ payRunId }: { payRunId: string }) {
 
   const actionIcon = (action: string) => {
     if (action.includes("create") || action.includes("auto_build")) return <Plus className="h-3.5 w-3.5 text-green-500" />;
-    if (action.includes("link")) return <Link className="h-3.5 w-3.5 text-blue-500" />;
     if (action.includes("unlink")) return <Unlink className="h-3.5 w-3.5 text-orange-500" />;
+    if (action.includes("link")) return <Link className="h-3.5 w-3.5 text-blue-500" />;
     if (action.includes("submit")) return <Send className="h-3.5 w-3.5 text-blue-500" />;
     if (action.includes("approve")) return <Check className="h-3.5 w-3.5 text-green-500" />;
     if (action.includes("reject")) return <XCircle className="h-3.5 w-3.5 text-red-500" />;

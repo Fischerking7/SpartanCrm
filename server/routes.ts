@@ -4972,7 +4972,7 @@ Rules:
       }
       if (req.query.userId) options.userId = req.query.userId as string;
 
-      const logs = await storage.getAuditLogsByRecordId(req.params.id, options);
+      const logs = await storage.getAuditLogsByRecordId(req.params.id, { ...options, tableName: "pay_runs" });
 
       const allUsers = await storage.getUsers();
       const userMap = new Map(allUsers.map(u => [u.id, { name: u.name, repId: u.repId }]));
