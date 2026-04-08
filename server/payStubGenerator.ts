@@ -440,22 +440,38 @@ export async function generatePayStub(
   }
 
   if (carryForwardAppliedCents > 0) {
+    let remainingToApply = carryForwardAppliedCents;
     for (const cf of pendingCarryForwards) {
+      const applyFromThis = Math.min(cf.remainingAmountCents, remainingToApply);
+      const newRemaining = cf.remainingAmountCents - applyFromThis;
+      const newStatus = newRemaining > 0 ? "PARTIAL" : "APPLIED";
+
       await storage.createPayStatementLineItemFull({
         payStatementId: statement.id,
         category: "CARRY_FORWARD_DEDUCTION",
         description: `Carry-forward balance from prior pay period`,
         sourceType: "CARRY_FORWARD",
         sourceId: cf.id,
-        amount: `-${(cf.remainingAmountCents / 100).toFixed(2)}`,
+        amount: `-${(applyFromThis / 100).toFixed(2)}`,
       }, txDb);
       lineItemCount++;
 
       await storage.updateCarryForwardBalance(cf.id, {
-        status: "APPLIED",
-        remainingAmountCents: 0,
-        resolvedPayStatementId: statement.id,
+        status: newStatus,
+        remainingAmountCents: newRemaining,
+        resolvedPayStatementId: newStatus === "APPLIED" ? statement.id : undefined,
       }, txDb);
+
+      await storage.createAuditLog({
+        action: "carry_forward_applied",
+        tableName: "carry_forward_balances",
+        recordId: cf.id,
+        afterJson: JSON.stringify({ appliedCents: applyFromThis, remainingCents: newRemaining, status: newStatus, payStatementId: statement.id }),
+        userId,
+      }, txDb);
+
+      remainingToApply -= applyFromThis;
+      if (remainingToApply <= 0) break;
     }
   }
 
@@ -469,7 +485,7 @@ export async function generatePayStub(
     }, txDb);
     lineItemCount++;
 
-    await storage.createCarryForwardBalance({
+    const cfRecord = await storage.createCarryForwardBalance({
       userId,
       amountCents: newCarryForwardCents,
       remainingAmountCents: newCarryForwardCents,
@@ -477,6 +493,14 @@ export async function generatePayStub(
       originPayStatementId: statement.id,
       status: "PENDING",
       notes: `Auto-created: net pay was -$${(newCarryForwardCents / 100).toFixed(2)} after deductions`,
+    }, txDb);
+
+    await storage.createAuditLog({
+      action: "carry_forward_created",
+      tableName: "carry_forward_balances",
+      recordId: cfRecord.id,
+      afterJson: JSON.stringify({ amountCents: newCarryForwardCents, userId, payRunId, payStatementId: statement.id }),
+      userId,
     }, txDb);
   }
 
@@ -505,7 +529,16 @@ export async function generatePayStubsForPayRun(
   txDb?: TxDb
 ): Promise<PayStubResult[]> {
   const payRunOrders = await storage.getOrdersByPayRunId(payRunId);
-  const userIds = [...new Set(payRunOrders.map(o => o.userId))];
+  const chargebacks = await storage.getChargebacksByPayRun(payRunId);
+  const orderUserIds = payRunOrders.map(o => o.userId);
+  const cbUserIds: string[] = [];
+  for (const cb of chargebacks) {
+    if (cb.repId) {
+      const cbUser = await storage.getUserByRepId(cb.repId);
+      if (cbUser) cbUserIds.push(cbUser.id);
+    }
+  }
+  const userIds = [...new Set([...orderUserIds, ...cbUserIds])];
 
   const results: PayStubResult[] = [];
   for (const userId of userIds) {
@@ -889,22 +922,38 @@ async function generatePayStubFromPayRun(
   }
 
   if (carryForwardAppliedCents2 > 0) {
+    let remainingToApply2 = carryForwardAppliedCents2;
     for (const cf of pendingCarryForwards2) {
+      const applyFromThis = Math.min(cf.remainingAmountCents, remainingToApply2);
+      const newRemaining = cf.remainingAmountCents - applyFromThis;
+      const newStatus = newRemaining > 0 ? "PARTIAL" : "APPLIED";
+
       await storage.createPayStatementLineItemFull({
         payStatementId: statement.id,
         category: "CARRY_FORWARD_DEDUCTION",
         description: `Carry-forward balance from prior pay period`,
         sourceType: "CARRY_FORWARD",
         sourceId: cf.id,
-        amount: `-${(cf.remainingAmountCents / 100).toFixed(2)}`,
+        amount: `-${(applyFromThis / 100).toFixed(2)}`,
       }, txDb);
       lineItemCount++;
 
       await storage.updateCarryForwardBalance(cf.id, {
-        status: "APPLIED",
-        remainingAmountCents: 0,
-        resolvedPayStatementId: statement.id,
+        status: newStatus,
+        remainingAmountCents: newRemaining,
+        resolvedPayStatementId: newStatus === "APPLIED" ? statement.id : undefined,
       }, txDb);
+
+      await storage.createAuditLog({
+        action: "carry_forward_applied",
+        tableName: "carry_forward_balances",
+        recordId: cf.id,
+        afterJson: JSON.stringify({ appliedCents: applyFromThis, remainingCents: newRemaining, status: newStatus, payStatementId: statement.id }),
+        userId,
+      }, txDb);
+
+      remainingToApply2 -= applyFromThis;
+      if (remainingToApply2 <= 0) break;
     }
   }
 
@@ -918,7 +967,7 @@ async function generatePayStubFromPayRun(
     }, txDb);
     lineItemCount++;
 
-    await storage.createCarryForwardBalance({
+    const cfRecord2 = await storage.createCarryForwardBalance({
       userId,
       amountCents: newCarryForwardCents2,
       remainingAmountCents: newCarryForwardCents2,
@@ -926,6 +975,14 @@ async function generatePayStubFromPayRun(
       originPayStatementId: statement.id,
       status: "PENDING",
       notes: `Auto-created: net pay was -$${(newCarryForwardCents2 / 100).toFixed(2)} after deductions`,
+    }, txDb);
+
+    await storage.createAuditLog({
+      action: "carry_forward_created",
+      tableName: "carry_forward_balances",
+      recordId: cfRecord2.id,
+      afterJson: JSON.stringify({ amountCents: newCarryForwardCents2, userId, payRunId, payStatementId: statement.id }),
+      userId,
     }, txDb);
   }
 

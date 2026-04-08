@@ -43,7 +43,7 @@ interface VarianceReport {
   totalIncentives: string;
   issues: string[];
   canFinalize: boolean;
-  repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; incentives: number; hasNegative: boolean }[];
+  repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; incentives: number; hasNegative: boolean; hasCarryForward?: boolean }[];
 }
 
 interface PoolEntry {
@@ -1273,10 +1273,10 @@ export default function PayRuns() {
                             <span className="text-sm text-green-600 dark:text-green-400">Incentives: ${rep.incentives.toFixed(2)}</span>
                           )}
                           <span className="text-sm text-muted-foreground">Deductions: ${rep.deductions.toFixed(2)}</span>
-                          <span className={`font-mono font-medium ${rep.hasNegative ? "text-destructive" : ""}`}>
+                          <span className={`font-mono font-medium ${rep.hasNegative || rep.hasCarryForward ? "text-destructive" : ""}`}>
                             Net: ${rep.net.toFixed(2)}
                           </span>
-                          {rep.hasNegative && (
+                          {(rep.hasNegative || rep.hasCarryForward) && (
                             <Badge variant="outline" className="text-xs text-orange-600" data-testid={`badge-cf-${rep.repId}`}>
                               <AlertTriangle className="h-3 w-3 mr-1" /> Carry-forward
                             </Badge>

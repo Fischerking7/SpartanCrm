@@ -4697,7 +4697,7 @@ Rules:
       let totalNetPay = 0;
       let totalIncentives = 0;
       const issues: string[] = [];
-      const repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; incentives: number; hasNegative: boolean }[] = [];
+      const repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; incentives: number; hasNegative: boolean; hasCarryForward: boolean }[] = [];
       
       for (const order of orders) {
         totalGross += parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned);
@@ -4713,8 +4713,13 @@ Rules:
         totalNetPay += net;
         totalIncentives += incentives;
         
-        const hasNegative = net < 0;
-        if (hasNegative) issues.push(`${stmt.userId} has negative net pay of $${net.toFixed(2)} — carry-forward will apply`);
+        const stmtLineItems = await storage.getPayStatementLineItems(stmt.id);
+        const hasCarryForwardCredit = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_CREDIT");
+        const hasCarryForwardDeduction = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_DEDUCTION");
+        const hasCarryForward = hasCarryForwardCredit || hasCarryForwardDeduction;
+        const hasNegative = hasCarryForwardCredit;
+        if (hasCarryForwardCredit) issues.push(`${stmt.userId} has negative balance carried forward to next period`);
+        if (hasCarryForwardDeduction) issues.push(`${stmt.userId} has prior carry-forward balance being recovered`);
         
         repSummaries.push({
           repId: stmt.userId,
@@ -4724,6 +4729,7 @@ Rules:
           net,
           incentives,
           hasNegative,
+          hasCarryForward,
         });
       }
       
