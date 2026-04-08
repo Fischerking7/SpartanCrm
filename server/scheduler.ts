@@ -167,6 +167,51 @@ export const scheduler = {
     }
   },
 
+  derivePeriodBoundaries(schedule: any): { periodStart: string; periodEnd: string } {
+    const now = new Date();
+    const toDateStr = (d: Date) => d.toISOString().split("T")[0];
+    const periodEnd = toDateStr(now);
+    
+    switch (schedule.frequency) {
+      case "WEEKLY": {
+        const start = new Date(now);
+        start.setDate(start.getDate() - 7);
+        return { periodStart: toDateStr(start), periodEnd };
+      }
+      case "BIWEEKLY": {
+        const start = new Date(now);
+        start.setDate(start.getDate() - 14);
+        return { periodStart: toDateStr(start), periodEnd };
+      }
+      case "SEMIMONTHLY": {
+        const day1 = schedule.dayOfMonth || 1;
+        const day2 = schedule.secondDayOfMonth || 16;
+        const currentDay = now.getDate();
+        let start: Date;
+        
+        if (currentDay >= day2) {
+          start = new Date(now.getFullYear(), now.getMonth(), day2);
+        } else if (currentDay >= day1) {
+          start = new Date(now.getFullYear(), now.getMonth(), day1);
+        } else {
+          start = new Date(now.getFullYear(), now.getMonth() - 1, day2);
+        }
+        return { periodStart: toDateStr(start), periodEnd };
+      }
+      case "MONTHLY":
+      default: {
+        const payDay = schedule.dayOfMonth || 1;
+        let start: Date;
+        if (now.getDate() >= payDay) {
+          start = new Date(now.getFullYear(), now.getMonth(), payDay);
+        } else {
+          start = new Date(now.getFullYear(), now.getMonth() - 1, payDay);
+        }
+        return { periodStart: toDateStr(start), periodEnd };
+      }
+    }
+  },
+
   async createScheduledPayRun(schedule: any) {
     const job = await storage.createBackgroundJob({
       jobType: "SCHEDULED_PAY_RUN",
@@ -177,42 +222,19 @@ export const scheduler = {
       await storage.updateBackgroundJob(job.id, { status: "RUNNING", startedAt: new Date() });
       
       const now = new Date();
-      const weekEndingDate = now.toISOString().split("T")[0];
-      let periodStart: string;
-      
-      switch (schedule.frequency) {
-        case "WEEKLY":
-          const weekAgo = new Date(now);
-          weekAgo.setDate(weekAgo.getDate() - 7);
-          periodStart = weekAgo.toISOString().split("T")[0];
-          break;
-        case "BIWEEKLY":
-          const twoWeeksAgo = new Date(now);
-          twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-          periodStart = twoWeeksAgo.toISOString().split("T")[0];
-          break;
-        case "SEMIMONTHLY":
-          const halfMonthAgo = new Date(now);
-          halfMonthAgo.setDate(halfMonthAgo.getDate() - 15);
-          periodStart = halfMonthAgo.toISOString().split("T")[0];
-          break;
-        case "MONTHLY":
-        default:
-          const monthAgo = new Date(now);
-          monthAgo.setMonth(monthAgo.getMonth() - 1);
-          periodStart = monthAgo.toISOString().split("T")[0];
-          break;
-      }
+      const { periodStart, periodEnd } = this.derivePeriodBoundaries(schedule);
       
       const payRun = await storage.createPayRun({
         name: `${schedule.name} - ${now.toLocaleDateString()}`,
-        weekEndingDate,
+        weekEndingDate: periodEnd,
+        periodStart,
+        periodEnd,
         status: "DRAFT",
         createdByUserId: schedule.createdByUserId || "SYSTEM",
       });
       
       if (schedule.autoLinkOrders) {
-        await this.autoLinkOrders(payRun.id, periodStart, weekEndingDate);
+        await this.autoLinkOrders(payRun.id, periodStart, periodEnd);
       }
       
       const nextRun = this.calculateNextRunDate(schedule);
