@@ -70,6 +70,7 @@ export default function Orders() {
   const [aiExtractedFields, setAiExtractedFields] = useState<Set<string>>(new Set());
   const [captureConfidence, setCaptureConfidence] = useState<Record<string, string>>({});
   const [captureImagePath, setCaptureImagePath] = useState<string | null>(null);
+  const [captureImagePaths, setCaptureImagePaths] = useState<string[]>([]);
   const [captureRawJson, setCaptureRawJson] = useState<Record<string, unknown> | null>(null);
   const [captureMissingFields, setCaptureMissingFields] = useState<string[]>([]);
   
@@ -531,8 +532,8 @@ export default function Orders() {
     },
   });
 
-  const handleCaptureExtracted = (result: { orderData: Record<string, string>; confidence: Record<string, string>; imageObjectPath: string; rawExtraction: Record<string, unknown>; missingRequired: string[]; extractedFields: string[] }) => {
-    const { orderData, confidence, imageObjectPath, rawExtraction, missingRequired, extractedFields } = result;
+  const handleCaptureExtracted = (result: { orderData: Record<string, string>; confidence: Record<string, string>; imageObjectPath: string; imageObjectPaths?: string[]; rawExtraction: Record<string, unknown>; missingRequired: string[]; extractedFields: string[] }) => {
+    const { orderData, confidence, imageObjectPath, imageObjectPaths: paths, rawExtraction, missingRequired, extractedFields } = result;
     const newFields = new Set<string>();
     
     setNewOrderForm(f => {
@@ -555,7 +556,9 @@ export default function Orders() {
 
     setAiExtractedFields(newFields);
     setCaptureConfidence(confidence || {});
-    setCaptureImagePath(imageObjectPath);
+    const allPaths = paths && paths.length > 0 ? paths : (imageObjectPath ? [imageObjectPath] : []);
+    setCaptureImagePaths(allPaths);
+    setCaptureImagePath(allPaths.length > 0 ? JSON.stringify(allPaths) : null);
     setCaptureRawJson(rawExtraction);
     setCaptureMissingFields(missingRequired || []);
     setShowCapture(false);
@@ -587,6 +590,7 @@ export default function Orders() {
     setAiExtractedFields(new Set());
     setCaptureConfidence({});
     setCaptureImagePath(null);
+    setCaptureImagePaths([]);
     setCaptureRawJson(null);
     setCaptureMissingFields([]);
   };

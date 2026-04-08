@@ -1,17 +1,20 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Camera, Upload, X, Loader2, AlertTriangle, Sparkles, CheckCircle2 } from "lucide-react";
+import { Camera, Upload, X, Loader2, AlertTriangle, Sparkles, Plus } from "lucide-react";
+
+const MAX_IMAGES = 4;
 
 interface ExtractionResult {
   orderData: Record<string, string | number | null>;
   rawExtraction: Record<string, unknown>;
   confidence: Record<string, string>;
   imageObjectPath: string | null;
+  imageObjectPaths: string[];
   missingRequired: string[];
   extractedFields: string[];
   warning: string | null;
@@ -24,14 +27,17 @@ interface ScreenshotCaptureProps {
 
 export function ScreenshotCapture({ onExtracted, onClose }: ScreenshotCaptureProps) {
   const { toast } = useToast();
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const addFileInputRef = useRef<HTMLInputElement>(null);
 
   const extractMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (files: File[]) => {
       const formData = new FormData();
-      formData.append("image", file);
+      for (const file of files) {
+        formData.append("images", file);
+      }
 
       const authHeaders = getAuthHeaders() as { Authorization: string };
       const res = await fetch("/api/orders/capture", {
@@ -56,7 +62,7 @@ export function ScreenshotCapture({ onExtracted, onClose }: ScreenshotCapturePro
       } else {
         toast({
           title: "Data extracted successfully",
-          description: `${result.extractedFields.length} fields extracted from screenshot`,
+          description: `${result.extractedFields.length} fields extracted from ${selectedFiles.length} screenshot${selectedFiles.length > 1 ? "s" : ""}`,
         });
       }
       onExtracted(result);
@@ -70,10 +76,15 @@ export function ScreenshotCapture({ onExtracted, onClose }: ScreenshotCapturePro
     },
   });
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  useEffect(() => {
+    return () => {
+      for (const url of previewUrls) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [previewUrls]);
 
+  const validateAndAddFile = (file: File): boolean => {
     const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
     if (!allowedTypes.includes(file.type)) {
       toast({
@@ -81,36 +92,74 @@ export function ScreenshotCapture({ onExtracted, onClose }: ScreenshotCapturePro
         description: "Please upload a JPEG, PNG, WebP, or GIF image",
         variant: "destructive",
       });
-      return;
+      return false;
     }
 
     if (file.size > 10 * 1024 * 1024) {
       toast({
         title: "File too large",
-        description: "Maximum file size is 10MB",
+        description: "Maximum file size is 10MB per image",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !validateAndAddFile(file)) return;
+
+    if (selectedFiles.length >= MAX_IMAGES) {
+      toast({
+        title: "Maximum images reached",
+        description: `You can upload up to ${MAX_IMAGES} images`,
         variant: "destructive",
       });
       return;
     }
 
-    setSelectedFile(file);
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
+    setSelectedFiles(prev => [...prev, file]);
+    setPreviewUrls(prev => [...prev, URL.createObjectURL(file)]);
+    if (e.target === fileInputRef.current && fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    if (e.target === addFileInputRef.current && addFileInputRef.current) {
+      addFileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveFile = (index: number) => {
+    URL.revokeObjectURL(previewUrls[index]);
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviewUrls(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = () => {
-    if (!selectedFile) return;
-    extractMutation.mutate(selectedFile);
+    if (selectedFiles.length === 0) return;
+    extractMutation.mutate(selectedFiles);
   };
 
-  const handleClear = () => {
-    setSelectedFile(null);
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
+  const handleClearAll = () => {
+    for (const url of previewUrls) {
+      URL.revokeObjectURL(url);
     }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+    setSelectedFiles([]);
+    setPreviewUrls([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (addFileInputRef.current) addFileInputRef.current.value = "";
+  };
+
+  const triggerCamera = (inputRef: React.RefObject<HTMLInputElement | null>) => {
+    inputRef.current?.click();
+  };
+
+  const triggerBrowse = (inputRef: React.RefObject<HTMLInputElement | null>) => {
+    if (inputRef.current) {
+      inputRef.current.removeAttribute("capture");
+      inputRef.current.click();
+      inputRef.current.setAttribute("capture", "environment");
     }
   };
 
@@ -130,7 +179,7 @@ export function ScreenshotCapture({ onExtracted, onClose }: ScreenshotCapturePro
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Upload or photograph an order confirmation screen to auto-fill the form
+          Upload up to {MAX_IMAGES} screenshots to auto-fill the form
         </p>
 
         <input
@@ -140,17 +189,25 @@ export function ScreenshotCapture({ onExtracted, onClose }: ScreenshotCapturePro
           capture="environment"
           onChange={handleFileSelect}
           className="hidden"
-          id="screenshot-capture-input"
           data-testid="input-screenshot-capture"
         />
+        <input
+          ref={addFileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handleFileSelect}
+          className="hidden"
+          data-testid="input-screenshot-capture-add"
+        />
 
-        {!selectedFile ? (
+        {selectedFiles.length === 0 ? (
           <div className="flex gap-2">
             <Button
               type="button"
               variant="outline"
               className="flex-1 h-12"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => triggerCamera(fileInputRef)}
               data-testid="button-upload-screenshot"
             >
               <Camera className="h-4 w-4 mr-2" />
@@ -160,13 +217,7 @@ export function ScreenshotCapture({ onExtracted, onClose }: ScreenshotCapturePro
               type="button"
               variant="outline"
               className="flex-1 h-12"
-              onClick={() => {
-                if (fileInputRef.current) {
-                  fileInputRef.current.removeAttribute("capture");
-                  fileInputRef.current.click();
-                  fileInputRef.current.setAttribute("capture", "environment");
-                }
-              }}
+              onClick={() => triggerBrowse(fileInputRef)}
               data-testid="button-browse-screenshot"
             >
               <Upload className="h-4 w-4 mr-2" />
@@ -175,30 +226,62 @@ export function ScreenshotCapture({ onExtracted, onClose }: ScreenshotCapturePro
           </div>
         ) : (
           <div className="space-y-3">
-            {previewUrl && (
-              <div className="relative">
-                <img
-                  src={previewUrl}
-                  alt="Screenshot preview"
-                  className="w-full max-h-48 object-contain rounded-md border"
-                  data-testid="img-screenshot-preview"
-                />
+            <div className="flex flex-wrap gap-2">
+              {previewUrls.map((url, index) => (
+                <div key={index} className="relative w-20 h-20 flex-shrink-0">
+                  <img
+                    src={url}
+                    alt={`Screenshot ${index + 1}`}
+                    className="w-full h-full object-cover rounded-md border"
+                    data-testid={`img-screenshot-preview-${index}`}
+                  />
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="icon"
+                    className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full"
+                    onClick={() => handleRemoveFile(index)}
+                    data-testid={`button-remove-screenshot-${index}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                  <span className="absolute bottom-0.5 left-0.5 bg-black/60 text-white text-[9px] px-1 rounded">
+                    {index + 1}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{selectedFiles.length} image{selectedFiles.length > 1 ? "s" : ""} selected</span>
+              <span>({(selectedFiles.reduce((sum, f) => sum + f.size, 0) / 1024).toFixed(0)} KB total)</span>
+            </div>
+
+            <div className="flex gap-2">
+              {selectedFiles.length < MAX_IMAGES && (
                 <Button
                   type="button"
-                  variant="destructive"
-                  size="icon"
-                  className="absolute top-1 right-1 h-6 w-6"
-                  onClick={handleClear}
-                  data-testid="button-clear-screenshot"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => triggerBrowse(addFileInputRef)}
+                  data-testid="button-add-another-screenshot"
                 >
-                  <X className="h-3 w-3" />
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  Add Another
                 </Button>
-              </div>
-            )}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{selectedFile.name}</span>
-              <span>({(selectedFile.size / 1024).toFixed(0)} KB)</span>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleClearAll}
+                data-testid="button-clear-all-screenshots"
+              >
+                Clear All
+              </Button>
             </div>
+
             <Button
               type="button"
               className="w-full"
@@ -209,7 +292,7 @@ export function ScreenshotCapture({ onExtracted, onClose }: ScreenshotCapturePro
               {extractMutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Extracting with AI...
+                  Extracting from {selectedFiles.length} image{selectedFiles.length > 1 ? "s" : ""}...
                 </>
               ) : (
                 <>

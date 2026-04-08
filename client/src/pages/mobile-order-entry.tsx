@@ -26,6 +26,7 @@ interface QuickOrderForm {
   customerName: string;
   customerPhone: string;
   customerAddress: string;
+  customerEmail: string;
   dateSold: string;
   hasTv: boolean;
   hasMobile: boolean;
@@ -39,6 +40,7 @@ const getDefaultForm = (): QuickOrderForm => ({
   customerName: "",
   customerPhone: "",
   customerAddress: "",
+  customerEmail: "",
   dateSold: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })(),
   hasTv: false,
   hasMobile: false,
@@ -91,8 +93,8 @@ export default function MobileOrderEntry() {
     enabled: !!form.clientId && !!form.providerId,
   });
 
-  const handleCaptureExtracted = (result: { orderData: Record<string, string>; confidence: Record<string, string>; imageObjectPath: string; rawExtraction: Record<string, unknown>; missingRequired: string[]; extractedFields: string[] }) => {
-    const { orderData, confidence, imageObjectPath, rawExtraction, missingRequired, extractedFields } = result;
+  const handleCaptureExtracted = (result: { orderData: Record<string, string>; confidence: Record<string, string>; imageObjectPath: string; imageObjectPaths?: string[]; rawExtraction: Record<string, unknown>; missingRequired: string[]; extractedFields: string[] }) => {
+    const { orderData, confidence, imageObjectPath, imageObjectPaths: paths, rawExtraction, missingRequired, extractedFields } = result;
     const newFields = new Set<string>();
     
     setForm(f => {
@@ -100,6 +102,8 @@ export default function MobileOrderEntry() {
       if (orderData.customerName) { updated.customerName = orderData.customerName; newFields.add("customerName"); }
       if (orderData.customerPhone) { updated.customerPhone = orderData.customerPhone; newFields.add("customerPhone"); }
       if (orderData.customerAddress) { updated.customerAddress = orderData.customerAddress; newFields.add("customerAddress"); }
+      if (orderData.customerEmail) { updated.customerEmail = String(orderData.customerEmail); newFields.add("customerEmail"); }
+      if (orderData.installDate) { updated.dateSold = String(orderData.installDate); newFields.add("dateSold"); }
       if (orderData.providerId) { updated.providerId = orderData.providerId; newFields.add("providerId"); }
       if (orderData.serviceId) { updated.serviceId = orderData.serviceId; newFields.add("serviceId"); }
       return updated;
@@ -107,7 +111,8 @@ export default function MobileOrderEntry() {
 
     setAiExtractedFields(newFields);
     setCaptureConfidence(confidence || {});
-    setCaptureImagePath(imageObjectPath);
+    const allPaths = paths && paths.length > 0 ? paths : (imageObjectPath ? [imageObjectPath] : []);
+    setCaptureImagePath(allPaths.length > 0 ? JSON.stringify(allPaths) : null);
     setCaptureRawJson(rawExtraction);
     setCaptureMissingFields(missingRequired || []);
     setShowCapture(false);
@@ -127,6 +132,7 @@ export default function MobileOrderEntry() {
           customerName: orderData.customerName,
           customerPhone: orderData.customerPhone || null,
           customerAddress: orderData.customerAddress || null,
+          customerEmail: orderData.customerEmail || null,
           hasTv: orderData.hasTv,
           hasMobile: orderData.hasMobile,
           mobileLines: orderData.hasMobile && orderData.mobileLinesQty > 0
@@ -392,6 +398,25 @@ export default function MobileOrderEntry() {
                 />
               </div>
             )}
+
+            {mode === "standard" && (
+              <div className="space-y-2">
+                <Label htmlFor="customerEmail" className="text-sm flex items-center gap-1.5">
+                  Email
+                  {aiExtractedFields.has("customerEmail") && <AiFieldIndicator fieldName="customerEmail" confidence={captureConfidence.customerEmail} />}
+                </Label>
+                <Input
+                  id="customerEmail"
+                  type="email"
+                  value={form.customerEmail}
+                  onChange={(e) => setForm(f => ({ ...f, customerEmail: e.target.value }))}
+                  placeholder="customer@email.com"
+                  className="h-12 text-base"
+                  autoComplete="off"
+                  data-testid="input-customer-email"
+                />
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -404,7 +429,10 @@ export default function MobileOrderEntry() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="dateSold" className="text-sm">Date Sold</Label>
+              <Label htmlFor="dateSold" className="text-sm flex items-center gap-1.5">
+                Date Sold
+                {aiExtractedFields.has("dateSold") && <AiFieldIndicator fieldName="dateSold" confidence={captureConfidence.installDate} />}
+              </Label>
               <Input
                 id="dateSold"
                 type="date"

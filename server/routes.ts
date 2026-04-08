@@ -2356,18 +2356,20 @@ export async function registerRoutes(
     }
   });
 
-  const captureUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
-  app.post("/api/orders/capture", auth, captureUpload.single("image"), async (req: AuthRequest, res) => {
+  const captureUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 4 } });
+  app.post("/api/orders/capture", auth, captureUpload.array("images", 4), async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      const file = req.file;
-      if (!file) {
-        return res.status(400).json({ message: "No image file provided" });
+      const files = req.files as Express.Multer.File[] | undefined;
+      if (!files || files.length === 0) {
+        return res.status(400).json({ message: "No image files provided" });
       }
 
       const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-      if (!allowedTypes.includes(file.mimetype)) {
-        return res.status(400).json({ message: "Invalid image type. Supported: JPEG, PNG, WebP, GIF" });
+      for (const file of files) {
+        if (!allowedTypes.includes(file.mimetype)) {
+          return res.status(400).json({ message: `Invalid image type for ${file.originalname}. Supported: JPEG, PNG, WebP, GIF` });
+        }
       }
 
       await storage.createAuditLog({
@@ -2375,28 +2377,30 @@ export async function registerRoutes(
         action: "screenshot_capture_attempt",
         tableName: "sales_orders",
         recordId: null,
-        afterJson: JSON.stringify({ fileName: file.originalname, fileSize: file.size, mimeType: file.mimetype }),
+        afterJson: JSON.stringify({ fileCount: files.length, files: files.map(f => ({ fileName: f.originalname, fileSize: f.size, mimeType: f.mimetype })) }),
       });
 
-      let imageObjectPath: string | null = null;
+      const imageObjectPaths: string[] = [];
       try {
         const { ObjectStorageService } = await import("./replit_integrations/object_storage/objectStorage");
         const objectStorageService = new ObjectStorageService();
-        const uploadUrl = await objectStorageService.getObjectEntityUploadURL();
-        
-        const uploadResponse = await fetch(uploadUrl, {
-          method: "PUT",
-          body: file.buffer,
-          headers: { "Content-Type": file.mimetype },
-        });
-        if (uploadResponse.ok) {
-          imageObjectPath = await objectStorageService.trySetObjectEntityAclPolicy(
-            uploadUrl,
-            { owner: user.id, visibility: "private" }
-          );
+        for (const file of files) {
+          const uploadUrl = await objectStorageService.getObjectEntityUploadURL();
+          const uploadResponse = await fetch(uploadUrl, {
+            method: "PUT",
+            body: file.buffer,
+            headers: { "Content-Type": file.mimetype },
+          });
+          if (uploadResponse.ok) {
+            const path = await objectStorageService.trySetObjectEntityAclPolicy(
+              uploadUrl,
+              { owner: user.id, visibility: "private" }
+            );
+            if (path) imageObjectPaths.push(path);
+          }
         }
       } catch (storageError) {
-        console.error("Failed to store capture image:", storageError);
+        console.error("Failed to store capture image(s):", storageError);
       }
 
       const Anthropic = (await import("@anthropic-ai/sdk")).default;
@@ -2405,10 +2409,20 @@ export async function registerRoutes(
         baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
       });
 
-      const base64Image = file.buffer.toString("base64");
-      const mediaType = file.mimetype as "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+      const imageContentBlocks: Array<{ type: "image"; source: { type: "base64"; media_type: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: string } }> = files.map(file => ({
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: file.mimetype as "image/jpeg" | "image/png" | "image/webp" | "image/gif",
+          data: file.buffer.toString("base64"),
+        },
+      }));
 
-      const extractionPrompt = `You are analyzing a screenshot of an order confirmation screen from a telecom/internet service provider (likely Astound or similar). Extract the following fields from the image. Return ONLY a valid JSON object with these fields:
+      const multiImageNote = files.length > 1
+        ? `You are analyzing ${files.length} screenshots from the same order. The images may show different parts of the order confirmation (e.g., one shows customer info, another shows install details). Combine information from ALL images to extract the most complete set of fields.\n\n`
+        : "";
+
+      const extractionPrompt = `${multiImageNote}You are analyzing screenshot(s) of an order confirmation screen from a telecom/internet service provider (likely Astound or similar). Extract the following fields from the image(s). Return ONLY a valid JSON object with these fields:
 
 {
   "customerName": "Full customer name",
@@ -2473,7 +2487,7 @@ Rules:
           messages: [{
             role: "user",
             content: [
-              { type: "image", source: { type: "base64", media_type: mediaType, data: base64Image } },
+              ...imageContentBlocks,
               { type: "text", text: extractionPrompt },
             ],
           }],
@@ -2507,9 +2521,9 @@ Rules:
           action: "screenshot_capture_failed",
           tableName: "sales_orders",
           recordId: null,
-          afterJson: JSON.stringify({ error: extractionError, imageObjectPath }),
+          afterJson: JSON.stringify({ error: extractionError, imageObjectPaths }),
         });
-        return res.status(422).json({ message: extractionError || "Failed to extract data from image", imageObjectPath });
+        return res.status(422).json({ message: extractionError || "Failed to extract data from image", imageObjectPath: imageObjectPaths[0] || null, imageObjectPaths });
       }
 
       let serviceId: string | null = null;
@@ -2592,7 +2606,8 @@ Rules:
         afterJson: JSON.stringify({ 
           extractedFields, 
           missingRequired,
-          imageObjectPath,
+          imageObjectPaths,
+          imageCount: files.length,
           fieldCount: extractedFields.length,
         }),
       });
@@ -2601,7 +2616,8 @@ Rules:
         orderData,
         rawExtraction: extractedData,
         confidence,
-        imageObjectPath,
+        imageObjectPath: imageObjectPaths[0] ?? null,
+        imageObjectPaths,
         missingRequired,
         extractedFields,
         warning: missingRequired.length > 2 
@@ -2630,9 +2646,31 @@ Rules:
         return res.status(404).json({ message: "No capture image for this order" });
       }
 
-      const { ObjectStorageService, ObjectNotFoundError } = await import("./replit_integrations/object_storage/objectStorage");
+      let imagePaths: string[] = [];
+      try {
+        const parsed = JSON.parse(order.captureImageUrl);
+        if (Array.isArray(parsed)) {
+          imagePaths = parsed;
+        } else {
+          imagePaths = [order.captureImageUrl];
+        }
+      } catch {
+        imagePaths = [order.captureImageUrl];
+      }
+
+      const imageIndex = parseInt(req.query.index as string) || 0;
+      const imagePath = imagePaths[imageIndex];
+      if (!imagePath) {
+        return res.status(404).json({ message: "Image index out of range", total: imagePaths.length });
+      }
+
+      if (req.query.info === "true") {
+        return res.json({ total: imagePaths.length, currentIndex: imageIndex });
+      }
+
+      const { ObjectStorageService } = await import("./replit_integrations/object_storage/objectStorage");
       const objectStorageService = new ObjectStorageService();
-      const objectFile = await objectStorageService.getObjectEntityFile(order.captureImageUrl);
+      const objectFile = await objectStorageService.getObjectEntityFile(imagePath);
       await objectStorageService.downloadObject(objectFile, res);
     } catch (error: unknown) {
       console.error("Capture image access error:", error);
