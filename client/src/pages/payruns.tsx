@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent, TrendingUp, ArrowDown, ArrowUp, Shield, Loader2, Timer } from "lucide-react";
+import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent, TrendingUp, ArrowDown, ArrowUp, Shield, Loader2, Timer, Mail } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -100,6 +100,136 @@ interface User {
   name: string;
   repId: string;
   role: string;
+}
+
+interface EmailStatusData {
+  counts: { total: number; sent: number; failed: number; pending: number; skipped: number };
+  statements: {
+    statementId: string;
+    userId: string;
+    repName: string | null;
+    repEmail: string | null;
+    netPay: string;
+    emailDeliveryStatus: string;
+    emailDeliveryError: string | null;
+    emailSentAt: string | null;
+  }[];
+}
+
+function EmailDeliveryStatus({ payRunId }: { payRunId: string }) {
+  const { toast } = useToast();
+  const [retrying, setRetrying] = useState(false);
+
+  const { data: emailStatus, refetch } = useQuery<EmailStatusData>({
+    queryKey: ["/api/admin/payruns", payRunId, "email-status"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/email-status`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const retryFailed = async () => {
+    setRetrying(true);
+    try {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/retry-emails`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      toast({ title: data.message || "Retry complete" });
+      refetch();
+    } catch {
+      toast({ title: "Retry failed", variant: "destructive" });
+    }
+    setRetrying(false);
+  };
+
+  if (!emailStatus) return null;
+
+  const { counts } = emailStatus;
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case "SENT": return <CheckCircle className="h-3.5 w-3.5 text-green-500" />;
+      case "FAILED": return <XCircle className="h-3.5 w-3.5 text-red-500" />;
+      case "PENDING": return <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />;
+      case "SKIPPED": return <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />;
+      default: return null;
+    }
+  };
+
+  return (
+    <Card data-testid="email-delivery-status">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2 pt-3 px-4">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <Mail className="h-4 w-4" />
+          Pay Stub Email Delivery
+        </CardTitle>
+        {counts.failed > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={retryFailed}
+            disabled={retrying}
+            data-testid="button-retry-emails"
+          >
+            {retrying ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Send className="h-3 w-3 mr-1" />}
+            Retry Failed ({counts.failed})
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="px-4 pb-3">
+        <div className="flex gap-4 mb-3">
+          <div className="flex items-center gap-1.5 text-sm">
+            <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+            <span data-testid="text-email-sent-count">{counts.sent} sent</span>
+          </div>
+          {counts.failed > 0 && (
+            <div className="flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
+              <XCircle className="h-3.5 w-3.5" />
+              <span data-testid="text-email-failed-count">{counts.failed} failed</span>
+            </div>
+          )}
+          {counts.pending > 0 && (
+            <div className="flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span data-testid="text-email-pending-count">{counts.pending} pending</span>
+            </div>
+          )}
+          {counts.skipped > 0 && (
+            <div className="flex items-center gap-1.5 text-sm text-yellow-600 dark:text-yellow-400">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span data-testid="text-email-skipped-count">{counts.skipped} skipped</span>
+            </div>
+          )}
+        </div>
+        <div className="space-y-1.5 max-h-48 overflow-y-auto">
+          {emailStatus.statements.map((s) => (
+            <div key={s.statementId} className="flex items-center justify-between text-sm py-1 border-b last:border-0" data-testid={`email-row-${s.statementId}`}>
+              <div className="flex items-center gap-2">
+                {statusIcon(s.emailDeliveryStatus)}
+                <span className="font-medium">{s.repName || "Unknown"}</span>
+                <span className="text-xs text-muted-foreground">{s.repEmail || "no email"}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs">${parseFloat(s.netPay).toFixed(2)}</span>
+                {s.emailDeliveryError && s.emailDeliveryStatus !== "SENT" && (
+                  <span className="text-xs text-red-500 max-w-[200px] truncate" title={s.emailDeliveryError}>
+                    {s.emailDeliveryError}
+                  </span>
+                )}
+                {s.emailSentAt && (
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(s.emailSentAt).toLocaleString()}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function PayRuns() {
@@ -1306,6 +1436,10 @@ export default function PayRuns() {
                     </div>
                   </CardContent>
                 </Card>
+              )}
+
+              {selectedPayRun.status === "FINALIZED" && (
+                <EmailDeliveryStatus payRunId={selectedPayRun.id} />
               )}
 
               <Card>

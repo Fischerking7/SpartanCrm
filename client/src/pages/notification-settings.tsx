@@ -4,7 +4,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, Mail, CheckCircle, XCircle, DollarSign, AlertTriangle, CreditCard } from "lucide-react";
+import { Bell, Mail, CheckCircle, XCircle, DollarSign, AlertTriangle, CreditCard, FileText } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
@@ -14,6 +14,7 @@ interface NotificationPreferences {
   emailPayRunFinalized: boolean;
   emailChargebackApplied: boolean;
   emailAdvanceUpdates: boolean;
+  emailPayStubDelivery: boolean;
 }
 
 export default function NotificationSettings() {
@@ -83,6 +84,13 @@ export default function NotificationSettings() {
       description: "Get notified about advance request approvals or rejections",
       icon: CreditCard,
       iconColor: "text-purple-500",
+    },
+    {
+      key: "emailPayStubDelivery" as const,
+      title: "Pay Stub Email Delivery",
+      description: "Receive your pay stub PDF by email when a pay run is finalized",
+      icon: FileText,
+      iconColor: "text-emerald-500",
     },
   ];
 

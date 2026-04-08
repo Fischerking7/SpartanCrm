@@ -462,6 +462,48 @@ export const emailService = {
     return results;
   },
 
+  async sendPayStubEmail(to: string, subject: string, htmlBody: string, pdfBuffer: Buffer, pdfFilename: string): Promise<boolean> {
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASSWORD;
+
+    if (!smtpHost || !smtpUser || !smtpPass) {
+      console.log(`[Email Service] SMTP not configured - would send pay stub to ${to}: ${subject} (${pdfFilename}, ${pdfBuffer.length} bytes)`);
+      return true;
+    }
+
+    try {
+      const nodemailer = await import("nodemailer");
+      const transporter = nodemailer.default.createTransport({
+        host: smtpHost,
+        port: parseInt(process.env.SMTP_PORT || "587"),
+        secure: process.env.SMTP_SECURE === "true",
+        auth: { user: smtpUser, pass: smtpPass },
+      });
+
+      await transporter.sendMail({
+        from: smtpUser,
+        to,
+        subject,
+        html: htmlBody,
+        attachments: [
+          {
+            filename: pdfFilename,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          },
+        ],
+      });
+
+      console.log(`[Email Service] Pay stub sent to ${to}: ${subject}`);
+      return true;
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      console.error(`[Email Service] Failed to send pay stub:`, msg);
+      return false;
+    }
+  },
+
   async sendCsvExportEmail(to: string, subject: string, body: string, csvContent: string, filename: string): Promise<boolean> {
     const smtpHost = process.env.SMTP_HOST;
     const smtpUser = process.env.SMTP_USER;

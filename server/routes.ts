@@ -4875,7 +4875,96 @@ Rules:
       });
       
       res.json(result);
-    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+
+      const payRunId = req.params.id;
+      (async () => {
+        try {
+          const finalizedStatements = await storage.getPayStatements(payRunId);
+          const allUsers = await storage.getUsers();
+          const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+          for (const stmt of finalizedStatements) {
+            const user = userMap.get(stmt.userId);
+            const email = stmt.repEmail || user?.email;
+            if (!email) {
+              await storage.updatePayStatement(stmt.id, {
+                emailDeliveryStatus: "SKIPPED",
+                emailDeliveryError: "No email address on file",
+              });
+              continue;
+            }
+
+            const prefs = await storage.getNotificationPreferences(stmt.userId);
+            if (prefs?.emailPayStubDelivery === false) {
+              await storage.updatePayStatement(stmt.id, {
+                emailDeliveryStatus: "SKIPPED",
+                emailDeliveryError: "Opted out of pay stub emails",
+              });
+              continue;
+            }
+
+            try {
+              const pdfBuffer = await generatePayStubPdf(stmt.id);
+              const periodLabel = `${stmt.periodStart} to ${stmt.periodEnd}`;
+              const netPayFormatted = `$${parseFloat(stmt.netPay).toFixed(2)}`;
+              const stubNum = stmt.stubNumber || stmt.id.slice(0, 8);
+              const subject = `Your Pay Statement - ${periodLabel}`;
+
+              const htmlBody = `
+              <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+                <div style="background:#1B2A4A;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">
+                  <h2 style="margin:0;font-size:20px;">Pay Statement Ready</h2>
+                  <p style="margin:4px 0 0;color:#94a3b8;font-size:14px;">Iron Crest</p>
+                </div>
+                <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
+                  <p style="margin:0 0 16px;">Hi ${stmt.repName || user?.name || "Team Member"},</p>
+                  <p style="margin:0 0 16px;">Your pay statement for <strong>${periodLabel}</strong> is ready.</p>
+                  <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:16px;margin-bottom:16px;">
+                    <p style="margin:0;font-size:14px;color:#166534;">Net Pay: <strong style="font-size:18px;">${netPayFormatted}</strong></p>
+                  </div>
+                  <table style="width:100%;font-size:13px;margin-bottom:16px;">
+                    <tr><td style="padding:4px 0;color:#6b7280;">Stub Number:</td><td style="padding:4px 0;font-weight:600;">${stubNum}</td></tr>
+                    <tr><td style="padding:4px 0;color:#6b7280;">Period:</td><td style="padding:4px 0;">${periodLabel}</td></tr>
+                    <tr><td style="padding:4px 0;color:#6b7280;">Gross Commission:</td><td style="padding:4px 0;">$${parseFloat(stmt.grossCommission).toFixed(2)}</td></tr>
+                    <tr><td style="padding:4px 0;color:#6b7280;">Deductions:</td><td style="padding:4px 0;">$${parseFloat(stmt.deductionsTotal).toFixed(2)}</td></tr>
+                  </table>
+                  <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">Your detailed pay stub PDF is attached. You can also view your full pay history by logging into Iron Crest CRM.</p>
+                  <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;">This is an automated notification from Iron Crest CRM.</p>
+                </div>
+              </div>`;
+
+              const filename = `PayStub_${stubNum}_${stmt.periodStart}_${stmt.periodEnd}.pdf`;
+              const sent = await emailService.sendPayStubEmail(email, subject, htmlBody, pdfBuffer, filename);
+
+              if (sent) {
+                await storage.updatePayStatement(stmt.id, {
+                  emailDeliveryStatus: "SENT",
+                  emailSentAt: new Date(),
+                });
+              } else {
+                await storage.updatePayStatement(stmt.id, {
+                  emailDeliveryStatus: "FAILED",
+                  emailDeliveryError: "Email send failed",
+                });
+              }
+            } catch (emailErr: unknown) {
+              const errMsg = emailErr instanceof Error ? emailErr.message : "Unknown error";
+              console.error(`[PayStub Email] Failed for statement ${stmt.id}:`, errMsg);
+              await storage.updatePayStatement(stmt.id, {
+                emailDeliveryStatus: "FAILED",
+                emailDeliveryError: errMsg,
+              });
+            }
+          }
+          console.log(`[PayStub Email] Delivery complete for pay run ${payRunId}: ${finalizedStatements.length} statements processed`);
+        } catch (deliveryErr) {
+          console.error(`[PayStub Email] Bulk delivery error for pay run ${payRunId}:`, deliveryErr);
+        }
+      })();
+    } catch (error: unknown) { 
+      const msg = error instanceof Error ? error.message : "Failed";
+      res.status(500).json({ message: msg }); 
+    }
   });
 
   app.post("/api/admin/payruns/:id/mark-paid", auth, requirePermission("financial:finalize:payruns"), async (req: AuthRequest, res) => {
@@ -4889,6 +4978,100 @@ Rules:
       await storage.createAuditLog({ action: "mark_payrun_paid", tableName: "pay_runs", recordId: req.params.id, beforeJson, afterJson: JSON.stringify(updated), userId: req.user!.id });
       res.json(updated);
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
+  app.get("/api/admin/payruns/:id/email-status", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
+    try {
+      const statements = await storage.getPayStatements(req.params.id);
+      const statusSummary = statements.map(s => ({
+        statementId: s.id,
+        userId: s.userId,
+        repName: s.repName,
+        repEmail: s.repEmail,
+        netPay: s.netPay,
+        emailDeliveryStatus: s.emailDeliveryStatus,
+        emailDeliveryError: s.emailDeliveryError,
+        emailSentAt: s.emailSentAt,
+      }));
+      const counts = {
+        total: statements.length,
+        sent: statements.filter(s => s.emailDeliveryStatus === "SENT").length,
+        failed: statements.filter(s => s.emailDeliveryStatus === "FAILED").length,
+        pending: statements.filter(s => s.emailDeliveryStatus === "PENDING").length,
+        skipped: statements.filter(s => s.emailDeliveryStatus === "SKIPPED").length,
+      };
+      res.json({ counts, statements: statusSummary });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed";
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  app.post("/api/admin/payruns/:id/retry-emails", auth, requirePermission("financial:finalize:payruns"), async (req: AuthRequest, res) => {
+    try {
+      const statements = await storage.getPayStatements(req.params.id);
+      const failedStatements = statements.filter(s => s.emailDeliveryStatus === "FAILED");
+      if (failedStatements.length === 0) {
+        return res.json({ message: "No failed deliveries to retry", retried: 0 });
+      }
+
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+      let retried = 0;
+
+      for (const stmt of failedStatements) {
+        const user = userMap.get(stmt.userId);
+        const email = stmt.repEmail || user?.email;
+        if (!email) continue;
+
+        try {
+          const pdfBuffer = await generatePayStubPdf(stmt.id);
+          const periodLabel = `${stmt.periodStart} to ${stmt.periodEnd}`;
+          const netPayFormatted = `$${parseFloat(stmt.netPay).toFixed(2)}`;
+          const stubNum = stmt.stubNumber || stmt.id.slice(0, 8);
+          const subject = `Your Pay Statement - ${periodLabel}`;
+
+          const htmlBody = `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:#1B2A4A;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">
+              <h2 style="margin:0;font-size:20px;">Pay Statement Ready</h2>
+              <p style="margin:4px 0 0;color:#94a3b8;font-size:14px;">Iron Crest</p>
+            </div>
+            <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
+              <p style="margin:0 0 16px;">Hi ${stmt.repName || user?.name || "Team Member"},</p>
+              <p style="margin:0 0 16px;">Your pay statement for <strong>${periodLabel}</strong> is ready.</p>
+              <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:16px;margin-bottom:16px;">
+                <p style="margin:0;font-size:14px;color:#166534;">Net Pay: <strong style="font-size:18px;">${netPayFormatted}</strong></p>
+              </div>
+              <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">Your detailed pay stub PDF is attached.</p>
+              <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;">This is an automated notification from Iron Crest CRM.</p>
+            </div>
+          </div>`;
+
+          const filename = `PayStub_${stubNum}_${stmt.periodStart}_${stmt.periodEnd}.pdf`;
+          const sent = await emailService.sendPayStubEmail(email, subject, htmlBody, pdfBuffer, filename);
+
+          if (sent) {
+            await storage.updatePayStatement(stmt.id, {
+              emailDeliveryStatus: "SENT",
+              emailSentAt: new Date(),
+              emailDeliveryError: null,
+            });
+            retried++;
+          }
+        } catch (retryErr: unknown) {
+          const errMsg = retryErr instanceof Error ? retryErr.message : "Unknown error";
+          await storage.updatePayStatement(stmt.id, {
+            emailDeliveryError: `Retry failed: ${errMsg}`,
+          });
+        }
+      }
+
+      res.json({ message: `Retried ${retried} of ${failedStatements.length} failed deliveries`, retried });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed";
+      res.status(500).json({ message: msg });
+    }
   });
 
   app.get("/api/admin/payruns/:id/summary", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
@@ -12704,6 +12887,10 @@ Rules:
           emailPayRunFinalized: true,
           emailChargebackApplied: true,
           emailAdvanceUpdates: true,
+          emailPendingApprovalAlert: true,
+          emailLowPerformanceWarning: true,
+          emailPayStubDelivery: true,
+          pendingApprovalDaysThreshold: 3,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -12719,14 +12906,15 @@ Rules:
   app.patch("/api/notification-preferences", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      const { emailOrderApproved, emailOrderRejected, emailPayRunFinalized, emailChargebackApplied, emailAdvanceUpdates } = req.body;
+      const { emailOrderApproved, emailOrderRejected, emailPayRunFinalized, emailChargebackApplied, emailAdvanceUpdates, emailPayStubDelivery } = req.body;
       
-      const updates: any = {};
+      const updates: Record<string, boolean> = {};
       if (emailOrderApproved !== undefined) updates.emailOrderApproved = emailOrderApproved;
       if (emailOrderRejected !== undefined) updates.emailOrderRejected = emailOrderRejected;
       if (emailPayRunFinalized !== undefined) updates.emailPayRunFinalized = emailPayRunFinalized;
       if (emailChargebackApplied !== undefined) updates.emailChargebackApplied = emailChargebackApplied;
       if (emailAdvanceUpdates !== undefined) updates.emailAdvanceUpdates = emailAdvanceUpdates;
+      if (emailPayStubDelivery !== undefined) updates.emailPayStubDelivery = emailPayStubDelivery;
       
       const prefs = await storage.upsertNotificationPreferences(user.id, updates);
       res.json(prefs);
@@ -17875,14 +18063,6 @@ Rules:
           issuedAt: new Date(),
         } as any);
 
-        if (stmt.repEmail) {
-          emailService.queueEmail({
-            to: stmt.repEmail,
-            subject: `Pay Statement ${stmt.stubNumber} Available`,
-            text: `Your pay statement ${stmt.stubNumber} for period ${stmt.periodStart} to ${stmt.periodEnd} is now available. Net Pay: $${stmt.netPay}`,
-            html: `<p>Your pay statement <strong>${stmt.stubNumber}</strong> for period ${stmt.periodStart} to ${stmt.periodEnd} is now available.</p><p>Net Pay: <strong>$${stmt.netPay}</strong></p>`,
-          });
-        }
       }
 
       await storage.updatePayRun(req.params.payRunId, { status: "FINALIZED", finalizedAt: new Date() });
@@ -17896,6 +18076,33 @@ Rules:
       });
 
       res.json({ message: "Pay run finalized", statementCount: stmts.length });
+
+      const payRunIdForEmails = req.params.payRunId;
+      (async () => {
+        try {
+          const allUsers = await storage.getUsers();
+          const userMap = new Map(allUsers.map(u => [u.id, u]));
+          for (const stmt of stmts) {
+            const user = userMap.get(stmt.userId);
+            const email = stmt.repEmail || user?.email;
+            if (!email) { await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "SKIPPED", emailDeliveryError: "No email" }); continue; }
+            const prefs = await storage.getNotificationPreferences(stmt.userId);
+            if (prefs?.emailPayStubDelivery === false) { await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "SKIPPED", emailDeliveryError: "Opted out" }); continue; }
+            try {
+              const pdfBuffer = await generatePayStubPdf(stmt.id);
+              const periodLabel = `${stmt.periodStart} to ${stmt.periodEnd}`;
+              const subject = `Your Pay Statement - ${periodLabel}`;
+              const htmlBody = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;"><div style="background:#1B2A4A;color:white;padding:20px 24px;border-radius:8px 8px 0 0;"><h2 style="margin:0;">Pay Statement Ready</h2></div><div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;"><p>Hi ${stmt.repName || user?.name || "Team Member"},</p><p>Your pay statement for <strong>${periodLabel}</strong> is ready. Net Pay: <strong>$${parseFloat(stmt.netPay).toFixed(2)}</strong></p><p style="font-size:13px;color:#6b7280;">Your detailed pay stub PDF is attached.</p></div></div>`;
+              const filename = `PayStub_${stmt.stubNumber || stmt.id.slice(0, 8)}_${stmt.periodStart}_${stmt.periodEnd}.pdf`;
+              const sent = await emailService.sendPayStubEmail(email, subject, htmlBody, pdfBuffer, filename);
+              await storage.updatePayStatement(stmt.id, sent ? { emailDeliveryStatus: "SENT", emailSentAt: new Date() } : { emailDeliveryStatus: "FAILED", emailDeliveryError: "Send failed" });
+            } catch (e: unknown) {
+              const msg = e instanceof Error ? e.message : "Unknown error";
+              await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "FAILED", emailDeliveryError: msg });
+            }
+          }
+        } catch (err) { console.error(`[PayStub Email] Bulk error:`, err); }
+      })();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -17926,23 +18133,16 @@ Rules:
 
       const stubs = await generatePayStubsForPayRun(payRun.id, periodStart, periodEnd);
 
+      let finalizedStmts: Awaited<ReturnType<typeof storage.getPayStatements>> = [];
       if (finalize) {
         const stmts = await storage.getPayStatements(payRun.id);
+        finalizedStmts = stmts;
         for (const stmt of stmts) {
           await storage.updatePayStatement(stmt.id, {
             isViewableByRep: true,
             status: "ISSUED",
             issuedAt: new Date(),
           } as any);
-
-          if (stmt.repEmail) {
-            emailService.queueEmail({
-              to: stmt.repEmail,
-              subject: `Pay Statement ${stmt.stubNumber} Available`,
-              text: `Your pay statement ${stmt.stubNumber} for period ${stmt.periodStart} to ${stmt.periodEnd} is now available. Net Pay: $${stmt.netPay}`,
-              html: `<p>Your pay statement <strong>${stmt.stubNumber}</strong> for period ${stmt.periodStart} to ${stmt.periodEnd} is now available.</p><p>Net Pay: <strong>$${stmt.netPay}</strong></p>`,
-            });
-          }
         }
         await storage.updatePayRun(payRun.id, { status: "FINALIZED", finalizedAt: new Date() });
       }
@@ -17961,8 +18161,37 @@ Rules:
         stubs,
         finalized: !!finalize,
       });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
+
+      if (finalize && finalizedStmts.length > 0) {
+        (async () => {
+          try {
+            const allUsers = await storage.getUsers();
+            const userMap = new Map(allUsers.map(u => [u.id, u]));
+            for (const stmt of finalizedStmts) {
+              const user = userMap.get(stmt.userId);
+              const email = stmt.repEmail || user?.email;
+              if (!email) { await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "SKIPPED", emailDeliveryError: "No email" }); continue; }
+              const prefs = await storage.getNotificationPreferences(stmt.userId);
+              if (prefs?.emailPayStubDelivery === false) { await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "SKIPPED", emailDeliveryError: "Opted out" }); continue; }
+              try {
+                const pdfBuffer = await generatePayStubPdf(stmt.id);
+                const periodLabel = `${stmt.periodStart} to ${stmt.periodEnd}`;
+                const subject = `Your Pay Statement - ${periodLabel}`;
+                const htmlBody = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;"><div style="background:#1B2A4A;color:white;padding:20px 24px;border-radius:8px 8px 0 0;"><h2 style="margin:0;">Pay Statement Ready</h2></div><div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;"><p>Hi ${stmt.repName || user?.name || "Team Member"},</p><p>Your pay statement for <strong>${periodLabel}</strong> is ready. Net Pay: <strong>$${parseFloat(stmt.netPay).toFixed(2)}</strong></p><p style="font-size:13px;color:#6b7280;">Your detailed pay stub PDF is attached.</p></div></div>`;
+                const filename = `PayStub_${stmt.stubNumber || stmt.id.slice(0, 8)}_${stmt.periodStart}_${stmt.periodEnd}.pdf`;
+                const sent = await emailService.sendPayStubEmail(email, subject, htmlBody, pdfBuffer, filename);
+                await storage.updatePayStatement(stmt.id, sent ? { emailDeliveryStatus: "SENT", emailSentAt: new Date() } : { emailDeliveryStatus: "FAILED", emailDeliveryError: "Send failed" });
+              } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : "Unknown error";
+                await storage.updatePayStatement(stmt.id, { emailDeliveryStatus: "FAILED", emailDeliveryError: msg });
+              }
+            }
+          } catch (err) { console.error(`[PayStub Email] Full-cycle bulk error:`, err); }
+        })();
+      }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed";
+      res.status(500).json({ message: msg });
     }
   });
 
@@ -19126,7 +19355,9 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
 
       const opsUsers = await db.select().from(users).where(and(eq(users.role, "OPERATIONS"), eq(users.status, "ACTIVE")));
       for (const u of opsUsers) {
-        await emailService.queueEmail(u.email || "", "Carrier File Received", `A carrier file was received from ${senderDomain}. ${results.length} file(s) processed.`);
+        if (u.email) {
+          await emailService.sendHtmlEmail(u.email, "Carrier File Received", `<p>A carrier file was received from ${senderDomain}. ${results.length} file(s) processed.</p>`);
+        }
       }
 
       res.json({ status: "processed", results });

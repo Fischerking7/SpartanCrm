@@ -1197,6 +1197,9 @@ export const payStatements = pgTable("pay_statements", {
   ytdGross: decimal("ytd_gross", { precision: 12, scale: 2 }).notNull().default("0"),
   ytdDeductions: decimal("ytd_deductions", { precision: 12, scale: 2 }).notNull().default("0"),
   ytdNetPay: decimal("ytd_net_pay", { precision: 12, scale: 2 }).notNull().default("0"),
+  emailDeliveryStatus: varchar("email_delivery_status", { length: 20 }).notNull().default("PENDING"),
+  emailDeliveryError: text("email_delivery_error"),
+  emailSentAt: timestamp("email_sent_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1737,6 +1740,7 @@ export const notificationPreferences = pgTable("notification_preferences", {
   emailAdvanceUpdates: boolean("email_advance_updates").notNull().default(true),
   emailPendingApprovalAlert: boolean("email_pending_approval_alert").notNull().default(true),
   emailLowPerformanceWarning: boolean("email_low_performance_warning").notNull().default(true),
+  emailPayStubDelivery: boolean("email_pay_stub_delivery").notNull().default(true),
   pendingApprovalDaysThreshold: integer("pending_approval_days_threshold").notNull().default(3),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
