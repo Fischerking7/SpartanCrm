@@ -46,11 +46,18 @@ export function generatePayStatementPdf(data: PayStatementPdfData): Promise<Buff
       doc.text(`Name: ${user.name}`, 50);
       doc.text(`Rep ID: ${user.repId}`, 50);
       doc.text(`Role: ${user.role}`, 50);
+      if (statement.repEmail || user.email) {
+        doc.text(`Email: ${statement.repEmail || user.email}`, 50);
+      }
 
       doc.font("Helvetica-Bold").fontSize(10);
-      doc.text("Pay Period", 350, doc.y - 42);
+      const infoBlockY = doc.y - (statement.repEmail || user.email ? 54 : 42);
+      doc.text("Pay Period", 350, infoBlockY);
       doc.moveDown(0.5);
       doc.font("Helvetica").fontSize(10);
+      if (statement.stubNumber) {
+        doc.text(`Stub #: ${statement.stubNumber}`, 350);
+      }
       doc.text(`From: ${formatDate(statement.periodStart)}`, 350);
       doc.text(`To: ${formatDate(statement.periodEnd)}`, 350);
       if (statement.paidAt) {
