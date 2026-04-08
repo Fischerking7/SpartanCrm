@@ -101,7 +101,12 @@ const scheduleSchema = z.object({
   secondDayOfMonth: z.number().min(1).max(28).nullable(),
   autoCreatePayRun: z.boolean(),
   autoLinkOrders: z.boolean(),
-});
+}).refine((data) => {
+  if (data.frequency === "SEMIMONTHLY" && data.dayOfMonth && data.secondDayOfMonth) {
+    return data.dayOfMonth < data.secondDayOfMonth;
+  }
+  return true;
+}, { message: "First pay date must be before second pay date", path: ["secondDayOfMonth"] });
 
 const deductionTypeSchema = z.object({
   name: z.string().min(1, "Name is required"),

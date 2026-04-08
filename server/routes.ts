@@ -12553,7 +12553,10 @@ Rules:
       const user = req.user!;
       const { name, frequency, dayOfWeek, dayOfMonth, secondDayOfMonth, autoCreatePayRun, autoLinkOrders } = req.body;
       
-      // Calculate next run date
+      if (frequency === "SEMIMONTHLY" && dayOfMonth && secondDayOfMonth && dayOfMonth >= secondDayOfMonth) {
+        return res.status(400).json({ message: "First pay date must be before second pay date" });
+      }
+      
       const nextRunAt = calculateNextRunFromNow(frequency, dayOfWeek, dayOfMonth, secondDayOfMonth);
       
       const schedule = await storage.createScheduledPayRun({
