@@ -4941,6 +4941,16 @@ Rules:
           flaggedItems.push({ type: "high_chargebacks", severity: "warning", message: `${repName} has chargebacks of $${cb.toFixed(2)} (>${(cb / gross * 100).toFixed(0)}% of gross)`, repId: stmt.userId });
         }
 
+        if (net < 0) {
+          flaggedItems.push({ type: "negative_net", severity: "warning", message: `${repName} has negative net pay of $${net.toFixed(2)}`, repId: stmt.userId });
+        }
+
+        const capAmount = parseFloat(stmt.reserveCapAmount || "0");
+        const balanceAfter = parseFloat(stmt.reserveBalanceAfter || "0");
+        if (capAmount > 0 && balanceAfter >= capAmount) {
+          flaggedItems.push({ type: "reserve_cap_reached", severity: "warning", message: `${repName} is at reserve cap ($${balanceAfter.toFixed(2)} / $${capAmount.toFixed(2)})`, repId: stmt.userId });
+        }
+
         const stmtLineItems = await storage.getPayStatementLineItems(stmt.id);
         const hasCarryForwardCredit = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_CREDIT");
         const hasCarryForwardDeduction = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_DEDUCTION");
@@ -4949,6 +4959,14 @@ Rules:
         }
         if (hasCarryForwardDeduction) {
           flaggedItems.push({ type: "carry_forward_recovery", severity: "warning", message: `${repName} has prior carry-forward balance being recovered`, repId: stmt.userId });
+        }
+
+        const orderCommission = orders
+          .filter(o => o.repId === (user?.repId || ""))
+          .reduce((sum, o) => sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+        const grossDiff = Math.abs(orderCommission - parseFloat(stmt.grossCommission || "0"));
+        if (orderCommission > 0 && grossDiff > 1) {
+          flaggedItems.push({ type: "variance_mismatch", severity: "warning", message: `${repName} has commission variance: orders $${orderCommission.toFixed(2)} vs statement $${parseFloat(stmt.grossCommission || "0").toFixed(2)}`, repId: stmt.userId });
         }
       }
 
@@ -4985,11 +5003,32 @@ Rules:
         preFlightChecks.push({ label: "Chargeback review", status: "pass" });
       }
 
+      const reserveCapFlags = flaggedItems.filter(f => f.type === "reserve_cap_reached");
+      if (reserveCapFlags.length > 0) {
+        preFlightChecks.push({ label: "Reserve cap", status: "warn", detail: `${reserveCapFlags.length} reps at reserve cap` });
+      } else {
+        preFlightChecks.push({ label: "Reserve cap", status: "pass" });
+      }
+
       const carryForwardFlags = flaggedItems.filter(f => f.type.startsWith("carry_forward"));
       if (carryForwardFlags.length > 0) {
         preFlightChecks.push({ label: "Carry-forward balances", status: "warn", detail: `${carryForwardFlags.length} reps with carry-forward activity` });
       } else {
         preFlightChecks.push({ label: "Carry-forward balances", status: "pass" });
+      }
+
+      const negativeNetFlags = flaggedItems.filter(f => f.type === "negative_net");
+      if (negativeNetFlags.length > 0) {
+        preFlightChecks.push({ label: "Negative balances", status: "warn", detail: `${negativeNetFlags.length} reps with negative net pay` });
+      } else if (statements.length > 0) {
+        preFlightChecks.push({ label: "Negative balances", status: "pass" });
+      }
+
+      const varianceFlags = flaggedItems.filter(f => f.type === "variance_mismatch");
+      if (varianceFlags.length > 0) {
+        preFlightChecks.push({ label: "Commission variance", status: "warn", detail: `${varianceFlags.length} reps with order-to-statement variance` });
+      } else if (statements.length > 0) {
+        preFlightChecks.push({ label: "Commission variance", status: "pass" });
       }
 
       const canFinalize = payRun.status === "APPROVED" && orders.length > 0 && statements.length > 0;

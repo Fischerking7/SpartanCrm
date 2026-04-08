@@ -416,6 +416,9 @@ export default function PayRuns() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns/unlinked-orders"] });
       setShowLinkDialog(false);
       setSelectedOrderIds([]);
+      if (selectedPayRun) {
+        viewPayRun(selectedPayRun.id);
+      }
       toast({ title: `${data.linked} orders linked to pay run` });
     },
     onError: (error: Error) => {
