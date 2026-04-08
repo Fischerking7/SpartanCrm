@@ -1010,6 +1010,13 @@ function computeRowFingerprint(clientId: string, customerNameNorm: string, saleD
 
 function tryAutoDetectColumnMapping(columns: string[], _clientId: string, _storage: any): { customerName: string; repName: string; saleDate: string; serviceType: string; utility: string; status: string; usage: string; rate: string; rejectionReason: string } | null {
   const colLower = columns.map(c => c.toLowerCase().trim());
+  const findColExact = (patterns: string[]): string => {
+    for (const pattern of patterns) {
+      const idx = colLower.findIndex(c => c === pattern);
+      if (idx >= 0) return columns[idx];
+    }
+    return '';
+  };
   const findCol = (patterns: string[]): string => {
     for (const pattern of patterns) {
       const idx = colLower.findIndex(c => c === pattern || c.includes(pattern));
@@ -1018,11 +1025,11 @@ function tryAutoDetectColumnMapping(columns: string[], _clientId: string, _stora
     return '';
   };
 
-  const customerName = findCol(['customer name', 'customer_name', 'customername']);
-  const saleDate = findCol(['date sold', 'date_sold', 'datesold', 'sale date', 'sale_date', 'saledate', 'install date']);
-  const status = findCol(['status', 'client status', 'client_status']);
+  const customerName = findColExact(['customer name', 'customer_name', 'customername', 'customer']);
+  const saleDate = findCol(['date sold', 'date_sold', 'datesold', 'sale date', 'sale_date', 'saledate', 'install date', 'date install', 'date_install', 'sold date']);
+  const status = findCol(['status', 'client status', 'client_status', 'enrollment status', 'order status']);
 
-  if (!customerName || !saleDate || !status) {
+  if (!customerName || !saleDate) {
     return null;
   }
 
@@ -1030,12 +1037,12 @@ function tryAutoDetectColumnMapping(columns: string[], _clientId: string, _stora
     customerName,
     repName: findCol(['rep name', 'rep_name', 'repname', 'sales rep', 'representative']),
     saleDate,
-    serviceType: findCol(['service type', 'service_type', 'servicetype', 'service', 'product']),
-    utility: findCol(['utility', 'provider', 'vendor']),
+    serviceType: findColExact(['service type', 'service_type', 'servicetype', 'service', 'product', 'product type']),
+    utility: findColExact(['utility', 'provider', 'vendor', 'carrier']),
     status,
     usage: findCol(['usage', 'usage units', 'usage_units', 'units']),
-    rate: findCol(['rate', 'amount', 'commission', 'price', 'payment']),
-    rejectionReason: findCol(['rejection reason', 'rejection_reason', 'reason', 'reject reason']),
+    rate: findColExact(['rate', 'gross commission', 'net commission', 'commission', 'payout', 'amount', 'payment']),
+    rejectionReason: findCol(['rejection reason', 'rejection_reason', 'reject reason', 'cancel reason']),
   };
 }
 
@@ -1064,8 +1071,8 @@ function extractRepCodeFromSheet(rows: any[][]): string | null {
 }
 
 function findDataTableInSheet(rows: any[][]): { columns: string[]; rows: any[][] } {
-  const knownHeaders = ['customer name', 'service type', 'utility', 'client', 'date sold', 'status', 'usage', 'rate'];
-  const masterHeaders = ['repcode', 'account number', 'customer name', 'utility', 'service type', 'date sold', 'status', 'client', 'state', 'usage'];
+  const knownHeaders = ['customer name', 'service type', 'utility', 'client', 'date sold', 'status', 'usage', 'rate', 'service', 'gross commission', 'commission', 'provider', 'date install', 'amount', 'rep name'];
+  const masterHeaders = ['repcode', 'account number', 'customer name', 'utility', 'service type', 'date sold', 'status', 'client', 'state', 'usage', 'rep name', 'slsid', 'gross commission', 'override', 'provider'];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -14232,7 +14239,7 @@ Rules:
           const serviceType = data[autoMapping.serviceType] || '';
           const utility = data[autoMapping.utility] || '';
           const saleDate = data[autoMapping.saleDate] || '';
-          const clientStatus = data[autoMapping.status] || '';
+          const clientStatus = autoMapping.status ? (data[autoMapping.status] || '') : 'ENROLLED';
           const usageUnits = parseFloat(data[autoMapping.usage]) || null;
           const rate = parseFloat(String(data[autoMapping.rate] || '0').replace(/[$,]/g, '')) || 0;
           const paidAmountCents = Math.round(rate * 100);
@@ -14349,7 +14356,7 @@ Rules:
         const serviceType = data[mapping.serviceType] || '';
         const utility = data[mapping.utility] || '';
         const saleDate = data[mapping.saleDate] || '';
-        const clientStatus = data[mapping.status] || '';
+        const clientStatus = mapping.status ? (data[mapping.status] || '') : 'ENROLLED';
         const usageUnits = parseFloat(data[mapping.usage]) || null;
         const rate = parseFloat(String(data[mapping.rate] || '0').replace(/[$,]/g, '')) || 0;
         const paidAmountCents = Math.round(rate * 100);
@@ -14499,10 +14506,18 @@ Rules:
         const maxDate = new Date(Math.max(...saleDates));
         maxDate.setDate(maxDate.getDate() + 30);
         allCandidates = await storage.findOrdersForMatching(
-          null,
+          financeImport.clientId || null,
           minDate.toISOString().split('T')[0],
           maxDate.toISOString().split('T')[0]
         );
+        if (allCandidates.length === 0 && financeImport.clientId) {
+          allCandidates = await storage.findOrdersForMatching(
+            null,
+            minDate.toISOString().split('T')[0],
+            maxDate.toISOString().split('T')[0]
+          );
+          console.log(`[AutoMatch] No client-specific matches, expanded to all clients: ${allCandidates.length} candidates`);
+        }
         console.log(`[AutoMatch] Pre-fetched ${allCandidates.length} candidate orders for date range ${minDate.toISOString().split('T')[0]} to ${maxDate.toISOString().split('T')[0]}`);
       }
 

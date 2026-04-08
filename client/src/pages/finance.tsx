@@ -937,7 +937,7 @@ export default function Finance() {
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label>Status *</Label>
+                      <Label>Status <span className="text-muted-foreground text-xs">(optional - defaults to Enrolled)</span></Label>
                       <Select value={columnMapping.status} onValueChange={(v) => setColumnMapping({ ...columnMapping, status: v })}>
                         <SelectTrigger data-testid="map-status">
                           <SelectValue placeholder="Select column" />
@@ -1017,7 +1017,7 @@ export default function Finance() {
                     </Button>
                     <Button 
                       onClick={() => mapColumnsMutation.mutate()} 
-                      disabled={!columnMapping.customerName || !columnMapping.saleDate || !columnMapping.status || mapColumnsMutation.isPending}
+                      disabled={!columnMapping.customerName || !columnMapping.saleDate || mapColumnsMutation.isPending}
                       data-testid="button-apply-mapping"
                     >
                       {mapColumnsMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ArrowRight className="h-4 w-4 mr-2" />}
