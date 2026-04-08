@@ -70,7 +70,6 @@ export default function Orders() {
   const [aiExtractedFields, setAiExtractedFields] = useState<Set<string>>(new Set());
   const [captureConfidence, setCaptureConfidence] = useState<Record<string, string>>({});
   const [captureImagePath, setCaptureImagePath] = useState<string | null>(null);
-  const [captureImagePaths, setCaptureImagePaths] = useState<string[]>([]);
   const [captureRawJson, setCaptureRawJson] = useState<Record<string, unknown> | null>(null);
   const [captureMissingFields, setCaptureMissingFields] = useState<string[]>([]);
   
@@ -557,7 +556,6 @@ export default function Orders() {
     setAiExtractedFields(newFields);
     setCaptureConfidence(confidence || {});
     const allPaths = paths && paths.length > 0 ? paths : (imageObjectPath ? [imageObjectPath] : []);
-    setCaptureImagePaths(allPaths);
     setCaptureImagePath(allPaths.length > 0 ? JSON.stringify(allPaths) : null);
     setCaptureRawJson(rawExtraction);
     setCaptureMissingFields(missingRequired || []);
@@ -590,7 +588,6 @@ export default function Orders() {
     setAiExtractedFields(new Set());
     setCaptureConfidence({});
     setCaptureImagePath(null);
-    setCaptureImagePaths([]);
     setCaptureRawJson(null);
     setCaptureMissingFields([]);
   };

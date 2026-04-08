@@ -76,13 +76,16 @@ export function ScreenshotCapture({ onExtracted, onClose }: ScreenshotCapturePro
     },
   });
 
+  const previewUrlsRef = useRef<string[]>([]);
+  previewUrlsRef.current = previewUrls;
+
   useEffect(() => {
     return () => {
-      for (const url of previewUrls) {
+      for (const url of previewUrlsRef.current) {
         URL.revokeObjectURL(url);
       }
     };
-  }, [previewUrls]);
+  }, []);
 
   const validateAndAddFile = (file: File): boolean => {
     const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
