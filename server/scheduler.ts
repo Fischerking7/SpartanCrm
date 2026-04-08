@@ -5,6 +5,7 @@ import { db } from "./db";
 import { salesOrders, chargebacks, arExpectations, users, clients, carrierImportSchedules, integrationLogs, rollingReserves, systemExceptions } from "@shared/schema";
 import { eq, sql, and, gte, lte, inArray, isNull } from "drizzle-orm";
 import { checkAndReleaseMaturedReserves } from "./reserves/reserveService";
+import { retryFailedPayStubEmails } from "./payStubEmailService";
 
 function getEasternDate(date = new Date()): { year: number; month: number; day: number; hours: number; minutes: number } {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -70,6 +71,9 @@ export const scheduler = {
 
     const emailInterval = setInterval(() => runJobWithLock('sendPendingEmails', () => emailService.sendPendingEmails()), 60000);
     this.intervalIds.push(emailInterval);
+
+    const payStubRetryInterval = setInterval(() => runJobWithLock('retryFailedPayStubEmails', () => retryFailedPayStubEmails()), 5 * 60 * 1000);
+    this.intervalIds.push(payStubRetryInterval);
 
     const pendingApprovalInterval = setInterval(() => runJobWithLock('checkPendingApprovalAlerts', () => this.checkPendingApprovalAlerts()), 6 * 60 * 60 * 1000);
     this.intervalIds.push(pendingApprovalInterval);

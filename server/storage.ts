@@ -3169,6 +3169,11 @@ export const storage = {
     const results = await db.select().from(payStatements).where(eq(payStatements.id, id));
     return results[0] || null;
   },
+  async getPayStatementsByDeliveryStatus(status: string) {
+    return db.select().from(payStatements)
+      .where(eq(payStatements.emailDeliveryStatus, status))
+      .orderBy(desc(payStatements.createdAt));
+  },
   async createPayStatement(data: InsertPayStatement, txDb?: TxDb) {
     const d = txDb ?? db;
     const [statement] = await d.insert(payStatements).values(data).returning();
