@@ -74,6 +74,7 @@ import {
   processedWorkOrders, type ProcessedWorkOrder,
   carrierProfiles, type CarrierProfile, type InsertCarrierProfile,
   carrierRepMappings, type CarrierRepMapping, type InsertCarrierRepMapping,
+  carryForwardBalances, type CarryForwardBalance, type InsertCarryForwardBalance,
 } from "@shared/schema";
 
 export const storage = {
@@ -4889,5 +4890,38 @@ export const storage = {
   async bulkCreateCarrierRepMappings(mappings: InsertCarrierRepMapping[]) {
     if (mappings.length === 0) return [];
     return db.insert(carrierRepMappings).values(mappings).onConflictDoNothing().returning();
+  },
+
+  async getPendingCarryForwardForUser(userId: string, txDb?: TxDb): Promise<CarryForwardBalance[]> {
+    const d = txDb ?? db;
+    return d.select().from(carryForwardBalances)
+      .where(and(
+        eq(carryForwardBalances.userId, userId),
+        or(eq(carryForwardBalances.status, "PENDING"), eq(carryForwardBalances.status, "PARTIAL"))
+      ))
+      .orderBy(asc(carryForwardBalances.createdAt));
+  },
+  async createCarryForwardBalance(data: InsertCarryForwardBalance, txDb?: TxDb): Promise<CarryForwardBalance> {
+    const d = txDb ?? db;
+    const [record] = await d.insert(carryForwardBalances).values(data).returning();
+    return record;
+  },
+  async updateCarryForwardBalance(id: string, data: Partial<CarryForwardBalance>, txDb?: TxDb): Promise<CarryForwardBalance> {
+    const d = txDb ?? db;
+    const [updated] = await d.update(carryForwardBalances)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(carryForwardBalances.id, id))
+      .returning();
+    return updated;
+  },
+  async getCarryForwardBalancesByPayRun(payRunId: string): Promise<CarryForwardBalance[]> {
+    return db.select().from(carryForwardBalances)
+      .where(eq(carryForwardBalances.originPayRunId, payRunId))
+      .orderBy(desc(carryForwardBalances.createdAt));
+  },
+  async getCarryForwardBalancesByUser(userId: string): Promise<CarryForwardBalance[]> {
+    return db.select().from(carryForwardBalances)
+      .where(eq(carryForwardBalances.userId, userId))
+      .orderBy(desc(carryForwardBalances.createdAt));
   },
 };

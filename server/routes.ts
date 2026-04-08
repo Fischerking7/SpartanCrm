@@ -4714,7 +4714,7 @@ Rules:
         totalIncentives += incentives;
         
         const hasNegative = net < 0;
-        if (hasNegative) issues.push(`${stmt.userId} has negative net pay of $${net.toFixed(2)}`);
+        if (hasNegative) issues.push(`${stmt.userId} has negative net pay of $${net.toFixed(2)} — carry-forward will apply`);
         
         repSummaries.push({
           repId: stmt.userId,
@@ -4739,7 +4739,7 @@ Rules:
         totalNetPay: totalNetPay.toFixed(2),
         totalIncentives: totalIncentives.toFixed(2),
         issues,
-        canFinalize: issues.length === 0 && payRun.status === "APPROVED",
+        canFinalize: !issues.some(i => !i.includes("carry-forward")) && payRun.status === "APPROVED",
         repSummaries,
       });
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
@@ -4755,12 +4755,6 @@ Rules:
       if (orders.length === 0) return res.status(400).json({ message: "Pay run has no orders linked" });
       
       const statements = await storage.getPayStatements(req.params.id);
-      for (const stmt of statements) {
-        const net = parseFloat(stmt.netPay);
-        if (net < 0) {
-          return res.status(400).json({ message: `Cannot finalize: ${stmt.userId} has negative net pay of $${net.toFixed(2)}. Please resolve before finalizing.` });
-        }
-      }
       
       const result = await db.transaction(async (tx) => {
         const txDb = tx as unknown as TxDb;
@@ -10275,7 +10269,6 @@ Rules:
       const payRun = await storage.getPayRunById(req.params.payRunId);
       if (!payRun) return res.status(404).json({ message: "Pay run not found" });
       
-      // Delete existing statements for this pay run (allows regeneration)
       const existingStatements = await storage.getPayStatements(req.params.payRunId);
       for (const stmt of existingStatements) {
         if (stmt.status === "PAID" || stmt.status === "ISSUED") continue;
@@ -10284,168 +10277,23 @@ Rules:
         await storage.deletePayStatement(stmt.id);
       }
 
-      // Get all orders in this pay run grouped by repId
-      const orders = await storage.getOrdersByPayRunId(req.params.payRunId);
-      const chargebacks = await storage.getChargebacksByPayRun(req.params.payRunId);
-      
-      // Group by repId
-      const ordersByRep = new Map<string, any[]>();
-      const chargebacksByRep = new Map<string, any[]>();
-      
-      for (const order of orders) {
-        if (!ordersByRep.has(order.repId)) ordersByRep.set(order.repId, []);
-        ordersByRep.get(order.repId)!.push(order);
-      }
-      
-      for (const cb of chargebacks) {
-        if (!chargebacksByRep.has(cb.repId)) chargebacksByRep.set(cb.repId, []);
-        chargebacksByRep.get(cb.repId)!.push(cb);
-      }
-      
-      const allRepIds = new Set([...Array.from(ordersByRep.keys()), ...Array.from(chargebacksByRep.keys())]);
-      const statements: any[] = [];
-      const currentYear = new Date().getFullYear();
-      
-      // Pre-fetch all deduction types once
-      const allDeductionTypes = await storage.getDeductionTypes();
-      const deductionTypeMap = new Map(allDeductionTypes.map(dt => [dt.id, dt]));
-      
-      for (const repId of Array.from(allRepIds)) {
-        const user = await storage.getUserByRepId(repId);
-        if (!user) continue;
-        
-        const repOrders = ordersByRep.get(repId) || [];
-        const repChargebacks = chargebacksByRep.get(repId) || [];
-        
-        // Calculate totals
-        let grossCommission = 0;
-        let incentivesTotal = 0;
-        let chargebacksTotal = 0;
-        
-        for (const order of repOrders) {
-          grossCommission += parseFloat(order.baseCommissionEarned || "0");
-          incentivesTotal += parseFloat(order.incentiveEarned || "0");
-        }
-        
-        for (const cb of repChargebacks) {
-          chargebacksTotal += parseFloat(cb.amount || "0");
-        }
-        
-        // Get override earnings for this user in this pay run
-        const overrideEarnings = await storage.getOverrideEarningsByPayRun(req.params.payRunId, user.id);
-        let overrideEarningsTotal = 0;
-        for (const oe of overrideEarnings) {
-          overrideEarningsTotal += parseFloat(oe.amount || "0");
-        }
-        
-        // Get active deductions for this user
-        const userDeductions = await storage.getActiveUserDeductions(user.id);
-        let deductionsTotal = 0;
-        const deductionDetails: { userDeductionId?: string; deductionTypeName: string; amount: string }[] = [];
-        
-        for (const ud of userDeductions) {
-          const deductionType = deductionTypeMap.get(ud.deductionTypeId);
-          const deductionAmount = parseFloat(ud.amount || "0");
-          deductionsTotal += deductionAmount;
-          deductionDetails.push({
-            userDeductionId: ud.id,
-            deductionTypeName: deductionType?.name || "Unknown",
-            amount: deductionAmount.toFixed(2)
-          });
-        }
-        
-        // Get active advances to apply
-        const activeAdvances = await storage.getActiveAdvancesForUser(user.id);
-        let advancesApplied = 0;
-        
-        // Get YTD totals
-        const ytd = await storage.getYTDTotalsForUser(user.id, currentYear);
-        
-        // Calculate net pay
-        const grossTotal = grossCommission + incentivesTotal + overrideEarningsTotal;
-        const netPay = grossTotal - chargebacksTotal - deductionsTotal - advancesApplied;
-        
-        // Calculate pay period as Monday-Sunday week
-        const { periodStart: periodStartStr } = getPayWeekBounds(payRun.weekEndingDate);
+      const { periodStart: periodStartStr } = getPayWeekBounds(payRun.weekEndingDate);
 
-        // Create pay statement
-        const statement = await storage.createPayStatement({
-          payRunId: req.params.payRunId,
-          userId: user.id,
-          periodStart: periodStartStr,
-          periodEnd: payRun.weekEndingDate,
-          grossCommission: grossCommission.toFixed(2),
-          overrideEarningsTotal: overrideEarningsTotal.toFixed(2),
-          incentivesTotal: incentivesTotal.toFixed(2),
-          chargebacksTotal: chargebacksTotal.toFixed(2),
-          adjustmentsTotal: "0",
-          deductionsTotal: deductionsTotal.toFixed(2),
-          advancesApplied: advancesApplied.toFixed(2),
-          taxWithheld: "0",
-          netPay: netPay.toFixed(2),
-          ytdGross: (parseFloat(ytd.totalGross) + grossTotal).toFixed(2),
-          ytdDeductions: (parseFloat(ytd.totalDeductions) + deductionsTotal).toFixed(2),
-          ytdNetPay: (parseFloat(ytd.totalNetPay) + netPay).toFixed(2),
-        });
-        
-        // Create line items for orders
-        for (const order of repOrders) {
-          await storage.createPayStatementLineItem({
-            payStatementId: statement.id,
-            category: "Commission",
-            description: `Order ${order.invoiceNumber || order.id} - ${order.customerName || ""}`.trim(),
-            sourceType: "sales_order",
-            sourceId: order.id,
-            amount: order.baseCommissionEarned,
-          });
-          
-          const incentiveAmt = parseFloat(order.incentiveEarned || "0");
-          if (incentiveAmt > 0) {
-            await storage.createPayStatementLineItem({
-              payStatementId: statement.id,
-              category: "Incentive",
-              description: `Incentive - Order ${order.invoiceNumber || order.id}`,
-              sourceType: "sales_order",
-              sourceId: order.id,
-              amount: order.incentiveEarned,
-            });
-          }
-        }
-        
-        // Create line items for chargebacks
-        for (const cb of repChargebacks) {
-          await storage.createPayStatementLineItem({
-            payStatementId: statement.id,
-            category: "Chargeback",
-            description: `Chargeback ${cb.invoiceNumber}`,
-            sourceType: "chargeback",
-            sourceId: cb.id,
-            amount: `-${cb.amount}`,
-          });
-        }
-        
-        // Create deduction records
-        for (const ded of deductionDetails) {
-          await storage.createPayStatementDeduction({
-            payStatementId: statement.id,
-            userDeductionId: ded.userDeductionId,
-            deductionTypeName: ded.deductionTypeName,
-            amount: ded.amount,
-          });
-        }
-        
-        statements.push(statement);
-      }
+      const results = await generatePayStubsForPayRun(
+        req.params.payRunId,
+        periodStartStr,
+        payRun.weekEndingDate
+      );
       
       await storage.createAuditLog({ 
         action: "generate_pay_statements", 
         tableName: "pay_statements", 
         recordId: req.params.payRunId, 
-        afterJson: JSON.stringify({ count: statements.length }), 
+        afterJson: JSON.stringify({ count: results.length }), 
         userId: req.user!.id 
       });
       
-      res.json({ generated: statements.length, statements });
+      res.json({ generated: results.length, statements: results });
     } catch (error: any) {
       console.error("Generate statements error:", error);
       res.status(500).json({ message: error.message || "Failed to generate statements" });

@@ -185,9 +185,22 @@ export async function generatePayStub(
     }
   }
 
+  const pendingCarryForwards = await storage.getPendingCarryForwardForUser(userId, txDb);
+  let carryForwardDeductionCents = 0;
+  for (const cf of pendingCarryForwards) {
+    carryForwardDeductionCents += cf.remainingAmountCents;
+  }
+
   const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents + incentivesTotalCents;
-  const totalDeductions = chargebackNetPayImpactCents + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents;
-  const netPayCents = grossTotal - totalDeductions;
+  const totalDeductions = chargebackNetPayImpactCents + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents + carryForwardDeductionCents;
+  let netPayCents = grossTotal - totalDeductions;
+
+  let carryForwardAppliedCents = carryForwardDeductionCents;
+  let newCarryForwardCents = 0;
+  if (netPayCents < 0) {
+    newCarryForwardCents = Math.abs(netPayCents);
+    netPayCents = 0;
+  }
 
   let reserveBalanceAfterStr: string | undefined;
   let reserveCapStr: string | undefined;
@@ -426,6 +439,47 @@ export async function generatePayStub(
     }
   }
 
+  if (carryForwardAppliedCents > 0) {
+    for (const cf of pendingCarryForwards) {
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "CARRY_FORWARD_DEDUCTION",
+        description: `Carry-forward balance from prior pay period`,
+        sourceType: "CARRY_FORWARD",
+        sourceId: cf.id,
+        amount: `-${(cf.remainingAmountCents / 100).toFixed(2)}`,
+      }, txDb);
+      lineItemCount++;
+
+      await storage.updateCarryForwardBalance(cf.id, {
+        status: "APPLIED",
+        remainingAmountCents: 0,
+        resolvedPayStatementId: statement.id,
+      }, txDb);
+    }
+  }
+
+  if (newCarryForwardCents > 0) {
+    await storage.createPayStatementLineItemFull({
+      payStatementId: statement.id,
+      category: "CARRY_FORWARD_CREDIT",
+      description: `Negative balance carried forward to next pay period`,
+      sourceType: "CARRY_FORWARD",
+      amount: (newCarryForwardCents / 100).toFixed(2),
+    }, txDb);
+    lineItemCount++;
+
+    await storage.createCarryForwardBalance({
+      userId,
+      amountCents: newCarryForwardCents,
+      remainingAmountCents: newCarryForwardCents,
+      originPayRunId: payRunId,
+      originPayStatementId: statement.id,
+      status: "PENDING",
+      notes: `Auto-created: net pay was -$${(newCarryForwardCents / 100).toFixed(2)} after deductions`,
+    }, txDb);
+  }
+
   return {
     payStatementId: statement.id,
     userId,
@@ -582,9 +636,22 @@ async function generatePayStubFromPayRun(
     }
   }
 
+  const pendingCarryForwards2 = await storage.getPendingCarryForwardForUser(userId, txDb);
+  let carryForwardDeductionCents2 = 0;
+  for (const cf of pendingCarryForwards2) {
+    carryForwardDeductionCents2 += cf.remainingAmountCents;
+  }
+
   const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents + incentivesTotalCents2;
-  const totalDeductionsCalc = chargebackNetPayImpactCents2 + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents2;
-  const netPayCents = grossTotal - totalDeductionsCalc;
+  const totalDeductionsCalc = chargebackNetPayImpactCents2 + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents2 + carryForwardDeductionCents2;
+  let netPayCents = grossTotal - totalDeductionsCalc;
+
+  let carryForwardAppliedCents2 = carryForwardDeductionCents2;
+  let newCarryForwardCents2 = 0;
+  if (netPayCents < 0) {
+    newCarryForwardCents2 = Math.abs(netPayCents);
+    netPayCents = 0;
+  }
 
   let reserveBalanceAfterStr2: string | undefined;
   let reserveCapStr2: string | undefined;
@@ -819,6 +886,47 @@ async function generatePayStubFromPayRun(
         amountApplied: parseFloat(a.remainingBalance).toFixed(2),
       });
     }
+  }
+
+  if (carryForwardAppliedCents2 > 0) {
+    for (const cf of pendingCarryForwards2) {
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "CARRY_FORWARD_DEDUCTION",
+        description: `Carry-forward balance from prior pay period`,
+        sourceType: "CARRY_FORWARD",
+        sourceId: cf.id,
+        amount: `-${(cf.remainingAmountCents / 100).toFixed(2)}`,
+      }, txDb);
+      lineItemCount++;
+
+      await storage.updateCarryForwardBalance(cf.id, {
+        status: "APPLIED",
+        remainingAmountCents: 0,
+        resolvedPayStatementId: statement.id,
+      }, txDb);
+    }
+  }
+
+  if (newCarryForwardCents2 > 0) {
+    await storage.createPayStatementLineItemFull({
+      payStatementId: statement.id,
+      category: "CARRY_FORWARD_CREDIT",
+      description: `Negative balance carried forward to next pay period`,
+      sourceType: "CARRY_FORWARD",
+      amount: (newCarryForwardCents2 / 100).toFixed(2),
+    }, txDb);
+    lineItemCount++;
+
+    await storage.createCarryForwardBalance({
+      userId,
+      amountCents: newCarryForwardCents2,
+      remainingAmountCents: newCarryForwardCents2,
+      originPayRunId: payRunId,
+      originPayStatementId: statement.id,
+      status: "PENDING",
+      notes: `Auto-created: net pay was -$${(newCarryForwardCents2 / 100).toFixed(2)} after deductions`,
+    }, txDb);
   }
 
   return {

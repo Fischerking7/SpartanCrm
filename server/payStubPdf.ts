@@ -105,6 +105,8 @@ function buildPdf(
     const bonusItems = lineItems.filter((li: any) => li.category === "BONUS");
     const incentiveItems = lineItems.filter((li: any) => li.category === "INCENTIVE");
     const chargebackItems = lineItems.filter((li: any) => li.category === "CHARGEBACK");
+    const cfDeductionItems = lineItems.filter((li: any) => li.category === "CARRY_FORWARD_DEDUCTION");
+    const cfCreditItems = lineItems.filter((li: any) => li.category === "CARRY_FORWARD_CREDIT");
 
     const checkPage = () => {
       if (doc.y > 680) {
@@ -196,6 +198,35 @@ function buildPdf(
         doc.text(cbDesc, startX, currentY, { width: 250 });
         doc.text(sourceLabel, startX + 250, currentY, { width: 170 });
         doc.text(`-$${absAmount.toFixed(2)}`, startX + 420, currentY, { width: 92, align: "right" });
+        doc.fillColor("black");
+        doc.moveDown(0.3);
+      }
+    }
+
+    if (cfDeductionItems.length > 0 || cfCreditItems.length > 0) {
+      doc.moveDown(0.3);
+      doc.moveTo(50, doc.y).lineTo(562, doc.y).stroke();
+      doc.moveDown(0.3);
+      doc.fontSize(11).text("Carry-Forward Balance", col1);
+      doc.moveDown(0.3);
+      doc.fontSize(8);
+
+      for (const item of cfDeductionItems) {
+        checkPage();
+        currentY = doc.y;
+        const absAmount = Math.abs(parseFloat(item.amount));
+        doc.fillColor("red");
+        doc.text(item.description || "Prior period carry-forward deduction", startX, currentY, { width: 350 });
+        doc.text(`-$${absAmount.toFixed(2)}`, startX + 420, currentY, { width: 92, align: "right" });
+        doc.fillColor("black");
+        doc.moveDown(0.3);
+      }
+      for (const item of cfCreditItems) {
+        checkPage();
+        currentY = doc.y;
+        doc.fillColor("red");
+        doc.text(item.description || "Balance carried forward to next period", startX, currentY, { width: 350 });
+        doc.text(`$${parseFloat(item.amount).toFixed(2)} owed`, startX + 350, currentY, { width: 162, align: "right" });
         doc.fillColor("black");
         doc.moveDown(0.3);
       }

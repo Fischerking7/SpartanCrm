@@ -2480,3 +2480,33 @@ export const insertCarrierRepMappingSchema = createInsertSchema(carrierRepMappin
 });
 export type CarrierRepMapping = typeof carrierRepMappings.$inferSelect;
 export type InsertCarrierRepMapping = z.infer<typeof insertCarrierRepMappingSchema>;
+
+export const carryForwardBalances = pgTable("carry_forward_balances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  amountCents: integer("amount_cents").notNull(),
+  remainingAmountCents: integer("remaining_amount_cents").notNull(),
+  originPayRunId: varchar("origin_pay_run_id").notNull().references(() => payRuns.id),
+  originPayStatementId: varchar("origin_pay_statement_id").notNull().references(() => payStatements.id),
+  status: varchar("status", { length: 20 }).notNull().default("PENDING"),
+  resolvedPayStatementId: varchar("resolved_pay_statement_id").references(() => payStatements.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("cf_bal_user_id_idx").on(table.userId),
+  index("cf_bal_status_idx").on(table.status),
+  index("cf_bal_origin_payrun_idx").on(table.originPayRunId),
+]);
+
+export const carryForwardBalancesRelations = relations(carryForwardBalances, ({ one }) => ({
+  user: one(users, { fields: [carryForwardBalances.userId], references: [users.id] }),
+  originPayRun: one(payRuns, { fields: [carryForwardBalances.originPayRunId], references: [payRuns.id] }),
+  originPayStatement: one(payStatements, { fields: [carryForwardBalances.originPayStatementId], references: [payStatements.id] }),
+}));
+
+export const insertCarryForwardBalanceSchema = createInsertSchema(carryForwardBalances).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type CarryForwardBalance = typeof carryForwardBalances.$inferSelect;
+export type InsertCarryForwardBalance = z.infer<typeof insertCarryForwardBalanceSchema>;

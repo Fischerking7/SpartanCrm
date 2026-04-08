@@ -1276,7 +1276,11 @@ export default function PayRuns() {
                           <span className={`font-mono font-medium ${rep.hasNegative ? "text-destructive" : ""}`}>
                             Net: ${rep.net.toFixed(2)}
                           </span>
-                          {rep.hasNegative && <AlertTriangle className="h-4 w-4 text-destructive" />}
+                          {rep.hasNegative && (
+                            <Badge variant="outline" className="text-xs text-orange-600" data-testid={`badge-cf-${rep.repId}`}>
+                              <AlertTriangle className="h-3 w-3 mr-1" /> Carry-forward
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     ))}

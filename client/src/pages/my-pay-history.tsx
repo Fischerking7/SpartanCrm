@@ -219,6 +219,8 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
   const incentiveItems = data?.lineItems.filter(li => li.category === "INCENTIVE") || [];
   const chargebackItems = data?.lineItems.filter(li => li.category === "CHARGEBACK") || [];
   const reserveItems = data?.lineItems.filter(li => li.category === "Reserve Withholding") || [];
+  const carryForwardDeductions = data?.lineItems.filter(li => li.category === "CARRY_FORWARD_DEDUCTION") || [];
+  const carryForwardCredits = data?.lineItems.filter(li => li.category === "CARRY_FORWARD_CREDIT") || [];
   const hasPerOrderNet = commissionItems.some(li => li.netAmount !== null);
 
   return (
@@ -485,6 +487,30 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
                       ))}
                     </TableBody>
                   </Table>
+                </div>
+              </>
+            )}
+
+            {(carryForwardDeductions.length > 0 || carryForwardCredits.length > 0) && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <ArrowDownCircle className="h-4 w-4 text-orange-500" />
+                    Carry-Forward Balance
+                  </h3>
+                  {carryForwardDeductions.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between text-sm" data-testid={`row-cf-deduction-${item.id}`}>
+                      <span className="text-muted-foreground">{item.description}</span>
+                      <span className="font-medium text-red-600 dark:text-red-400">{formatCurrency(item.amount)}</span>
+                    </div>
+                  ))}
+                  {carryForwardCredits.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between text-sm" data-testid={`row-cf-credit-${item.id}`}>
+                      <span className="text-muted-foreground">{item.description}</span>
+                      <Badge variant="outline" className="text-xs text-orange-600">{formatCurrency(item.amount)} owed</Badge>
+                    </div>
+                  ))}
                 </div>
               </>
             )}
