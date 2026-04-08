@@ -543,7 +543,7 @@ export default function PayRuns() {
     },
     {
       key: "totalCommission",
-      header: "Total",
+      header: "Total Earnings",
       cell: (row: EnrichedPayRun) => (
         <span className="font-mono">${row.totalCommission}</span>
       ),
