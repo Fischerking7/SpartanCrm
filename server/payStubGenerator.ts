@@ -73,8 +73,12 @@ export async function generatePayStub(
   const userOrderIds = readyOrders.map(r => r.order.id);
   const userChargebacks = chargebacks.filter(c => c.salesOrderId && userOrderIds.includes(c.salesOrderId));
   let chargebackTotalCents = 0;
+  let chargebackNetPayImpactCents = 0;
   for (const cb of userChargebacks) {
-    chargebackTotalCents += Math.round(parseFloat(cb.amount || "0") * 100);
+    const cbAmount = Math.round(parseFloat(cb.amount || "0") * 100);
+    const reserveOffset = cb.reserveOffsetCents || 0;
+    chargebackTotalCents += cbAmount;
+    chargebackNetPayImpactCents += Math.max(0, cbAmount - reserveOffset);
   }
 
   const deductions = await storage.getActiveUserDeductions(userId);
@@ -143,7 +147,7 @@ export async function generatePayStub(
   }
 
   const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents;
-  const totalDeductions = chargebackTotalCents + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents;
+  const totalDeductions = chargebackNetPayImpactCents + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents;
   const netPayCents = grossTotal - totalDeductions;
 
   let reserveBalanceAfterStr: string | undefined;
@@ -428,8 +432,12 @@ async function generatePayStubFromPayRun(
     return !!cbOrder;
   });
   let chargebackTotalCents = 0;
+  let chargebackNetPayImpactCents2 = 0;
   for (const cb of userChargebacks) {
-    chargebackTotalCents += Math.round(parseFloat(cb.amount || "0") * 100);
+    const cbAmount = Math.round(parseFloat(cb.amount || "0") * 100);
+    const reserveOffset = cb.reserveOffsetCents || 0;
+    chargebackTotalCents += cbAmount;
+    chargebackNetPayImpactCents2 += Math.max(0, cbAmount - reserveOffset);
   }
 
   const deductions = await storage.getActiveUserDeductions(userId);
@@ -489,7 +497,7 @@ async function generatePayStubFromPayRun(
   }
 
   const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents;
-  const totalDeductionsCalc = chargebackTotalCents + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents2;
+  const totalDeductionsCalc = chargebackNetPayImpactCents2 + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents2;
   const netPayCents = grossTotal - totalDeductionsCalc;
 
   let reserveBalanceAfterStr2: string | undefined;
