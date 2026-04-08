@@ -4891,6 +4891,132 @@ Rules:
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
+  app.get("/api/admin/payruns/:id/summary", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+
+      const orders = await storage.getOrdersByPayRunId(req.params.id);
+      const statements = await storage.getPayStatements(req.params.id);
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+      const repIdMap = new Map(allUsers.map(u => [u.repId, u]));
+
+      let totalGross = 0;
+      let totalNet = 0;
+      let totalDeductions = 0;
+      let totalChargebacks = 0;
+      let totalReserveWithheld = 0;
+      let totalIncentives = 0;
+      let totalOverrides = 0;
+      let minPayout = Infinity;
+      let maxPayout = -Infinity;
+      const repCount = new Set(statements.map(s => s.userId)).size;
+      const flaggedItems: { type: string; severity: "warning" | "error"; message: string; repId?: string }[] = [];
+
+      for (const stmt of statements) {
+        const gross = parseFloat(stmt.grossCommission || "0") + parseFloat(stmt.overrideEarningsTotal || "0") + parseFloat(stmt.incentivesTotal || "0");
+        const net = parseFloat(stmt.netPay || "0");
+        const ded = parseFloat(stmt.deductionsTotal || "0");
+        const cb = parseFloat(stmt.chargebacksTotal || "0");
+        const reserve = parseFloat(stmt.reserveWithheldTotal || "0");
+        const incentives = parseFloat(stmt.incentivesTotal || "0");
+        const overrides = parseFloat(stmt.overrideEarningsTotal || "0");
+
+        totalGross += gross;
+        totalNet += net;
+        totalDeductions += ded;
+        totalChargebacks += cb;
+        totalReserveWithheld += reserve;
+        totalIncentives += incentives;
+        totalOverrides += overrides;
+
+        if (net < minPayout) minPayout = net;
+        if (net > maxPayout) maxPayout = net;
+
+        const user = userMap.get(stmt.userId);
+        const repName = user?.name || stmt.userId;
+
+        if (cb > gross * 0.3 && cb > 0) {
+          flaggedItems.push({ type: "high_chargebacks", severity: "warning", message: `${repName} has chargebacks of $${cb.toFixed(2)} (>${(cb / gross * 100).toFixed(0)}% of gross)`, repId: stmt.userId });
+        }
+
+        const stmtLineItems = await storage.getPayStatementLineItems(stmt.id);
+        const hasCarryForwardCredit = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_CREDIT");
+        const hasCarryForwardDeduction = stmtLineItems.some((li: any) => li.category === "CARRY_FORWARD_DEDUCTION");
+        if (hasCarryForwardCredit) {
+          flaggedItems.push({ type: "carry_forward_new", severity: "warning", message: `${repName} has negative balance carry-forward to next period`, repId: stmt.userId });
+        }
+        if (hasCarryForwardDeduction) {
+          flaggedItems.push({ type: "carry_forward_recovery", severity: "warning", message: `${repName} has prior carry-forward balance being recovered`, repId: stmt.userId });
+        }
+      }
+
+      if (statements.length === 0) {
+        minPayout = 0;
+        maxPayout = 0;
+      }
+
+      const preFlightChecks: { label: string; status: "pass" | "warn" | "fail"; detail?: string }[] = [];
+
+      if (orders.length === 0) {
+        preFlightChecks.push({ label: "Orders linked", status: "fail", detail: "No orders linked to this pay run" });
+      } else {
+        preFlightChecks.push({ label: "Orders linked", status: "pass", detail: `${orders.length} orders linked` });
+      }
+
+      if (statements.length === 0 && orders.length > 0) {
+        preFlightChecks.push({ label: "Statements generated", status: "fail", detail: "No pay statements generated yet" });
+      } else if (statements.length > 0) {
+        preFlightChecks.push({ label: "Statements generated", status: "pass", detail: `${statements.length} statements for ${repCount} reps` });
+      }
+
+      const ordersWithoutRep = orders.filter(o => !o.repId || o.repId === "");
+      if (ordersWithoutRep.length > 0) {
+        preFlightChecks.push({ label: "Rep assignment", status: "fail", detail: `${ordersWithoutRep.length} orders missing rep assignment` });
+      } else if (orders.length > 0) {
+        preFlightChecks.push({ label: "Rep assignment", status: "pass" });
+      }
+
+      const highChargebackFlags = flaggedItems.filter(f => f.type === "high_chargebacks");
+      if (highChargebackFlags.length > 0) {
+        preFlightChecks.push({ label: "Chargeback review", status: "warn", detail: `${highChargebackFlags.length} reps with high chargebacks` });
+      } else {
+        preFlightChecks.push({ label: "Chargeback review", status: "pass" });
+      }
+
+      const carryForwardFlags = flaggedItems.filter(f => f.type.startsWith("carry_forward"));
+      if (carryForwardFlags.length > 0) {
+        preFlightChecks.push({ label: "Carry-forward balances", status: "warn", detail: `${carryForwardFlags.length} reps with carry-forward activity` });
+      } else {
+        preFlightChecks.push({ label: "Carry-forward balances", status: "pass" });
+      }
+
+      const canFinalize = payRun.status === "APPROVED" && orders.length > 0 && statements.length > 0;
+
+      res.json({
+        payRunId: payRun.id,
+        status: payRun.status,
+        orderCount: orders.length,
+        repCount,
+        statementCount: statements.length,
+        totalGross: totalGross.toFixed(2),
+        totalNet: totalNet.toFixed(2),
+        totalDeductions: totalDeductions.toFixed(2),
+        totalChargebacks: totalChargebacks.toFixed(2),
+        totalReserveWithheld: totalReserveWithheld.toFixed(2),
+        totalIncentives: totalIncentives.toFixed(2),
+        totalOverrides: totalOverrides.toFixed(2),
+        avgPay: repCount > 0 ? (totalNet / repCount).toFixed(2) : "0.00",
+        minPayout: minPayout === Infinity ? "0.00" : minPayout.toFixed(2),
+        maxPayout: maxPayout === -Infinity ? "0.00" : maxPayout.toFixed(2),
+        flaggedItems,
+        preFlightChecks,
+        canFinalize,
+      });
+    } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
+  });
+
   app.get("/api/admin/payruns/:id", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);

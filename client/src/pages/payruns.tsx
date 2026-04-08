@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent, TrendingUp } from "lucide-react";
+import { Plus, Calendar, Lock, Check, Eye, DollarSign, Users, FileText, Link, Trash2, Unlink, Send, CheckCircle, XCircle, ClipboardCheck, FileSearch, AlertTriangle, Split, Percent, TrendingUp, ArrowDown, ArrowUp, Shield, Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -30,6 +30,27 @@ interface PayRunDetails extends PayRun {
     totalCommission: string;
     repBreakdown: { name: string; total: number; count: number }[];
   };
+}
+
+interface PayRunSummary {
+  payRunId: string;
+  status: string;
+  orderCount: number;
+  repCount: number;
+  statementCount: number;
+  totalGross: string;
+  totalNet: string;
+  totalDeductions: string;
+  totalChargebacks: string;
+  totalReserveWithheld: string;
+  totalIncentives: string;
+  totalOverrides: string;
+  avgPay: string;
+  minPayout: string;
+  maxPayout: string;
+  flaggedItems: { type: string; severity: "warning" | "error"; message: string; repId?: string }[];
+  preFlightChecks: { label: string; status: "pass" | "warn" | "fail"; detail?: string }[];
+  canFinalize: boolean;
 }
 
 interface VarianceReport {
@@ -90,6 +111,8 @@ export default function PayRuns() {
   const [showVarianceDialog, setShowVarianceDialog] = useState(false);
   const [varianceReport, setVarianceReport] = useState<VarianceReport | null>(null);
   const [varianceLoading, setVarianceLoading] = useState(false);
+  const [payRunSummary, setPayRunSummary] = useState<PayRunSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [selectedPayRun, setSelectedPayRun] = useState<PayRunDetails | null>(null);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [unlinkOrderIds, setUnlinkOrderIds] = useState<string[]>([]);
@@ -426,6 +449,17 @@ export default function PayRuns() {
     },
   });
 
+  const fetchPayRunSummary = async (payRunId: string) => {
+    setSummaryLoading(true);
+    try {
+      const res = await fetch(`/api/admin/payruns/${payRunId}/summary`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        setPayRunSummary(await res.json());
+      }
+    } catch { /* summary is non-blocking */ }
+    setSummaryLoading(false);
+  };
+
   const viewPayRun = async (payRunId: string) => {
     try {
       const res = await fetch(`/api/admin/payruns/${payRunId}`, { headers: getAuthHeaders() });
@@ -434,6 +468,7 @@ export default function PayRuns() {
       setSelectedPayRun(details);
       setUnlinkOrderIds([]);
       setShowDetailsDialog(true);
+      fetchPayRunSummary(payRunId);
     } catch (error) {
       toast({ title: "Failed to load pay run details", variant: "destructive" });
     }
@@ -1017,41 +1052,193 @@ export default function PayRuns() {
                 })}
               </div>
               
-              <div className="grid grid-cols-3 gap-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      Total Orders
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-2xl font-bold">{selectedPayRun.stats.totalOrders}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                      <DollarSign className="h-4 w-4" />
-                      Total Commission
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-2xl font-bold">${selectedPayRun.stats.totalCommission}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                      <Users className="h-4 w-4" />
-                      Reps Paid
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-2xl font-bold">{selectedPayRun.stats.repBreakdown.length}</p>
-                  </CardContent>
-                </Card>
-              </div>
+              {summaryLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-muted-foreground text-sm">Loading summary...</span>
+                </div>
+              ) : payRunSummary ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Card data-testid="summary-total-gross">
+                      <CardHeader className="pb-1 pt-3 px-3">
+                        <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                          <DollarSign className="h-3 w-3" />
+                          Total Gross
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-3 pb-3">
+                        <p className="text-xl font-bold font-mono">${payRunSummary.totalGross}</p>
+                      </CardContent>
+                    </Card>
+                    <Card data-testid="summary-total-net">
+                      <CardHeader className="pb-1 pt-3 px-3">
+                        <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                          <DollarSign className="h-3 w-3" />
+                          Total Net Pay
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-3 pb-3">
+                        <p className="text-xl font-bold font-mono text-green-600 dark:text-green-400">${payRunSummary.totalNet}</p>
+                      </CardContent>
+                    </Card>
+                    <Card data-testid="summary-rep-count">
+                      <CardHeader className="pb-1 pt-3 px-3">
+                        <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                          <Users className="h-3 w-3" />
+                          Reps Paid
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-3 pb-3">
+                        <p className="text-xl font-bold">{payRunSummary.repCount}</p>
+                        <p className="text-xs text-muted-foreground">{payRunSummary.orderCount} orders</p>
+                      </CardContent>
+                    </Card>
+                    <Card data-testid="summary-avg-pay">
+                      <CardHeader className="pb-1 pt-3 px-3">
+                        <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                          <TrendingUp className="h-3 w-3" />
+                          Avg Net Pay
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-3 pb-3">
+                        <p className="text-xl font-bold font-mono">${payRunSummary.avgPay}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <Card className="border-dashed" data-testid="summary-min-payout">
+                      <CardContent className="px-3 py-2">
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                          <ArrowDown className="h-3 w-3" />
+                          Min Payout
+                        </div>
+                        <p className="text-sm font-mono font-medium">${payRunSummary.minPayout}</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-dashed" data-testid="summary-max-payout">
+                      <CardContent className="px-3 py-2">
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                          <ArrowUp className="h-3 w-3" />
+                          Max Payout
+                        </div>
+                        <p className="text-sm font-mono font-medium">${payRunSummary.maxPayout}</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-dashed" data-testid="summary-chargebacks">
+                      <CardContent className="px-3 py-2">
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Chargebacks
+                        </div>
+                        <p className={`text-sm font-mono font-medium ${parseFloat(payRunSummary.totalChargebacks) > 0 ? "text-red-600 dark:text-red-400" : ""}`}>
+                          ${payRunSummary.totalChargebacks}
+                        </p>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-dashed" data-testid="summary-reserve">
+                      <CardContent className="px-3 py-2">
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                          <Shield className="h-3 w-3" />
+                          Reserve Withheld
+                        </div>
+                        <p className="text-sm font-mono font-medium">${payRunSummary.totalReserveWithheld}</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-dashed" data-testid="summary-deductions">
+                      <CardContent className="px-3 py-2">
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                          <Percent className="h-3 w-3" />
+                          Deductions
+                        </div>
+                        <p className="text-sm font-mono font-medium">${payRunSummary.totalDeductions}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {payRunSummary.preFlightChecks.length > 0 && (
+                    <Card data-testid="preflight-checks">
+                      <CardHeader className="pb-2 pt-3 px-4">
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <ClipboardCheck className="h-4 w-4" />
+                          Pre-Flight Checks
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-4 pb-3">
+                        <div className="space-y-1.5">
+                          {payRunSummary.preFlightChecks.map((check, idx) => (
+                            <div key={idx} className="flex items-center gap-2 text-sm" data-testid={`preflight-check-${idx}`}>
+                              {check.status === "pass" && <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />}
+                              {check.status === "warn" && <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0" />}
+                              {check.status === "fail" && <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />}
+                              <span className={check.status === "fail" ? "text-red-600 dark:text-red-400 font-medium" : check.status === "warn" ? "text-yellow-600 dark:text-yellow-400" : "text-muted-foreground"}>
+                                {check.label}
+                              </span>
+                              {check.detail && (
+                                <span className="text-xs text-muted-foreground ml-auto">{check.detail}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {payRunSummary.flaggedItems.length > 0 && (
+                    <Alert variant="destructive" className="border-yellow-500/50 bg-yellow-50/50 dark:bg-yellow-950/20" data-testid="flagged-items">
+                      <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                      <AlertTitle className="text-yellow-800 dark:text-yellow-400">Flagged Items ({payRunSummary.flaggedItems.length})</AlertTitle>
+                      <AlertDescription>
+                        <ul className="mt-2 space-y-1">
+                          {payRunSummary.flaggedItems.map((item, idx) => (
+                            <li key={idx} className="text-sm text-yellow-700 dark:text-yellow-300 flex items-start gap-2">
+                              <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-yellow-500 flex-shrink-0" />
+                              {item.message}
+                            </li>
+                          ))}
+                        </ul>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        Total Orders
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{selectedPayRun.stats.totalOrders}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                        <DollarSign className="h-4 w-4" />
+                        Total Commission
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">${selectedPayRun.stats.totalCommission}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        Reps Paid
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{selectedPayRun.stats.repBreakdown.length}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
 
               {selectedPayRun.stats.repBreakdown.length > 0 && (
                 <Card>
