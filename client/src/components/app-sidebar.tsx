@@ -452,7 +452,7 @@ export function AppSidebar() {
       <CollapsibleSection
         title="Operations"
         icon={Briefcase}
-        items={[MENU.orders, MENU.orderTracker, MENU.overrideApprovals, MENU.adjustments]}
+        items={[MENU.orders, MENU.orderTracker, MENU.quickEntry, MENU.overrideApprovals, MENU.adjustments]}
         location={location}
       />
       <CollapsibleSection
