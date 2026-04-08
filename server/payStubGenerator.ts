@@ -110,7 +110,11 @@ export async function generatePayStub(
 
   const chargebacks = await storage.getChargebacksByPayRun(payRunId);
   const userOrderIds = readyOrders.map(r => r.order.id);
-  const userChargebacks = chargebacks.filter(c => c.salesOrderId && userOrderIds.includes(c.salesOrderId));
+  const userChargebacks = chargebacks.filter(c => {
+    if (c.salesOrderId && userOrderIds.includes(c.salesOrderId)) return true;
+    if (c.repId && c.repId === user.repId) return true;
+    return false;
+  });
   let chargebackTotalCents = 0;
   let chargebackNetPayImpactCents = 0;
   for (const cb of userChargebacks) {
@@ -186,19 +190,30 @@ export async function generatePayStub(
   }
 
   const pendingCarryForwards = await storage.getPendingCarryForwardForUser(userId, txDb);
-  let carryForwardDeductionCents = 0;
+  let totalPendingCfCents = 0;
   for (const cf of pendingCarryForwards) {
-    carryForwardDeductionCents += cf.remainingAmountCents;
+    totalPendingCfCents += cf.remainingAmountCents;
   }
 
   const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents + incentivesTotalCents;
-  const totalDeductions = chargebackNetPayImpactCents + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents + carryForwardDeductionCents;
-  let netPayCents = grossTotal - totalDeductions;
+  const baseDeductions = chargebackNetPayImpactCents + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents;
+  const netPayBeforeCf = grossTotal - baseDeductions;
 
-  let carryForwardAppliedCents = carryForwardDeductionCents;
+  let carryForwardAppliedCents = 0;
   let newCarryForwardCents = 0;
-  if (netPayCents < 0) {
-    newCarryForwardCents = Math.abs(netPayCents);
+  let netPayCents: number;
+
+  if (netPayBeforeCf <= 0) {
+    carryForwardAppliedCents = 0;
+    newCarryForwardCents = Math.abs(netPayBeforeCf) + totalPendingCfCents;
+    netPayCents = 0;
+  } else if (netPayBeforeCf >= totalPendingCfCents) {
+    carryForwardAppliedCents = totalPendingCfCents;
+    newCarryForwardCents = 0;
+    netPayCents = netPayBeforeCf - totalPendingCfCents;
+  } else {
+    carryForwardAppliedCents = netPayBeforeCf;
+    newCarryForwardCents = totalPendingCfCents - netPayBeforeCf;
     netPayCents = 0;
   }
 
@@ -600,9 +615,11 @@ async function generatePayStubFromPayRun(
   }
 
   const chargebacksByRun = await storage.getChargebacksByPayRun(payRunId);
+  const userRepId = user.repId;
   const userChargebacks = chargebacksByRun.filter(c => {
-    const cbOrder = userOrders.find(o => o.id === c.salesOrderId);
-    return !!cbOrder;
+    if (c.salesOrderId && userOrders.find(o => o.id === c.salesOrderId)) return true;
+    if (c.repId && c.repId === userRepId) return true;
+    return false;
   });
   let chargebackTotalCents = 0;
   let chargebackNetPayImpactCents2 = 0;
@@ -670,19 +687,30 @@ async function generatePayStubFromPayRun(
   }
 
   const pendingCarryForwards2 = await storage.getPendingCarryForwardForUser(userId, txDb);
-  let carryForwardDeductionCents2 = 0;
+  let totalPendingCfCents2 = 0;
   for (const cf of pendingCarryForwards2) {
-    carryForwardDeductionCents2 += cf.remainingAmountCents;
+    totalPendingCfCents2 += cf.remainingAmountCents;
   }
 
   const grossTotal = grossCommissionCents + overrideTotalCents + bonusTotalCents + incentivesTotalCents2;
-  const totalDeductionsCalc = chargebackNetPayImpactCents2 + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents2 + carryForwardDeductionCents2;
-  let netPayCents = grossTotal - totalDeductionsCalc;
+  const baseDeductions2 = chargebackNetPayImpactCents2 + deductionTotalCents + advanceTotalCents + totalReserveWithheldCents2;
+  const netPayBeforeCf2 = grossTotal - baseDeductions2;
 
-  let carryForwardAppliedCents2 = carryForwardDeductionCents2;
+  let carryForwardAppliedCents2 = 0;
   let newCarryForwardCents2 = 0;
-  if (netPayCents < 0) {
-    newCarryForwardCents2 = Math.abs(netPayCents);
+  let netPayCents: number;
+
+  if (netPayBeforeCf2 <= 0) {
+    carryForwardAppliedCents2 = 0;
+    newCarryForwardCents2 = Math.abs(netPayBeforeCf2) + totalPendingCfCents2;
+    netPayCents = 0;
+  } else if (netPayBeforeCf2 >= totalPendingCfCents2) {
+    carryForwardAppliedCents2 = totalPendingCfCents2;
+    newCarryForwardCents2 = 0;
+    netPayCents = netPayBeforeCf2 - totalPendingCfCents2;
+  } else {
+    carryForwardAppliedCents2 = netPayBeforeCf2;
+    newCarryForwardCents2 = totalPendingCfCents2 - netPayBeforeCf2;
     netPayCents = 0;
   }
 
