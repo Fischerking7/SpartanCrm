@@ -287,40 +287,59 @@ export async function generatePayStub(
 
   for (const cb of userChargebacks) {
     const cbAmountCents = Math.round(parseFloat(cb.amount || "0") * 100);
-    const fromReserveCents = cb.reserveOffsetCents || 0;
+    const fromReserveCents = Math.min(cb.reserveOffsetCents || 0, cbAmountCents);
     const fromNetPayCents = Math.max(0, cbAmountCents - fromReserveCents);
-    let chargebackSource: string;
-    if (fromReserveCents > 0 && fromNetPayCents > 0) {
-      chargebackSource = "SPLIT";
-    } else if (fromReserveCents > 0) {
-      chargebackSource = "FROM_RESERVE";
-    } else {
-      chargebackSource = "FROM_NET_PAY";
-    }
+    const isSplit = fromReserveCents > 0 && fromNetPayCents > 0;
+    const cbLabel = cb.invoiceNumber || cb.salesOrderId || "Order";
 
-    let description = `Chargeback — ${cb.invoiceNumber || cb.salesOrderId || "Order"}`;
-    if (chargebackSource === "FROM_RESERVE") {
-      description += ` (Deducted from Reserve)`;
-    } else if (chargebackSource === "FROM_NET_PAY") {
-      description += ` (Deducted from Net Pay)`;
-    } else {
-      description += ` ($${(fromReserveCents / 100).toFixed(2)} from Reserve, $${(fromNetPayCents / 100).toFixed(2)} from Net Pay)`;
-    }
+    if (isSplit) {
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "CHARGEBACK",
+        description: `Chargeback — ${cbLabel} (Deducted from Reserve)`,
+        sourceType: "CHARGEBACK",
+        sourceId: cb.id,
+        salesOrderId: cb.salesOrderId || undefined,
+        invoiceNumber: cb.invoiceNumber || undefined,
+        amount: `-${(fromReserveCents / 100).toFixed(2)}`,
+        chargebackSource: "FROM_RESERVE",
+        chargebackFromReserveCents: fromReserveCents,
+        chargebackFromNetPayCents: 0,
+      }, txDb);
+      lineItemCount++;
 
-    await storage.createPayStatementLineItemFull({
-      payStatementId: statement.id,
-      category: "CHARGEBACK",
-      description,
-      sourceType: "CHARGEBACK",
-      sourceId: cb.id,
-      salesOrderId: cb.salesOrderId || undefined,
-      invoiceNumber: cb.invoiceNumber || undefined,
-      amount: `-${(cbAmountCents / 100).toFixed(2)}`,
-      chargebackSource,
-      chargebackFromReserveCents: Math.min(fromReserveCents, cbAmountCents),
-      chargebackFromNetPayCents: fromNetPayCents,
-    }, txDb);
-    lineItemCount++;
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "CHARGEBACK",
+        description: `Chargeback — ${cbLabel} (Deducted from Net Pay)`,
+        sourceType: "CHARGEBACK",
+        sourceId: cb.id,
+        salesOrderId: cb.salesOrderId || undefined,
+        invoiceNumber: cb.invoiceNumber || undefined,
+        amount: `-${(fromNetPayCents / 100).toFixed(2)}`,
+        chargebackSource: "FROM_NET_PAY",
+        chargebackFromReserveCents: 0,
+        chargebackFromNetPayCents: fromNetPayCents,
+      }, txDb);
+      lineItemCount++;
+    } else {
+      const chargebackSource = fromReserveCents > 0 ? "FROM_RESERVE" : "FROM_NET_PAY";
+      const sourceLabel = fromReserveCents > 0 ? "Deducted from Reserve" : "Deducted from Net Pay";
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "CHARGEBACK",
+        description: `Chargeback — ${cbLabel} (${sourceLabel})`,
+        sourceType: "CHARGEBACK",
+        sourceId: cb.id,
+        salesOrderId: cb.salesOrderId || undefined,
+        invoiceNumber: cb.invoiceNumber || undefined,
+        amount: `-${(cbAmountCents / 100).toFixed(2)}`,
+        chargebackSource,
+        chargebackFromReserveCents: fromReserveCents,
+        chargebackFromNetPayCents: fromNetPayCents,
+      }, txDb);
+      lineItemCount++;
+    }
   }
 
   for (const d of deductions) {
@@ -635,40 +654,59 @@ async function generatePayStubFromPayRun(
 
   for (const cb of userChargebacks) {
     const cbAmountCents = Math.round(parseFloat(cb.amount || "0") * 100);
-    const fromReserveCents = cb.reserveOffsetCents || 0;
+    const fromReserveCents = Math.min(cb.reserveOffsetCents || 0, cbAmountCents);
     const fromNetPayCents = Math.max(0, cbAmountCents - fromReserveCents);
-    let chargebackSource: string;
-    if (fromReserveCents > 0 && fromNetPayCents > 0) {
-      chargebackSource = "SPLIT";
-    } else if (fromReserveCents > 0) {
-      chargebackSource = "FROM_RESERVE";
-    } else {
-      chargebackSource = "FROM_NET_PAY";
-    }
+    const isSplit = fromReserveCents > 0 && fromNetPayCents > 0;
+    const cbLabel = cb.invoiceNumber || cb.salesOrderId || "Order";
 
-    let description = `Chargeback — ${cb.invoiceNumber || cb.salesOrderId || "Order"}`;
-    if (chargebackSource === "FROM_RESERVE") {
-      description += ` (Deducted from Reserve)`;
-    } else if (chargebackSource === "FROM_NET_PAY") {
-      description += ` (Deducted from Net Pay)`;
-    } else {
-      description += ` ($${(fromReserveCents / 100).toFixed(2)} from Reserve, $${(fromNetPayCents / 100).toFixed(2)} from Net Pay)`;
-    }
+    if (isSplit) {
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "CHARGEBACK",
+        description: `Chargeback — ${cbLabel} (Deducted from Reserve)`,
+        sourceType: "CHARGEBACK",
+        sourceId: cb.id,
+        salesOrderId: cb.salesOrderId || undefined,
+        invoiceNumber: cb.invoiceNumber || undefined,
+        amount: `-${(fromReserveCents / 100).toFixed(2)}`,
+        chargebackSource: "FROM_RESERVE",
+        chargebackFromReserveCents: fromReserveCents,
+        chargebackFromNetPayCents: 0,
+      }, txDb);
+      lineItemCount++;
 
-    await storage.createPayStatementLineItemFull({
-      payStatementId: statement.id,
-      category: "CHARGEBACK",
-      description,
-      sourceType: "CHARGEBACK",
-      sourceId: cb.id,
-      salesOrderId: cb.salesOrderId || undefined,
-      invoiceNumber: cb.invoiceNumber || undefined,
-      amount: `-${(cbAmountCents / 100).toFixed(2)}`,
-      chargebackSource,
-      chargebackFromReserveCents: Math.min(fromReserveCents, cbAmountCents),
-      chargebackFromNetPayCents: fromNetPayCents,
-    }, txDb);
-    lineItemCount++;
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "CHARGEBACK",
+        description: `Chargeback — ${cbLabel} (Deducted from Net Pay)`,
+        sourceType: "CHARGEBACK",
+        sourceId: cb.id,
+        salesOrderId: cb.salesOrderId || undefined,
+        invoiceNumber: cb.invoiceNumber || undefined,
+        amount: `-${(fromNetPayCents / 100).toFixed(2)}`,
+        chargebackSource: "FROM_NET_PAY",
+        chargebackFromReserveCents: 0,
+        chargebackFromNetPayCents: fromNetPayCents,
+      }, txDb);
+      lineItemCount++;
+    } else {
+      const chargebackSource = fromReserveCents > 0 ? "FROM_RESERVE" : "FROM_NET_PAY";
+      const sourceLabel = fromReserveCents > 0 ? "Deducted from Reserve" : "Deducted from Net Pay";
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "CHARGEBACK",
+        description: `Chargeback — ${cbLabel} (${sourceLabel})`,
+        sourceType: "CHARGEBACK",
+        sourceId: cb.id,
+        salesOrderId: cb.salesOrderId || undefined,
+        invoiceNumber: cb.invoiceNumber || undefined,
+        amount: `-${(cbAmountCents / 100).toFixed(2)}`,
+        chargebackSource,
+        chargebackFromReserveCents: fromReserveCents,
+        chargebackFromNetPayCents: fromNetPayCents,
+      }, txDb);
+      lineItemCount++;
+    }
   }
 
   for (const d of deductions) {
