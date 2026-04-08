@@ -37,7 +37,7 @@ async function computeYtd(userId: string, periodEnd: string, excludeStatementId?
 function buildStubNumber(periodEnd: string, userRepId: string, seq: number): string {
   const d = new Date(periodEnd + "T00:00:00Z");
   const ym = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-  return `STUB-${ym}-${userRepId}-${String(seq).padStart(4, "0")}`;
+  return `STUB-${ym}-${userRepId}-${String(seq).padStart(3, "0")}`;
 }
 
 interface PayStubResult {
