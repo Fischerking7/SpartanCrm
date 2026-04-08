@@ -4736,7 +4736,6 @@ Rules:
       
       if (orders.length === 0) issues.push("No orders linked to pay run");
       
-      const allIssues = [...issues, ...warnings];
       const hasBlockingIssues = issues.length > 0;
       
       res.json({
@@ -4748,7 +4747,7 @@ Rules:
         totalDeductions: totalDeductions.toFixed(2),
         totalNetPay: totalNetPay.toFixed(2),
         totalIncentives: totalIncentives.toFixed(2),
-        issues: allIssues,
+        issues,
         warnings,
         canFinalize: !hasBlockingIssues && payRun.status === "APPROVED",
         repSummaries,

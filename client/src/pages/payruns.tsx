@@ -42,6 +42,7 @@ interface VarianceReport {
   totalNetPay: string;
   totalIncentives: string;
   issues: string[];
+  warnings?: string[];
   canFinalize: boolean;
   repSummaries: { repId: string; name: string; gross: number; deductions: number; net: number; incentives: number; hasNegative: boolean; hasCarryForward?: boolean }[];
 }
@@ -1248,7 +1249,21 @@ export default function PayRuns() {
                 </Alert>
               )}
 
-              {varianceReport.issues.length === 0 && (
+              {varianceReport.warnings && varianceReport.warnings.length > 0 && (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4 text-orange-500" />
+                  <AlertTitle>Carry-Forward Warnings</AlertTitle>
+                  <AlertDescription>
+                    <ul className="list-disc pl-4 mt-2 space-y-1">
+                      {varianceReport.warnings.map((warning: string, idx: number) => (
+                        <li key={idx} className="text-orange-600">{warning}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {varianceReport.issues.length === 0 && (!varianceReport.warnings || varianceReport.warnings.length === 0) && (
                 <Alert>
                   <CheckCircle className="h-4 w-4" />
                   <AlertTitle>No Issues Found</AlertTitle>
