@@ -2,7 +2,7 @@ import { storage } from "./storage";
 import type { TxDb } from "./storage";
 import { applyWithholding, getOrCreateReserve, isReserveEligibleRole } from "./reserves/reserveService";
 import { db } from "./db";
-import { reserveTransactions, payStatements } from "@shared/schema";
+import { reserveTransactions, payStatements, users } from "@shared/schema";
 import { eq, sql, and, isNull } from "drizzle-orm";
 import {
   lookupCompPlanRate,
@@ -584,16 +584,35 @@ export async function generatePayStubsForPayRun(
 
   const allUsers = await Promise.all(userIds.map(id => storage.getUserById(id)));
   const ownerUsers = allUsers.filter(u => u && u.compPlanType === "OWNER");
-  const ownerPoolGroups = new Map<string, string[]>();
+
+  const discoveredPoolGroups = new Set<string>();
   for (const owner of ownerUsers) {
-    if (!owner) continue;
-    const poolGroup = owner.ownerPoolGroup || "DEFAULT_POOL";
-    if (!ownerPoolGroups.has(poolGroup)) ownerPoolGroups.set(poolGroup, []);
-    ownerPoolGroups.get(poolGroup)!.push(owner.id);
+    if (owner?.ownerPoolGroup) discoveredPoolGroups.add(owner.ownerPoolGroup);
+  }
+
+  const ownerPoolGroups = new Map<string, string[]>();
+  for (const poolGroup of discoveredPoolGroups) {
+    const poolMembers = await db
+      .select()
+      .from(users)
+      .where(
+        and(
+          eq(users.ownerPoolGroup, poolGroup),
+          eq(users.compPlanType, "OWNER"),
+          eq(users.status, "ACTIVE"),
+          isNull(users.deletedAt),
+        ),
+      );
+    ownerPoolGroups.set(poolGroup, poolMembers.map(u => u.id));
+    for (const member of poolMembers) {
+      if (!userIds.includes(member.id)) {
+        userIds.push(member.id);
+      }
+    }
   }
 
   const ownerPooledCommissions = new Map<string, number>();
-  for (const [poolGroup, ownerIds] of ownerPoolGroups) {
+  for (const [_poolGroup, ownerIds] of ownerPoolGroups) {
     const ownerOrders = payRunOrders.filter(o => ownerIds.includes(o.userId));
     let pooledCents = 0;
     for (const order of ownerOrders) {

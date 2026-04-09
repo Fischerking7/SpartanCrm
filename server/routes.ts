@@ -566,6 +566,14 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
     const isMobileOnlyOrder = !approvedOrder.serviceId;
     const isInternetOrder = !!approvedOrder.serviceId;
 
+    const compPlanLookup = await lookupCompPlanRate(
+      approvedOrder.serviceId || null,
+      approvedOrder.providerId || null,
+      approvedOrder.clientId || null,
+      approvedOrder.dateSold,
+      txDb,
+    );
+
     if (hierarchy.supervisor) {
       if (isInternetOrder) {
         const weeklyConnects = await getWeeklyTeamConnects(hierarchy.supervisor.id, "LEAD", approvedOrder.dateSold);
@@ -602,17 +610,32 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
     
     if (hierarchy.manager) {
       if (isInternetOrder) {
-        const weeklyConnects = await getWeeklyTeamConnects(hierarchy.manager.id, "MANAGER", approvedOrder.dateSold);
-        let managerOverrideAmount = 10;
-        if (weeklyConnects >= 100 && approvedOrder.serviceId && MANAGER_BOOST_ELIGIBLE_SERVICES.has(approvedOrder.serviceId)) {
-          managerOverrideAmount = 15;
-        }
+        const managerEligibility = await checkOverrideEligibility(
+          hierarchy.manager.id,
+          "MANAGER",
+          approvedOrder.repId,
+          salesRep?.role || "REP",
+          {
+            serviceId: approvedOrder.serviceId || null,
+            providerId: approvedOrder.providerId || null,
+            clientId: approvedOrder.clientId || null,
+            speedMbps: approvedOrder.serviceId ? extractSpeedFromService(approvedOrder.serviceId) : undefined,
+            dateSold: approvedOrder.dateSold,
+          },
+          compPlanLookup,
+          txDb,
+        );
+
+        const managerOverrideAmount = managerEligibility.eligible && managerEligibility.amountCents > 0
+          ? managerEligibility.amountCents
+          : 1000;
+
         const earning = await storage.createOverrideEarning({
           salesOrderId: approvedOrder.id,
           recipientUserId: hierarchy.manager.id,
           sourceRepId: approvedOrder.repId,
           sourceLevelUsed: "MANAGER",
-          amount: managerOverrideAmount.toFixed(2),
+          amount: (managerOverrideAmount / 100).toFixed(2),
           overrideType: "MANAGER_OVERRIDE",
           approvalStatus: "PENDING_APPROVAL",
         }, txDb);
@@ -625,7 +648,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
               userId: notifyUser.id,
               notificationType: "OVERRIDE_PENDING_APPROVAL",
               subject: "Manager Override Pending Approval",
-              body: `A MANAGER_OVERRIDE of $${managerOverrideAmount.toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
+              body: `A MANAGER_OVERRIDE of $${(managerOverrideAmount / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
               recipientEmail: "",
               status: "PENDING",
             });
@@ -661,17 +684,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       if (rateCard.ironCrestRackRateCents) totalRackRateCents += rateCard.ironCrestRackRateCents;
     }
 
-    const compPlanLookup = await lookupCompPlanRate(
-      approvedOrder.serviceId || null,
-      approvedOrder.providerId || null,
-      approvedOrder.clientId || null,
-      approvedOrder.dateSold,
-      txDb,
-    );
-
     const sellingRepRole = salesRep?.role || "REP";
-    const sellingRepCompPlanType = salesRep?.compPlanType || "STANDARD";
-    const isOwnerSale = sellingRepCompPlanType === "OWNER";
 
     const orderContext = {
       serviceId: approvedOrder.serviceId || null,
@@ -17975,6 +17988,87 @@ Rules:
         totalOrders: readyOrders.length,
         totalCommission: Object.values(byUser).reduce((s, u) => s + u.totalCommission, 0),
         userBreakdown: Object.values(byUser),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/payroll/preflight/:payRunId", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.payRunId);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+
+      const stmts = await storage.getPayStatements(req.params.payRunId);
+      const payRunOrders = await storage.getOrdersByPayRunId(req.params.payRunId);
+
+      let totalOrderCommissionCents = 0;
+      for (const order of payRunOrders) {
+        totalOrderCommissionCents += Math.round(parseFloat(order.baseCommissionEarned || "0") * 100);
+        totalOrderCommissionCents += Math.round(parseFloat(order.incentiveEarned || "0") * 100);
+      }
+
+      let totalStubGrossCents = 0;
+      let totalStubNetCents = 0;
+      let totalStubDeductionsCents = 0;
+      const discrepancies: Array<{ userId: string; repId: string; name: string; issue: string }> = [];
+
+      for (const stmt of stmts) {
+        const grossCents = Math.round(parseFloat(stmt.grossCommissions || "0") * 100);
+        const netCents = Math.round(parseFloat(stmt.netPay || "0") * 100);
+        const deductionCents = Math.round(parseFloat(stmt.totalDeductions || "0") * 100);
+        totalStubGrossCents += grossCents;
+        totalStubNetCents += netCents;
+        totalStubDeductionsCents += deductionCents;
+
+        if (netCents < 0) {
+          discrepancies.push({
+            userId: stmt.userId,
+            repId: stmt.repId || "",
+            name: stmt.repName || "",
+            issue: `Negative net pay: $${(netCents / 100).toFixed(2)}`,
+          });
+        }
+
+        if (grossCents === 0 && deductionCents === 0 && netCents === 0) {
+          discrepancies.push({
+            userId: stmt.userId,
+            repId: stmt.repId || "",
+            name: stmt.repName || "",
+            issue: "Zero-value pay stub (no earnings or deductions)",
+          });
+        }
+      }
+
+      const orderVsStubDiffCents = Math.abs(totalOrderCommissionCents - totalStubGrossCents);
+      const orderVsStubDiffPct = totalOrderCommissionCents > 0
+        ? (orderVsStubDiffCents / totalOrderCommissionCents * 100)
+        : 0;
+
+      if (orderVsStubDiffPct > 5) {
+        discrepancies.push({
+          userId: "",
+          repId: "SYSTEM",
+          name: "Reconciliation",
+          issue: `Order commission total ($${(totalOrderCommissionCents / 100).toFixed(2)}) differs from stub gross total ($${(totalStubGrossCents / 100).toFixed(2)}) by ${orderVsStubDiffPct.toFixed(1)}%`,
+        });
+      }
+
+      const passed = discrepancies.length === 0;
+
+      res.json({
+        payRunId: req.params.payRunId,
+        passed,
+        summary: {
+          totalOrders: payRunOrders.length,
+          totalStubs: stmts.length,
+          totalOrderCommission: (totalOrderCommissionCents / 100).toFixed(2),
+          totalStubGross: (totalStubGrossCents / 100).toFixed(2),
+          totalStubDeductions: (totalStubDeductionsCents / 100).toFixed(2),
+          totalStubNet: (totalStubNetCents / 100).toFixed(2),
+          discrepancyPct: orderVsStubDiffPct.toFixed(1),
+        },
+        discrepancies,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
