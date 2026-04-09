@@ -125,7 +125,7 @@ export async function seedCompPlanData() {
         includeOwnerSales: true,
         appliesToAllSales: true,
         excludeSelfSales: true,
-        excludeOwnTeamSales: false,
+        excludeOwnTeamSales: true,
         excludeRepIds: excludeIds,
         active: true,
         priority: 30,

@@ -755,7 +755,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       overrideRecipients.push({ userId: director.id, role: "DIRECTOR", overrideType: "DIRECTOR_OVERRIDE" });
     }
     for (const ops of operationsUsers) {
-      overrideRecipients.push({ userId: ops.id, role: "OPERATIONS", overrideType: "ADMIN_OVERRIDE" });
+      overrideRecipients.push({ userId: ops.id, role: "OPERATIONS", overrideType: "OPERATIONS_OVERRIDE" });
     }
     for (const acct of accountingUsers) {
       overrideRecipients.push({ userId: acct.id, role: "ACCOUNTING", overrideType: "ACCOUNTING_OVERRIDE" });
@@ -777,7 +777,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       const amountDollars = (eligibility.amountCents / 100).toFixed(2);
 
       if (recipient.overrideType === "DIRECTOR_OVERRIDE") totalDirectorOverrideCents += eligibility.amountCents;
-      else if (recipient.overrideType === "ADMIN_OVERRIDE") totalAdminOverrideCents += eligibility.amountCents;
+      else if (recipient.overrideType === "OPERATIONS_OVERRIDE" || recipient.overrideType === "ADMIN_OVERRIDE") totalAdminOverrideCents += eligibility.amountCents;
       else if (recipient.overrideType === "ACCOUNTING_OVERRIDE") totalAccountingOverrideCents += eligibility.amountCents;
 
       const earning = await storage.createOverrideEarning({
@@ -2947,7 +2947,7 @@ Rules:
         .filter(e => e.overrideType === "DIRECTOR_OVERRIDE")
         .reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
       const adminOverride = overrideEarnings
-        .filter(e => e.overrideType === "ADMIN_OVERRIDE")
+        .filter(e => e.overrideType === "ADMIN_OVERRIDE" || e.overrideType === "OPERATIONS_OVERRIDE")
         .reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
       const accountingOverride = overrideEarnings
         .filter(e => e.overrideType === "ACCOUNTING_OVERRIDE")
@@ -17580,7 +17580,7 @@ Rules:
 
   const overrideApprovalAccess = requireRoles("EXECUTIVE", "OPERATIONS", "ADMIN", "ACCOUNTING", "DIRECTOR");
 
-  const ALL_APPROVABLE_TYPES = ["LEADER_OVERRIDE", "MANAGER_OVERRIDE", "DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "ACCOUNTING_OVERRIDE"];
+  const ALL_APPROVABLE_TYPES = ["LEADER_OVERRIDE", "MANAGER_OVERRIDE", "DIRECTOR_OVERRIDE", "ADMIN_OVERRIDE", "OPERATIONS_OVERRIDE", "ACCOUNTING_OVERRIDE"];
 
   function canApproveOverrideType(userRole: string, overrideType: string): boolean {
     if (userRole === "EXECUTIVE") return ALL_APPROVABLE_TYPES.includes(overrideType);
