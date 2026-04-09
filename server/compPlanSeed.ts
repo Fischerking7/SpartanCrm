@@ -110,8 +110,12 @@ export async function seedCompPlanData() {
     }
 
     if (stefano) {
+      const stefanoTeamReps = allUsers.filter(u =>
+        u.assignedSupervisorId === stefano.id || u.assignedManagerId === stefano.id
+      );
+      const excludeIds = [stefano.id, ...stefanoTeamReps.map(r => r.id)];
       await storage.createCommissionOverrideRule({
-        ruleName: "Operations Override — Stefano Fischer ($10 all sales, excl self/own team)",
+        ruleName: "Operations Override — Stefano Fischer ($10 all sales, excl self/own team in perpetuity)",
         recipientUserId: stefano.id,
         recipientRole: "OPERATIONS",
         overrideType: "OPERATIONS_OVERRIDE",
@@ -121,10 +125,11 @@ export async function seedCompPlanData() {
         includeOwnerSales: true,
         appliesToAllSales: true,
         excludeSelfSales: true,
-        excludeOwnTeamSales: true,
+        excludeOwnTeamSales: false,
+        excludeRepIds: excludeIds,
         active: true,
         priority: 30,
-        notes: "Operations override: $10 flat on ALL sales including owners. Excludes own personal sales and own reps' sales — in perpetuity.",
+        notes: "Operations override: $10 flat on ALL sales including owners. Excludes own personal sales and own reps' sales — in perpetuity via explicit excludeRepIds list. Add new team members to excludeRepIds when assigned.",
       });
       results.rulesCreated++;
     }

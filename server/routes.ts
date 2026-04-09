@@ -18059,8 +18059,7 @@ Rules:
 
       let totalOrderCommissionCents = 0;
       for (const order of payRunOrders) {
-        totalOrderCommissionCents += Math.round(parseFloat(order.baseCommissionEarned || "0") * 100);
-        totalOrderCommissionCents += Math.round(parseFloat(order.incentiveEarned || "0") * 100);
+        totalOrderCommissionCents += Math.round(parseFloat(order.commissionAmount || "0") * 100);
       }
 
       let totalStubGrossCents = 0;
@@ -18101,19 +18100,40 @@ Rules:
         const compPlanType = user?.compPlanType || "STANDARD";
         const userRole = user?.role || "REP";
 
+        const { lookupCompPlanRate, getRateForRole, isOwnerRole } = await import("./commissionEngine");
+        const isOwnerUser = compPlanType === "OWNER" || isOwnerRole(userRole);
+
         for (const order of userOrders) {
           let orderCents = Math.round(parseFloat(order.commissionAmount || "0") * 100);
           if (order.serviceId) {
-            const { lookupCompPlanRate } = await import("./commissionEngine");
             let cpRate = await lookupCompPlanRate(order.serviceId, order.providerId, order.clientId || null, payRun.periodEnd);
             if (!cpRate) cpRate = await lookupCompPlanRate(order.serviceId, null, null, payRun.periodEnd);
             if (cpRate) {
-              const { getRateForRole } = await import("./commissionEngine");
               const roleRate = getRateForRole(cpRate, userRole, compPlanType);
               if (roleRate > 0) orderCents = roleRate;
             }
           }
           expectedGrossCents += orderCents;
+        }
+
+        if (isOwnerUser && user?.ownerPoolGroup) {
+          const allPoolOwnerIds = await db.select({ id: users.id }).from(users)
+            .where(and(eq(users.ownerPoolGroup, user.ownerPoolGroup), eq(users.status, "ACTIVE"), isNull(users.deletedAt)));
+          const poolSize = allPoolOwnerIds.length || 1;
+          let totalPoolCents = 0;
+          for (const [, ownerIds] of [[user.ownerPoolGroup, allPoolOwnerIds.map(u => u.id)]]) {
+            const poolOrders = payRunOrders.filter(o => (ownerIds as string[]).includes(o.userId));
+            for (const order of poolOrders) {
+              let orderCents = Math.round(parseFloat(order.commissionAmount || "0") * 100);
+              if (order.serviceId) {
+                let cpRate = await lookupCompPlanRate(order.serviceId, order.providerId, order.clientId || null, payRun.periodEnd);
+                if (!cpRate) cpRate = await lookupCompPlanRate(order.serviceId, null, null, payRun.periodEnd);
+                if (cpRate && cpRate.executivePayCents > 0) orderCents = cpRate.executivePayCents;
+              }
+              totalPoolCents += orderCents;
+            }
+          }
+          expectedGrossCents = Math.floor(totalPoolCents / poolSize);
         }
 
         const deltaCents = Math.abs(grossCents - expectedGrossCents);
