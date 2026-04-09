@@ -27,7 +27,7 @@ Preferred communication style: Simple, everyday language.
 - **AI-Powered Order Matching (Install Sync)**: Automates matching installation records against CRM orders using Claude AI, with carrier-specific profiles and admin UI for management.
 - **Automated Payroll Pipeline**: End-to-end payroll automation from AR-gated readiness to pay stub generation and accounting reconciliation.
 - **Dedicated User Interfaces**: Specialized desktop interfaces for Operations (12 screens), Accounting (8 screens), Director (5 screens), and Executive (5 screens), each with role-specific dashboards and functionalities.
-- **Reporting System**: Role-based dashboards with six API endpoints for comprehensive reporting and performance monitoring.
+- **Reporting System**: Role-based dashboards with comprehensive reporting endpoints. Universal export interface (`GET /api/admin/export/:reportType`) consolidates all report types (orders, pay-stubs, ar-reconciliation, override-earnings, commission-variance, iron-crest-profit, rep-summary) with consistent query parameters (startDate, endDate, repId, repIds, clientId, providerId, format). Admins can save report configurations (`saved_reports` table) and re-run them with one click from the Saved Reports page.
 - **Predictive Intelligence**: Five integrated features for risk scoring, performance prediction, AR collection, profit anomaly detection, and cash flow projection.
 - **Contractor Onboarding System**: OTP-gated portal for 1099 contractors, including e-signature, document generation, admin review, compliance tracking, and audit logging.
 - **AI Screenshot-to-Order Capture**: Mobile-first feature using Claude AI vision to extract order details from screenshots and pre-populate forms, with images stored securely.

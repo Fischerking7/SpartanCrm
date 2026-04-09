@@ -68,6 +68,7 @@ import CarrierRepMappings from "@/pages/admin/carrier-rep-mappings";
 import Onboarding from "@/pages/onboarding";
 import AdminOnboardingReview from "@/pages/admin/onboarding-review";
 import AdminAutomationRules from "@/pages/admin/automation-rules";
+import AdminSavedReports from "@/pages/admin/saved-reports";
 import NotFound from "@/pages/not-found";
 
 function Dashboard() {
@@ -142,6 +143,7 @@ const routeTitles: Record<string, string> = {
   "/recalculate": "Recalculate",
   "/admin/user-activity": "User Activity",
   "/admin/automation-rules": "Automation Rules",
+  "/admin/saved-reports": "Saved Reports",
 };
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -280,6 +282,7 @@ function Router() {
             <Route path="/admin/carrier-rep-mappings" component={CarrierRepMappings} />
             <Route path="/admin/onboarding-review" component={AdminOnboardingReview} />
             <Route path="/admin/automation-rules" component={AdminAutomationRules} />
+            <Route path="/admin/saved-reports" component={AdminSavedReports} />
           </>
         )}
         

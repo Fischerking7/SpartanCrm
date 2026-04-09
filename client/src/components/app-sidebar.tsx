@@ -53,6 +53,7 @@ import {
   RefreshCw,
   Radio,
   Zap,
+  BookMarked,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -121,6 +122,7 @@ const MENU = {
   advPayroll: { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
   quickbooks: { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
   automationRules: { title: "Automation Rules", url: "/admin/automation-rules", icon: Zap },
+  savedReports: { title: "Saved Reports", url: "/admin/saved-reports", icon: BookMarked },
 } as const;
 
 // ============ COMPOSED MENU GROUPS ============
@@ -173,6 +175,7 @@ const adminInsightsItems: MenuItem[] = [
   MENU.leadPool,
   MENU.reports,
   MENU.execReports,
+  MENU.savedReports,
 ];
 
 // Admin: System Settings group

@@ -19,11 +19,12 @@ import {
   emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
   mduStagingOrders, scheduledReports, commissionDisputes,
   financeImports, financeImportRowsRaw, financeImportRows, arExpectations, clientColumnMappings,
-  compPlanRates, commissionOverrideRules, systemSettings, automationRules,
+  compPlanRates, commissionOverrideRules, systemSettings, automationRules, savedReports,
   type CompPlanRate, type InsertCompPlanRate,
   type CommissionOverrideRule, type InsertCommissionOverrideRule,
   type SystemSetting,
   type AutomationRule, type InsertAutomationRule,
+  type SavedReport, type InsertSavedReport,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -5189,5 +5190,32 @@ export const storage = {
       lastError: error || null,
       updatedAt: new Date(),
     }).where(eq(automationRules.id, id));
+  },
+
+  // Saved Reports
+  async getSavedReports(userId: string, userRole: string): Promise<SavedReport[]> {
+    // All users see only their own reports plus shared reports.
+    // isShared semantics are enforced uniformly regardless of role.
+    return db.select().from(savedReports)
+      .where(or(eq(savedReports.createdByUserId, userId), eq(savedReports.isShared, true)))
+      .orderBy(desc(savedReports.createdAt));
+  },
+
+  async getSavedReportById(id: string): Promise<SavedReport | undefined> {
+    return db.query.savedReports.findFirst({ where: eq(savedReports.id, id) });
+  },
+
+  async createSavedReport(data: InsertSavedReport): Promise<SavedReport> {
+    const [report] = await db.insert(savedReports).values(data).returning();
+    return report;
+  },
+
+  async updateSavedReport(id: string, data: Partial<InsertSavedReport>): Promise<SavedReport> {
+    const [report] = await db.update(savedReports).set({ ...data, updatedAt: new Date() }).where(eq(savedReports.id, id)).returning();
+    return report;
+  },
+
+  async deleteSavedReport(id: string): Promise<void> {
+    await db.delete(savedReports).where(eq(savedReports.id, id));
   },
 };

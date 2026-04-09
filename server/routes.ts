@@ -22425,4 +22425,430 @@ function registerReportRoutes(app: Express, auth: any) {
       res.status(500).json({ message: msg });
     }
   });
+
+  // ==================== UNIVERSAL EXPORT ENDPOINT ====================
+
+  const ADMIN_REPORT_ROLES = ["ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"];
+  // Saved report CRUD and run: same base as universal export plus DIRECTOR
+  // MANAGER is intentionally excluded to prevent privilege escalation via saved-report run
+  const SAVED_REPORT_ROLES = [...ADMIN_REPORT_ROLES, "DIRECTOR"];
+  const VALID_REPORT_TYPES = ["orders", "pay-stubs", "ar-reconciliation", "override-earnings", "commission-variance", "iron-crest-profit", "rep-summary"] as const;
+
+  type ReportType = typeof VALID_REPORT_TYPES[number];
+
+  async function buildExportRows(reportType: ReportType, params: {
+    startDate?: string; endDate?: string; repId?: string; repIds?: string; clientId?: string; providerId?: string;
+  }): Promise<Record<string, any>[]> {
+    const { repId, repIds, clientId, providerId } = params;
+    const start = params.startDate || new Date(new Date().setDate(new Date().getDate() - 90)).toISOString().split("T")[0];
+    const end = params.endDate || new Date().toISOString().split("T")[0];
+    const repIdList = repIds ? repIds.split(",").map(s => s.trim()).filter(Boolean) : [];
+
+    let rows: Record<string, any>[] = [];
+
+    if (reportType === "orders") {
+      const allOrders = await db.select({
+        id: salesOrders.id,
+        invoiceNumber: salesOrders.invoiceNumber,
+        repId: salesOrders.repId,
+        customerName: salesOrders.customerName,
+        accountNumber: salesOrders.accountNumber,
+        dateSold: salesOrders.dateSold,
+        installDate: salesOrders.installDate,
+        jobStatus: salesOrders.jobStatus,
+        approvalStatus: salesOrders.approvalStatus,
+        paymentStatus: salesOrders.paymentStatus,
+        baseCommissionEarned: salesOrders.baseCommissionEarned,
+        incentiveEarned: salesOrders.incentiveEarned,
+        commissionPaid: salesOrders.commissionPaid,
+        clientId: salesOrders.clientId,
+        providerId: salesOrders.providerId,
+        city: salesOrders.city,
+        zipCode: salesOrders.zipCode,
+      }).from(salesOrders)
+        .where(and(
+          gte(salesOrders.dateSold, start),
+          lte(salesOrders.dateSold, end),
+          ...(repId ? [eq(salesOrders.repId, repId)] : []),
+          ...(repIdList.length > 0 ? [inArray(salesOrders.repId, repIdList)] : []),
+          ...(clientId ? [eq(salesOrders.clientId, clientId)] : []),
+          ...(providerId ? [eq(salesOrders.providerId, providerId)] : []),
+        ))
+        .orderBy(desc(salesOrders.dateSold));
+
+      const allUsers = await db.select({ id: users.id, name: users.name, repId: users.repId }).from(users);
+      const repMap = new Map(allUsers.map(u => [u.repId, u.name]));
+      const allClients = await db.select({ id: clients.id, name: clients.name }).from(clients);
+      const clientMap = new Map(allClients.map(c => [c.id, c.name]));
+      const allProviders = await db.select({ id: providers.id, name: providers.name }).from(providers);
+      const providerMap = new Map(allProviders.map(p => [p.id, p.name]));
+
+      rows = allOrders.map(o => ({
+        "Invoice #": o.invoiceNumber || "",
+        "Rep ID": o.repId || "",
+        "Rep Name": repMap.get(o.repId || "") || "",
+        "Customer Name": o.customerName || "",
+        "Account #": o.accountNumber || "",
+        "Date Sold": o.dateSold || "",
+        "Install Date": o.installDate || "",
+        "City": o.city || "",
+        "Zip Code": o.zipCode || "",
+        "Job Status": o.jobStatus || "",
+        "Approval Status": o.approvalStatus || "",
+        "Payment Status": o.paymentStatus || "",
+        "Base Commission": parseFloat(o.baseCommissionEarned || "0").toFixed(2),
+        "Incentive": parseFloat(o.incentiveEarned || "0").toFixed(2),
+        "Commission Paid": parseFloat(o.commissionPaid || "0").toFixed(2),
+        "Client": clientMap.get(o.clientId || "") || "",
+        "Provider": providerMap.get(o.providerId || "") || "",
+      }));
+    } else if (reportType === "pay-stubs") {
+      const allStatements = await db.select({
+        id: payStatements.id,
+        userId: payStatements.userId,
+        repId: payStatements.repId,
+        periodStart: payStatements.periodStart,
+        periodEnd: payStatements.periodEnd,
+        grossCommission: payStatements.grossCommission,
+        deductionsTotal: payStatements.deductionsTotal,
+        netPay: payStatements.netPay,
+        status: payStatements.status,
+        payRunId: payStatements.payRunId,
+      }).from(payStatements)
+        .where(and(
+          gte(payStatements.periodStart, start),
+          lte(payStatements.periodEnd, end),
+          ...(repId ? [eq(payStatements.repId, repId)] : []),
+          ...(repIdList.length > 0 ? [inArray(payStatements.repId, repIdList)] : []),
+        ))
+        .orderBy(desc(payStatements.periodEnd));
+
+      const allUsers2 = await db.select({ id: users.id, name: users.name, repId: users.repId }).from(users);
+      const userMap2 = new Map(allUsers2.map(u => [u.id, u]));
+
+      rows = allStatements.map(s => {
+        const u = userMap2.get(s.userId || "");
+        return {
+          "Statement ID": s.id || "",
+          "Rep ID": s.repId || u?.repId || "",
+          "Rep Name": u?.name || "",
+          "Period Start": s.periodStart || "",
+          "Period End": s.periodEnd || "",
+          "Gross Commission": parseFloat(s.grossCommission || "0").toFixed(2),
+          "Deductions Total": parseFloat(s.deductionsTotal || "0").toFixed(2),
+          "Net Pay": parseFloat(s.netPay || "0").toFixed(2),
+          "Status": s.status || "",
+          "Pay Run ID": s.payRunId || "",
+        };
+      });
+    } else if (reportType === "override-earnings") {
+      const allOverrides = await db.select().from(overrideEarnings)
+        .where(and(
+          gte(overrideEarnings.createdAt, new Date(start)),
+          lte(overrideEarnings.createdAt, new Date(end + "T23:59:59")),
+        ))
+        .orderBy(desc(overrideEarnings.createdAt));
+
+      const allUsers3 = await db.select({ id: users.id, name: users.name, repId: users.repId }).from(users);
+      const userMap3 = new Map(allUsers3.map(u => [u.id, u]));
+
+      rows = await Promise.all(allOverrides.map(async (e) => {
+        const recipient = userMap3.get(e.recipientUserId || "");
+        const order = e.salesOrderId ? await storage.getOrderById(e.salesOrderId) : null;
+        return {
+          "ID": e.id || "",
+          "Order Invoice #": order?.invoiceNumber || "",
+          "Order Date Sold": order?.dateSold || "",
+          "Recipient Rep ID": recipient?.repId || "",
+          "Recipient Name": recipient?.name || "",
+          "Override Type": e.overrideType || "",
+          "Source Level": e.sourceLevelUsed || "",
+          "Amount": parseFloat(e.amount || "0").toFixed(2),
+          "Approval Status": e.approvalStatus || "",
+          "Pay Run ID": e.payRunId || "",
+        };
+      }));
+    } else if (reportType === "ar-reconciliation") {
+      const reconciliation = await storage.getArPayrollReconciliation(start, end);
+      rows = [{
+        "Period Start": start,
+        "Period End": end,
+        "AR Satisfied Count": reconciliation.arSatisfied?.count || 0,
+        "AR Total Expected ($)": (parseInt(reconciliation.arSatisfied?.totalExpected || "0") / 100).toFixed(2),
+        "AR Total Actual ($)": (parseInt(reconciliation.arSatisfied?.totalActual || "0") / 100).toFixed(2),
+        "Payroll Ready Count": reconciliation.payrollReady?.count || 0,
+        "Payroll Ready Commission ($)": parseFloat(reconciliation.payrollReady?.totalCommission || "0").toFixed(2),
+        "Pay Run Statement Count": reconciliation.payRunTotals?.count || 0,
+        "Pay Run Total Net Pay ($)": parseFloat(reconciliation.payRunTotals?.totalNetPay || "0").toFixed(2),
+        "Pay Run Total Gross ($)": parseFloat(reconciliation.payRunTotals?.totalGross || "0").toFixed(2),
+      }];
+    } else if (reportType === "commission-variance") {
+      const varRows = await storage.getVarianceReport(start, end);
+      rows = varRows.map(r => ({
+        "Order ID": r.orderId || "",
+        "Invoice #": r.invoiceNumber || "",
+        "Customer": r.customerName || "",
+        "Rep ID": r.repId || "",
+        "Rep Name": r.repName || "",
+        "Date Sold": r.dateSold || "",
+        "Commission ($)": r.commissionAmount || "",
+        "Rack Rate ($)": r.rackRateCents ? (r.rackRateCents / 100).toFixed(2) : "",
+        "IronCrest Profit ($)": r.profitCents ? (r.profitCents / 100).toFixed(2) : "",
+        "AR Expected ($)": r.arExpectedCents ? (r.arExpectedCents / 100).toFixed(2) : "",
+        "AR Actual ($)": r.arActualCents ? (r.arActualCents / 100).toFixed(2) : "",
+        "AR Variance ($)": r.arVarianceCents ? (r.arVarianceCents / 100).toFixed(2) : "",
+        "AR Status": r.arStatus || "",
+        "Payroll Ready": r.payrollReadyAt ? "Yes" : "No",
+        "Payroll Held": r.isPayrollHeld ? "Yes" : "No",
+      }));
+    } else if (reportType === "iron-crest-profit") {
+      const filtered = await db.select().from(salesOrders).where(
+        and(
+          eq(salesOrders.approvalStatus, "APPROVED"),
+          gte(salesOrders.dateSold, start),
+          lte(salesOrders.dateSold, end),
+          ...(repId ? [eq(salesOrders.repId, repId)] : []),
+          ...(clientId ? [eq(salesOrders.clientId, clientId)] : []),
+          ...(providerId ? [eq(salesOrders.providerId, providerId)] : []),
+        )
+      );
+      const allUsers4 = await db.select({ id: users.id, name: users.name, repId: users.repId }).from(users);
+      const repMap4 = new Map(allUsers4.map(u => [u.repId, u.name]));
+      const allClients4 = await db.select({ id: clients.id, name: clients.name }).from(clients);
+      const clientMap4 = new Map(allClients4.map(c => [c.id, c.name]));
+      const allProviders4 = await db.select({ id: providers.id, name: providers.name }).from(providers);
+      const providerMap4 = new Map(allProviders4.map(p => [p.id, p.name]));
+
+      rows = filtered.map(o => ({
+        "Invoice #": o.invoiceNumber || "",
+        "Rep ID": o.repId || "",
+        "Rep Name": repMap4.get(o.repId || "") || "",
+        "Date Sold": o.dateSold || "",
+        "Client": clientMap4.get(o.clientId || "") || "",
+        "Provider": providerMap4.get(o.providerId || "") || "",
+        "Rep Payout ($)": parseFloat(o.baseCommissionEarned || "0").toFixed(2),
+        "Rack Rate ($)": o.ironCrestRackRateCents ? (o.ironCrestRackRateCents / 100).toFixed(2) : "0.00",
+        "IronCrest Profit ($)": o.ironCrestProfitCents ? (o.ironCrestProfitCents / 100).toFixed(2) : "0.00",
+        "Director Override ($)": o.directorOverrideCents ? (o.directorOverrideCents / 100).toFixed(2) : "0.00",
+        "Admin Override ($)": o.adminOverrideCents ? (o.adminOverrideCents / 100).toFixed(2) : "0.00",
+        "Accounting Override ($)": o.accountingOverrideCents ? (o.accountingOverrideCents / 100).toFixed(2) : "0.00",
+      }));
+    } else if (reportType === "rep-summary") {
+      const allOrders5 = await db.select({
+        repId: salesOrders.repId,
+        baseCommissionEarned: salesOrders.baseCommissionEarned,
+        incentiveEarned: salesOrders.incentiveEarned,
+        commissionPaid: salesOrders.commissionPaid,
+        jobStatus: salesOrders.jobStatus,
+        paymentStatus: salesOrders.paymentStatus,
+      }).from(salesOrders)
+        .where(and(
+          gte(salesOrders.dateSold, start),
+          lte(salesOrders.dateSold, end),
+          ...(repId ? [eq(salesOrders.repId, repId)] : []),
+          ...(repIdList.length > 0 ? [inArray(salesOrders.repId, repIdList)] : []),
+          ...(clientId ? [eq(salesOrders.clientId, clientId)] : []),
+          ...(providerId ? [eq(salesOrders.providerId, providerId)] : []),
+        ));
+
+      const allUsers5 = await db.select({ id: users.id, name: users.name, repId: users.repId, role: users.role }).from(users);
+      const repMap5 = new Map(allUsers5.map(u => [u.repId, u]));
+
+      const summary: Record<string, { repId: string; name: string; role: string; totalOrders: number; completedOrders: number; totalEarned: number; totalPaid: number; outstanding: number }> = {};
+
+      for (const o of allOrders5) {
+        if (!o.repId) continue;
+        if (!summary[o.repId]) {
+          const repUser = repMap5.get(o.repId);
+          summary[o.repId] = { repId: o.repId, name: repUser?.name || o.repId, role: repUser?.role || "", totalOrders: 0, completedOrders: 0, totalEarned: 0, totalPaid: 0, outstanding: 0 };
+        }
+        summary[o.repId].totalOrders++;
+        if (o.jobStatus === "COMPLETED") {
+          summary[o.repId].completedOrders++;
+          const earned = parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0");
+          const paid = parseFloat(o.commissionPaid || "0");
+          summary[o.repId].totalEarned += earned;
+          summary[o.repId].totalPaid += paid;
+          summary[o.repId].outstanding += (earned - paid);
+        }
+      }
+
+      rows = Object.values(summary).sort((a, b) => b.totalEarned - a.totalEarned).map(s => ({
+        "Rep ID": s.repId,
+        "Rep Name": s.name,
+        "Role": s.role,
+        "Total Orders": s.totalOrders,
+        "Completed Orders": s.completedOrders,
+        "Total Earned ($)": s.totalEarned.toFixed(2),
+        "Total Paid ($)": s.totalPaid.toFixed(2),
+        "Outstanding ($)": s.outstanding.toFixed(2),
+      }));
+    }
+
+    return rows;
+  }
+
+  function sendExportResponse(res: Response, reportType: string, start: string, end: string, rows: Record<string, any>[], format: string) {
+    if (format === "json") {
+      return res.json({ reportType, startDate: start, endDate: end, rowCount: rows.length, data: rows });
+    }
+    const csv = stringify(rows, { header: true });
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${reportType}-${start}-to-${end}.csv"`);
+    return res.send(csv);
+  }
+
+  app.get("/api/admin/export/:reportType", auth, requireRoles(...ADMIN_REPORT_ROLES, "DIRECTOR"), async (req: AuthRequest, res) => {
+    try {
+      const { reportType } = req.params;
+      const { startDate, endDate, repId, repIds, clientId, providerId, format = "csv" } = req.query as Record<string, string>;
+
+      if (!VALID_REPORT_TYPES.includes(reportType as ReportType)) {
+        return res.status(400).json({ message: `Invalid report type. Must be one of: ${VALID_REPORT_TYPES.join(", ")}` });
+      }
+
+      if ((reportType === "ar-reconciliation" || reportType === "commission-variance") && (!startDate || !endDate)) {
+        return res.status(400).json({ message: "startDate and endDate are required for this report type" });
+      }
+
+      const start = startDate || new Date(new Date().setDate(new Date().getDate() - 90)).toISOString().split("T")[0];
+      const end = endDate || new Date().toISOString().split("T")[0];
+
+      const rows = await buildExportRows(reportType as ReportType, { startDate: start, endDate: end, repId, repIds, clientId, providerId });
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "EXPORT",
+        tableName: reportType,
+        recordId: "universal-export",
+        afterJson: JSON.stringify({ reportType, startDate: start, endDate: end, format, rowCount: rows.length }),
+      });
+
+      return sendExportResponse(res, reportType, start, end, rows, format);
+    } catch (error: any) {
+      console.error("Universal export error:", error);
+      res.status(500).json({ message: error.message || "Export failed" });
+    }
+  });
+
+  // ==================== SAVED REPORTS CRUD ====================
+
+  app.get("/api/admin/saved-reports", auth, requireRoles(...SAVED_REPORT_ROLES), async (req: AuthRequest, res) => {
+    try {
+      const reports = await storage.getSavedReports(req.user!.id, req.user!.role);
+      res.json(reports);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get saved reports" });
+    }
+  });
+
+  app.post("/api/admin/saved-reports", auth, requireRoles(...SAVED_REPORT_ROLES), async (req: AuthRequest, res) => {
+    try {
+      const { name, reportType, paramsJson, isShared } = req.body;
+      if (!name || !reportType) {
+        return res.status(400).json({ message: "name and reportType are required" });
+      }
+      if (!VALID_REPORT_TYPES.includes(reportType as ReportType)) {
+        return res.status(400).json({ message: `Invalid reportType. Must be one of: ${VALID_REPORT_TYPES.join(", ")}` });
+      }
+      const report = await storage.createSavedReport({
+        createdByUserId: req.user!.id,
+        name: name.trim(),
+        reportType,
+        paramsJson: paramsJson || {},
+        isShared: isShared === true,
+      });
+      await storage.createAuditLog({ userId: req.user!.id, action: "CREATE", tableName: "saved_reports", recordId: report.id, afterJson: JSON.stringify(req.body) });
+      res.status(201).json(report);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create saved report" });
+    }
+  });
+
+  app.patch("/api/admin/saved-reports/:id", auth, requireRoles(...SAVED_REPORT_ROLES), async (req: AuthRequest, res) => {
+    try {
+      const existing = await storage.getSavedReportById(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Saved report not found" });
+      // Only the owner or a privileged admin role may edit any report
+      if (existing.createdByUserId !== req.user!.id && !ADMIN_REPORT_ROLES.includes(req.user!.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const { name, reportType, paramsJson, isShared } = req.body;
+      if (reportType !== undefined && !VALID_REPORT_TYPES.includes(reportType as ReportType)) {
+        return res.status(400).json({ message: `Invalid reportType. Must be one of: ${VALID_REPORT_TYPES.join(", ")}` });
+      }
+      const updates: Partial<{ name: string; reportType: string; paramsJson: Record<string, unknown>; isShared: boolean; createdByUserId: string }> = {};
+      if (name !== undefined) updates.name = String(name);
+      if (reportType !== undefined) updates.reportType = String(reportType);
+      if (paramsJson !== undefined) updates.paramsJson = paramsJson;
+      if (isShared !== undefined) updates.isShared = Boolean(isShared);
+      const report = await storage.updateSavedReport(req.params.id, updates);
+      await storage.createAuditLog({ userId: req.user!.id, action: "UPDATE", tableName: "saved_reports", recordId: req.params.id, afterJson: JSON.stringify(updates) });
+      res.json(report);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update saved report" });
+    }
+  });
+
+  app.delete("/api/admin/saved-reports/:id", auth, requireRoles(...SAVED_REPORT_ROLES), async (req: AuthRequest, res) => {
+    try {
+      const existing = await storage.getSavedReportById(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Saved report not found" });
+      // Only the owner or a privileged admin role may delete any report
+      if (existing.createdByUserId !== req.user!.id && !ADMIN_REPORT_ROLES.includes(req.user!.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      await storage.deleteSavedReport(req.params.id);
+      await storage.createAuditLog({ userId: req.user!.id, action: "DELETE", tableName: "saved_reports", recordId: req.params.id });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete saved report" });
+    }
+  });
+
+  // Run a saved report - executes the export using the saved config
+  app.post("/api/admin/saved-reports/:id/run", auth, requireRoles(...SAVED_REPORT_ROLES), async (req: AuthRequest, res) => {
+    try {
+      const saved = await storage.getSavedReportById(req.params.id);
+      if (!saved) return res.status(404).json({ message: "Saved report not found" });
+
+      // Authorization: allow if owner, shared report, or privileged admin role (ADMIN_REPORT_ROLES)
+      const isOwner = saved.createdByUserId === req.user!.id;
+      const isPrivileged = ADMIN_REPORT_ROLES.includes(req.user!.role);
+      if (!isOwner && !saved.isShared && !isPrivileged) {
+        return res.status(403).json({ message: "Access denied: this report is private" });
+      }
+
+      if (!VALID_REPORT_TYPES.includes(saved.reportType as ReportType)) {
+        return res.status(400).json({ message: `Invalid report type stored: ${saved.reportType}` });
+      }
+
+      const params = (saved.paramsJson as Record<string, any>) || {};
+      const format = (req.query.format as string) || params.format || "csv";
+
+      const start = params.startDate || new Date(new Date().setDate(new Date().getDate() - 90)).toISOString().split("T")[0];
+      const end = params.endDate || new Date().toISOString().split("T")[0];
+
+      const rows = await buildExportRows(saved.reportType as ReportType, {
+        startDate: start,
+        endDate: end,
+        repId: params.repId,
+        repIds: params.repIds,
+        clientId: params.clientId,
+        providerId: params.providerId,
+      });
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "RUN_SAVED_REPORT",
+        tableName: "saved_reports",
+        recordId: req.params.id,
+        afterJson: JSON.stringify({ reportType: saved.reportType, rowCount: rows.length }),
+      });
+
+      return sendExportResponse(res, saved.reportType, start, end, rows, format);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to run saved report" });
+    }
+  });
 }
