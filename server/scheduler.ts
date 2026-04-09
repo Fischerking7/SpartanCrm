@@ -4,6 +4,7 @@ import { setForceLogoutTimestamp } from "./auth";
 import { db } from "./db";
 import { salesOrders, chargebacks, arExpectations, users, clients, carrierImportSchedules, integrationLogs, rollingReserves, systemExceptions } from "@shared/schema";
 import { eq, sql, and, gte, lte, inArray, isNull } from "drizzle-orm";
+import { evaluateOrderForAutoApproval, loadAutoApprovalConfig } from "./autoApprovalEngine";
 import { checkAndReleaseMaturedReserves } from "./reserves/reserveService";
 
 function getEasternDate(date = new Date()): { year: number; month: number; day: number; hours: number; minutes: number } {
@@ -73,6 +74,9 @@ export const scheduler = {
 
     const pendingApprovalInterval = setInterval(() => runJobWithLock('checkPendingApprovalAlerts', () => this.checkPendingApprovalAlerts()), 6 * 60 * 60 * 1000);
     this.intervalIds.push(pendingApprovalInterval);
+
+    const autoApprovalInterval = setInterval(() => runJobWithLock('runAutoApprovalSweep', () => this.runAutoApprovalSweep()), 15 * 60 * 1000);
+    this.intervalIds.push(autoApprovalInterval);
 
     const performanceInterval = setInterval(() => runJobWithLock('checkLowPerformance', () => this.checkLowPerformance()), 24 * 60 * 60 * 1000);
     this.intervalIds.push(performanceInterval);
@@ -465,7 +469,7 @@ export const scheduler = {
     return "OTHER";
   },
 
-  async runManualJob(jobType: "SCHEDULED_PAY_RUN" | "CHARGEBACK_PROCESSOR" | "NOTIFICATION_SENDER" | "PENDING_APPROVAL_ALERT" | "LOW_PERFORMANCE_CHECK" | "DAILY_SALES_REPORT" | "DAILY_INSTALL_REPORT") {
+  async runManualJob(jobType: "SCHEDULED_PAY_RUN" | "CHARGEBACK_PROCESSOR" | "NOTIFICATION_SENDER" | "PENDING_APPROVAL_ALERT" | "LOW_PERFORMANCE_CHECK" | "DAILY_SALES_REPORT" | "DAILY_INSTALL_REPORT" | "AUTO_APPROVAL_SWEEP") {
     switch (jobType) {
       case "SCHEDULED_PAY_RUN":
         await this.checkScheduledPayRuns();
@@ -488,6 +492,202 @@ export const scheduler = {
       case "DAILY_INSTALL_REPORT":
         await this.generateDailyInstallReport();
         break;
+      case "AUTO_APPROVAL_SWEEP":
+        await this.runAutoApprovalSweep();
+        break;
+    }
+  },
+
+  async runAutoApprovalSweep() {
+    const job = await storage.createBackgroundJob({ jobType: "AUTO_APPROVAL_SWEEP" });
+
+    try {
+      await storage.updateBackgroundJob(job.id, { status: "RUNNING", startedAt: new Date() });
+
+      // Load all config from system settings (single batch read via engine helper)
+      const config = await loadAutoApprovalConfig();
+
+      if (!config.enabled) {
+        console.log("[AutoApproval] Sweep disabled via system settings, skipping");
+        await storage.updateBackgroundJob(job.id, {
+          status: "COMPLETED",
+          completedAt: new Date(),
+          result: JSON.stringify({ skipped: true, reason: "auto_approval_enabled=false" }),
+        });
+        return;
+      }
+
+      // Fetch unapproved completed orders that haven't been attempted yet
+      const candidates = await db
+        .select()
+        .from(salesOrders)
+        .where(
+          and(
+            eq(salesOrders.jobStatus, "COMPLETED"),
+            eq(salesOrders.approvalStatus, "UNAPPROVED"),
+            isNull(salesOrders.autoApprovalAttemptedAt)
+          )
+        );
+
+      console.log(`[AutoApproval] Sweep found ${candidates.length} candidate orders`);
+
+      let approved = 0;
+      let skipped = 0;
+      let failed = 0;
+      const now = new Date();
+
+      for (const order of candidates) {
+        try {
+          // Pass resolved config to avoid repeated DB reads per order
+          const evaluation = await evaluateOrderForAutoApproval(order.id, config);
+
+          const resultPayload = JSON.stringify({
+            eligible: evaluation.eligible,
+            confidence: evaluation.confidence,
+            blockers: evaluation.blockers,
+            reasons: evaluation.reasons,
+            evaluatedAt: now.toISOString(),
+          });
+
+          if (!evaluation.eligible) {
+            await db.update(salesOrders)
+              .set({ autoApprovalAttemptedAt: now, autoApprovalResult: resultPayload, updatedAt: now })
+              .where(eq(salesOrders.id, order.id));
+
+            await storage.createAuditLog({
+              action: "auto_approval_rejected",
+              tableName: "sales_orders",
+              recordId: order.id,
+              afterJson: resultPayload,
+              userId: "SYSTEM",
+            });
+
+            skipped++;
+            continue;
+          }
+
+          if (evaluation.confidence < config.confidenceThreshold) {
+            const lowConfidencePayload = JSON.stringify({
+              ...JSON.parse(resultPayload),
+              blockers: [`Confidence ${evaluation.confidence} below threshold ${config.confidenceThreshold}`],
+            });
+            await db.update(salesOrders)
+              .set({ autoApprovalAttemptedAt: now, autoApprovalResult: lowConfidencePayload, updatedAt: now })
+              .where(eq(salesOrders.id, order.id));
+
+            await storage.createAuditLog({
+              action: "auto_approval_low_confidence",
+              tableName: "sales_orders",
+              recordId: order.id,
+              afterJson: lowConfidencePayload,
+              userId: "SYSTEM",
+            });
+
+            skipped++;
+            continue;
+          }
+
+          // Check chargeback risk score
+          let riskScore = 0;
+          try {
+            const { scoreChargebackRisk } = await import("./chargebackRiskEngine");
+            const risk = await scoreChargebackRisk(order.id);
+            riskScore = risk.score;
+          } catch (riskErr) {
+            console.error(`[AutoApproval] Failed to compute chargeback risk for order ${order.id}:`, riskErr);
+            riskScore = 100;
+          }
+
+          if (riskScore > config.chargebackRiskMax) {
+            const riskPayload = JSON.stringify({
+              ...JSON.parse(resultPayload),
+              blockers: [`Chargeback risk score ${riskScore} exceeds max ${config.chargebackRiskMax}`],
+            });
+            await db.update(salesOrders)
+              .set({ autoApprovalAttemptedAt: now, autoApprovalResult: riskPayload, updatedAt: now })
+              .where(eq(salesOrders.id, order.id));
+
+            await storage.createAuditLog({
+              action: "auto_approval_high_risk",
+              tableName: "sales_orders",
+              recordId: order.id,
+              afterJson: riskPayload,
+              userId: "SYSTEM",
+            });
+
+            skipped++;
+            continue;
+          }
+
+          // All checks passed — approve the order
+          const salesRep = await storage.getUserByRepId(order.repId ?? "");
+          const approvalUpdates: Record<string, any> = {
+            approvalStatus: "APPROVED",
+            approvedByUserId: "SYSTEM",
+            approvedAt: now,
+            repRoleAtSale: salesRep?.role || "REP",
+            autoApprovalAttemptedAt: now,
+            autoApprovalResult: resultPayload,
+            updatedAt: now,
+          };
+
+          const { generateOverrideEarnings } = await import("./routes");
+          const updatedOrder = await storage.updateOrder(order.id, approvalUpdates);
+
+          if (updatedOrder) {
+            await generateOverrideEarnings(order, updatedOrder);
+
+            // Set payrollReadyAt if AR is already satisfied
+            const arRecord = await db.query.arExpectations.findFirst({
+              where: eq(arExpectations.orderId, order.id),
+            });
+            if (arRecord && (arRecord.status === "SATISFIED" || arRecord.status === "PARTIAL")) {
+              await storage.updateOrder(order.id, {
+                payrollReadyAt: now,
+                payrollReadyTriggeredBy: "AUTO_APPROVAL",
+              });
+            }
+          }
+
+          await storage.createAuditLog({
+            action: "auto_approval_approved",
+            tableName: "sales_orders",
+            recordId: order.id,
+            beforeJson: JSON.stringify(order),
+            afterJson: resultPayload,
+            userId: "SYSTEM",
+          });
+
+          console.log(`[AutoApproval] Auto-approved order ${order.id} (confidence: ${evaluation.confidence})`);
+          approved++;
+        } catch (orderErr: any) {
+          console.error(`[AutoApproval] Error processing order ${order.id}:`, orderErr.message);
+          await db.update(salesOrders)
+            .set({
+              autoApprovalAttemptedAt: now,
+              autoApprovalResult: JSON.stringify({ error: orderErr.message }),
+              updatedAt: now,
+            })
+            .where(eq(salesOrders.id, order.id))
+            .catch(() => {});
+          failed++;
+        }
+      }
+
+      console.log(`[AutoApproval] Sweep complete: ${approved} approved, ${skipped} skipped, ${failed} failed`);
+
+      await storage.updateBackgroundJob(job.id, {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        result: JSON.stringify({ approved, skipped, failed, total: candidates.length }),
+      });
+    } catch (error: any) {
+      await storage.updateBackgroundJob(job.id, {
+        status: "FAILED",
+        completedAt: new Date(),
+        errorMessage: error.message,
+      });
+      console.error("[AutoApproval] Sweep job failed:", error);
     }
   },
 

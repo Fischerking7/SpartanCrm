@@ -19,9 +19,10 @@ import {
   emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
   mduStagingOrders, scheduledReports, commissionDisputes,
   financeImports, financeImportRowsRaw, financeImportRows, arExpectations, clientColumnMappings,
-  compPlanRates, commissionOverrideRules,
+  compPlanRates, commissionOverrideRules, systemSettings,
   type CompPlanRate, type InsertCompPlanRate,
   type CommissionOverrideRule, type InsertCommissionOverrideRule,
+  type SystemSetting,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -5051,5 +5052,25 @@ export const storage = {
 
   async deleteCommissionOverrideRule(id: string): Promise<void> {
     await db.update(commissionOverrideRules).set({ active: false, updatedAt: new Date() }).where(eq(commissionOverrideRules.id, id));
+  },
+
+  // System Settings
+  async getSystemSettings(): Promise<SystemSetting[]> {
+    return db.select().from(systemSettings).orderBy(asc(systemSettings.key));
+  },
+  async getSystemSettingByKey(key: string): Promise<SystemSetting | undefined> {
+    const [setting] = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
+    return setting;
+  },
+  async upsertSystemSetting(key: string, value: string, description?: string, updatedByUserId?: string): Promise<SystemSetting> {
+    const [setting] = await db
+      .insert(systemSettings)
+      .values({ key, value, description, updatedByUserId, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value, description, updatedByUserId, updatedAt: new Date() },
+      })
+      .returning();
+    return setting;
   },
 };

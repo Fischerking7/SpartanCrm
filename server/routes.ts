@@ -466,7 +466,7 @@ function extractSpeedFromService(serviceId: string): number | undefined {
   return SERVICE_SPEED_CACHE.get(serviceId);
 }
 
-async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder: SalesOrder): Promise<OverrideEarning[]> {
+export async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder: SalesOrder): Promise<OverrideEarning[]> {
   const salesRep = await storage.getUserByRepId(approvedOrder.repId);
   
   return db.transaction(async (tx) => {
@@ -21523,6 +21523,85 @@ function registerReportRoutes(app: Express, auth: any) {
       const { seedCompPlanData } = await import("./compPlanSeed");
       const result = await seedCompPlanData();
       res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // System Settings CRUD - ADMIN/OPERATIONS only
+  const KNOWN_SYSTEM_SETTING_KEYS = new Set([
+    "auto_approval_confidence_threshold",
+    "auto_approval_max_commission_cents",
+    "auto_approval_chargeback_risk_max",
+    "auto_approval_enabled",
+  ]);
+
+  app.get("/api/admin/system-settings", auth, requireRoles("ADMIN", "OPERATIONS"), async (_req: AuthRequest, res) => {
+    try {
+      const settings = await storage.getSystemSettings();
+      res.json(settings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/system-settings", auth, requireRoles("ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { key, value, description } = req.body;
+
+      if (!key || typeof key !== "string") {
+        return res.status(400).json({ message: "Setting key is required" });
+      }
+      if (value === undefined || value === null) {
+        return res.status(400).json({ message: "Setting value is required" });
+      }
+      if (!KNOWN_SYSTEM_SETTING_KEYS.has(key)) {
+        return res.status(400).json({ message: `Unknown setting key: ${key}. Valid keys: ${[...KNOWN_SYSTEM_SETTING_KEYS].join(", ")}` });
+      }
+
+      const stringValue = String(value);
+
+      // Type-specific validation
+      if (key === "auto_approval_enabled") {
+        if (stringValue !== "true" && stringValue !== "false") {
+          return res.status(400).json({ message: "auto_approval_enabled must be 'true' or 'false'" });
+        }
+      } else if (["auto_approval_confidence_threshold", "auto_approval_max_commission_cents", "auto_approval_chargeback_risk_max"].includes(key)) {
+        const num = parseInt(stringValue, 10);
+        if (isNaN(num) || num < 0) {
+          return res.status(400).json({ message: `${key} must be a non-negative integer` });
+        }
+        if (key === "auto_approval_confidence_threshold" && (num < 0 || num > 100)) {
+          return res.status(400).json({ message: "auto_approval_confidence_threshold must be between 0 and 100" });
+        }
+      }
+
+      const setting = await storage.upsertSystemSetting(key, stringValue, description, user.id);
+
+      await storage.createAuditLog({
+        action: "update_system_setting",
+        tableName: "system_settings",
+        recordId: key,
+        afterJson: JSON.stringify({ key, value: stringValue }),
+        userId: user.id,
+      });
+
+      res.json(setting);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Trigger auto-approval sweep manually
+  app.post("/api/admin/auto-approval/sweep", auth, requireRoles("ADMIN", "OPERATIONS"), async (_req: AuthRequest, res) => {
+    try {
+      const { scheduler } = await import("./scheduler");
+      // Fire and forget
+      scheduler.runAutoApprovalSweep().catch((err: any) => {
+        console.error("[AutoApproval] Manual sweep error:", err);
+      });
+      res.json({ message: "Auto-approval sweep triggered" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
