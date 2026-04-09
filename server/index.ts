@@ -148,6 +148,13 @@ app.use((req, res, next) => {
         console.error('[STARTUP] Health check error:', err.message);
       }
 
+      try {
+        const { seedSystemSettings } = await import("./seedSystemSettings");
+        await seedSystemSettings();
+      } catch (err: any) {
+        console.error('[STARTUP] system_settings seed warning:', err.message);
+      }
+
       await initForceLogoutFromDb(storage);
       scheduler.start();
     },

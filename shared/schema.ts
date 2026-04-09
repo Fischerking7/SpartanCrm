@@ -328,6 +328,14 @@ export const salesOrders = pgTable("sales_orders", {
   captureMethod: captureMethodEnum("capture_method").default("manual"),
   captureImageUrl: text("capture_image_url"),
   captureRawJson: jsonb("capture_raw_json"),
+  autoApprovalAttemptedAt: timestamp("auto_approval_attempted_at"),
+  autoApprovalResult: varchar("auto_approval_result"),
+  autoApprovalBlockers: text("auto_approval_blockers"),
+  autoApprovedBySystem: boolean("auto_approved_by_system").notNull().default(false),
+  isDuplicateFlag: boolean("is_duplicate_flag").notNull().default(false),
+  duplicateFlagReason: text("duplicate_flag_reason"),
+  duplicateOfOrderId: varchar("duplicate_of_order_id"),
+  simplifiedStatus: varchar("simplified_status"),
   notes: text("notes"),
   simplifiedStatus: varchar("simplified_status", { length: 30 }),
   hasActiveChargeback: boolean("has_active_chargeback").notNull().default(false),
@@ -2623,3 +2631,162 @@ export const insertCommissionOverrideRuleSchema = createInsertSchema(commissionO
 });
 export type CommissionOverrideRule = typeof commissionOverrideRules.$inferSelect;
 export type InsertCommissionOverrideRule = z.infer<typeof insertCommissionOverrideRuleSchema>;
+
+// ─── New tables for automation, exception management, and reporting ───────────
+
+export const exceptionDismissals = pgTable("exception_dismissals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  exceptionType: varchar("exception_type").notNull(),
+  entityId: varchar("entity_id").notNull(),
+  dismissedByUserId: varchar("dismissed_by_user_id").notNull().references(() => users.id),
+  reason: text("reason"),
+  snoozedUntil: timestamp("snoozed_until"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("exc_dis_type_entity_idx").on(table.exceptionType, table.entityId),
+  index("exc_dis_user_idx").on(table.dismissedByUserId),
+]);
+
+export const exceptionDismissalsRelations = relations(exceptionDismissals, ({ one }) => ({
+  dismissedBy: one(users, { fields: [exceptionDismissals.dismissedByUserId], references: [users.id] }),
+}));
+
+export const insertExceptionDismissalSchema = createInsertSchema(exceptionDismissals).omit({
+  id: true, createdAt: true,
+});
+export type ExceptionDismissal = typeof exceptionDismissals.$inferSelect;
+export type InsertExceptionDismissal = z.infer<typeof insertExceptionDismissalSchema>;
+
+export const matchCorrectionTypeEnum = pgEnum("match_correction_type", [
+  "MANUAL_MATCH", "UNMATCH", "CREATE_NEW", "IGNORE",
+]);
+
+export const matchCorrections = pgTable("match_corrections", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  financeImportRowId: varchar("finance_import_row_id").notNull().references(() => financeImportRows.id),
+  originalMatchedOrderId: varchar("original_matched_order_id").references(() => salesOrders.id),
+  correctedOrderId: varchar("corrected_order_id").references(() => salesOrders.id),
+  correctionType: matchCorrectionTypeEnum("correction_type").notNull(),
+  correctedByUserId: varchar("corrected_by_user_id").notNull().references(() => users.id),
+  scoreAtCorrection: integer("score_at_correction"),
+  nameTokenOverlap: integer("name_token_overlap"),
+  dateDiffDays: integer("date_diff_days"),
+  amountDiffCents: integer("amount_diff_cents"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("mc_row_idx").on(table.financeImportRowId),
+  index("mc_corrected_by_idx").on(table.correctedByUserId),
+]);
+
+export const matchCorrectionsRelations = relations(matchCorrections, ({ one }) => ({
+  financeImportRow: one(financeImportRows, { fields: [matchCorrections.financeImportRowId], references: [financeImportRows.id] }),
+  originalMatchedOrder: one(salesOrders, { fields: [matchCorrections.originalMatchedOrderId], references: [salesOrders.id] }),
+  correctedOrder: one(salesOrders, { fields: [matchCorrections.correctedOrderId], references: [salesOrders.id] }),
+  correctedBy: one(users, { fields: [matchCorrections.correctedByUserId], references: [users.id] }),
+}));
+
+export const insertMatchCorrectionSchema = createInsertSchema(matchCorrections).omit({
+  id: true, createdAt: true,
+});
+export type MatchCorrection = typeof matchCorrections.$inferSelect;
+export type InsertMatchCorrection = z.infer<typeof insertMatchCorrectionSchema>;
+
+export const financeImportFrequencyEnum = pgEnum("finance_import_frequency", [
+  "WEEKLY", "BIWEEKLY", "MONTHLY",
+]);
+
+export const financeImportSchedules = pgTable("finance_import_schedules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  name: text("name").notNull(),
+  frequency: financeImportFrequencyEnum("frequency").notNull(),
+  dayOfWeek: integer("day_of_week"),
+  dayOfMonth: integer("day_of_month"),
+  emailToWatch: text("email_to_watch"),
+  sftpPath: text("sftp_path"),
+  lastImportAt: timestamp("last_import_at"),
+  nextExpectedAt: timestamp("next_expected_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("fis_client_idx").on(table.clientId),
+  index("fis_active_idx").on(table.isActive),
+]);
+
+export const financeImportSchedulesRelations = relations(financeImportSchedules, ({ one }) => ({
+  client: one(clients, { fields: [financeImportSchedules.clientId], references: [clients.id] }),
+}));
+
+export const insertFinanceImportScheduleSchema = createInsertSchema(financeImportSchedules).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type FinanceImportSchedule = typeof financeImportSchedules.$inferSelect;
+export type InsertFinanceImportSchedule = z.infer<typeof insertFinanceImportScheduleSchema>;
+
+export const automationRules = pgTable("automation_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ruleName: varchar("rule_name", { length: 200 }).notNull(),
+  ruleType: varchar("rule_type", { length: 100 }).notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  conditionsJson: jsonb("conditions_json"),
+  actionsJson: jsonb("actions_json"),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
+  lastTriggeredAt: timestamp("last_triggered_at"),
+  triggerCount: integer("trigger_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("ar_type_idx").on(table.ruleType),
+  index("ar_active_idx").on(table.isActive),
+]);
+
+export const automationRulesRelations = relations(automationRules, ({ one }) => ({
+  createdBy: one(users, { fields: [automationRules.createdByUserId], references: [users.id] }),
+}));
+
+export const insertAutomationRuleSchema = createInsertSchema(automationRules).omit({
+  id: true, createdAt: true, updatedAt: true, triggerCount: true,
+});
+export type AutomationRule = typeof automationRules.$inferSelect;
+export type InsertAutomationRule = z.infer<typeof insertAutomationRuleSchema>;
+
+export const systemSettings = pgTable("system_settings", {
+  key: varchar("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedByUserId: varchar("updated_by_user_id").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const systemSettingsRelations = relations(systemSettings, ({ one }) => ({
+  updatedBy: one(users, { fields: [systemSettings.updatedByUserId], references: [users.id] }),
+}));
+
+export const insertSystemSettingSchema = createInsertSchema(systemSettings);
+export type SystemSetting = typeof systemSettings.$inferSelect;
+export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
+
+export const savedReports = pgTable("saved_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  reportType: varchar("report_type", { length: 100 }).notNull(),
+  paramsJson: jsonb("params_json"),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
+  isShared: boolean("is_shared").notNull().default(false),
+  lastRunAt: timestamp("last_run_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("sr_created_by_idx").on(table.createdByUserId),
+  index("sr_report_type_idx").on(table.reportType),
+]);
+
+export const savedReportsRelations = relations(savedReports, ({ one }) => ({
+  createdBy: one(users, { fields: [savedReports.createdByUserId], references: [users.id] }),
+}));
+
+export const insertSavedReportSchema = createInsertSchema(savedReports).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type SavedReport = typeof savedReports.$inferSelect;
+export type InsertSavedReport = z.infer<typeof insertSavedReportSchema>;
