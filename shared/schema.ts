@@ -2581,6 +2581,7 @@ export const commissionOverrideRules = pgTable("commission_override_rules", {
   excludeOwnTeamSales: boolean("exclude_own_team_sales").notNull().default(false),
   reducedAmountReps: jsonb("reduced_amount_reps"),
   excludeRepIds: jsonb("exclude_rep_ids"),
+  includeRepIds: jsonb("include_rep_ids"),
   includeOwnerSales: boolean("include_owner_sales").notNull().default(false),
   appliesToAllSales: boolean("applies_to_all_sales").notNull().default(false),
   active: boolean("active").notNull().default(true),

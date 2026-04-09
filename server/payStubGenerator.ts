@@ -616,7 +616,17 @@ export async function generatePayStubsForPayRun(
     const ownerOrders = payRunOrders.filter(o => ownerIds.includes(o.userId));
     let pooledCents = 0;
     for (const order of ownerOrders) {
-      pooledCents += Math.round(parseFloat(order.commissionAmount || "0") * 100);
+      let orderCents = Math.round(parseFloat(order.commissionAmount || "0") * 100);
+      if (order.serviceId) {
+        let cpRate = await lookupCompPlanRate(order.serviceId, order.providerId, order.clientId || null, periodEnd, txDb);
+        if (!cpRate) {
+          cpRate = await lookupCompPlanRate(order.serviceId, null, null, periodEnd, txDb);
+        }
+        if (cpRate && cpRate.executivePayCents > 0) {
+          orderCents = cpRate.executivePayCents;
+        }
+      }
+      pooledCents += orderCents;
     }
     const splitPerOwner = Math.floor(pooledCents / ownerIds.length);
     const remainder = pooledCents - (splitPerOwner * ownerIds.length);
@@ -668,6 +678,7 @@ async function generatePayStubFromPayRun(
 
   let incentivesTotalCents2 = 0;
   let elevatedBoostCents = 0;
+  let ownerColHTotal = 0;
 
   for (const order of userOrders) {
     const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
@@ -678,7 +689,7 @@ async function generatePayStubFromPayRun(
     if (order.jobStatus === "COMPLETED") totalConnects++;
     if (order.mobileLinesQty) totalMobileLines += order.mobileLinesQty;
 
-    if (isElevated && order.serviceId) {
+    if ((isElevated || isOwner) && order.serviceId) {
       let cpRate = await lookupCompPlanRate(
         order.serviceId, order.providerId, order.clientId || null, periodEnd, txDb,
       );
@@ -686,15 +697,21 @@ async function generatePayStubFromPayRun(
         cpRate = await lookupCompPlanRate(order.serviceId, null, null, periodEnd, txDb);
       }
       if (cpRate) {
-        const commCents = Math.round(commAmount * 100);
-        const boost = getElevatedAdjustmentCents(cpRate, commCents);
-        elevatedBoostCents += boost;
+        if (isElevated) {
+          const boost = getElevatedAdjustmentCents(cpRate, Math.round(commAmount * 100));
+          elevatedBoostCents += boost;
+        }
+        if (isOwner) {
+          ownerColHTotal += cpRate.executivePayCents;
+        }
       }
     }
   }
 
-  if (ownerPooledAmountCents !== undefined && isOwner) {
+  if (isOwner && ownerPooledAmountCents !== undefined) {
     grossCommissionCents = ownerPooledAmountCents;
+  } else if (isOwner && ownerColHTotal > 0) {
+    grossCommissionCents = ownerColHTotal;
   }
 
   const overrideEarnings = await storage.getApprovedOverrideEarningsForUser(userId, periodStart, periodEnd);
@@ -898,30 +915,33 @@ async function generatePayStubFromPayRun(
   }
 
   let lineItemCount = 0;
+  const skipPerOrderLines = isOwner && ownerPooledAmountCents !== undefined;
 
-  for (const order of userOrders) {
-    const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
-    const commCents = Math.round(commAmount * 100);
-    const withheldForThisOrder = reservePerOrder2.find(r => r.orderId === order.id)?.withheldCents || 0;
-    const netForOrder = (commCents - withheldForThisOrder) / 100;
+  if (!skipPerOrderLines) {
+    for (const order of userOrders) {
+      const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
+      const commCents = Math.round(commAmount * 100);
+      const withheldForThisOrder = reservePerOrder2.find(r => r.orderId === order.id)?.withheldCents || 0;
+      const netForOrder = (commCents - withheldForThisOrder) / 100;
 
-    await storage.createPayStatementLineItemFull({
-      payStatementId: statement.id,
-      category: "COMMISSION",
-      description: `Commission - ${order.invoiceNumber || "Order"}`,
-      sourceType: "SALES_ORDER",
-      sourceId: order.id,
-      salesOrderId: order.id,
-      invoiceNumber: order.invoiceNumber || undefined,
-      customerName: order.customerName || undefined,
-      dateSold: order.saleDate || undefined,
-      installDate: order.installDate || undefined,
-      repRoleAtSale: order.repRoleAtSale || undefined,
-      amount: commAmount.toFixed(2),
-      netAmount: netForOrder.toFixed(2),
-      reserveWithheldForOrder: withheldForThisOrder > 0 ? (withheldForThisOrder / 100).toFixed(2) : undefined,
-    }, txDb);
-    lineItemCount++;
+      await storage.createPayStatementLineItemFull({
+        payStatementId: statement.id,
+        category: "COMMISSION",
+        description: `Commission - ${order.invoiceNumber || "Order"}`,
+        sourceType: "SALES_ORDER",
+        sourceId: order.id,
+        salesOrderId: order.id,
+        invoiceNumber: order.invoiceNumber || undefined,
+        customerName: order.customerName || undefined,
+        dateSold: order.saleDate || undefined,
+        installDate: order.installDate || undefined,
+        repRoleAtSale: order.repRoleAtSale || undefined,
+        amount: commAmount.toFixed(2),
+        netAmount: netForOrder.toFixed(2),
+        reserveWithheldForOrder: withheldForThisOrder > 0 ? (withheldForThisOrder / 100).toFixed(2) : undefined,
+      }, txDb);
+      lineItemCount++;
+    }
   }
 
   for (const rli of reserveLineItems2) {

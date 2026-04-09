@@ -161,8 +161,11 @@ export async function checkOverrideEligibility(
 
     if (rule.excludeOwnTeamSales) {
       const sellingRep = await storage.getUserById(sellingRepId);
-      if (sellingRep && sellingRep.assignedSupervisorId === recipientUserId) {
-        continue;
+      if (sellingRep) {
+        if (sellingRep.assignedSupervisorId === recipientUserId ||
+            sellingRep.managerId === recipientUserId) {
+          continue;
+        }
       }
     }
 
@@ -175,6 +178,11 @@ export async function checkOverrideEligibility(
 
     const excludeIds = rule.excludeRepIds as string[] | null;
     if (excludeIds && excludeIds.includes(sellingRepId)) {
+      continue;
+    }
+
+    const includeIds = rule.includeRepIds as string[] | null;
+    if (includeIds && includeIds.length > 0 && !includeIds.includes(sellingRepId)) {
       continue;
     }
 

@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS commission_override_rules (
   exclude_own_team_sales boolean NOT NULL DEFAULT false,
   reduced_amount_reps jsonb,
   exclude_rep_ids jsonb,
+  include_rep_ids jsonb,
   include_owner_sales boolean NOT NULL DEFAULT false,
   applies_to_all_sales boolean NOT NULL DEFAULT false,
   active boolean NOT NULL DEFAULT true,
