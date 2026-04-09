@@ -566,13 +566,25 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
     const isMobileOnlyOrder = !approvedOrder.serviceId;
     const isInternetOrder = !!approvedOrder.serviceId;
 
-    const compPlanLookup = await lookupCompPlanRate(
+    const admins = await storage.getUsers();
+    const activeAdmins = admins.filter(u => u.role === "ADMIN" && u.status === "ACTIVE" && !u.deletedAt);
+
+    let compPlanLookup = await lookupCompPlanRate(
       approvedOrder.serviceId || null,
       approvedOrder.providerId || null,
       approvedOrder.clientId || null,
       approvedOrder.dateSold,
       txDb,
     );
+    if (!compPlanLookup && approvedOrder.serviceId) {
+      compPlanLookup = await lookupCompPlanRate(
+        approvedOrder.serviceId,
+        null,
+        null,
+        approvedOrder.dateSold,
+        txDb,
+      );
+    }
 
     if (hierarchy.supervisor) {
       if (isInternetOrder) {
@@ -608,12 +620,14 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       await processAgreements(hierarchy.supervisor.id, "LEAD");
     }
     
+    const sellingRepUserId = salesRep?.id || "";
+
     if (hierarchy.manager) {
       if (isInternetOrder) {
         const managerEligibility = await checkOverrideEligibility(
           hierarchy.manager.id,
           "MANAGER",
-          approvedOrder.repId,
+          sellingRepUserId,
           salesRep?.role || "REP",
           {
             serviceId: approvedOrder.serviceId || null,
@@ -626,33 +640,32 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
           txDb,
         );
 
-        const managerOverrideAmount = managerEligibility.eligible && managerEligibility.amountCents > 0
-          ? managerEligibility.amountCents
-          : 1000;
+        if (managerEligibility.eligible && managerEligibility.amountCents > 0) {
+          const managerOverrideAmount = managerEligibility.amountCents;
+          const earning = await storage.createOverrideEarning({
+            salesOrderId: approvedOrder.id,
+            recipientUserId: hierarchy.manager.id,
+            sourceRepId: approvedOrder.repId,
+            sourceLevelUsed: "MANAGER",
+            amount: (managerOverrideAmount / 100).toFixed(2),
+            overrideType: "MANAGER_OVERRIDE",
+            approvalStatus: "PENDING_APPROVAL",
+          }, txDb);
+          earnings.push(earning);
 
-        const earning = await storage.createOverrideEarning({
-          salesOrderId: approvedOrder.id,
-          recipientUserId: hierarchy.manager.id,
-          sourceRepId: approvedOrder.repId,
-          sourceLevelUsed: "MANAGER",
-          amount: (managerOverrideAmount / 100).toFixed(2),
-          overrideType: "MANAGER_OVERRIDE",
-          approvalStatus: "PENDING_APPROVAL",
-        }, txDb);
-        earnings.push(earning);
-
-        const managerApprovers = admins.filter(u => ["EXECUTIVE", "OPERATIONS", "ADMIN"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
-        for (const notifyUser of managerApprovers) {
-          try {
-            await storage.createEmailNotification({
-              userId: notifyUser.id,
-              notificationType: "OVERRIDE_PENDING_APPROVAL",
-              subject: "Manager Override Pending Approval",
-              body: `A MANAGER_OVERRIDE of $${(managerOverrideAmount / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
-              recipientEmail: "",
-              status: "PENDING",
-            });
-          } catch {}
+          const managerApprovers = admins.filter(u => ["EXECUTIVE", "OPERATIONS", "ADMIN"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
+          for (const notifyUser of managerApprovers) {
+            try {
+              await storage.createEmailNotification({
+                userId: notifyUser.id,
+                notificationType: "OVERRIDE_PENDING_APPROVAL",
+                subject: "Manager Override Pending Approval",
+                body: `A MANAGER_OVERRIDE of $${(managerOverrideAmount / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
+                recipientEmail: "",
+                status: "PENDING",
+              });
+            } catch {}
+          }
         }
       }
       await processAgreements(hierarchy.manager.id, "MANAGER");
@@ -662,8 +675,6 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       await processAgreements(hierarchy.executive.id, "EXECUTIVE");
     }
     
-    const admins = await storage.getUsers();
-    const activeAdmins = admins.filter(u => u.role === "ADMIN" && u.status === "ACTIVE" && !u.deletedAt);
     for (const admin of activeAdmins) {
       await processAgreements(admin.id, "ADMIN");
     }
@@ -710,7 +721,7 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
       const eligibility = await checkOverrideEligibility(
         recipient.userId,
         recipient.role,
-        approvedOrder.repId,
+        sellingRepUserId,
         sellingRepRole,
         orderContext,
         compPlanLookup,
@@ -18014,9 +18025,9 @@ Rules:
       const discrepancies: Array<{ userId: string; repId: string; name: string; issue: string }> = [];
 
       for (const stmt of stmts) {
-        const grossCents = Math.round(parseFloat(stmt.grossCommissions || "0") * 100);
+        const grossCents = Math.round(parseFloat(stmt.grossCommission || "0") * 100);
         const netCents = Math.round(parseFloat(stmt.netPay || "0") * 100);
-        const deductionCents = Math.round(parseFloat(stmt.totalDeductions || "0") * 100);
+        const deductionCents = Math.round(parseFloat(stmt.deductionsTotal || "0") * 100);
         totalStubGrossCents += grossCents;
         totalStubNetCents += netCents;
         totalStubDeductionsCents += deductionCents;
