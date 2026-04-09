@@ -4726,6 +4726,37 @@ export const storage = {
     ));
   },
 
+  async getAgingUnpaidOrders(daysSinceConfirmation: number) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysSinceConfirmation);
+    return db.select({
+      order: salesOrders,
+      client: clients,
+    })
+    .from(salesOrders)
+    .leftJoin(clients, eq(salesOrders.clientId, clients.id))
+    .where(and(
+      eq(salesOrders.jobStatus, "COMPLETED"),
+      eq(salesOrders.paymentStatus, "UNPAID"),
+      isNotNull(salesOrders.carrierConfirmedAt),
+      lte(salesOrders.carrierConfirmedAt, cutoff)
+    ))
+    .orderBy(asc(salesOrders.carrierConfirmedAt));
+  },
+
+  async getInstalledAwaitingPaymentCount() {
+    const [result] = await db.select({
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(salesOrders)
+    .where(and(
+      eq(salesOrders.jobStatus, "COMPLETED"),
+      eq(salesOrders.paymentStatus, "UNPAID"),
+      isNotNull(salesOrders.carrierConfirmedAt)
+    ));
+    return result.count;
+  },
+
   async getNextStubSequence(payRunId: string, txDb?: TxDb): Promise<number> {
     const d = txDb ?? db;
     const existing = await d.select().from(stubSequences)

@@ -895,24 +895,64 @@ export const scheduler = {
   async checkStaleAr() {
     try {
       const staleOrders = await storage.getStaleArOrders(30);
-      if (staleOrders.length === 0) return;
+      const agingOrders = await storage.getAgingUnpaidOrders(7);
+
+      if (staleOrders.length === 0 && agingOrders.length === 0) return;
 
       const adminUsers = await storage.getUsers();
       const admins = adminUsers.filter(u => ["ADMIN", "OPERATIONS", "EXECUTIVE"].includes(u.role) && !u.deletedAt);
 
       for (const admin of admins) {
-        const orderList = staleOrders.slice(0, 20).map(({ order, client }) =>
-          `• ${order.invoiceNumber || order.id} - ${client?.name || "Unknown"}`
-        ).join("\n");
+        let textBody = "";
+        let htmlBody = "";
+
+        if (staleOrders.length > 0) {
+          const orderList = staleOrders.slice(0, 20).map(({ order, client }) =>
+            `• ${order.invoiceNumber || order.id} - ${client?.name || "Unknown"}`
+          ).join("\n");
+          textBody += `There are ${staleOrders.length} approved orders that have not received AR satisfaction for 30+ days:\n\n${orderList}\n\n`;
+          htmlBody += `<p>There are <strong>${staleOrders.length}</strong> approved orders that have not received AR satisfaction for 30+ days:</p><ul>${staleOrders.slice(0, 20).map(({ order, client }) => `<li>${order.invoiceNumber || order.id} - ${client?.name || "Unknown"}</li>`).join("")}</ul>`;
+        }
+
+        if (agingOrders.length > 0) {
+          const now = new Date();
+          const agingList = agingOrders.slice(0, 20).map(({ order, client }) => {
+            const daysSince = Math.floor((now.getTime() - new Date(order.carrierConfirmedAt!).getTime()) / (1000 * 60 * 60 * 24));
+            return `• ${order.invoiceNumber || order.id} - ${client?.name || "Unknown"} (${daysSince} days since install confirmation)`;
+          }).join("\n");
+          textBody += `There are ${agingOrders.length} orders confirmed installed but still UNPAID (7+ days):\n\n${agingList}`;
+          htmlBody += `<h3>Installed — Awaiting Payment (7+ days)</h3><p>There are <strong>${agingOrders.length}</strong> orders confirmed installed but still UNPAID:</p><ul>${agingOrders.slice(0, 20).map(({ order, client }) => {
+            const daysSince = Math.floor((now.getTime() - new Date(order.carrierConfirmedAt!).getTime()) / (1000 * 60 * 60 * 24));
+            return `<li>${order.invoiceNumber || order.id} - ${client?.name || "Unknown"} (${daysSince} days)</li>`;
+          }).join("")}</ul>`;
+        }
+
+        const subjectParts: string[] = [];
+        if (staleOrders.length > 0) subjectParts.push(`${staleOrders.length} Stale AR`);
+        if (agingOrders.length > 0) subjectParts.push(`${agingOrders.length} Aging Unpaid Installs`);
+
+        const alertSubject = `[Alert] ${subjectParts.join(" | ")}`;
 
         emailService.queueEmail({
           to: admin.email,
-          subject: `[Alert] ${staleOrders.length} Orders with Stale AR (30+ days)`,
-          text: `There are ${staleOrders.length} approved orders that have not received AR satisfaction for 30+ days:\n\n${orderList}`,
-          html: `<p>There are <strong>${staleOrders.length}</strong> approved orders that have not received AR satisfaction for 30+ days:</p><ul>${staleOrders.slice(0, 20).map(({ order, client }) => `<li>${order.invoiceNumber || order.id} - ${client?.name || "Unknown"}</li>`).join("")}</ul>`,
+          subject: alertSubject,
+          text: textBody.trim(),
+          html: htmlBody,
         });
+
+        if (agingOrders.length > 0 && admin.email) {
+          await emailService.queueNotification({
+            userId: admin.id,
+            notificationType: "GENERAL",
+            subject: `${agingOrders.length} Installed Orders Awaiting Payment (7+ days)`,
+            body: textBody.trim(),
+            recipientEmail: admin.email,
+            relatedEntityType: "ORDER_BATCH",
+            relatedEntityId: agingOrders[0]?.order?.id || "",
+          });
+        }
       }
-      console.log(`[Scheduler] Stale AR alert: ${staleOrders.length} orders, notified ${admins.length} admins`);
+      console.log(`[Scheduler] Stale AR alert: ${staleOrders.length} stale AR, ${agingOrders.length} aging unpaid installs, notified ${admins.length} admins`);
     } catch (error) {
       console.error("[Scheduler] Stale AR check failed:", error);
     }

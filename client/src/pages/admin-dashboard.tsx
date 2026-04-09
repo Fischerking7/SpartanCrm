@@ -31,6 +31,7 @@ interface AdminStats {
   unmatchedChargebacks: number;
   rateIssues: number;
   pendingAdjustments: number;
+  installedAwaitingPayment: number;
 }
 
 export default function AdminDashboard({ hideHeader = false }: { hideHeader?: boolean }) {
@@ -263,6 +264,17 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
                   </div>
                   <Badge variant={stats?.pendingAdjustments ? "secondary" : "outline"}>
                     {stats?.pendingAdjustments || 0}
+                  </Badge>
+                </div>
+              </Link>
+              <Link href="/orders?tab=aging">
+                <div className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer" data-testid="link-installed-awaiting-payment">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-orange-500" />
+                    <span className="text-sm">Installed — Awaiting Payment</span>
+                  </div>
+                  <Badge variant={stats?.installedAwaitingPayment ? "destructive" : "secondary"}>
+                    {stats?.installedAwaitingPayment || 0}
                   </Badge>
                 </div>
               </Link>

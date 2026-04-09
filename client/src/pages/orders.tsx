@@ -5,7 +5,7 @@ import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
-import { JobStatusBadge, PaymentStatusBadge, ApprovalStatusBadge } from "@/components/status-badge";
+import { JobStatusBadge, PaymentStatusBadge, ApprovalStatusBadge, AgingBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,7 +60,7 @@ export default function Orders() {
   const [fromLeadId, setFromLeadId] = useState<string | null>(null);
   const [flaggingOrder, setFlaggingOrder] = useState<SalesOrder | null>(null);
   const [flagReason, setFlagReason] = useState("");
-  const [activeTab, setActiveTab] = useState<"orders" | "mobile" | "approval-queue" | "approved" | "paid">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "mobile" | "approval-queue" | "approved" | "paid" | "aging">("orders");
   const [showMobileOrderDialog, setShowMobileOrderDialog] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("global");
@@ -162,6 +162,12 @@ export default function Orders() {
   useEffect(() => {
     if (searchString) {
       const params = new URLSearchParams(searchString);
+      const tabParam = params.get("tab");
+      if (tabParam === "aging") {
+        setActiveTab("aging");
+        setLocation("/orders", { replace: true });
+        return;
+      }
       const fromLead = params.get("fromLead");
       const fromMdu = params.get("fromMdu");
       const customerName = params.get("customerName");
@@ -1045,6 +1051,8 @@ export default function Orders() {
       matchesTab = isApproved && !isPaid;
     } else if (activeTab === "paid") {
       matchesTab = isPaid;
+    } else if (activeTab === "aging") {
+      matchesTab = isCompleted && !!order.carrierConfirmedAt && order.paymentStatus === "UNPAID";
     } else {
       matchesTab = !isMobile && !isApproved && !isPaid && !isInApprovalQueue;
     }
@@ -1091,6 +1099,14 @@ export default function Orders() {
         return 0;
     }
   });
+
+  if (activeTab === "aging") {
+    filteredOrders.sort((a, b) => {
+      const aDate = a.carrierConfirmedAt ? new Date(a.carrierConfirmedAt).getTime() : Infinity;
+      const bDate = b.carrierConfirmedAt ? new Date(b.carrierConfirmedAt).getTime() : Infinity;
+      return aDate - bDate;
+    });
+  }
 
   const columns = [
     ...((user?.role === "ADMIN" || user?.role === "OPERATIONS") ? [{
@@ -1311,7 +1327,14 @@ export default function Orders() {
     ...((user?.role === "ADMIN" || user?.role === "OPERATIONS") ? [{
       key: "paymentStatus",
       header: "Payment",
-      cell: (row: SalesOrder) => <PaymentStatusBadge status={row.paymentStatus} />,
+      cell: (row: SalesOrder) => (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <PaymentStatusBadge status={row.paymentStatus} />
+          {row.paymentStatus === "UNPAID" && row.carrierConfirmedAt && (
+            <AgingBadge carrierConfirmedAt={row.carrierConfirmedAt} />
+          )}
+        </div>
+      ),
     }] : []),
     // Approval status column
     {
@@ -1482,6 +1505,7 @@ export default function Orders() {
         const approvalQueueCount = orders?.filter(o => o.jobStatus === "COMPLETED" && o.approvalStatus === "UNAPPROVED").length || 0;
         const approvedCount = orders?.filter(o => o.approvalStatus === "APPROVED" && o.paymentStatus !== "PAID").length || 0;
         const paidCount = orders?.filter(o => o.paymentStatus === "PAID").length || 0;
+        const agingCount = orders?.filter(o => o.jobStatus === "COMPLETED" && !!o.carrierConfirmedAt && o.paymentStatus === "UNPAID").length || 0;
         const totalEarned = orders?.filter(o => o.approvalStatus === "APPROVED" || o.paymentStatus === "PAID")
           .reduce((sum, o) => {
             const base = parseFloat(o.baseCommissionEarned || "0") - parseFloat((o as any).overrideDeduction || "0");
@@ -1493,7 +1517,7 @@ export default function Orders() {
 
         return (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 [&>*]:min-h-[72px]" data-testid="orders-insights">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 [&>*]:min-h-[72px]" data-testid="orders-insights">
               <Card
                 className={`cursor-pointer transition-colors ${activeTab === "orders" ? "ring-2 ring-primary" : ""}`}
                 onClick={() => setActiveTab("orders")}
@@ -1559,6 +1583,19 @@ export default function Orders() {
                   <p className="text-xl font-bold">{paidCount}</p>
                 </CardContent>
               </Card>
+              <Card
+                className={`cursor-pointer transition-colors ${activeTab === "aging" ? "ring-2 ring-primary" : ""}`}
+                onClick={() => setActiveTab("aging")}
+                data-testid="insight-aging"
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <span className="text-xs text-muted-foreground">Awaiting Payment</span>
+                    <AlertCircle className="h-3.5 w-3.5 text-orange-500" />
+                  </div>
+                  <p className="text-xl font-bold">{agingCount}</p>
+                </CardContent>
+              </Card>
               {canSeeCommission && (
                 <Card data-testid="insight-net-earned">
                   <CardContent className="p-3">
@@ -1583,7 +1620,7 @@ export default function Orders() {
               )}
             </div>
 
-            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile" | "approval-queue" | "approved" | "paid")}>
+            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "orders" | "mobile" | "approval-queue" | "approved" | "paid" | "aging")}>
               <TabsList>
                 <TabsTrigger value="orders" data-testid="tab-my-orders">
                   All Orders
@@ -1595,6 +1632,11 @@ export default function Orders() {
                 <TabsTrigger value="approval-queue" data-testid="tab-approval-queue">
                   <ThumbsUp className="h-4 w-4 mr-1" />
                   Approval Queue
+                  {approvalQueueCount > 0 && (
+                    <Badge variant="destructive" className="ml-1.5 h-5 min-w-[20px] px-1.5 text-xs" data-testid="badge-approval-queue-count">
+                      {approvalQueueCount}
+                    </Badge>
+                  )}
                 </TabsTrigger>
                 <TabsTrigger value="approved" data-testid="tab-approved-pool">
                   <CheckCircle className="h-4 w-4 mr-1" />
@@ -1603,6 +1645,15 @@ export default function Orders() {
                 <TabsTrigger value="paid" data-testid="tab-paid-pool">
                   <DollarSign className="h-4 w-4 mr-1" />
                   Paid
+                </TabsTrigger>
+                <TabsTrigger value="aging" data-testid="tab-aging">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  Aging
+                  {agingCount > 0 && (
+                    <Badge variant="secondary" className="ml-1.5 h-5 min-w-[20px] px-1.5 text-xs bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" data-testid="badge-aging-count">
+                      {agingCount}
+                    </Badge>
+                  )}
                 </TabsTrigger>
               </TabsList>
             </Tabs>

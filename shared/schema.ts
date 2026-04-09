@@ -322,6 +322,7 @@ export const salesOrders = pgTable("sales_orders", {
   reserveWithholdingApplied: boolean("reserve_withholding_applied").notNull().default(false),
   carrierMaturityType: varchar("carrier_maturity_type", { length: 30 }),
   maturityExpiresAt: timestamp("maturity_expires_at"),
+  carrierConfirmedAt: timestamp("carrier_confirmed_at"),
   captureMethod: captureMethodEnum("capture_method").default("manual"),
   captureImageUrl: text("capture_image_url"),
   captureRawJson: jsonb("capture_raw_json"),

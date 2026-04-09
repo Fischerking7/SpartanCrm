@@ -1425,8 +1425,9 @@ export async function registerRoutes(
       const unmatchedChargebacks = (await storage.getUnmatchedChargebacks()).filter(c => !c.resolvedAt).length;
       const rateIssues = (await storage.getRateIssues()).filter(r => !r.resolvedAt).length;
       const pendingAdjustments = (await storage.getAdjustments()).filter(a => a.approvalStatus === "UNAPPROVED").length;
+      const installedAwaitingPayment = await storage.getInstalledAwaitingPaymentCount();
 
-      res.json({ ...stats, activeReps, unmatchedPayments, unmatchedChargebacks, rateIssues, pendingAdjustments });
+      res.json({ ...stats, activeReps, unmatchedPayments, unmatchedChargebacks, rateIssues, pendingAdjustments, installedAwaitingPayment });
     } catch (error) {
       res.status(500).json({ message: "Failed to get stats" });
     }
@@ -16693,21 +16694,31 @@ Rules:
             }
 
             const checkInDt = extractField(match.sheetData, "check_in_date", carrierCtx, getCheckInDate);
-            if (checkInDt && !order.installDate && woStatus === "CP") {
+            if (checkInDt && woStatus === "CP") {
               const parsed = new Date(checkInDt);
               if (!isNaN(parsed.getTime())) {
-                updates.installDate = parsed.toISOString().split("T")[0];
-                autoFilledFields.push("Install Date");
+                const carrierInstallDate = parsed.toISOString().split("T")[0];
+                if (order.installDate !== carrierInstallDate) {
+                  updates.installDate = carrierInstallDate;
+                  autoFilledFields.push(order.installDate ? "Install Date (updated from carrier)" : "Install Date");
+                }
               }
             }
 
             if (woStatus === "CN") {
               const cancelCode = extractField(match.sheetData, "cancel_code", carrierCtx, getCancelCode);
               const cancelDesc = extractField(match.sheetData, "cancel_code_desc", carrierCtx, getCancelCodeDesc);
+              const cancelCheckInDt = extractField(match.sheetData, "check_in_date", carrierCtx, getCheckInDate);
               if (cancelCode || cancelDesc) {
                 const cancelMarker = cancelCode ? `[${cancelCode}]` : (cancelDesc || "");
                 if (!order.notes?.includes(cancelMarker)) {
-                  const cancelNote = `Carrier Cancel: ${cancelCode ? `[${cancelCode}] ` : ""}${cancelDesc || ""}`.trim();
+                  let cancelNote = `Carrier Cancel: ${cancelCode ? `[${cancelCode}] ` : ""}${cancelDesc || ""}`.trim();
+                  if (cancelCheckInDt) {
+                    const parsedCancelDt = new Date(cancelCheckInDt);
+                    if (!isNaN(parsedCancelDt.getTime())) {
+                      cancelNote += ` (Cancelled ${parsedCancelDt.toISOString().split("T")[0]})`;
+                    }
+                  }
                   updates.notes = order.notes ? `${order.notes}\n${cancelNote}` : cancelNote;
                   autoFilledFields.push("Cancel Reason");
                 }
@@ -16786,7 +16797,22 @@ Rules:
               if (order.jobStatus !== "COMPLETED") {
                 updates.jobStatus = "COMPLETED";
               }
-              if (shouldAutoApprove && match.confidence >= 70 && order.approvalStatus !== "APPROVED") {
+              if (!order.carrierConfirmedAt) {
+                const checkInDateForConfirm = extractField(match.sheetData, "check_in_date", carrierCtx, getCheckInDate);
+                if (checkInDateForConfirm) {
+                  const parsedConfirmDate = new Date(checkInDateForConfirm);
+                  if (!isNaN(parsedConfirmDate.getTime())) {
+                    updates.carrierConfirmedAt = parsedConfirmDate;
+                  } else {
+                    updates.carrierConfirmedAt = now;
+                  }
+                } else {
+                  updates.carrierConfirmedAt = now;
+                }
+              }
+              const hasAccountNumberMatch = match.scoreBreakdown?.acctScore === 1;
+              const confidenceThreshold = hasAccountNumberMatch ? 60 : 70;
+              if (shouldAutoApprove && match.confidence >= confidenceThreshold && order.approvalStatus !== "APPROVED") {
                 let riskScore = 0;
                 try {
                   const { scoreChargebackRisk } = await import("./chargebackRiskEngine");
@@ -16796,8 +16822,8 @@ Rules:
                   console.error(`[InstallSync] Failed to compute chargeback risk for order ${order.id}, skipping auto-approval:`, riskErr);
                   riskScore = 100;
                 }
-                if (riskScore > 75) {
-                  console.log(`[InstallSync] Order ${order.id} skipped auto-approval: chargeback risk ${riskScore} > 75`);
+                if (riskScore > 85) {
+                  console.log(`[InstallSync] Order ${order.id} skipped auto-approval: chargeback risk ${riskScore} > 85`);
                 } else {
                   updates.approvalStatus = "APPROVED";
                   updates.approvedByUserId = user.id;
