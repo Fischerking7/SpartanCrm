@@ -2462,6 +2462,29 @@ export const insertSystemExceptionSchema = createInsertSchema(systemExceptions).
 export type SystemException = typeof systemExceptions.$inferSelect;
 export type InsertSystemException = z.infer<typeof insertSystemExceptionSchema>;
 
+export const exceptionDismissals = pgTable("exception_dismissals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  exceptionType: varchar("exception_type").notNull(),
+  entityId: varchar("entity_id").notNull(),
+  dismissedByUserId: varchar("dismissed_by_user_id").notNull().references(() => users.id),
+  reason: text("reason"),
+  snoozedUntil: timestamp("snoozed_until"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("exc_dismiss_type_entity_idx").on(table.exceptionType, table.entityId),
+  index("exc_dismiss_user_idx").on(table.dismissedByUserId),
+]);
+
+export const exceptionDismissalsRelations = relations(exceptionDismissals, ({ one }) => ({
+  dismissedBy: one(users, { fields: [exceptionDismissals.dismissedByUserId], references: [users.id] }),
+}));
+
+export const insertExceptionDismissalSchema = createInsertSchema(exceptionDismissals).omit({
+  id: true, createdAt: true,
+});
+export type ExceptionDismissal = typeof exceptionDismissals.$inferSelect;
+export type InsertExceptionDismissal = z.infer<typeof insertExceptionDismissalSchema>;
+
 export const carrierProfiles = pgTable("carrier_profiles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),

@@ -1,5 +1,6 @@
 import { useLocation, Link } from "wouter";
-import { useAuth } from "@/lib/auth";
+import { useAuth, getAuthHeaders } from "@/lib/auth";
+import { useQuery } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -248,19 +249,27 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
 
 // ============ COMPONENTS ============
 
-function MenuItems({ items, location }: { items: MenuItem[]; location: string }) {
+function MenuItems({ items, location, badges }: { items: MenuItem[]; location: string; badges?: Record<string, number> }) {
   return (
     <SidebarMenu>
-      {items.map((item) => (
-        <SidebarMenuItem key={item.url}>
-          <SidebarMenuButton asChild isActive={location === item.url}>
-            <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
-              <item.icon className="h-4 w-4" />
-              <span>{item.title}</span>
-            </Link>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      ))}
+      {items.map((item) => {
+        const badgeCount = badges?.[item.url];
+        return (
+          <SidebarMenuItem key={item.url}>
+            <SidebarMenuButton asChild isActive={location === item.url}>
+              <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
+                <item.icon className="h-4 w-4" />
+                <span className="flex-1">{item.title}</span>
+                {badgeCount != null && badgeCount > 0 && (
+                  <Badge variant="destructive" className="ml-auto text-xs px-1.5 py-0.5 min-w-[1.25rem] text-center" data-testid="badge-exception-count">
+                    {badgeCount > 99 ? "99+" : badgeCount}
+                  </Badge>
+                )}
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      })}
     </SidebarMenu>
   );
 }
@@ -270,13 +279,15 @@ function CollapsibleSection({
   icon: Icon, 
   items, 
   location,
-  defaultOpen = false 
+  defaultOpen = false,
+  badges,
 }: { 
   title: string; 
   icon: React.ComponentType<{ className?: string }>; 
   items: MenuItem[]; 
   location: string;
   defaultOpen?: boolean;
+  badges?: Record<string, number>;
 }) {
   const validItems = items.filter(Boolean);
   const hasActiveItem = validItems.some(item => location === item.url);
@@ -296,7 +307,7 @@ function CollapsibleSection({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <SidebarGroupContent className="pl-2">
-            <MenuItems items={validItems} location={location} />
+            <MenuItems items={validItems} location={location} badges={badges} />
           </SidebarGroupContent>
         </CollapsibleContent>
       </SidebarGroup>
@@ -310,7 +321,23 @@ export function AppSidebar() {
 
   if (!user) return null;
 
-  const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE";
+  const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE" || user.role === "ACCOUNTING";
+
+  const { data: exceptionCounts } = useQuery<{ urgent: number; high: number; medium: number; low: number; total: number }>({
+    queryKey: ["/api/admin/exceptions/counts"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/exceptions/counts", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch counts");
+      return res.json();
+    },
+    enabled: isAdmin,
+    refetchInterval: 2 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const exceptionBadges: Record<string, number> = exceptionCounts?.total
+    ? { "/queues": exceptionCounts.urgent + exceptionCounts.high }
+    : {};
 
   const getInitials = (name: string) => {
     return name
@@ -375,6 +402,7 @@ export function AppSidebar() {
         icon={Wallet} 
         items={adminAccountingItems} 
         location={location}
+        badges={exceptionBadges}
       />
       <CollapsibleSection 
         title="Resources" 
@@ -416,6 +444,7 @@ export function AppSidebar() {
             icon={Wallet} 
             items={adminAccountingItems} 
             location={location}
+            badges={exceptionBadges}
           />
         )}
         <CollapsibleSection 
@@ -508,6 +537,7 @@ export function AppSidebar() {
         icon={Wallet}
         items={[...adminAccountingItems, MENU.payRuns, MENU.overrideApprovals]}
         location={location}
+        badges={exceptionBadges}
       />
       <CollapsibleSection
         title="Insights"

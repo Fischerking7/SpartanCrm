@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc, not, ilike } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders, commissionDisputes } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders, commissionDisputes, exceptionDismissals, userTaxProfiles } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, insertCompPlanRateSchema, insertCommissionOverrideRuleSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
@@ -23158,6 +23158,520 @@ function registerReportRoutes(app: Express, auth: any) {
       return sendExportResponse(res, saved.reportType, start, end, rows, format);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to run saved report" });
+    }
+  });
+
+  // ============ ADMIN EXCEPTION QUEUE ENDPOINTS ============
+
+  let exceptionCountsCache: { data: Record<string, number>; expiresAt: number } | null = null;
+
+  type ExceptionPriority = "URGENT" | "HIGH" | "MEDIUM" | "LOW";
+
+  type ExceptionItem = {
+    id: string;
+    type: string;
+    title: string;
+    description: string;
+    details: Record<string, unknown>;
+    createdAt: string;
+    orderId?: string;
+    priority: ExceptionPriority;
+  };
+
+  // Static priority config per exception type. Age-dependent types (UNMATCHED_CHARGEBACK,
+  // APPROVAL_OVERDUE, PENDING_OVERRIDE) resolve dynamically in the handler using thresholds below.
+  const EXCEPTION_PRIORITY: Record<string, ExceptionPriority> = {
+    MISSING_RATE: "URGENT",
+    OVERDUE_PAY_RUN: "URGENT",
+    AR_OVERDUE_45D: "URGENT",
+    NEGATIVE_MARGIN: "URGENT",
+    UNMATCHED_PAYMENT: "HIGH",
+    COMMISSION_DISPUTE: "HIGH",
+    AR_LARGE_VARIANCE: "HIGH",
+    MISSING_TAX_PROFILE: "MEDIUM",
+    AR_PARTIAL_14D: "MEDIUM",
+    UNMATCHED_FINANCE_IMPORT: "MEDIUM",
+    RATE_CONFLICT: "MEDIUM",
+    ORDER_EXCEPTION: "MEDIUM",
+    AR_STALE_30D: "LOW",
+    REP_NO_SALES_7D: "LOW",
+    EXPIRING_RATE_CARD: "LOW",
+  };
+  const PRIORITY_ORDER: Record<ExceptionPriority, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+
+  // Dismissal thresholds that drive age-dependent priority
+  const CB_URGENT_HOURS = 48;    // chargebacks outstanding ≥48h → URGENT
+  const APPROVAL_URGENT_DAYS = 3; // approvals pending ≥3 days → URGENT, else HIGH (if ≥1 day)
+  const OVERRIDE_HIGH_HOURS = 24; // pending overrides >24h → HIGH, else MEDIUM
+
+  async function getActiveDismissals(): Promise<Set<string>> {
+    const rows = await db.select({
+      exceptionType: exceptionDismissals.exceptionType,
+      entityId: exceptionDismissals.entityId,
+    }).from(exceptionDismissals).where(
+      or(isNull(exceptionDismissals.snoozedUntil), sql`${exceptionDismissals.snoozedUntil} > NOW()`)
+    );
+    const dismissed = new Set<string>();
+    for (const r of rows) dismissed.add(`${r.exceptionType}::${r.entityId}`);
+    return dismissed;
+  }
+
+  function notDismissed(type: string, idCol: string): ReturnType<typeof sql> {
+    return sql`${sql.raw(idCol)}::text NOT IN (
+      SELECT entity_id FROM exception_dismissals
+      WHERE exception_type = ${type}
+        AND (snoozed_until IS NULL OR snoozed_until > NOW())
+    )`;
+  }
+
+  const dismissBodySchema = z.object({
+    reason: z.string().max(500).optional(),
+    snoozeHours: z.number().int().min(1).max(720).optional(),
+  });
+
+  app.get("/api/admin/exceptions/queue", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE", "ACCOUNTING"), async (_req: AuthRequest, res) => {
+    try {
+      const dismissed = await getActiveDismissals();
+      const nowMs = Date.now();
+      const exceptions: ExceptionItem[] = [];
+
+      const push = (item: ExceptionItem) => exceptions.push(item);
+
+      const P = EXCEPTION_PRIORITY;
+
+      const unmatchedPaymentsData = await storage.getUnmatchedPayments() as Array<{id: string; amount: string; createdAt: string}>;
+      for (const p of unmatchedPaymentsData) {
+        if (dismissed.has(`UNMATCHED_PAYMENT::${p.id}`)) continue;
+        push({ id: p.id, type: "UNMATCHED_PAYMENT", title: "Unmatched Payment",
+          description: `Payment of $${parseFloat(p.amount || "0").toFixed(2)} could not be matched`,
+          details: { amount: p.amount }, createdAt: p.createdAt, priority: P.UNMATCHED_PAYMENT });
+      }
+
+      const unmatchedChargebacksData = await storage.getUnmatchedChargebacks() as Array<{id: string; amount: string; createdAt: string}>;
+      for (const c of unmatchedChargebacksData) {
+        if (dismissed.has(`UNMATCHED_CHARGEBACK::${c.id}`)) continue;
+        const hoursAge = Math.floor((nowMs - new Date(c.createdAt).getTime()) / 3600000);
+        push({ id: c.id, type: "UNMATCHED_CHARGEBACK",
+          title: hoursAge >= CB_URGENT_HOURS ? "Chargeback Unresolved 48h+" : "Unmatched Chargeback",
+          description: `Chargeback of $${parseFloat(c.amount || "0").toFixed(2)} — ${hoursAge}h old`,
+          details: { amount: c.amount, hoursAge }, createdAt: c.createdAt,
+          priority: hoursAge >= CB_URGENT_HOURS ? "URGENT" : "HIGH" });
+      }
+
+      const rateIssuesData = await storage.getRateIssues() as Array<{id: string; type: string; details: string; createdAt: string; salesOrderId: string}>;
+      for (const r of rateIssuesData) {
+        const excType = r.type === "MISSING_RATE" ? "MISSING_RATE" : "RATE_CONFLICT";
+        if (dismissed.has(`${excType}::${r.id}`)) continue;
+        push({ id: r.id, type: excType,
+          title: r.type === "MISSING_RATE" ? "Missing Rate Card" : "Rate Conflict",
+          description: r.details || "Rate card issue detected",
+          details: { salesOrderId: r.salesOrderId }, createdAt: r.createdAt,
+          orderId: r.salesOrderId, priority: P[excType] });
+      }
+
+      const orderExceptionsData = await storage.getOrderExceptions() as Array<{id: string; salesOrderId: string; reason: string; createdAt: string}>;
+      const orderExceptionOrderIds = [...new Set(orderExceptionsData.map(e => e.salesOrderId).filter(Boolean))];
+      const orderExceptionOrders = orderExceptionOrderIds.length
+        ? await db.select({ id: salesOrders.id, customerName: salesOrders.customerName, invoiceNumber: salesOrders.invoiceNumber })
+            .from(salesOrders).where(sql`${salesOrders.id} = ANY(${orderExceptionOrderIds})`)
+        : [];
+      const orderExceptionOrderMap = new Map(orderExceptionOrders.map(o => [o.id, o]));
+      for (const e of orderExceptionsData) {
+        if (dismissed.has(`ORDER_EXCEPTION::${e.id}`)) continue;
+        const order = orderExceptionOrderMap.get(e.salesOrderId);
+        push({ id: e.id, type: "ORDER_EXCEPTION", title: "Flagged Order",
+          description: `${order?.customerName || "Unknown"} — ${e.reason}`,
+          details: { salesOrderId: e.salesOrderId, reason: e.reason, invoiceNumber: order?.invoiceNumber ?? null },
+          createdAt: e.createdAt, orderId: e.salesOrderId, priority: P.ORDER_EXCEPTION });
+      }
+
+      const pendingOrders = await db.select({
+        id: salesOrders.id, customerName: salesOrders.customerName,
+        invoiceNumber: salesOrders.invoiceNumber, repId: salesOrders.repId,
+        completionDate: salesOrders.completionDate, createdAt: salesOrders.createdAt,
+        baseCommissionEarned: salesOrders.baseCommissionEarned,
+      }).from(salesOrders)
+        .where(sql`"sales_orders"."job_status" = 'COMPLETED' AND "sales_orders"."approved_at" IS NULL AND "sales_orders"."approval_status" != 'REJECTED'`);
+      for (const o of pendingOrders) {
+        if (dismissed.has(`APPROVAL_OVERDUE::${o.id}`)) continue;
+        const completedAt = o.completionDate ? new Date(o.completionDate) : new Date(o.createdAt);
+        const daysPending = Math.floor((nowMs - completedAt.getTime()) / 86400000);
+        if (daysPending < 1) continue;
+        push({ id: o.id, type: "APPROVAL_OVERDUE", title: "Order Approval Overdue",
+          description: `${o.customerName} — waiting ${daysPending} day${daysPending !== 1 ? "s" : ""} for approval`,
+          details: { orderId: o.id, invoiceNumber: o.invoiceNumber, repId: o.repId, daysPending,
+            estimatedCommission: o.baseCommissionEarned ? parseFloat(o.baseCommissionEarned) : 0 },
+          createdAt: completedAt.toISOString(), orderId: o.id,
+          priority: daysPending >= APPROVAL_URGENT_DAYS ? "URGENT" : "HIGH" });
+      }
+
+      const negativeMarginOrders = await db.select({
+        id: salesOrders.id, customerName: salesOrders.customerName,
+        invoiceNumber: salesOrders.invoiceNumber, baseCommissionEarned: salesOrders.baseCommissionEarned,
+        createdAt: salesOrders.createdAt,
+      }).from(salesOrders)
+        .where(sql`"sales_orders"."job_status" != 'CANCELLED' AND CAST("sales_orders"."base_commission_earned" AS NUMERIC) < 0`);
+      for (const o of negativeMarginOrders) {
+        if (dismissed.has(`NEGATIVE_MARGIN::${o.id}`)) continue;
+        push({ id: o.id, type: "NEGATIVE_MARGIN", title: "Negative Margin Order",
+          description: `${o.customerName} — commission of $${parseFloat(o.baseCommissionEarned || "0").toFixed(2)}`,
+          details: { orderId: o.id, invoiceNumber: o.invoiceNumber, baseCommissionEarned: o.baseCommissionEarned },
+          createdAt: o.createdAt, orderId: o.id, priority: P.NEGATIVE_MARGIN });
+      }
+
+      const overduePayRuns = await db.select({
+        id: payRuns.id, weekEndingDate: payRuns.weekEndingDate, status: payRuns.status, createdAt: payRuns.createdAt,
+      }).from(payRuns)
+        .where(sql`${payRuns.status} IN ('DRAFT', 'PENDING_REVIEW') AND ${payRuns.createdAt} < NOW() - INTERVAL '7 days'`);
+      for (const pr of overduePayRuns) {
+        if (dismissed.has(`OVERDUE_PAY_RUN::${pr.id}`)) continue;
+        const daysOld = Math.floor((nowMs - new Date(pr.createdAt).getTime()) / 86400000);
+        push({ id: pr.id, type: "OVERDUE_PAY_RUN", title: "Pay Run Overdue",
+          description: `Pay run for ${pr.weekEndingDate} has been in ${pr.status} for ${daysOld} days`,
+          details: { weekEndingDate: pr.weekEndingDate, status: pr.status, daysOld },
+          createdAt: pr.createdAt, priority: P.OVERDUE_PAY_RUN });
+      }
+
+      const arOverdue45 = await db.select({
+        id: arExpectations.id, clientId: arExpectations.clientId,
+        expectedAmountCents: arExpectations.expectedAmountCents, actualAmountCents: arExpectations.actualAmountCents,
+        expectedFromDate: arExpectations.expectedFromDate,
+      }).from(arExpectations)
+        .where(sql`${arExpectations.status} IN ('OPEN', 'PARTIAL') AND ${arExpectations.expectedFromDate} < CURRENT_DATE - INTERVAL '45 days'`);
+      for (const ar of arOverdue45) {
+        if (dismissed.has(`AR_OVERDUE_45D::${ar.id}`)) continue;
+        const daysOld = Math.floor((nowMs - new Date(ar.expectedFromDate).getTime()) / 86400000);
+        push({ id: ar.id, type: "AR_OVERDUE_45D", title: "AR 45+ Days Outstanding",
+          description: `$${((ar.expectedAmountCents - ar.actualAmountCents) / 100).toFixed(2)} outstanding for ${daysOld} days`,
+          details: { clientId: ar.clientId, expectedAmountCents: ar.expectedAmountCents, daysOld },
+          createdAt: ar.expectedFromDate, priority: P.AR_OVERDUE_45D });
+      }
+
+      const arVariance = await db.select({
+        id: arExpectations.id, clientId: arExpectations.clientId,
+        varianceAmountCents: arExpectations.varianceAmountCents, expectedFromDate: arExpectations.expectedFromDate,
+      }).from(arExpectations)
+        .where(sql`${arExpectations.status} IN ('OPEN', 'PARTIAL') AND ${arExpectations.expectedFromDate} >= CURRENT_DATE - INTERVAL '45 days' AND ${arExpectations.expectedFromDate} < CURRENT_DATE - INTERVAL '30 days' AND ${arExpectations.varianceAmountCents} > 5000`);
+      for (const ar of arVariance) {
+        if (dismissed.has(`AR_LARGE_VARIANCE::${ar.id}`)) continue;
+        push({ id: ar.id, type: "AR_LARGE_VARIANCE", title: "Large AR Variance",
+          description: `$${(ar.varianceAmountCents / 100).toFixed(2)} variance outstanding (30-44 days)`,
+          details: { clientId: ar.clientId, varianceAmountCents: ar.varianceAmountCents },
+          createdAt: ar.expectedFromDate, priority: P.AR_LARGE_VARIANCE });
+      }
+
+      const arPartial14 = await db.select({
+        id: arExpectations.id, clientId: arExpectations.clientId,
+        expectedAmountCents: arExpectations.expectedAmountCents, actualAmountCents: arExpectations.actualAmountCents,
+        expectedFromDate: arExpectations.expectedFromDate,
+      }).from(arExpectations)
+        .where(sql`${arExpectations.status} = 'PARTIAL' AND ${arExpectations.expectedFromDate} < CURRENT_DATE - INTERVAL '14 days' AND ${arExpectations.expectedFromDate} >= CURRENT_DATE - INTERVAL '30 days'`);
+      for (const ar of arPartial14) {
+        if (dismissed.has(`AR_PARTIAL_14D::${ar.id}`)) continue;
+        const daysOld = Math.floor((nowMs - new Date(ar.expectedFromDate).getTime()) / 86400000);
+        push({ id: ar.id, type: "AR_PARTIAL_14D", title: "Partial Payment Stale",
+          description: `$${((ar.expectedAmountCents - ar.actualAmountCents) / 100).toFixed(2)} remaining for ${daysOld} days`,
+          details: { clientId: ar.clientId, expectedAmountCents: ar.expectedAmountCents, actualAmountCents: ar.actualAmountCents, daysOld },
+          createdAt: ar.expectedFromDate, priority: P.AR_PARTIAL_14D });
+      }
+
+      const arStale30 = await db.select({
+        id: arExpectations.id, clientId: arExpectations.clientId,
+        expectedAmountCents: arExpectations.expectedAmountCents, actualAmountCents: arExpectations.actualAmountCents,
+        expectedFromDate: arExpectations.expectedFromDate,
+      }).from(arExpectations)
+        .where(sql`${arExpectations.status} IN ('OPEN', 'PARTIAL') AND ${arExpectations.expectedFromDate} >= CURRENT_DATE - INTERVAL '45 days' AND ${arExpectations.expectedFromDate} < CURRENT_DATE - INTERVAL '30 days' AND ${arExpectations.varianceAmountCents} <= 5000`);
+      for (const ar of arStale30) {
+        if (dismissed.has(`AR_STALE_30D::${ar.id}`)) continue;
+        const daysOld = Math.floor((nowMs - new Date(ar.expectedFromDate).getTime()) / 86400000);
+        push({ id: ar.id, type: "AR_STALE_30D", title: "Stale AR (30+ Days)",
+          description: `Outstanding for ${daysOld} days`,
+          details: { clientId: ar.clientId, expectedAmountCents: ar.expectedAmountCents, daysOld },
+          createdAt: ar.expectedFromDate, priority: P.AR_STALE_30D });
+      }
+
+      const pendingOverrides = await db.select({
+        id: overrideEarnings.id, salesOrderId: overrideEarnings.salesOrderId,
+        recipientUserId: overrideEarnings.recipientUserId, amount: overrideEarnings.amount,
+        createdAt: overrideEarnings.createdAt,
+      }).from(overrideEarnings).where(eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL"));
+      for (const oe of pendingOverrides) {
+        if (dismissed.has(`PENDING_OVERRIDE::${oe.id}`)) continue;
+        const hoursAge = Math.floor((nowMs - new Date(oe.createdAt).getTime()) / 3600000);
+        push({ id: oe.id, type: "PENDING_OVERRIDE", title: "Override Approval Pending",
+          description: `Override of $${parseFloat(oe.amount || "0").toFixed(2)} awaiting approval (${hoursAge}h)`,
+          details: { salesOrderId: oe.salesOrderId, recipientUserId: oe.recipientUserId, amount: oe.amount, hoursAge },
+          createdAt: oe.createdAt,
+          priority: hoursAge > OVERRIDE_HIGH_HOURS ? "HIGH" : "MEDIUM" });
+      }
+
+      const openDisputes = await db.select({
+        id: commissionDisputes.id, userId: commissionDisputes.userId,
+        title: commissionDisputes.title, status: commissionDisputes.status, createdAt: commissionDisputes.createdAt,
+      }).from(commissionDisputes).where(sql`${commissionDisputes.status} IN ('PENDING', 'UNDER_REVIEW')`);
+      for (const d of openDisputes) {
+        if (dismissed.has(`COMMISSION_DISPUTE::${d.id}`)) continue;
+        const hoursAge = Math.floor((nowMs - new Date(d.createdAt).getTime()) / 3600000);
+        push({ id: d.id, type: "COMMISSION_DISPUTE", title: "Unresolved Commission Dispute",
+          description: `${d.title} — ${d.status} for ${hoursAge}h`,
+          details: { userId: d.userId, status: d.status, hoursAge },
+          createdAt: d.createdAt, priority: P.COMMISSION_DISPUTE });
+      }
+
+      const unmatchedFinance = await db.select({
+        id: financeImportRows.id, customerName: financeImportRows.customerName,
+        expectedAmountCents: financeImportRows.expectedAmountCents, createdAt: financeImportRows.createdAt,
+      }).from(financeImportRows)
+        .where(sql`${financeImportRows.matchStatus} = 'UNMATCHED' AND ${financeImportRows.createdAt} < NOW() - INTERVAL '7 days' AND ${financeImportRows.isDuplicate} = false`);
+      for (const fr of unmatchedFinance) {
+        if (dismissed.has(`UNMATCHED_FINANCE_IMPORT::${fr.id}`)) continue;
+        const daysOld = Math.floor((nowMs - new Date(fr.createdAt).getTime()) / 86400000);
+        const amount = fr.expectedAmountCents ? (fr.expectedAmountCents / 100).toFixed(2) : "0.00";
+        push({ id: fr.id, type: "UNMATCHED_FINANCE_IMPORT", title: "Unmatched Finance Import Row",
+          description: `${fr.customerName || "Unknown"} — $${amount} unmatched for ${daysOld} days`,
+          details: { customerName: fr.customerName, expectedAmountCents: fr.expectedAmountCents, daysOld },
+          createdAt: fr.createdAt, priority: P.UNMATCHED_FINANCE_IMPORT });
+      }
+
+      const repsWithoutTax = await db.select({
+        id: users.id, name: users.name, repId: users.repId, createdAt: users.createdAt,
+      }).from(users)
+        .where(sql`${users.status} = 'ACTIVE' AND ${users.deletedAt} IS NULL AND ${users.role} IN ('REP', 'LEAD', 'MANAGER') AND ${users.id} NOT IN (SELECT user_id FROM user_tax_profiles)`);
+      for (const u of repsWithoutTax) {
+        if (dismissed.has(`MISSING_TAX_PROFILE::${u.id}`)) continue;
+        push({ id: u.id, type: "MISSING_TAX_PROFILE", title: "Missing Tax Profile",
+          description: `Rep ${u.repId} (${u.name}) has no tax profile on file`,
+          details: { userId: u.id, repId: u.repId, name: u.name },
+          createdAt: u.createdAt, priority: P.MISSING_TAX_PROFILE });
+      }
+
+      const activeReps = await db.select({
+        id: users.id, name: users.name, repId: users.repId, createdAt: users.createdAt,
+      }).from(users)
+        .where(sql`${users.status} = 'ACTIVE' AND ${users.deletedAt} IS NULL AND ${users.role} = 'REP' AND ${users.createdAt} < NOW() - INTERVAL '7 days'`);
+      const repIdsWithRecentSales = new Set<string>(
+        (await db.select({ repId: salesOrders.repId }).from(salesOrders)
+          .where(sql`${salesOrders.createdAt} > NOW() - INTERVAL '7 days'`)
+        ).map(r => r.repId).filter(Boolean) as string[]
+      );
+      for (const u of activeReps) {
+        if (repIdsWithRecentSales.has(u.repId) || dismissed.has(`REP_NO_SALES_7D::${u.id}`)) continue;
+        push({ id: u.id, type: "REP_NO_SALES_7D", title: "Rep With No Sales (7 Days)",
+          description: `Rep ${u.repId} (${u.name}) has no sales in the last 7 days`,
+          details: { userId: u.id, repId: u.repId, name: u.name },
+          createdAt: u.createdAt, priority: P.REP_NO_SALES_7D });
+      }
+
+      const expiringRateCards = await db.select({
+        id: rateCards.id, providerId: rateCards.providerId,
+        effectiveEnd: rateCards.effectiveEnd, createdAt: rateCards.createdAt,
+      }).from(rateCards)
+        .where(sql`${rateCards.active} = true AND ${rateCards.deletedAt} IS NULL AND ${rateCards.effectiveEnd} IS NOT NULL AND ${rateCards.effectiveEnd} BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`);
+      for (const rc of expiringRateCards) {
+        if (dismissed.has(`EXPIRING_RATE_CARD::${rc.id}`)) continue;
+        const daysLeft = rc.effectiveEnd ? Math.floor((new Date(rc.effectiveEnd).getTime() - nowMs) / 86400000) : 0;
+        push({ id: rc.id, type: "EXPIRING_RATE_CARD", title: "Rate Card Expiring Soon",
+          description: `Rate card expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`,
+          details: { providerId: rc.providerId, effectiveEnd: rc.effectiveEnd, daysLeft },
+          createdAt: rc.createdAt, priority: P.EXPIRING_RATE_CARD });
+      }
+
+      exceptions.sort((a, b) => {
+        const tierDiff = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+        if (tierDiff !== 0) return tierDiff;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
+
+      res.json({
+        exceptions,
+        counts: {
+          urgent: exceptions.filter(e => e.priority === "URGENT").length,
+          high: exceptions.filter(e => e.priority === "HIGH").length,
+          medium: exceptions.filter(e => e.priority === "MEDIUM").length,
+          low: exceptions.filter(e => e.priority === "LOW").length,
+          total: exceptions.length,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to get admin exception queue:", error);
+      res.status(500).json({ message: "Failed to get exception queue" });
+    }
+  });
+
+  app.get("/api/admin/exceptions/counts", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE", "ACCOUNTING"), async (_req: AuthRequest, res) => {
+    try {
+      const nowMs = Date.now();
+      if (exceptionCountsCache && nowMs < exceptionCountsCache.expiresAt) {
+        return res.json(exceptionCountsCache.data);
+      }
+
+      const [
+        cbTiersRow,
+        missingRateRow,
+        rateConflictRow,
+        orderExceptionRow,
+        approvalTiersRow,
+        negativeMarginRow,
+        overduePayRunRow,
+        ar45Row,
+        arVarianceRow,
+        arPartial14Row,
+        arStale30Row,
+        overrideTiersRow,
+        openDisputesRow,
+        unmatchedFinanceRow,
+        unmatchedPaymentsRow,
+        repsWithoutTaxRow,
+        expiringRateCardsRow,
+        repNoSalesRow,
+      ] = await Promise.all([
+        db.select({
+          urgentCount: sql<number>`SUM(CASE WHEN created_at <= NOW() - INTERVAL '${sql.raw(String(CB_URGENT_HOURS))} hours' THEN 1 ELSE 0 END)`,
+          highCount:   sql<number>`SUM(CASE WHEN created_at > NOW() - INTERVAL '${sql.raw(String(CB_URGENT_HOURS))} hours' THEN 1 ELSE 0 END)`,
+        }).from(unmatchedChargebacks)
+          .where(notDismissed("UNMATCHED_CHARGEBACK", '"unmatched_chargebacks"."id"')),
+        db.select({ count: sql<number>`COUNT(*)` }).from(rateIssues)
+          .where(and(sql`${rateIssues.type} = 'MISSING_RATE'`, notDismissed("MISSING_RATE", '"rate_issues"."id"'))),
+        db.select({ count: sql<number>`COUNT(*)` }).from(rateIssues)
+          .where(and(sql`${rateIssues.type} != 'MISSING_RATE'`, notDismissed("RATE_CONFLICT", '"rate_issues"."id"'))),
+        db.select({ count: sql<number>`COUNT(*)` }).from(orderExceptions)
+          .where(notDismissed("ORDER_EXCEPTION", '"order_exceptions"."id"')),
+        db.select({
+          urgentCount: sql<number>`SUM(CASE WHEN COALESCE(completion_date::date, created_at::date) <= CURRENT_DATE - ${sql.raw(String(APPROVAL_URGENT_DAYS))} THEN 1 ELSE 0 END)`,
+          highCount:   sql<number>`SUM(CASE WHEN COALESCE(completion_date::date, created_at::date) > CURRENT_DATE - ${sql.raw(String(APPROVAL_URGENT_DAYS))} AND COALESCE(completion_date::date, created_at::date) <= CURRENT_DATE - 1 THEN 1 ELSE 0 END)`,
+        }).from(salesOrders)
+          .where(and(
+            sql`"sales_orders"."job_status" = 'COMPLETED' AND "sales_orders"."approved_at" IS NULL AND "sales_orders"."approval_status" != 'REJECTED' AND COALESCE("sales_orders"."completion_date"::date, "sales_orders"."created_at"::date) <= CURRENT_DATE - 1`,
+            notDismissed("APPROVAL_OVERDUE", '"sales_orders"."id"')
+          )),
+        db.select({ count: sql<number>`COUNT(*)` }).from(salesOrders)
+          .where(and(
+            sql`"sales_orders"."job_status" != 'CANCELLED' AND CAST("sales_orders"."base_commission_earned" AS NUMERIC) < 0`,
+            notDismissed("NEGATIVE_MARGIN", '"sales_orders"."id"')
+          )),
+        db.select({ count: sql<number>`COUNT(*)` }).from(payRuns)
+          .where(and(
+            sql`${payRuns.status} IN ('DRAFT', 'PENDING_REVIEW') AND ${payRuns.createdAt} < NOW() - INTERVAL '7 days'`,
+            notDismissed("OVERDUE_PAY_RUN", '"pay_runs"."id"')
+          )),
+        db.select({ count: sql<number>`COUNT(*)` }).from(arExpectations)
+          .where(and(
+            sql`${arExpectations.status} IN ('OPEN', 'PARTIAL') AND ${arExpectations.expectedFromDate} < CURRENT_DATE - INTERVAL '45 days'`,
+            notDismissed("AR_OVERDUE_45D", '"ar_expectations"."id"')
+          )),
+        db.select({ count: sql<number>`COUNT(*)` }).from(arExpectations)
+          .where(and(
+            sql`${arExpectations.status} IN ('OPEN', 'PARTIAL') AND ${arExpectations.expectedFromDate} >= CURRENT_DATE - INTERVAL '45 days' AND ${arExpectations.expectedFromDate} < CURRENT_DATE - INTERVAL '30 days' AND ${arExpectations.varianceAmountCents} > 5000`,
+            notDismissed("AR_LARGE_VARIANCE", '"ar_expectations"."id"')
+          )),
+        db.select({ count: sql<number>`COUNT(*)` }).from(arExpectations)
+          .where(and(
+            sql`${arExpectations.status} = 'PARTIAL' AND ${arExpectations.expectedFromDate} < CURRENT_DATE - INTERVAL '14 days' AND ${arExpectations.expectedFromDate} >= CURRENT_DATE - INTERVAL '30 days'`,
+            notDismissed("AR_PARTIAL_14D", '"ar_expectations"."id"')
+          )),
+        db.select({ count: sql<number>`COUNT(*)` }).from(arExpectations)
+          .where(and(
+            sql`${arExpectations.status} IN ('OPEN', 'PARTIAL') AND ${arExpectations.expectedFromDate} >= CURRENT_DATE - INTERVAL '45 days' AND ${arExpectations.expectedFromDate} < CURRENT_DATE - INTERVAL '30 days' AND ${arExpectations.varianceAmountCents} <= 5000`,
+            notDismissed("AR_STALE_30D", '"ar_expectations"."id"')
+          )),
+        db.select({
+          highCount:   sql<number>`SUM(CASE WHEN created_at < NOW() - INTERVAL '${sql.raw(String(OVERRIDE_HIGH_HOURS))} hours' THEN 1 ELSE 0 END)`,
+          mediumCount: sql<number>`SUM(CASE WHEN created_at >= NOW() - INTERVAL '${sql.raw(String(OVERRIDE_HIGH_HOURS))} hours' THEN 1 ELSE 0 END)`,
+        }).from(overrideEarnings)
+          .where(and(eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL"), notDismissed("PENDING_OVERRIDE", '"override_earnings"."id"'))),
+        db.select({ count: sql<number>`COUNT(*)` }).from(commissionDisputes)
+          .where(and(
+            sql`${commissionDisputes.status} IN ('PENDING', 'UNDER_REVIEW')`,
+            notDismissed("COMMISSION_DISPUTE", '"commission_disputes"."id"')
+          )),
+        db.select({ count: sql<number>`COUNT(*)` }).from(financeImportRows)
+          .where(and(
+            sql`${financeImportRows.matchStatus} = 'UNMATCHED' AND ${financeImportRows.createdAt} < NOW() - INTERVAL '7 days' AND ${financeImportRows.isDuplicate} = false`,
+            notDismissed("UNMATCHED_FINANCE_IMPORT", '"finance_import_rows"."id"')
+          )),
+
+        db.select({ count: sql<number>`COUNT(*)` }).from(unmatchedPayments)
+          .where(notDismissed("UNMATCHED_PAYMENT", '"unmatched_payments"."id"')),
+        db.select({ count: sql<number>`COUNT(*)` }).from(users)
+          .where(and(
+            sql`${users.status} = 'ACTIVE' AND ${users.deletedAt} IS NULL AND ${users.role} IN ('REP', 'LEAD', 'MANAGER') AND ${users.id} NOT IN (SELECT user_id FROM user_tax_profiles)`,
+            notDismissed("MISSING_TAX_PROFILE", '"users"."id"')
+          )),
+        db.select({ count: sql<number>`COUNT(*)` }).from(rateCards)
+          .where(and(
+            sql`${rateCards.active} = true AND ${rateCards.deletedAt} IS NULL AND ${rateCards.effectiveEnd} IS NOT NULL AND ${rateCards.effectiveEnd} BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`,
+            notDismissed("EXPIRING_RATE_CARD", '"rate_cards"."id"')
+          )),
+        db.select({ count: sql<number>`COUNT(*)` }).from(users)
+          .where(and(
+            sql`"users"."status" = 'ACTIVE' AND "users"."deleted_at" IS NULL AND "users"."role" = 'REP' AND "users"."created_at" < NOW() - INTERVAL '7 days' AND NOT EXISTS (SELECT 1 FROM sales_orders so WHERE so.rep_id = "users"."rep_id" AND so.created_at > NOW() - INTERVAL '7 days')`,
+            notDismissed("REP_NO_SALES_7D", '"users"."id"')
+          )),
+      ]);
+
+      const urgent =
+        Number(cbTiersRow[0]?.urgentCount ?? 0) +
+        Number(missingRateRow[0]?.count ?? 0) +
+        Number(approvalTiersRow[0]?.urgentCount ?? 0) +
+        Number(negativeMarginRow[0]?.count ?? 0) +
+        Number(overduePayRunRow[0]?.count ?? 0) +
+        Number(ar45Row[0]?.count ?? 0);
+
+      const high =
+        Number(cbTiersRow[0]?.highCount ?? 0) +
+        Number(approvalTiersRow[0]?.highCount ?? 0) +
+        Number(arVarianceRow[0]?.count ?? 0) +
+        Number(overrideTiersRow[0]?.highCount ?? 0) +
+        Number(openDisputesRow[0]?.count ?? 0) +
+        Number(unmatchedPaymentsRow[0]?.count ?? 0);
+
+      const medium =
+        Number(rateConflictRow[0]?.count ?? 0) +
+        Number(orderExceptionRow[0]?.count ?? 0) +
+        Number(arPartial14Row[0]?.count ?? 0) +
+        Number(overrideTiersRow[0]?.mediumCount ?? 0) +
+        Number(unmatchedFinanceRow[0]?.count ?? 0) +
+        Number(repsWithoutTaxRow[0]?.count ?? 0);
+
+      const low =
+        Number(arStale30Row[0]?.count ?? 0) +
+        Number(expiringRateCardsRow[0]?.count ?? 0) +
+        Number(repNoSalesRow[0]?.count ?? 0);
+
+      const data: Record<string, number> = { urgent, high, medium, low, total: urgent + high + medium + low };
+      exceptionCountsCache = { data, expiresAt: nowMs + 2 * 60 * 1000 };
+      return res.json(data);
+    } catch (error) {
+      console.error("Failed to get exception counts:", error);
+      res.status(500).json({ message: "Failed to get exception counts" });
+    }
+  });
+
+  app.post("/api/admin/exceptions/:type/:entityId/dismiss", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE", "ACCOUNTING"), async (req: AuthRequest, res) => {
+    try {
+      const parsed = dismissBodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+
+      const { type, entityId } = req.params;
+      const { reason, snoozeHours } = parsed.data;
+      const userId = req.user!.id;
+
+      const snoozedUntil = snoozeHours ? new Date(Date.now() + snoozeHours * 3600000) : null;
+
+
+      await db.delete(exceptionDismissals).where(
+        and(eq(exceptionDismissals.exceptionType, type), eq(exceptionDismissals.entityId, entityId))
+      );
+      const [dismissal] = await db.insert(exceptionDismissals).values({
+        exceptionType: type, entityId, dismissedByUserId: userId,
+        reason: reason ?? null, snoozedUntil,
+      }).returning();
+
+      exceptionCountsCache = null;
+      res.json({ success: true, dismissal });
+    } catch (error) {
+      console.error("Failed to dismiss exception:", error);
+      res.status(500).json({ message: "Failed to dismiss exception" });
     }
   });
 }
