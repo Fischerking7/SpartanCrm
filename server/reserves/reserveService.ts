@@ -24,7 +24,7 @@ import {
 } from "@shared/schema";
 import { calculateMaturityDate, isOrderMature } from "./maturityService";
 
-const RESERVE_ROLES = ["REP", "LEAD", "MANAGER"];
+const RESERVE_ROLES = ["REP", "LEAD", "MANAGER", "DIRECTOR", "OPERATIONS"];
 
 /**
  * FUNCTION 1: getOrCreateReserve

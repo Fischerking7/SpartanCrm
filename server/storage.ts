@@ -19,6 +19,9 @@ import {
   emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
   mduStagingOrders, scheduledReports, commissionDisputes,
   financeImports, financeImportRowsRaw, financeImportRows, arExpectations, clientColumnMappings,
+  compPlanRates, commissionOverrideRules,
+  type CompPlanRate, type InsertCompPlanRate,
+  type CommissionOverrideRule, type InsertCommissionOverrideRule,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -4964,5 +4967,55 @@ export const storage = {
         }
       }
     }
+  },
+
+  async getCompPlanRates(activeOnly = true): Promise<CompPlanRate[]> {
+    const conditions = activeOnly ? [eq(compPlanRates.active, true)] : [];
+    return db.select().from(compPlanRates).where(conditions.length ? and(...conditions) : undefined);
+  },
+
+  async getCompPlanRateById(id: string): Promise<CompPlanRate | undefined> {
+    const [rate] = await db.select().from(compPlanRates).where(eq(compPlanRates.id, id));
+    return rate;
+  },
+
+  async createCompPlanRate(data: InsertCompPlanRate): Promise<CompPlanRate> {
+    const [rate] = await db.insert(compPlanRates).values(data).returning();
+    return rate;
+  },
+
+  async updateCompPlanRate(id: string, data: Partial<CompPlanRate>): Promise<CompPlanRate> {
+    const [rate] = await db.update(compPlanRates).set({ ...data, updatedAt: new Date() }).where(eq(compPlanRates.id, id)).returning();
+    return rate;
+  },
+
+  async deleteCompPlanRate(id: string): Promise<void> {
+    await db.update(compPlanRates).set({ active: false, updatedAt: new Date() }).where(eq(compPlanRates.id, id));
+  },
+
+  async getCommissionOverrideRules(activeOnly = true): Promise<CommissionOverrideRule[]> {
+    const conditions = activeOnly ? [eq(commissionOverrideRules.active, true)] : [];
+    return db.select().from(commissionOverrideRules)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(commissionOverrideRules.priority);
+  },
+
+  async getCommissionOverrideRuleById(id: string): Promise<CommissionOverrideRule | undefined> {
+    const [rule] = await db.select().from(commissionOverrideRules).where(eq(commissionOverrideRules.id, id));
+    return rule;
+  },
+
+  async createCommissionOverrideRule(data: InsertCommissionOverrideRule): Promise<CommissionOverrideRule> {
+    const [rule] = await db.insert(commissionOverrideRules).values(data).returning();
+    return rule;
+  },
+
+  async updateCommissionOverrideRule(id: string, data: Partial<CommissionOverrideRule>): Promise<CommissionOverrideRule> {
+    const [rule] = await db.update(commissionOverrideRules).set({ ...data, updatedAt: new Date() }).where(eq(commissionOverrideRules.id, id)).returning();
+    return rule;
+  },
+
+  async deleteCommissionOverrideRule(id: string): Promise<void> {
+    await db.update(commissionOverrideRules).set({ active: false, updatedAt: new Date() }).where(eq(commissionOverrideRules.id, id));
   },
 };

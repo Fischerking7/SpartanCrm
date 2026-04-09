@@ -4,6 +4,12 @@ import { applyWithholding, getOrCreateReserve, isReserveEligibleRole } from "./r
 import { db } from "./db";
 import { reserveTransactions, payStatements } from "@shared/schema";
 import { eq, sql, and, isNull } from "drizzle-orm";
+import {
+  lookupCompPlanRate,
+  getElevatedAdjustmentCents,
+  isOwnerRole,
+  calculateDdFeeCents,
+} from "./commissionEngine";
 
 async function computeYtd(userId: string, periodEnd: string, excludeStatementId?: string, txDb?: TxDb) {
   const d = txDb ?? db;
@@ -73,6 +79,8 @@ export async function generatePayStub(
   const user = await storage.getUserById(userId);
   if (!user) throw new Error(`User ${userId} not found`);
 
+  const isOwnerLegacy = user.compPlanType === "OWNER" || isOwnerRole(user.role);
+
   const stubSeq = await storage.getNextStubSequence(payRunId, txDb);
   const stubNumber = buildStubNumber(periodEnd, user.repId, stubSeq);
 
@@ -85,7 +93,7 @@ export async function generatePayStub(
 
   let incentivesTotalCents = 0;
 
-  for (const { order, client, provider, service } of readyOrders) {
+  for (const { order } of readyOrders) {
     const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
     grossCommissionCents += Math.round(commAmount * 100);
     const incAmount = order.incentiveEarned ? parseFloat(order.incentiveEarned) : 0;
@@ -143,7 +151,8 @@ export async function generatePayStub(
   const reservePerOrder: ReserveWithholdingPerOrder[] = [];
   let reservePreviousBalanceCents: number | null = null;
 
-  if (isReserveEligibleRole(user.role)) {
+  const reserveEligibleLegacy = isReserveEligibleRole(user.role) && !isOwnerLegacy;
+  if (reserveEligibleLegacy) {
     try {
       const reserveBefore = await getOrCreateReserve(userId, txDb);
       reservePreviousBalanceCents = reserveBefore.currentBalanceCents;
@@ -217,11 +226,16 @@ export async function generatePayStub(
     netPayCents = 0;
   }
 
+  const ddFeeCentsLegacy = calculateDdFeeCents(user.role, user.compPlanType, netPayCents);
+  if (ddFeeCentsLegacy > 0) {
+    netPayCents = Math.max(0, netPayCents - ddFeeCentsLegacy);
+  }
+
   let reserveBalanceAfterStr: string | undefined;
   let reserveCapStr: string | undefined;
   let reserveStatusStr: string | undefined;
   let reserveChargebacksOffsetCents = 0;
-  if (isReserveEligibleRole(user.role)) {
+  if (reserveEligibleLegacy) {
     try {
       const reserve = await getOrCreateReserve(userId, txDb);
       reserveBalanceAfterStr = (reserve.currentBalanceCents / 100).toFixed(2);
@@ -237,6 +251,8 @@ export async function generatePayStub(
     }
   }
 
+  const totalDeductionsLegacy = deductionTotalCents + ddFeeCentsLegacy;
+
   const statement = await storage.createPayStatement({
     payRunId,
     userId,
@@ -248,7 +264,7 @@ export async function generatePayStub(
     incentivesTotal: (incentivesTotalCents / 100).toFixed(2),
     chargebacksTotal: (chargebackTotalCents / 100).toFixed(2),
     adjustmentsTotal: "0",
-    deductionsTotal: (deductionTotalCents / 100).toFixed(2),
+    deductionsTotal: (totalDeductionsLegacy / 100).toFixed(2),
     advancesApplied: (advanceTotalCents / 100).toFixed(2),
     taxWithheld: "0",
     netPay: (netPayCents / 100).toFixed(2),
@@ -374,6 +390,17 @@ export async function generatePayStub(
       }, txDb);
       lineItemCount++;
     }
+  }
+
+  if (ddFeeCentsLegacy > 0) {
+    await storage.createPayStatementLineItemFull({
+      payStatementId: statement.id,
+      category: "DEDUCTION",
+      description: "Direct Deposit Fee",
+      sourceType: "DD_FEE",
+      amount: `-${(ddFeeCentsLegacy / 100).toFixed(2)}`,
+    }, txDb);
+    lineItemCount++;
   }
 
   for (const cb of userChargebacks) {
@@ -555,10 +582,37 @@ export async function generatePayStubsForPayRun(
   }
   const userIds = [...new Set([...orderUserIds, ...cbUserIds])];
 
+  const allUsers = await Promise.all(userIds.map(id => storage.getUserById(id)));
+  const ownerUsers = allUsers.filter(u => u && u.compPlanType === "OWNER");
+  const ownerPoolGroups = new Map<string, string[]>();
+  for (const owner of ownerUsers) {
+    if (!owner) continue;
+    const poolGroup = owner.ownerPoolGroup || "DEFAULT_POOL";
+    if (!ownerPoolGroups.has(poolGroup)) ownerPoolGroups.set(poolGroup, []);
+    ownerPoolGroups.get(poolGroup)!.push(owner.id);
+  }
+
+  const ownerPooledCommissions = new Map<string, number>();
+  for (const [poolGroup, ownerIds] of ownerPoolGroups) {
+    const ownerOrders = payRunOrders.filter(o => ownerIds.includes(o.userId));
+    let pooledCents = 0;
+    for (const order of ownerOrders) {
+      pooledCents += Math.round(parseFloat(order.commissionAmount || "0") * 100);
+    }
+    const splitPerOwner = Math.floor(pooledCents / ownerIds.length);
+    const remainder = pooledCents - (splitPerOwner * ownerIds.length);
+    for (let i = 0; i < ownerIds.length; i++) {
+      ownerPooledCommissions.set(ownerIds[i], splitPerOwner + (i === 0 ? remainder : 0));
+    }
+  }
+
   const results: PayStubResult[] = [];
   for (const userId of userIds) {
     try {
-      const result = await generatePayStubFromPayRun(payRunId, userId, periodStart, periodEnd, txDb);
+      const pooledAmountCents = ownerPooledCommissions.get(userId);
+      const result = await generatePayStubFromPayRun(
+        payRunId, userId, periodStart, periodEnd, txDb, pooledAmountCents,
+      );
       results.push(result);
     } catch (error) {
       console.error(`Failed to generate pay stub for user ${userId}:`, error);
@@ -573,10 +627,14 @@ async function generatePayStubFromPayRun(
   userId: string,
   periodStart: string,
   periodEnd: string,
-  txDb?: TxDb
+  txDb?: TxDb,
+  ownerPooledAmountCents?: number,
 ): Promise<PayStubResult> {
   const user = await storage.getUserById(userId);
   if (!user) throw new Error(`User ${userId} not found`);
+
+  const isOwner = user.compPlanType === "OWNER" || isOwnerRole(user.role);
+  const isElevated = user.compPlanType === "ELEVATED";
 
   const stubSeq = await storage.getNextStubSequence(payRunId, txDb);
   const stubNumber = buildStubNumber(periodEnd, user.repId, stubSeq);
@@ -590,6 +648,7 @@ async function generatePayStubFromPayRun(
   let totalMobileLines = 0;
 
   let incentivesTotalCents2 = 0;
+  let elevatedBoostCents = 0;
 
   for (const order of userOrders) {
     const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
@@ -599,6 +658,21 @@ async function generatePayStubFromPayRun(
     totalOrders++;
     if (order.jobStatus === "COMPLETED") totalConnects++;
     if (order.mobileLinesQty) totalMobileLines += order.mobileLinesQty;
+
+    if (isElevated && order.serviceId) {
+      const cpRate = await lookupCompPlanRate(
+        order.serviceId, order.providerId, order.clientId || null, periodEnd, txDb,
+      );
+      if (cpRate) {
+        const commCents = Math.round(commAmount * 100);
+        const boost = getElevatedAdjustmentCents(cpRate, commCents);
+        elevatedBoostCents += boost;
+      }
+    }
+  }
+
+  if (ownerPooledAmountCents !== undefined && isOwner) {
+    grossCommissionCents = ownerPooledAmountCents;
   }
 
   const overrideEarnings = await storage.getApprovedOverrideEarningsForUser(userId, periodStart, periodEnd);
@@ -649,7 +723,8 @@ async function generatePayStubFromPayRun(
   const reservePerOrder2: ReserveWithholdingPerOrder[] = [];
   let reservePreviousBalanceCents2: number | null = null;
 
-  if (isReserveEligibleRole(user.role)) {
+  const reserveEligible = isReserveEligibleRole(user.role) && !isOwner;
+  if (reserveEligible) {
     try {
       const reserveBefore = await getOrCreateReserve(userId, txDb);
       reservePreviousBalanceCents2 = reserveBefore.currentBalanceCents;
@@ -686,6 +761,10 @@ async function generatePayStubFromPayRun(
     }
   }
 
+  if (elevatedBoostCents > 0) {
+    grossCommissionCents += elevatedBoostCents;
+  }
+
   const pendingCarryForwards2 = await storage.getPendingCarryForwardForUser(userId, txDb);
   let totalPendingCfCents2 = 0;
   for (const cf of pendingCarryForwards2) {
@@ -714,11 +793,16 @@ async function generatePayStubFromPayRun(
     netPayCents = 0;
   }
 
+  const ddFeeCents = calculateDdFeeCents(user.role, user.compPlanType, netPayCents);
+  if (ddFeeCents > 0) {
+    netPayCents = Math.max(0, netPayCents - ddFeeCents);
+  }
+
   let reserveBalanceAfterStr2: string | undefined;
   let reserveCapStr2: string | undefined;
   let reserveStatusStr2: string | undefined;
   let reserveChargebacksOffsetCents2 = 0;
-  if (isReserveEligibleRole(user.role)) {
+  if (reserveEligible) {
     try {
       const reserve = await getOrCreateReserve(userId, txDb);
       reserveBalanceAfterStr2 = (reserve.currentBalanceCents / 100).toFixed(2);
@@ -734,6 +818,8 @@ async function generatePayStubFromPayRun(
     }
   }
 
+  const totalDeductionsForStatement = deductionTotalCents + ddFeeCents;
+
   const statement = await storage.createPayStatement({
     payRunId,
     userId,
@@ -745,7 +831,7 @@ async function generatePayStubFromPayRun(
     incentivesTotal: (incentivesTotalCents2 / 100).toFixed(2),
     chargebacksTotal: (chargebackTotalCents / 100).toFixed(2),
     adjustmentsTotal: "0",
-    deductionsTotal: (deductionTotalCents / 100).toFixed(2),
+    deductionsTotal: (totalDeductionsForStatement / 100).toFixed(2),
     advancesApplied: (advanceTotalCents / 100).toFixed(2),
     taxWithheld: "0",
     netPay: (netPayCents / 100).toFixed(2),
@@ -869,6 +955,39 @@ async function generatePayStubFromPayRun(
       }, txDb);
       lineItemCount++;
     }
+  }
+
+  if (elevatedBoostCents > 0) {
+    await storage.createPayStatementLineItemFull({
+      payStatementId: statement.id,
+      category: "COMMISSION",
+      description: "Elevated Personal Sales Adjustment (Col J)",
+      sourceType: "ELEVATED_PERSONAL_SALES",
+      amount: (elevatedBoostCents / 100).toFixed(2),
+    }, txDb);
+    lineItemCount++;
+  }
+
+  if (isOwner && ownerPooledAmountCents !== undefined) {
+    await storage.createPayStatementLineItemFull({
+      payStatementId: statement.id,
+      category: "COMMISSION",
+      description: "Owner Pool 50/50 Split",
+      sourceType: "OWNER_POOL_SPLIT",
+      amount: (ownerPooledAmountCents / 100).toFixed(2),
+    }, txDb);
+    lineItemCount++;
+  }
+
+  if (ddFeeCents > 0) {
+    await storage.createPayStatementLineItemFull({
+      payStatementId: statement.id,
+      category: "DEDUCTION",
+      description: "Direct Deposit Fee",
+      sourceType: "DD_FEE",
+      amount: `-${(ddFeeCents / 100).toFixed(2)}`,
+    }, txDb);
+    lineItemCount++;
   }
 
   for (const cb of userChargebacks) {

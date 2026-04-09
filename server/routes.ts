@@ -7,7 +7,7 @@ import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc, 
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
-import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, insertCompPlanRateSchema, insertCommissionOverrideRuleSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 import crypto from "crypto";
@@ -21191,6 +21191,98 @@ function registerReportRoutes(app: Express, auth: any) {
       });
     } catch (error: any) {
       console.error("Operations dashboard error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/comp-plan/rates", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (_req: AuthRequest, res) => {
+    try {
+      const rates = await storage.getCompPlanRates();
+      res.json(rates);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/comp-plan/rates", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const parsed = insertCompPlanRateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid rate data", errors: parsed.error.flatten() });
+      const rate = await storage.createCompPlanRate(parsed.data);
+      res.json(rate);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/comp-plan/rates/:id", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const partial = insertCompPlanRateSchema.partial().safeParse(req.body);
+      if (!partial.success) return res.status(400).json({ message: "Invalid rate data", errors: partial.error.flatten() });
+      const rate = await storage.updateCompPlanRate(req.params.id, partial.data);
+      if (!rate) return res.status(404).json({ message: "Rate not found" });
+      res.json(rate);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/comp-plan/rates/:id", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteCompPlanRate(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/commission-rules", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (_req: AuthRequest, res) => {
+    try {
+      const rules = await storage.getCommissionOverrideRules();
+      res.json(rules);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/commission-rules", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const parsed = insertCommissionOverrideRuleSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid rule data", errors: parsed.error.flatten() });
+      const rule = await storage.createCommissionOverrideRule(parsed.data);
+      res.json(rule);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/commission-rules/:id", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const partial = insertCommissionOverrideRuleSchema.partial().safeParse(req.body);
+      if (!partial.success) return res.status(400).json({ message: "Invalid rule data", errors: partial.error.flatten() });
+      const rule = await storage.updateCommissionOverrideRule(req.params.id, partial.data);
+      if (!rule) return res.status(404).json({ message: "Rule not found" });
+      res.json(rule);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/commission-rules/:id", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteCommissionOverrideRule(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/comp-plan/seed", auth, requireRoles("ADMIN", "OPERATIONS"), async (_req: AuthRequest, res) => {
+    try {
+      const { seedCompPlanData } = await import("./compPlanSeed");
+      const result = await seedCompPlanData();
+      res.json(result);
+    } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });

@@ -82,6 +82,8 @@ export const users = pgTable("users", {
   onboardingOtpLockedAt: timestamp("onboarding_otp_locked_at"),
   hasActiveReserve: boolean("has_active_reserve").notNull().default(false),
   reserveStatus: varchar("reserve_status", { length: 20 }),
+  compPlanType: varchar("comp_plan_type", { length: 20 }).notNull().default("STANDARD"),
+  ownerPoolGroup: varchar("owner_pool_group", { length: 50 }),
   ipadIssued: boolean("ipad_issued").notNull().default(false),
   ipadSerialNumber: varchar("ipad_serial_number"),
   ipadIssuedAt: timestamp("ipad_issued_at"),
@@ -2515,3 +2517,85 @@ export const insertCarryForwardBalanceSchema = createInsertSchema(carryForwardBa
 });
 export type CarryForwardBalance = typeof carryForwardBalances.$inferSelect;
 export type InsertCarryForwardBalance = z.infer<typeof insertCarryForwardBalanceSchema>;
+
+export const compPlanColumnEnum = pgEnum("comp_plan_column", [
+  "REP_B", "LEADER_C", "MANAGER_D", "DIRECTOR_E",
+  "OPERATIONS_F", "ACCOUNTING_G", "EXECUTIVE_H",
+  "IC_PROFIT_I", "ELEVATED_J"
+]);
+
+export const compPlanRates = pgTable("comp_plan_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  serviceId: varchar("service_id").references(() => services.id),
+  providerId: varchar("provider_id").references(() => providers.id),
+  clientId: varchar("client_id").references(() => clients.id),
+  speedTierLabel: varchar("speed_tier_label", { length: 100 }),
+  repRateCents: integer("rep_rate_cents").notNull().default(0),
+  leaderRateCents: integer("leader_rate_cents").notNull().default(0),
+  managerRateCents: integer("manager_rate_cents").notNull().default(0),
+  directorOverrideCents: integer("director_override_cents").notNull().default(0),
+  operationsOverrideCents: integer("operations_override_cents").notNull().default(0),
+  accountingOverrideCents: integer("accounting_override_cents").notNull().default(0),
+  executivePayCents: integer("executive_pay_cents").notNull().default(0),
+  icProfitCents: integer("ic_profit_cents").notNull().default(0),
+  elevatedPersonalSalesCents: integer("elevated_personal_sales_cents").notNull().default(0),
+  effectiveStart: date("effective_start").notNull(),
+  effectiveEnd: date("effective_end"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("cpr_service_id_idx").on(table.serviceId),
+  index("cpr_provider_id_idx").on(table.providerId),
+]);
+
+export const compPlanRatesRelations = relations(compPlanRates, ({ one }) => ({
+  service: one(services, { fields: [compPlanRates.serviceId], references: [services.id] }),
+  provider: one(providers, { fields: [compPlanRates.providerId], references: [providers.id] }),
+  client: one(clients, { fields: [compPlanRates.clientId], references: [clients.id] }),
+}));
+
+export const insertCompPlanRateSchema = createInsertSchema(compPlanRates).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type CompPlanRate = typeof compPlanRates.$inferSelect;
+export type InsertCompPlanRate = z.infer<typeof insertCompPlanRateSchema>;
+
+export const overrideRuleTypeEnum = pgEnum("override_rule_type", [
+  "DIRECTOR_OVERRIDE", "OPERATIONS_OVERRIDE", "ACCOUNTING_OVERRIDE",
+  "MANAGER_OVERRIDE", "LEADER_OVERRIDE"
+]);
+
+export const commissionOverrideRules = pgTable("commission_override_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ruleName: varchar("rule_name", { length: 200 }).notNull(),
+  recipientUserId: varchar("recipient_user_id").references(() => users.id),
+  recipientRole: userRoleEnum("recipient_role"),
+  overrideType: overrideRuleTypeEnum("override_type").notNull(),
+  overrideColumn: varchar("override_column", { length: 10 }).notNull(),
+  flatAmountCents: integer("flat_amount_cents"),
+  useCompPlanColumn: boolean("use_comp_plan_column").notNull().default(true),
+  minSpeedMbps: integer("min_speed_mbps"),
+  excludeOwnerSales: boolean("exclude_owner_sales").notNull().default(false),
+  excludeSelfSales: boolean("exclude_self_sales").notNull().default(false),
+  excludeOwnTeamSales: boolean("exclude_own_team_sales").notNull().default(false),
+  reducedAmountReps: jsonb("reduced_amount_reps"),
+  excludeRepIds: jsonb("exclude_rep_ids"),
+  includeOwnerSales: boolean("include_owner_sales").notNull().default(false),
+  appliesToAllSales: boolean("applies_to_all_sales").notNull().default(false),
+  active: boolean("active").notNull().default(true),
+  priority: integer("priority").notNull().default(0),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const commissionOverrideRulesRelations = relations(commissionOverrideRules, ({ one }) => ({
+  recipientUser: one(users, { fields: [commissionOverrideRules.recipientUserId], references: [users.id] }),
+}));
+
+export const insertCommissionOverrideRuleSchema = createInsertSchema(commissionOverrideRules).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type CommissionOverrideRule = typeof commissionOverrideRules.$inferSelect;
+export type InsertCommissionOverrideRule = z.infer<typeof insertCommissionOverrideRuleSchema>;
