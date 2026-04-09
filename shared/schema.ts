@@ -2562,8 +2562,8 @@ export type CompPlanRate = typeof compPlanRates.$inferSelect;
 export type InsertCompPlanRate = z.infer<typeof insertCompPlanRateSchema>;
 
 export const overrideRuleTypeEnum = pgEnum("override_rule_type", [
-  "DIRECTOR_OVERRIDE", "OPERATIONS_OVERRIDE", "ACCOUNTING_OVERRIDE",
-  "MANAGER_OVERRIDE", "LEADER_OVERRIDE"
+  "DIRECTOR_OVERRIDE", "MANAGER_OVERRIDE", "OPERATIONS_OVERRIDE",
+  "ACCOUNTING_OVERRIDE", "LEADER_OVERRIDE", "CUSTOM"
 ]);
 
 export const commissionOverrideRules = pgTable("commission_override_rules", {

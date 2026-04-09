@@ -19,13 +19,13 @@ END $$;
 
 -- Add comp_plan_column enum
 DO $$ BEGIN
-  CREATE TYPE comp_plan_column AS ENUM ('B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J');
+  CREATE TYPE comp_plan_column AS ENUM ('REP_B', 'LEADER_C', 'MANAGER_D', 'DIRECTOR_E', 'OPERATIONS_F', 'ACCOUNTING_G', 'EXECUTIVE_H', 'IC_PROFIT_I', 'ELEVATED_J');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- Add override_rule_type enum
 DO $$ BEGIN
-  CREATE TYPE override_rule_type AS ENUM ('DIRECTOR_OVERRIDE', 'MANAGER_OVERRIDE', 'OPERATIONS_OVERRIDE', 'ACCOUNTING_OVERRIDE', 'CUSTOM');
+  CREATE TYPE override_rule_type AS ENUM ('DIRECTOR_OVERRIDE', 'MANAGER_OVERRIDE', 'OPERATIONS_OVERRIDE', 'ACCOUNTING_OVERRIDE', 'LEADER_OVERRIDE', 'CUSTOM');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 

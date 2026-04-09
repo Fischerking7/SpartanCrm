@@ -163,7 +163,7 @@ export async function checkOverrideEligibility(
       const sellingRep = await storage.getUserById(sellingRepId);
       if (sellingRep) {
         if (sellingRep.assignedSupervisorId === recipientUserId ||
-            sellingRep.managerId === recipientUserId) {
+            sellingRep.assignedManagerId === recipientUserId) {
           continue;
         }
       }
