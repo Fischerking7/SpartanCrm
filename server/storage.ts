@@ -19,10 +19,11 @@ import {
   emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
   mduStagingOrders, scheduledReports, commissionDisputes,
   financeImports, financeImportRowsRaw, financeImportRows, arExpectations, clientColumnMappings,
-  compPlanRates, commissionOverrideRules, systemSettings,
+  compPlanRates, commissionOverrideRules, systemSettings, automationRules,
   type CompPlanRate, type InsertCompPlanRate,
   type CommissionOverrideRule, type InsertCommissionOverrideRule,
   type SystemSetting,
+  type AutomationRule, type InsertAutomationRule,
   type User, type InsertUser, type Provider, type InsertProvider,
   type Client, type InsertClient, type Service, type InsertService,
   type RateCard, type InsertRateCard, type SalesOrder, type InsertSalesOrder,
@@ -5137,5 +5138,56 @@ export const storage = {
       })
       .returning();
     return setting;
+  },
+
+  // Automation Rules
+  async getAutomationRules(): Promise<AutomationRule[]> {
+    return db.select().from(automationRules).orderBy(desc(automationRules.createdAt));
+  },
+
+  async getAutomationRuleById(id: string): Promise<AutomationRule | undefined> {
+    const [rule] = await db.select().from(automationRules).where(eq(automationRules.id, id));
+    return rule;
+  },
+
+  async getEnabledAutomationRulesByType(ruleType: string): Promise<AutomationRule[]> {
+    const validTypes = ["AUTO_APPROVE_ORDER", "AUTO_POST_IMPORT", "AUTO_PAYROLL_READY", "ALERT_ON_EXCEPTION", "ESCALATE_AFTER_DAYS"] as const;
+    type ValidType = typeof validTypes[number];
+    if (!validTypes.includes(ruleType as ValidType)) return [];
+    return db.select().from(automationRules).where(
+      and(eq(automationRules.enabled, true), eq(automationRules.ruleType, ruleType as ValidType))
+    );
+  },
+
+  async createAutomationRule(data: InsertAutomationRule): Promise<AutomationRule> {
+    const insertData = {
+      name: data.name,
+      description: data.description,
+      ruleType: data.ruleType,
+      enabled: data.enabled,
+      conditions: data.conditions,
+      actions: data.actions,
+      createdByUserId: data.createdByUserId,
+    };
+    const [rule] = await db.insert(automationRules).values(insertData).returning();
+    return rule;
+  },
+
+  async updateAutomationRule(id: string, data: Partial<AutomationRule>): Promise<AutomationRule | undefined> {
+    const [rule] = await db.update(automationRules).set({ ...data, updatedAt: new Date() }).where(eq(automationRules.id, id)).returning();
+    return rule;
+  },
+
+  async deleteAutomationRule(id: string): Promise<void> {
+    await db.delete(automationRules).where(eq(automationRules.id, id));
+  },
+
+  async recordAutomationRuleTrigger(id: string, error?: string): Promise<void> {
+    await db.update(automationRules).set({
+      lastTriggeredAt: new Date(),
+      triggerCount: sql`${automationRules.triggerCount} + 1`,
+      lastError: error || null,
+      updatedAt: new Date(),
+    }).where(eq(automationRules.id, id));
   },
 };

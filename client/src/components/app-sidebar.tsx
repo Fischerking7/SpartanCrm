@@ -52,6 +52,7 @@ import {
   Activity,
   RefreshCw,
   Radio,
+  Zap,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -119,6 +120,7 @@ const MENU = {
   payroll: { title: "Payroll", url: "/admin/payroll", icon: Calendar },
   advPayroll: { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
   quickbooks: { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
+  automationRules: { title: "Automation Rules", url: "/admin/automation-rules", icon: Zap },
 } as const;
 
 // ============ COMPOSED MENU GROUPS ============
@@ -191,6 +193,7 @@ const adminSettingsItems: MenuItem[] = [
   MENU.carrierProfiles,
   MENU.carrierRepMappings,
   MENU.onboardingReview,
+  MENU.automationRules,
 ];
 
 // ============ ROLE-SPECIFIC MENUS (Composed from blocks) ============

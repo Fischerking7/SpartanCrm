@@ -2705,29 +2705,46 @@ export const insertFinanceImportScheduleSchema = createInsertSchema(financeImpor
 export type FinanceImportSchedule = typeof financeImportSchedules.$inferSelect;
 export type InsertFinanceImportSchedule = z.infer<typeof insertFinanceImportScheduleSchema>;
 
+// Automation Rules
+export const automationRuleTypeEnum = pgEnum("automation_rule_type", [
+  "AUTO_APPROVE_ORDER",
+  "AUTO_POST_IMPORT",
+  "AUTO_PAYROLL_READY",
+  "ALERT_ON_EXCEPTION",
+  "ESCALATE_AFTER_DAYS",
+]);
+
 export const automationRules = pgTable("automation_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  ruleName: varchar("rule_name", { length: 200 }).notNull(),
-  ruleType: varchar("rule_type", { length: 100 }).notNull(),
-  isActive: boolean("is_active").notNull().default(true),
-  conditionsJson: jsonb("conditions_json"),
-  actionsJson: jsonb("actions_json"),
-  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description"),
+  ruleType: automationRuleTypeEnum("rule_type").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  conditions: jsonb("conditions").notNull().default([]),
+  actions: jsonb("actions").notNull().default([]),
   lastTriggeredAt: timestamp("last_triggered_at"),
   triggerCount: integer("trigger_count").notNull().default(0),
+  lastError: text("last_error"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-}, (table) => [
-  index("ar_type_idx").on(table.ruleType),
-  index("ar_active_idx").on(table.isActive),
-]);
+});
 
 export const automationRulesRelations = relations(automationRules, ({ one }) => ({
   createdBy: one(users, { fields: [automationRules.createdByUserId], references: [users.id] }),
 }));
 
 export const insertAutomationRuleSchema = createInsertSchema(automationRules).omit({
-  id: true, createdAt: true, updatedAt: true, triggerCount: true,
+  id: true, createdAt: true, updatedAt: true, lastTriggeredAt: true, triggerCount: true, lastError: true,
+}).extend({
+  conditions: z.array(z.object({
+    field: z.string(),
+    op: z.enum(["eq", "ne", "gt", "gte", "lt", "lte", "contains", "not_contains"]),
+    value: z.union([z.string(), z.number(), z.boolean()]),
+  })).default([]),
+  actions: z.array(z.object({
+    type: z.string(),
+  }).passthrough()).default([]),
 });
 export type AutomationRule = typeof automationRules.$inferSelect;
 export type InsertAutomationRule = z.infer<typeof insertAutomationRuleSchema>;

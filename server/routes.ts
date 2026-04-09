@@ -3656,6 +3656,19 @@ Rules:
         userId: user.id 
       });
 
+      // Trigger automation rules when order status changes
+      if (updateData.jobStatus && updateData.jobStatus !== order.jobStatus) {
+        setImmediate(async () => {
+          try {
+            const { evaluateRulesForOrder } = await import("./automationRunner");
+            await evaluateRulesForOrder(id);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[AutomationRunner] Order status change trigger failed for ${id}:`, msg);
+          }
+        });
+      }
+
       // Cascade commission changes to AR expectation if one exists
       const commissionChanged = 
         (updateData.baseCommissionEarned !== undefined && updateData.baseCommissionEarned !== order.baseCommissionEarned) ||
@@ -3921,6 +3934,17 @@ Rules:
         beforeJson,
         afterJson: JSON.stringify(updatedOrder),
         userId: user.id,
+      });
+
+      // Trigger automation rules for order status change
+      setImmediate(async () => {
+        try {
+          const { evaluateRulesForOrder } = await import("./automationRunner");
+          await evaluateRulesForOrder(id);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[AutomationRunner] Order approval trigger failed for ${id}:`, msg);
+        }
       });
       
       res.json(updatedOrder);
@@ -15171,6 +15195,18 @@ Rules:
       // Update import status
       await storage.updateFinanceImport(req.params.id, { status: 'MATCHED' });
 
+      // Trigger automation rules for import now that matching is complete
+      const matchedImportId = req.params.id;
+      setImmediate(async () => {
+        try {
+          const { evaluateRulesForImport } = await import("./automationRunner");
+          await evaluateRulesForImport(matchedImportId);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[AutomationRunner] Import match trigger failed for ${matchedImportId}:`, msg);
+        }
+      });
+
       res.json({ matchedCount, ambiguousCount });
     } catch (error: any) {
       console.error("Auto-match error:", error);
@@ -15957,6 +15993,18 @@ Rules:
             recordId: ar.orderId,
             afterJson: JSON.stringify({ ...orderUpdate, reason: 'All service ARs satisfied', arId: req.params.id }),
             userId: req.user!.id,
+          });
+
+          // Trigger automation rules for AR satisfaction (runs after response)
+          const satisfiedOrderId = ar.orderId;
+          setImmediate(async () => {
+            try {
+              const { evaluateRulesForOrder } = await import("./automationRunner");
+              await evaluateRulesForOrder(satisfiedOrderId);
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(`[AutomationRunner] AR satisfaction trigger failed for ${satisfiedOrderId}:`, msg);
+            }
           });
         } else if (order && order.paymentStatus !== 'PAID') {
           await storage.updateOrder(ar.orderId, { paymentStatus: 'PARTIALLY_PAID' });
@@ -22230,6 +22278,17 @@ function registerReportRoutes(app: Express, auth: any) {
     }
   });
 
+  // Automation Rules CRUD
+  app.get("/api/admin/automation-rules", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (_req: AuthRequest, res) => {
+    try {
+      const rules = await storage.getAutomationRules();
+      res.json(rules);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch automation rules";
+      res.status(500).json({ message: msg });
+    }
+  });
+
   app.post("/api/admin/system-settings", auth, requireRoles("ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
@@ -22289,6 +22348,81 @@ function registerReportRoutes(app: Express, auth: any) {
       res.json({ message: "Auto-approval sweep triggered" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/automation-rules", auth, requireRoles("ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const { insertAutomationRuleSchema } = await import("@shared/schema");
+      const parsed = insertAutomationRuleSchema.safeParse({ ...req.body, createdByUserId: req.user!.id });
+      if (!parsed.success) return res.status(400).json({ message: "Invalid rule data", errors: parsed.error.flatten() });
+      const rule = await storage.createAutomationRule(parsed.data);
+      res.json(rule);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to create automation rule";
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  app.patch("/api/admin/automation-rules/:id", auth, requireRoles("ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const { insertAutomationRuleSchema } = await import("@shared/schema");
+      // Disallow mutation of immutable fields: createdByUserId and ruleType
+      const updateSchema = insertAutomationRuleSchema.omit({ createdByUserId: true, ruleType: true }).partial();
+      const parsed = updateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid rule data", errors: parsed.error.flatten() });
+      }
+      const rule = await storage.updateAutomationRule(req.params.id, parsed.data);
+      if (!rule) return res.status(404).json({ message: "Rule not found" });
+      res.json(rule);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to update automation rule";
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  app.delete("/api/admin/automation-rules/:id", auth, requireRoles("ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteAutomationRule(req.params.id);
+      res.json({ success: true });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to delete automation rule";
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  // Automation Rules dry-run/test endpoint — tests exactly this rule by ID
+  app.post("/api/admin/automation-rules/:id/test", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const rule = await storage.getAutomationRuleById(req.params.id);
+      if (!rule) return res.status(404).json({ message: "Rule not found" });
+
+      const { entityId } = req.body;
+      if (!entityId) return res.status(400).json({ message: "entityId is required" });
+
+      const { evaluateSingleRuleForOrder, evaluateSingleRuleForImport } = await import("./automationRunner");
+
+      // Enforce entity type based on rule type; ignore client-supplied entityType to avoid misuse
+      const eType = rule.ruleType === "AUTO_POST_IMPORT" ? "import" : "order";
+      let result;
+      if (eType === "import") {
+        result = await evaluateSingleRuleForImport(rule, entityId);
+      } else {
+        result = await evaluateSingleRuleForOrder(rule, entityId);
+      }
+
+      res.json({
+        rule: rule.name,
+        ruleType: rule.ruleType,
+        entityId,
+        entityType: eType,
+        ...result,
+        note: "Dry run - no changes were made",
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Test run failed";
+      res.status(500).json({ message: msg });
     }
   });
 }
