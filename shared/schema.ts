@@ -2636,31 +2636,6 @@ export const insertCommissionOverrideRuleSchema = createInsertSchema(commissionO
 export type CommissionOverrideRule = typeof commissionOverrideRules.$inferSelect;
 export type InsertCommissionOverrideRule = z.infer<typeof insertCommissionOverrideRuleSchema>;
 
-// ─── New tables for automation, exception management, and reporting ───────────
-
-export const exceptionDismissals = pgTable("exception_dismissals", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  exceptionType: varchar("exception_type").notNull(),
-  entityId: varchar("entity_id").notNull(),
-  dismissedByUserId: varchar("dismissed_by_user_id").notNull().references(() => users.id),
-  reason: text("reason"),
-  snoozedUntil: timestamp("snoozed_until"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (table) => [
-  index("exc_dis_type_entity_idx").on(table.exceptionType, table.entityId),
-  index("exc_dis_user_idx").on(table.dismissedByUserId),
-]);
-
-export const exceptionDismissalsRelations = relations(exceptionDismissals, ({ one }) => ({
-  dismissedBy: one(users, { fields: [exceptionDismissals.dismissedByUserId], references: [users.id] }),
-}));
-
-export const insertExceptionDismissalSchema = createInsertSchema(exceptionDismissals).omit({
-  id: true, createdAt: true,
-});
-export type ExceptionDismissal = typeof exceptionDismissals.$inferSelect;
-export type InsertExceptionDismissal = z.infer<typeof insertExceptionDismissalSchema>;
-
 // Match Corrections - learning records from manual match/unmatch/ignore actions
 export const matchCorrectionTypeEnum = pgEnum("match_correction_type", ["MANUAL_MATCH", "MANUAL_UNMATCH", "MANUAL_IGNORE"]);
 
