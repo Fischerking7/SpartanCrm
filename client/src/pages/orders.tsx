@@ -5,7 +5,8 @@ import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
-import { JobStatusBadge, PaymentStatusBadge, ApprovalStatusBadge, AgingBadge } from "@/components/status-badge";
+import { JobStatusBadge, PaymentStatusBadge, ApprovalStatusBadge, AgingBadge, SimplifiedStatusBadge } from "@/components/status-badge";
+import { getSimplifiedOrderStatus, type SimplifiedOrderStatus } from "@shared/order-status";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1318,11 +1319,36 @@ export default function Orders() {
         return <span className="text-sm truncate block max-w-[100px]">{provider?.name || "-"}</span>;
       },
     },
-    {
-      key: "jobStatus",
-      header: "Job",
-      cell: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
-    },
+    ...(user?.role === "REP" ? [{
+      key: "simplifiedStatus",
+      header: "Status",
+      cell: (row: SalesOrder) => (
+        <SimplifiedStatusBadge status={
+          row.simplifiedStatus
+            ? (row.simplifiedStatus as SimplifiedOrderStatus)
+            : getSimplifiedOrderStatus({
+                jobStatus: row.jobStatus,
+                approvalStatus: row.approvalStatus,
+                paymentStatus: row.paymentStatus,
+                payrollReadyAt: row.payrollReadyAt,
+                hasActiveChargeback: row.hasActiveChargeback,
+                hasDisputedChargeback: row.hasDisputedChargeback,
+              })
+        } />
+      ),
+    }] : [
+      {
+        key: "jobStatus",
+        header: "Job",
+        cell: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
+      },
+      // Approval status column
+      {
+        key: "approvalStatus",
+        header: "Approval",
+        cell: (row: SalesOrder) => <ApprovalStatusBadge status={row.approvalStatus} />,
+      },
+    ]),
     // Payment status only visible to ADMIN and OPERATIONS
     ...((user?.role === "ADMIN" || user?.role === "OPERATIONS") ? [{
       key: "paymentStatus",
@@ -1336,12 +1362,6 @@ export default function Orders() {
         </div>
       ),
     }] : []),
-    // Approval status column
-    {
-      key: "approvalStatus",
-      header: "Approval",
-      cell: (row: SalesOrder) => <ApprovalStatusBadge status={row.approvalStatus} />,
-    },
     {
       key: "flag",
       header: "",

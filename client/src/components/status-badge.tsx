@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
-import { Check, Clock, DollarSign, AlertTriangle, X, FileText } from "lucide-react";
+import { Check, Clock, DollarSign, AlertTriangle, X, FileText, Wrench, Ban, ThumbsDown } from "lucide-react";
+import type { SimplifiedOrderStatus } from "@shared/order-status";
 
 type StatusType = "earned" | "paid" | "pending" | "chargeback" | "approved" | "rejected" | "unapproved" | "completed" | "canceled";
 
@@ -60,6 +61,37 @@ export function PaymentStatusBadge({ status }: { status: string }) {
     default:
       return <Badge variant="outline">{status}</Badge>;
   }
+}
+
+const simplifiedStatusConfig: Record<SimplifiedOrderStatus, { variant: "default" | "secondary" | "outline" | "destructive"; icon: typeof Check; colorClass?: string }> = {
+  "Paid": { variant: "default", icon: DollarSign, colorClass: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-0" },
+  "Pay Ready": { variant: "default", icon: Check, colorClass: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-0" },
+  "Approved": { variant: "default", icon: Check, colorClass: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-0" },
+  "Installed": { variant: "default", icon: Wrench, colorClass: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200 border-0" },
+  "Pending Install": { variant: "secondary", icon: Clock },
+  "Charged Back": { variant: "destructive", icon: AlertTriangle },
+  "Disputed": { variant: "destructive", icon: AlertTriangle, colorClass: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 border-0" },
+  "Cancelled": { variant: "destructive", icon: Ban },
+  "Rejected": { variant: "destructive", icon: ThumbsDown },
+};
+
+export function SimplifiedStatusBadge({ status }: { status: SimplifiedOrderStatus }) {
+  const config = simplifiedStatusConfig[status] || { variant: "outline" as const, icon: FileText };
+  const Icon = config.icon;
+  if (config.colorClass) {
+    return (
+      <Badge variant="outline" className={`${config.colorClass} text-xs font-medium`} data-testid={`badge-simplified-status-${status.toLowerCase().replace(/\s+/g, "-")}`}>
+        <Icon className="h-3 w-3 mr-1" />
+        {status}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant={config.variant} className="text-xs font-medium" data-testid={`badge-simplified-status-${status.toLowerCase().replace(/\s+/g, "-")}`}>
+      <Icon className="h-3 w-3 mr-1" />
+      {status}
+    </Badge>
+  );
 }
 
 export function AgingBadge({ carrierConfirmedAt }: { carrierConfirmedAt: string | Date | null }) {

@@ -329,6 +329,9 @@ export const salesOrders = pgTable("sales_orders", {
   captureImageUrl: text("capture_image_url"),
   captureRawJson: jsonb("capture_raw_json"),
   notes: text("notes"),
+  simplifiedStatus: varchar("simplified_status", { length: 30 }),
+  hasActiveChargeback: boolean("has_active_chargeback").notNull().default(false),
+  hasDisputedChargeback: boolean("has_disputed_chargeback").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

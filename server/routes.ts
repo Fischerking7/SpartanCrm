@@ -25,6 +25,7 @@ import { lookupCompPlanRate, checkOverrideEligibility, type CompPlanLookupResult
 import { generatePayStubPdf } from "./payStubPdf";
 import { deliverPayStubsForPayRun, queuePayStubEmail } from "./payStubEmailService";
 import archiver from "archiver";
+import { computeAndPersistSimplifiedStatus } from "./order-status-service";
 
 async function logPayrollAudit(params: {
   payRunId: string;
@@ -1634,6 +1635,7 @@ export async function registerRoutes(
 
   app.get("/api/my/summary", auth, async (req: AuthRequest, res) => {
     try {
+      const { getSimplifiedOrderStatus } = await import("../shared/order-status");
       const user = req.user!;
       if (!user.repId) return res.status(400).json({ message: "No rep ID associated" });
       const now = new Date();
@@ -1641,14 +1643,39 @@ export async function registerRoutes(
       const formatDate = (d: Date) => d.toISOString().split("T")[0];
 
       const mtdStart = new Date(nyNow.getFullYear(), nyNow.getMonth(), 1);
+      const ytdStart = new Date(nyNow.getFullYear(), 0, 1);
+
       const personalRepIds = await storage.getRepIdsForScope(user.id, user.role, "personal");
       const mtdMetrics = await storage.getProductionMetrics(personalRepIds, formatDate(mtdStart), formatDate(nyNow));
 
-      const recentOrders = await db.select().from(salesOrders)
-        .where(eq(salesOrders.repId, user.repId))
-        .orderBy(desc(salesOrders.createdAt))
-        .limit(5);
+      // Fetch all current-period orders for currentPeriod stats
+      const periodOrders = await db.select().from(salesOrders)
+        .where(and(
+          eq(salesOrders.repId, user.repId),
+          gte(salesOrders.dateSold, formatDate(mtdStart))
+        ));
 
+      let earnedAmount = 0;
+      let pendingAmount = 0;
+      let projectedAmount = 0;
+      let connectedCount = 0;
+      let pendingCount = 0;
+
+      for (const o of periodOrders) {
+        const base = parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0");
+        if (o.approvalStatus === "APPROVED") {
+          earnedAmount += base;
+          if (o.jobStatus === "COMPLETED") connectedCount++;
+          else pendingCount++;
+        } else if (o.approvalStatus === "UNAPPROVED") {
+          pendingAmount += base;
+          projectedAmount += base;
+          pendingCount++;
+        }
+        projectedAmount += o.approvalStatus === "APPROVED" ? base : 0;
+      }
+
+      // Pay-ready orders (in queue, not yet in a pay run)
       const payrollReadyOrders = await db.select().from(salesOrders)
         .where(and(
           eq(salesOrders.repId, user.repId),
@@ -1657,7 +1684,97 @@ export async function registerRoutes(
         ));
       let payrollReadyAmount = 0;
       for (const o of payrollReadyOrders) {
-        payrollReadyAmount += parseFloat(o.commissionAmount || "0");
+        payrollReadyAmount += parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0");
+      }
+
+      // Recent statements (last payment and next payment info)
+      const recentStatements = await db.select({
+        id: payStatements.id,
+        stubNumber: payStatements.stubNumber,
+        periodStart: payStatements.periodStart,
+        periodEnd: payStatements.periodEnd,
+        netPay: payStatements.netPay,
+        paidAt: payStatements.paidAt,
+        issuedAt: payStatements.issuedAt,
+        payRunId: payStatements.payRunId,
+        totalOrders: payStatements.totalOrders,
+        grossCommission: payStatements.grossCommission,
+      }).from(payStatements)
+        .where(and(
+          eq(payStatements.userId, user.id),
+          eq(payStatements.isViewableByRep, true)
+        ))
+        .orderBy(desc(payStatements.createdAt))
+        .limit(5);
+
+      const lastStatement = recentStatements[0] || null;
+
+      // Find associated orders for last statement
+      let lastPaymentOrderIds: string[] = [];
+      if (lastStatement?.payRunId) {
+        const lastStmtOrders = await db.select({ id: salesOrders.id }).from(salesOrders)
+          .where(and(
+            eq(salesOrders.repId, user.repId),
+            eq(salesOrders.payRunId, lastStatement.payRunId)
+          ));
+        lastPaymentOrderIds = lastStmtOrders.map(o => o.id);
+      }
+
+      // Next upcoming pay run (DRAFT or PENDING_REVIEW that has orders for this rep)
+      const nextPayRuns = await db.select().from(payRuns)
+        .where(and(
+          sql`${payRuns.status} IN ('DRAFT', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED')`,
+          isNull(payRuns.deletedAt)
+        ))
+        .orderBy(asc(payRuns.weekEndingDate))
+        .limit(3);
+
+      let nextPayment = null;
+      for (const pr of nextPayRuns) {
+        const repOrdersInRun = await db.select({ id: salesOrders.id, baseCommissionEarned: salesOrders.baseCommissionEarned, incentiveEarned: salesOrders.incentiveEarned })
+          .from(salesOrders)
+          .where(and(
+            eq(salesOrders.repId, user.repId),
+            eq(salesOrders.payRunId, pr.id)
+          ));
+        if (repOrdersInRun.length > 0) {
+          let estimatedAmount = 0;
+          for (const o of repOrdersInRun) {
+            estimatedAmount += parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0");
+          }
+          nextPayment = {
+            estimatedDate: pr.weekEndingDate,
+            estimatedAmount: Math.round(estimatedAmount * 100) / 100,
+            payRunName: pr.name || `Pay Run ${pr.weekEndingDate}`,
+            ordersIncluded: repOrdersInRun.length,
+          };
+          break;
+        }
+      }
+
+      // YTD totals from pay statements
+      const ytdStatements = await db.select({
+        grossCommission: payStatements.grossCommission,
+        netPay: payStatements.netPay,
+        deductionsTotal: payStatements.deductionsTotal,
+        totalOrders: payStatements.totalOrders,
+        totalConnects: payStatements.totalConnects,
+      }).from(payStatements)
+        .where(and(
+          eq(payStatements.userId, user.id),
+          eq(payStatements.isViewableByRep, true),
+          gte(payStatements.periodStart, formatDate(ytdStart))
+        ));
+
+      let ytdTotalEarned = 0;
+      let ytdTotalPaid = 0;
+      let ytdTotalOrders = 0;
+      let ytdTotalConnects = 0;
+      for (const s of ytdStatements) {
+        ytdTotalEarned += parseFloat(s.grossCommission || "0");
+        ytdTotalPaid += parseFloat(s.netPay || "0");
+        ytdTotalOrders += s.totalOrders || 0;
+        ytdTotalConnects += s.totalConnects || 0;
       }
 
       const activeChargebacks = await db.select().from(chargebacks)
@@ -1665,13 +1782,7 @@ export async function registerRoutes(
         .orderBy(desc(chargebacks.createdAt))
         .limit(5);
 
-      const myStatements = await db.select().from(payStatements)
-        .where(and(
-          eq(payStatements.userId, user.id),
-          eq(payStatements.isViewableByRep, true)
-        ))
-        .orderBy(desc(payStatements.createdAt))
-        .limit(1);
+      const myStatements = recentStatements;
 
       const todayInstalls = await db.select().from(salesOrders)
         .where(and(
@@ -1679,6 +1790,14 @@ export async function registerRoutes(
           eq(salesOrders.installDate, formatDate(nyNow)),
           ne(salesOrders.jobStatus, "COMPLETED")
         ));
+
+      // Pending advance repayments
+      const pendingAdvances = await db.select().from(advances)
+        .where(and(
+          eq(advances.userId, user.id),
+          or(eq(advances.status, "APPROVED"), eq(advances.status, "REPAYING"))
+        ))
+        .limit(3);
 
       const alerts: Array<{ type: string; severity: string; message: string; link?: string }> = [];
 
@@ -1704,7 +1823,7 @@ export async function registerRoutes(
 
       if (myStatements.length > 0) {
         const stmt = myStatements[0];
-        const stmtAge = now.getTime() - new Date(stmt.createdAt).getTime();
+        const stmtAge = now.getTime() - new Date(stmt.issuedAt || stmt.periodEnd).getTime();
         if (stmtAge < 7 * 24 * 60 * 60 * 1000) {
           alerts.push({
             type: "paystub",
@@ -1713,6 +1832,27 @@ export async function registerRoutes(
             link: "/my-earnings"
           });
         }
+      }
+
+      for (const adv of pendingAdvances) {
+        const advAmt = parseFloat(adv.remainingBalance || adv.approvedAmount || adv.requestedAmount || "0");
+        alerts.push({
+          type: "advance",
+          severity: "yellow",
+          message: `Advance repayment: $${advAmt.toFixed(2)} remaining balance`,
+          link: "/my-earnings"
+        });
+      }
+
+      // Check tax profile (onboarding)
+      const repUser = await db.select({ onboardingStatus: users.onboardingStatus }).from(users).where(eq(users.id, user.id)).limit(1);
+      if (repUser.length > 0 && repUser[0].onboardingStatus !== "APPROVED") {
+        alerts.push({
+          type: "tax_profile",
+          severity: "orange",
+          message: "Complete your tax profile to ensure timely payments",
+          link: "/onboarding"
+        });
       }
 
       const connectRate = mtdMetrics.soldCount > 0
@@ -1737,6 +1877,12 @@ export async function registerRoutes(
       const hour = nyNow.getHours();
       const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
+      // Recent orders with simplified status
+      const recentOrders = await db.select().from(salesOrders)
+        .where(eq(salesOrders.repId, user.repId))
+        .orderBy(desc(salesOrders.createdAt))
+        .limit(10);
+
       res.json({
         greeting,
         userName: user.name,
@@ -1750,6 +1896,22 @@ export async function registerRoutes(
           earnedDollars: mtdMetrics.earnedDollars,
           payrollReadyAmount: Math.round(payrollReadyAmount * 100) / 100,
         },
+        currentPeriod: {
+          soldCount: periodOrders.length,
+          connectedCount,
+          pendingCount,
+          earnedAmount: Math.round(earnedAmount * 100) / 100,
+          pendingAmount: Math.round(pendingAmount * 100) / 100,
+          projectedAmount: Math.round(projectedAmount * 100) / 100,
+        },
+        nextPayment,
+        lastPayment: lastStatement ? {
+          date: lastStatement.paidAt || lastStatement.periodEnd,
+          amount: parseFloat(lastStatement.netPay || "0"),
+          stubId: lastStatement.id,
+          stubNumber: lastStatement.stubNumber,
+          ordersIncluded: lastPaymentOrderIds.length,
+        } : null,
         alerts,
         recentOrders: recentOrders.map(o => ({
           id: o.id,
@@ -1760,13 +1922,132 @@ export async function registerRoutes(
           approvalStatus: o.approvalStatus,
           jobStatus: o.jobStatus,
           paymentStatus: o.paymentStatus,
-          commissionAmount: o.commissionAmount,
+          commissionAmount: (parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0")).toFixed(2),
+          simplifiedStatus: o.simplifiedStatus || getSimplifiedOrderStatus({
+            jobStatus: o.jobStatus,
+            approvalStatus: o.approvalStatus,
+            paymentStatus: o.paymentStatus,
+            payrollReadyAt: o.payrollReadyAt,
+            hasActiveChargeback: o.hasActiveChargeback,
+            hasDisputedChargeback: o.hasDisputedChargeback,
+          }),
         })),
+        ytd: {
+          totalEarned: Math.round(ytdTotalEarned * 100) / 100,
+          totalPaid: Math.round(ytdTotalPaid * 100) / 100,
+          totalOrders: ytdTotalOrders,
+          totalConnects: ytdTotalConnects,
+        },
         reserve: reserveInfo,
       });
     } catch (error) {
       console.error("My summary error:", error);
       res.status(500).json({ message: "Failed to get summary" });
+    }
+  });
+
+  app.get("/api/my/earnings-timeline", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!user.repId) return res.status(400).json({ message: "No rep ID associated" });
+
+      const rawMonths = parseInt((req.query.months as string) || "6", 10);
+      const months = Math.min(Math.max(isNaN(rawMonths) ? 6 : rawMonths, 1), 24);
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const formatDate = (d: Date) => d.toISOString().split("T")[0];
+
+      const timeline: Array<{
+        month: string;
+        monthKey: string;
+        ordersCount: number;
+        connectsCount: number;
+        grossEarned: number;
+        overrideEarned: number;
+        deductions: number;
+        netPaid: number;
+        payStubIds: string[];
+      }> = [];
+
+      for (let i = months - 1; i >= 0; i--) {
+        // Use half-open intervals: [mStart, mNextStart) to correctly include all records
+        // on the last calendar day of the month (including 23:59 timestamps).
+        const mStart = new Date(nyNow.getFullYear(), nyNow.getMonth() - i, 1);
+        const mNextStart = new Date(nyNow.getFullYear(), nyNow.getMonth() - i + 1, 1);
+        const mStartStr = formatDate(mStart);
+        const mEndStr = formatDate(new Date(mNextStart.getTime() - 1)); // last day of month for date-only columns
+
+        const monthOrders = await db.select({
+          jobStatus: salesOrders.jobStatus,
+          paymentStatus: salesOrders.paymentStatus,
+          baseCommissionEarned: salesOrders.baseCommissionEarned,
+          incentiveEarned: salesOrders.incentiveEarned,
+        }).from(salesOrders)
+          .where(and(
+            eq(salesOrders.repId, user.repId),
+            gte(salesOrders.dateSold, mStartStr),
+            sql`${salesOrders.dateSold} <= ${mEndStr}`
+          ));
+
+        let grossEarned = 0;
+        let connectsCount = 0;
+        for (const o of monthOrders) {
+          grossEarned += parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0");
+          if (o.jobStatus === "COMPLETED") connectsCount++;
+        }
+
+        // Get override earnings for this month using half-open interval [mStart, mNextStart)
+        const monthOverrides = await db.select({ amount: overrideEarnings.amount })
+          .from(overrideEarnings)
+          .where(and(
+            eq(overrideEarnings.recipientUserId, user.id),
+            gte(overrideEarnings.createdAt, mStart),
+            sql`${overrideEarnings.createdAt} < ${mNextStart}`
+          ));
+        let overrideEarned = 0;
+        for (const oe of monthOverrides) {
+          overrideEarned += parseFloat(oe.amount || "0");
+        }
+
+        // Get pay statements for this month (periodEnd is a date column, use last day of month)
+        const monthStatements = await db.select({
+          id: payStatements.id,
+          netPay: payStatements.netPay,
+          deductionsTotal: payStatements.deductionsTotal,
+        }).from(payStatements)
+          .where(and(
+            eq(payStatements.userId, user.id),
+            eq(payStatements.isViewableByRep, true),
+            gte(payStatements.periodStart, mStartStr),
+            sql`${payStatements.periodEnd} <= ${mEndStr}`
+          ));
+
+        let netPaid = 0;
+        let deductions = 0;
+        const payStubIds: string[] = [];
+        for (const s of monthStatements) {
+          netPaid += parseFloat(s.netPay || "0");
+          deductions += parseFloat(s.deductionsTotal || "0");
+          payStubIds.push(s.id);
+        }
+
+        timeline.push({
+          month: mStart.toLocaleString("en-US", { month: "short", year: "numeric" }),
+          monthKey: mStartStr.substring(0, 7),
+          ordersCount: monthOrders.length,
+          connectsCount,
+          grossEarned: Math.round(grossEarned * 100) / 100,
+          overrideEarned: Math.round(overrideEarned * 100) / 100,
+          deductions: Math.round(deductions * 100) / 100,
+          netPaid: Math.round(netPaid * 100) / 100,
+          payStubIds,
+        });
+      }
+
+      res.json({ timeline, months });
+    } catch (error) {
+      console.error("Earnings timeline error:", error);
+      res.status(500).json({ message: "Failed to get earnings timeline" });
     }
   });
 
@@ -3285,6 +3566,10 @@ Rules:
       
             
       const updated = await storage.updateOrder(id, updateData);
+      const statusFieldsUpdated = ["jobStatus", "approvalStatus", "paymentStatus", "payrollReadyAt"].some(f => f in updateData);
+      if (statusFieldsUpdated) {
+        await computeAndPersistSimplifiedStatus(id).catch(e => console.error("[order-status] Failed to persist simplified status for order", id, ":", e?.message || e));
+      }
       await storage.createAuditLog({ 
         action: "update_order", 
         tableName: "sales_orders", 
@@ -3368,6 +3653,7 @@ Rules:
         commissionPaid: totalCommission,
       });
 
+      await computeAndPersistSimplifiedStatus(id).catch(e => console.error("[order-status] Failed to persist simplified status for order", id, ":", e?.message || e));
       await storage.createAuditLog({ action: "mark_paid", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
       res.json(updated);
     } catch (error) {
@@ -3407,6 +3693,7 @@ Rules:
           commissionPaid: totalCommission,
         });
         
+        await computeAndPersistSimplifiedStatus(id).catch(e => console.error("[order-status] Failed to persist simplified status for order", id, ":", e?.message || e));
         await storage.createAuditLog({ action: "bulk_mark_paid", tableName: "sales_orders", recordId: id, beforeJson: JSON.stringify(order), afterJson: JSON.stringify(updated), userId: user.id });
         marked++;
       }
@@ -3492,6 +3779,8 @@ Rules:
         approvedAt: null,
         jobStatus: "PENDING",
       });
+
+      await computeAndPersistSimplifiedStatus(id).catch(e => console.error("[order-status] Failed to persist simplified status for order", id, ":", e?.message || e));
       
       await storage.createAuditLog({ 
         action: "reverse_approval", 
@@ -3545,6 +3834,7 @@ Rules:
       
       if (updatedOrder) {
         await generateOverrideEarnings(order, updatedOrder);
+        await computeAndPersistSimplifiedStatus(id).catch(e => console.error("[order-status] Failed to persist simplified status for order", id, ":", e?.message || e));
       }
       
       await storage.createAuditLog({
@@ -3587,6 +3877,8 @@ Rules:
         approvedByUserId: null,
         approvedAt: null,
       });
+      
+      await computeAndPersistSimplifiedStatus(id).catch(e => console.error("[order-status] Failed to persist simplified status for order", id, ":", e?.message || e));
       
       await storage.createAuditLog({
         action: "move_order_to_pending",
@@ -3645,6 +3937,7 @@ Rules:
         
         if (updatedOrder) {
           await generateOverrideEarnings(order, updatedOrder);
+          await computeAndPersistSimplifiedStatus(id).catch(e => console.error("[order-status] Failed to persist simplified status for order", id, ":", e?.message || e));
         }
         
         await storage.createAuditLog({
@@ -5816,6 +6109,7 @@ Rules:
             quickbooksRefId: quickbooksRefId,
             payRunId: payRunId,
           });
+          await computeAndPersistSimplifiedStatus(order.id).catch(e => console.error("[order-status] Failed to persist simplified status for order", order.id, ":", e?.message || e));
           matched++;
         } else {
           await storage.createUnmatchedPayment({
@@ -5897,6 +6191,7 @@ Rules:
             notes: notes,
             createdByUserId: req.user!.id,
           });
+          await computeAndPersistSimplifiedStatus(order.id).catch(e => console.error("[order-status] Failed to persist simplified status for order", order.id, ":", e?.message || e));
           matched++;
         } else {
           await storage.createUnmatchedChargeback({
@@ -15309,6 +15604,7 @@ Rules:
                   if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
                   if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
                   await storage.updateOrder(orderId, orderUpdate);
+                  await computeAndPersistSimplifiedStatus(orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", orderId, ":", e?.message || e));
 
                   const freshOrder = await storage.getOrderById(orderId);
                   if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
@@ -15339,6 +15635,7 @@ Rules:
                   if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
                   if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
                   await storage.updateOrder(orderId, orderUpdate);
+                  await computeAndPersistSimplifiedStatus(orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", orderId, ":", e?.message || e));
                   const freshOrder = await storage.getOrderById(orderId);
                   if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
                     await storage.setPayrollReady(orderId, "AR_SATISFIED");
@@ -15570,6 +15867,7 @@ Rules:
           if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
           
           await storage.updateOrder(ar.orderId, orderUpdate);
+          await computeAndPersistSimplifiedStatus(ar.orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", ar.orderId, ":", e?.message || e));
           
           const freshOrder = await storage.getOrderById(ar.orderId);
           if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
@@ -15670,6 +15968,7 @@ Rules:
                 if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
               }
               await storage.updateOrder(ar.orderId, orderUpdate);
+              await computeAndPersistSimplifiedStatus(ar.orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", ar.orderId, ":", e?.message || e));
 
               if (orderPaymentStatus === 'PAID') {
                 const freshOrder = await storage.getOrderById(ar.orderId);
@@ -15782,6 +16081,7 @@ Rules:
           if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
           if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
           await storage.updateOrder(ar.orderId, orderUpdate);
+          await computeAndPersistSimplifiedStatus(ar.orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", ar.orderId, ":", e?.message || e));
           
           const freshOrder = await storage.getOrderById(ar.orderId);
           if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
@@ -15789,6 +16089,7 @@ Rules:
           }
         } else if (order && newStatus !== 'SATISFIED' && order.paymentStatus === 'PAID') {
           await storage.updateOrder(ar.orderId, { paymentStatus: 'PARTIALLY_PAID' });
+          await computeAndPersistSimplifiedStatus(ar.orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", ar.orderId, ":", e?.message || e));
         }
       }
       
@@ -15842,6 +16143,7 @@ Rules:
           if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
           if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
           await storage.updateOrder(ar.orderId, orderUpdate);
+          await computeAndPersistSimplifiedStatus(ar.orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", ar.orderId, ":", e?.message || e));
           
           const freshOrder = await storage.getOrderById(ar.orderId);
           if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
@@ -15849,6 +16151,7 @@ Rules:
           }
         } else if (order && order.paymentStatus !== 'PAID') {
           await storage.updateOrder(ar.orderId, { paymentStatus: 'PARTIALLY_PAID' });
+          await computeAndPersistSimplifiedStatus(ar.orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", ar.orderId, ":", e?.message || e));
         }
       }
 
@@ -16007,6 +16310,7 @@ Rules:
           jobStatus: "PENDING",
         });
 
+        await computeAndPersistSimplifiedStatus(orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", orderId, ":", e?.message || e));
         await storage.createAuditLog({
           action: "install_sync_reverse_approval",
           tableName: "sales_orders",
@@ -16934,6 +17238,7 @@ Rules:
             if (isDryRun) continue;
 
             const updatedOrder = await storage.updateOrder(match.orderId, updates);
+            await computeAndPersistSimplifiedStatus(match.orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", match.orderId, ":", e?.message || e));
 
             if (updatedOrder && updates.approvalStatus === "APPROVED") {
               await generateOverrideEarnings(order, updatedOrder);
@@ -17924,6 +18229,7 @@ Rules:
       if (order.payrollReadyAt) return res.status(400).json({ message: "Order already payroll-ready" });
 
       const updated = await storage.setPayrollReady(req.params.orderId, "MANUAL");
+      await computeAndPersistSimplifiedStatus(req.params.orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", req.params.orderId, ":", e?.message || e));
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "payroll_manual_ready",
@@ -17960,6 +18266,20 @@ Rules:
         afterJson: JSON.stringify({ ordersUpdated: updated }),
       });
 
+      res.json({ success: true, ordersUpdated: updated });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/orders/backfill-simplified-status", auth, requireRoles("ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const allOrders = await db.select({ id: salesOrders.id }).from(salesOrders);
+      let updated = 0;
+      for (const order of allOrders) {
+        await computeAndPersistSimplifiedStatus(order.id).catch(e => console.error(`simplifiedStatus backfill failed for ${order.id}:`, e));
+        updated++;
+      }
       res.json({ success: true, ordersUpdated: updated });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
