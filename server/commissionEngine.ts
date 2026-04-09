@@ -99,11 +99,9 @@ export function getElevatedAdjustmentCents(
   standardCommissionCents: number,
 ): number {
   const elevatedCents = lookup.elevatedPersonalSalesCents;
-  const standardCents = lookup.repRateCents;
-  if (elevatedCents <= standardCents || standardCents <= 0) return 0;
-  const ratio = elevatedCents / standardCents;
-  const adjustedCommission = Math.round(standardCommissionCents * ratio);
-  return adjustedCommission - standardCommissionCents;
+  const repCents = lookup.repRateCents;
+  if (elevatedCents <= repCents || repCents <= 0) return 0;
+  return elevatedCents - repCents;
 }
 
 export interface OverrideEligibility {
@@ -147,7 +145,7 @@ export async function checkOverrideEligibility(
     .orderBy(commissionOverrideRules.priority);
 
   if (rules.length === 0) {
-    return getDefaultOverrideForRole(recipientRole, compPlanLookup);
+    return { eligible: false, amountCents: 0, reason: "No override rule configured for recipient" };
   }
 
   const isOwnerSale = OWNER_ROLES.includes(sellingRepRole);
@@ -202,28 +200,6 @@ export async function checkOverrideEligibility(
   }
 
   return { eligible: false, amountCents: 0 };
-}
-
-function getDefaultOverrideForRole(
-  role: string,
-  compPlanLookup: CompPlanLookupResult | null,
-): OverrideEligibility {
-  if (!compPlanLookup) return { eligible: false, amountCents: 0 };
-
-  switch (role) {
-    case "LEAD":
-      return { eligible: compPlanLookup.leaderRateCents > 0, amountCents: compPlanLookup.leaderRateCents };
-    case "MANAGER":
-      return { eligible: compPlanLookup.managerRateCents > 0, amountCents: compPlanLookup.managerRateCents };
-    case "DIRECTOR":
-      return { eligible: compPlanLookup.directorOverrideCents > 0, amountCents: compPlanLookup.directorOverrideCents };
-    case "OPERATIONS":
-      return { eligible: compPlanLookup.operationsOverrideCents > 0, amountCents: compPlanLookup.operationsOverrideCents };
-    case "ACCOUNTING":
-      return { eligible: compPlanLookup.accountingOverrideCents > 0, amountCents: compPlanLookup.accountingOverrideCents };
-    default:
-      return { eligible: false, amountCents: 0 };
-  }
 }
 
 function getOverrideAmountFromColumn(
