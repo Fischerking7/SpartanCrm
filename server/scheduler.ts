@@ -2,8 +2,9 @@ import { storage } from "./storage";
 import { emailService } from "./email";
 import { setForceLogoutTimestamp } from "./auth";
 import { db } from "./db";
-import { salesOrders, chargebacks, arExpectations, users, clients, carrierImportSchedules, integrationLogs, rollingReserves, systemExceptions } from "@shared/schema";
-import { eq, sql, and, gte, lte, inArray, isNull } from "drizzle-orm";
+import { salesOrders, chargebacks, arExpectations, users, clients, carrierImportSchedules, integrationLogs, rollingReserves, systemExceptions, overrideEarnings, payStatementLineItems, financeImportRows, backgroundJobs } from "@shared/schema";
+import type { SalesOrder } from "@shared/schema";
+import { eq, sql, and, gte, lte, inArray, isNull, isNotNull, desc } from "drizzle-orm";
 import { evaluateOrderForAutoApproval, loadAutoApprovalConfig } from "./autoApprovalEngine";
 import { checkAndReleaseMaturedReserves } from "./reserves/reserveService";
 
@@ -91,6 +92,8 @@ export const scheduler = {
     this.scheduleCarrierSftpPoll();
     this.scheduleReserveMaturityRelease();
     this.scheduleReserveDeficitCheck();
+    this.scheduleCommissionIntegrityCheck();
+    this.scheduleOrphanedRecordCheck();
 
     setTimeout(() => {
       runJobWithLock('checkScheduledPayRuns', () => this.checkScheduledPayRuns());
@@ -1565,5 +1568,303 @@ export const scheduler = {
       runJobWithLock("reserveDeficitCheck", deficitJob);
       setInterval(() => runJobWithLock("reserveDeficitCheck", deficitJob), 24 * 60 * 60 * 1000);
     }, ms);
+  },
+
+  scheduleCommissionIntegrityCheck() {
+    const ms = msUntilEasternTime(3, 0);
+    console.log(`[Scheduler] Commission integrity check scheduled in ${Math.round(ms / 60000)} minutes (3:00 AM ET)`);
+    const job = async () => {
+      runJobWithLock("commissionIntegrityCheck", () => this.commissionIntegrityCheck());
+    };
+    setTimeout(() => {
+      job();
+      setInterval(job, 24 * 60 * 60 * 1000);
+    }, ms);
+  },
+
+  async commissionIntegrityCheck() {
+    try {
+      const bgJob = await storage.createBackgroundJob({
+        jobType: "COMMISSION_INTEGRITY_CHECK",
+        metadata: JSON.stringify({ triggeredAt: new Date().toISOString() }),
+      });
+      await storage.updateBackgroundJob(bgJob.id, { status: "RUNNING", startedAt: new Date() });
+
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const approvedOrders = await db.select({
+        id: salesOrders.id,
+        repId: salesOrders.repId,
+        dateSold: salesOrders.dateSold,
+        approvedAt: salesOrders.approvedAt,
+        baseCommissionEarned: salesOrders.baseCommissionEarned,
+        appliedRateCardId: salesOrders.appliedRateCardId,
+        overrideDeduction: salesOrders.overrideDeduction,
+        tvSold: salesOrders.tvSold,
+        mobileSold: salesOrders.mobileSold,
+        isMobileOrder: salesOrders.isMobileOrder,
+        mobileLinesQty: salesOrders.mobileLinesQty,
+        providerId: salesOrders.providerId,
+        clientId: salesOrders.clientId,
+        serviceId: salesOrders.serviceId,
+        mobileProductType: salesOrders.mobileProductType,
+        mobilePortedStatus: salesOrders.mobilePortedStatus,
+      }).from(salesOrders)
+        .where(and(
+          eq(salesOrders.approvalStatus, "APPROVED"),
+          isNotNull(salesOrders.approvedAt),
+          gte(salesOrders.approvedAt, thirtyDaysAgo),
+          isNotNull(salesOrders.appliedRateCardId),
+        ));
+
+      let mismatchCount = 0;
+
+      for (const order of approvedOrders) {
+        try {
+          if (!order.appliedRateCardId) continue;
+
+          const rateCard = await storage.getRateCardById(order.appliedRateCardId);
+          if (!rateCard) continue;
+
+          // Read-only commission recalculation (no DB writes)
+          const isMobileOnlyForCalc = order.isMobileOrder === true;
+          let grossCommission = 0;
+
+          const baseAmount = parseFloat(rateCard.baseAmount || "0");
+          const tvAddonAmount = parseFloat(rateCard.tvAddonAmount || "0");
+
+          if (!isMobileOnlyForCalc) {
+            grossCommission += baseAmount;
+            if (order.tvSold) grossCommission += tvAddonAmount;
+          }
+
+          if (order.mobileSold) {
+            const mobileLines = await storage.getMobileLineItemsByOrderId(order.id);
+            if (mobileLines.length > 0) {
+              for (const mobileLine of mobileLines) {
+                const mobileRateCard = await storage.findRateCardForMobileLine(order as SalesOrder, mobileLine);
+                grossCommission += parseFloat(mobileRateCard?.mobilePerLineAmount || "0");
+              }
+            } else {
+              const mobilePerLineAmount = parseFloat(rateCard.mobilePerLineAmount || "0");
+              grossCommission += mobilePerLineAmount * (order.mobileLinesQty || 0);
+            }
+          }
+
+          const salesRepUser = order.repId ? await storage.getUserByRepId(order.repId) : null;
+          const userRole = salesRepUser?.role || "REP";
+          const roleOverride = await storage.getRoleOverrideForRateCard(rateCard.id, userRole);
+
+          let totalDeductions = 0;
+          const isMobileOnlyOrder = order.isMobileOrder === true;
+
+          if (roleOverride) {
+            if (!isMobileOnlyOrder) {
+              totalDeductions += parseFloat(roleOverride.overrideDeduction || "0");
+              if (order.tvSold) totalDeductions += parseFloat(roleOverride.tvOverrideDeduction || "0");
+            }
+            if (order.mobileSold) totalDeductions += parseFloat(roleOverride.mobileOverrideDeduction || "0");
+          } else {
+            if (!isMobileOnlyOrder) {
+              totalDeductions += parseFloat(rateCard.overrideDeduction || "0");
+              if (order.tvSold) totalDeductions += parseFloat(rateCard.tvOverrideDeduction || "0");
+            }
+            if (order.mobileSold) totalDeductions += parseFloat(rateCard.mobileOverrideDeduction || "0");
+          }
+
+          const recalculated = Math.max(0, grossCommission - totalDeductions);
+          const stored = parseFloat(order.baseCommissionEarned || "0");
+          const diff = Math.abs(recalculated - stored);
+
+          if (diff > 1.00) {
+            mismatchCount++;
+            const details = `Stored: $${stored.toFixed(2)}, Recalculated: $${recalculated.toFixed(2)}, Difference: $${diff.toFixed(2)}`;
+            const { created } = await storage.createSystemExceptionIfNotOpen({
+              exceptionType: "COMMISSION_MISMATCH",
+              severity: "WARNING",
+              title: `Commission mismatch on order ${order.id.slice(0, 8)}...`,
+              detail: details,
+              relatedEntityId: order.id,
+              relatedEntityType: "sales_order",
+              relatedUserId: salesRepUser?.id,
+            });
+            if (created) {
+              console.log(`[Scheduler] Commission mismatch (new): order ${order.id.slice(0, 8)}... diff=$${diff.toFixed(2)}`);
+            } else {
+              console.log(`[Scheduler] Commission mismatch (already open): order ${order.id.slice(0, 8)}...`);
+            }
+          }
+        } catch (orderError: any) {
+          console.error(`[Scheduler] Error checking order ${order.id}:`, orderError.message);
+        }
+      }
+
+      await storage.updateBackgroundJob(bgJob.id, {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        result: JSON.stringify({ ordersChecked: approvedOrders.length, mismatchesFound: mismatchCount }),
+      });
+      console.log(`[Scheduler] Commission integrity check: ${approvedOrders.length} orders checked, ${mismatchCount} mismatches`);
+    } catch (error: any) {
+      console.error("[Scheduler] Commission integrity check failed:", error.message);
+      try {
+        const failedJob = await db.select().from(backgroundJobs)
+          .where(and(eq(backgroundJobs.jobType, "COMMISSION_INTEGRITY_CHECK"), eq(backgroundJobs.status, "RUNNING")))
+          .orderBy(desc(backgroundJobs.createdAt)).limit(1);
+        if (failedJob.length > 0) {
+          await storage.updateBackgroundJob(failedJob[0].id, {
+            status: "FAILED",
+            completedAt: new Date(),
+            result: JSON.stringify({ error: error.message }),
+          });
+        }
+      } catch (_) {}
+    }
+  },
+
+  scheduleOrphanedRecordCheck() {
+    const weeklyMs = 7 * 24 * 60 * 60 * 1000;
+    const ms = msUntilEasternTime(4, 0);
+    console.log(`[Scheduler] Orphaned record check scheduled in ${Math.round(ms / 60000)} minutes (4:00 AM ET, weekly)`);
+    const job = async () => {
+      runJobWithLock("orphanedRecordCheck", () => this.orphanedRecordCheck());
+    };
+    setTimeout(() => {
+      job();
+      setInterval(job, weeklyMs);
+    }, ms);
+  },
+
+  async orphanedRecordCheck() {
+    try {
+      const bgJob = await storage.createBackgroundJob({
+        jobType: "ORPHANED_RECORD_CHECK",
+        metadata: JSON.stringify({ triggeredAt: new Date().toISOString() }),
+      });
+      await storage.updateBackgroundJob(bgJob.id, { status: "RUNNING", startedAt: new Date() });
+
+      let orphanCount = 0;
+
+      // Override earnings whose referenced sales order no longer exists (parent-existence check)
+      const orphanedOverrideEarnings = await db.execute(
+        sql`SELECT oe.id, oe.sales_order_id, oe.recipient_user_id, oe.amount
+            FROM override_earnings oe
+            WHERE NOT EXISTS (
+              SELECT 1 FROM sales_orders so WHERE so.id = oe.sales_order_id
+            )`
+      );
+
+      for (const oe of orphanedOverrideEarnings.rows as any[]) {
+        const { created } = await storage.createSystemExceptionIfNotOpen({
+          exceptionType: "ORPHANED_OVERRIDE_EARNING",
+          severity: "WARNING",
+          title: `Orphaned override earning: ${String(oe.id).slice(0, 8)}...`,
+          detail: `Override earning of $${parseFloat(oe.amount || "0").toFixed(2)} references a sales order that no longer exists (orderId: ${oe.sales_order_id}).`,
+          relatedEntityId: oe.id,
+          relatedEntityType: "override_earning",
+          relatedUserId: oe.recipient_user_id || undefined,
+        });
+        if (created) orphanCount++;
+      }
+
+      // Pay statement line items whose referenced pay statement no longer exists (parent-existence check)
+      const orphanedPayStatementLines = await db.execute(
+        sql`SELECT psl.id, psl.pay_statement_id
+            FROM pay_statement_line_items psl
+            WHERE NOT EXISTS (
+              SELECT 1 FROM pay_statements ps WHERE ps.id = psl.pay_statement_id
+            )`
+      );
+
+      for (const psl of orphanedPayStatementLines.rows as any[]) {
+        const { created } = await storage.createSystemExceptionIfNotOpen({
+          exceptionType: "ORPHANED_PAY_STATEMENT_LINE",
+          severity: "WARNING",
+          title: `Orphaned pay statement line: ${String(psl.id).slice(0, 8)}...`,
+          detail: `Pay statement line item references pay statement ${psl.pay_statement_id} which no longer exists.`,
+          relatedEntityId: psl.id,
+          relatedEntityType: "pay_statement_line_item",
+        });
+        if (created) orphanCount++;
+      }
+
+      // AR expectations with no linked order: (1) orderId is null, or (2) orderId set but order no longer exists
+      const orphanedArExpectations = await db.execute(
+        sql`SELECT ae.id, ae.client_id, ae.expected_amount_cents, ae.status, ae.order_id
+            FROM ar_expectations ae
+            WHERE ae.status NOT IN ('VOID', 'WRITTEN_OFF')
+              AND (
+                ae.order_id IS NULL
+                OR NOT EXISTS (
+                  SELECT 1 FROM sales_orders so WHERE so.id = ae.order_id
+                )
+              )`
+      );
+
+      for (const ar of orphanedArExpectations.rows as any[]) {
+        const reason = ar.order_id
+          ? `AR expectation references order ${ar.order_id} which no longer exists.`
+          : `AR expectation has no linked sales order (orderId is null).`;
+        const { created } = await storage.createSystemExceptionIfNotOpen({
+          exceptionType: "ORPHANED_AR_EXPECTATION",
+          severity: "WARNING",
+          title: `AR expectation with no linked order: ${String(ar.id).slice(0, 8)}...`,
+          detail: `AR expectation of $${(ar.expected_amount_cents / 100).toFixed(2)} (status: ${ar.status}) — ${reason}`,
+          relatedEntityId: ar.id,
+          relatedEntityType: "ar_expectation",
+        });
+        if (created) orphanCount++;
+      }
+
+      const matchedWithNullOrder = await db.select({
+        id: financeImportRows.id,
+        financeImportId: financeImportRows.financeImportId,
+        customerName: financeImportRows.customerName,
+      }).from(financeImportRows)
+        .where(and(
+          eq(financeImportRows.matchStatus, "MATCHED"),
+          isNull(financeImportRows.matchedOrderId),
+        ));
+
+      for (const fir of matchedWithNullOrder) {
+        const { created } = await storage.createSystemExceptionIfNotOpen({
+          exceptionType: "FINANCE_ROW_MATCHED_NO_ORDER",
+          severity: "WARNING",
+          title: `Finance import row marked MATCHED but matchedOrderId is null: ${fir.id.slice(0, 8)}...`,
+          detail: `Finance import row for customer "${fir.customerName}" is marked MATCHED but has no matched order ID. Import: ${fir.financeImportId.slice(0, 8)}...`,
+          relatedEntityId: fir.id,
+          relatedEntityType: "finance_import_row",
+        });
+        if (created) orphanCount++;
+      }
+
+      await storage.updateBackgroundJob(bgJob.id, {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        result: JSON.stringify({
+          orphanedOverrideEarnings: orphanedOverrideEarnings.rows.length,
+          orphanedPayStatementLines: orphanedPayStatementLines.rows.length,
+          orphanedArExpectations: orphanedArExpectations.rows.length,
+          matchedWithNullOrder: matchedWithNullOrder.length,
+          totalNewOrphans: orphanCount,
+        }),
+      });
+      console.log(`[Scheduler] Orphaned record check: ${orphanCount} orphans found`);
+    } catch (error: any) {
+      console.error("[Scheduler] Orphaned record check failed:", error.message);
+      try {
+        const failedJob = await db.select().from(backgroundJobs)
+          .where(and(eq(backgroundJobs.jobType, "ORPHANED_RECORD_CHECK"), eq(backgroundJobs.status, "RUNNING")))
+          .orderBy(desc(backgroundJobs.createdAt)).limit(1);
+        if (failedJob.length > 0) {
+          await storage.updateBackgroundJob(failedJob[0].id, {
+            status: "FAILED",
+            completedAt: new Date(),
+            result: JSON.stringify({ error: error.message }),
+          });
+        }
+      } catch (_) {}
+    }
   },
 };

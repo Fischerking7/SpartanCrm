@@ -174,11 +174,71 @@ interface CreateOrderParams {
   assignedRepId: string;
   userId: string;
   auditAction?: string;
+  excludeFromDuplicateCheck?: string[];
+}
+
+function fuzzyCustomerNameMatch(a: string, b: string): boolean {
+  const normA = normalizeCustomerName(a);
+  const normB = normalizeCustomerName(b);
+  if (normA === normB) return true;
+  const wordsA = normA.split(/\s+/).filter(Boolean);
+  const wordsB = normB.split(/\s+/).filter(Boolean);
+  if (wordsA.length === 0 || wordsB.length === 0) return false;
+  const matchCount = wordsA.filter(w => wordsB.includes(w)).length;
+  const similarity = matchCount / Math.max(wordsA.length, wordsB.length);
+  return similarity >= 0.7;
+}
+
+async function detectDuplicateOrder(repId: string, customerName: string, dateSold: string, excludeOrderIds: string[] = []): Promise<{ isDuplicate: boolean; duplicateOfOrderId: string | null; reason: string | null }> {
+  const anchor = new Date(dateSold);
+  const windowStart = new Date(anchor);
+  windowStart.setDate(windowStart.getDate() - 30);
+  const windowEnd = new Date(anchor);
+  windowEnd.setDate(windowEnd.getDate() + 30);
+  const windowStartStr = windowStart.toISOString().split("T")[0];
+  const windowEndStr = windowEnd.toISOString().split("T")[0];
+
+  const conditions = [
+    eq(salesOrders.repId, repId),
+    gte(salesOrders.dateSold, windowStartStr),
+    lte(salesOrders.dateSold, windowEndStr),
+    ne(salesOrders.approvalStatus, "REJECTED"),
+    ne(salesOrders.jobStatus, "CANCELED"),
+  ];
+
+  if (excludeOrderIds.length > 0) {
+    conditions.push(not(inArray(salesOrders.id, excludeOrderIds)));
+  }
+
+  const existingOrders = await db.select({
+    id: salesOrders.id,
+    customerName: salesOrders.customerName,
+    dateSold: salesOrders.dateSold,
+  }).from(salesOrders).where(and(...conditions));
+
+  for (const existing of existingOrders) {
+    if (fuzzyCustomerNameMatch(customerName, existing.customerName || "")) {
+      return {
+        isDuplicate: true,
+        duplicateOfOrderId: existing.id,
+        reason: `Potential duplicate of order ${existing.id.slice(0, 8)}... — same rep, similar customer name "${existing.customerName}", sold ${existing.dateSold}`,
+      };
+    }
+  }
+
+  return { isDuplicate: false, duplicateOfOrderId: null, reason: null };
 }
 
 async function createOrderWithCommission(params: CreateOrderParams) {
-  const { orderData, mobileLineData, dateSold, assignedRepId, userId, auditAction = "create_order" } = params;
+  const { orderData, mobileLineData, dateSold, assignedRepId, userId, auditAction = "create_order", excludeFromDuplicateCheck = [] } = params;
   
+  const duplicateCheck = await detectDuplicateOrder(
+    assignedRepId,
+    orderData.customerName || "",
+    dateSold,
+    excludeFromDuplicateCheck
+  );
+
   return db.transaction(async (tx) => {
     const txDb = tx as unknown as TxDb;
     
@@ -194,6 +254,9 @@ async function createOrderWithCommission(params: CreateOrderParams) {
       commissionPaid: "0",
       paymentStatus: "UNPAID" as const,
       exportedToAccounting: false,
+      isDuplicateFlag: duplicateCheck.isDuplicate,
+      duplicateFlagReason: duplicateCheck.reason,
+      duplicateOfOrderId: duplicateCheck.duplicateOfOrderId,
     };
     
     const order = await storage.createOrder(data as any, txDb);
@@ -248,7 +311,7 @@ async function createOrderWithCommission(params: CreateOrderParams) {
         const overrideAmounts = {
           base: parseFloat(rateCard.overrideDeduction || "0"),
           tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
-          mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
+          mobile: parseFloat(rateCard.mobileOverrideDeduction || "0"),
         };
         
         if (!isMobileOnlyOrder) {
@@ -514,7 +577,7 @@ export async function generateOverrideEarnings(originalOrder: SalesOrder, approv
             }, txDb);
           }
           
-          const mobileDeduction = parseFloat((rateCard as any).mobileOverrideDeduction || "0");
+          const mobileDeduction = parseFloat(rateCard.mobileOverrideDeduction || "0");
           const mobileKey = `${rateCard.id}-MOBILE`;
           if (mobileDeduction > 0 && approvedOrder.mobileSold && !existingPoolKeys.has(mobileKey)) {
             await storage.createOverrideDeductionPoolEntry({
@@ -3093,11 +3156,14 @@ Rules:
           isMobileOrder: false,
         };
         
+        // Exclude sibling orders created in this same request from duplicate detection
+        const siblingIds = createdOrders.map(o => o.id);
         const regularOrder = await createOrderWithCommission({
           orderData: regularOrderData,
           dateSold,
           assignedRepId,
           userId: user.id,
+          excludeFromDuplicateCheck: siblingIds,
         });
         createdOrders.push(regularOrder);
       }
@@ -3106,14 +3172,20 @@ Rules:
         scoreAndUpdateOrder(o.id).catch(() => {});
       }
 
+      const hasDuplicateFlag = createdOrders.some(o => o.isDuplicateFlag);
+      const duplicateWarning = hasDuplicateFlag
+        ? createdOrders.find(o => o.isDuplicateFlag)?.duplicateFlagReason || "Potential duplicate order detected"
+        : null;
+
       if (createdOrders.length === 1) {
-        res.json(createdOrders[0]);
+        res.json({ ...createdOrders[0], _duplicateWarning: duplicateWarning });
       } else {
         const primaryOrder = createdOrders.find(o => !o.isMobileOrder) || createdOrders[0];
         res.json({ 
           ...primaryOrder, 
           _mobileOrderCreated: true,
-          _mobileOrderId: createdOrders.find(o => o.isMobileOrder)?.id
+          _mobileOrderId: createdOrders.find(o => o.isMobileOrder)?.id,
+          _duplicateWarning: duplicateWarning,
         });
       }
     } catch (error: any) {
@@ -3185,7 +3257,12 @@ Rules:
       });
       
       scoreAndUpdateOrder(mobileOrder.id).catch(() => {});
-      res.json(mobileOrder);
+      res.json({
+        ...mobileOrder,
+        _duplicateWarning: mobileOrder.isDuplicateFlag
+          ? mobileOrder.duplicateFlagReason || "Potential duplicate order detected"
+          : null,
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to create mobile order" });
     }
@@ -3373,7 +3450,7 @@ Rules:
           const overrideAmounts = {
             base: parseFloat(rateCard.overrideDeduction || "0"),
             tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
-            mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
+            mobile: parseFloat(rateCard.mobileOverrideDeduction || "0"),
           };
           
           if (!isMobileOnlyOrder) {
@@ -6288,7 +6365,7 @@ Rules:
               const overrideAmounts = {
                 base: parseFloat(rateCard.overrideDeduction || "0"),
                 tv: parseFloat(rateCard.tvOverrideDeduction || "0"),
-                mobile: parseFloat((rateCard as any).mobileOverrideDeduction || "0"),
+                mobile: parseFloat(rateCard.mobileOverrideDeduction || "0"),
               };
               
               if (!isMobileOnlyOrder) {

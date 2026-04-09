@@ -5,7 +5,7 @@ export type TxDb = typeof db;
 import {
   users, providers, clients, services, rateCards, rateCardLeadOverrides, rateCardRoleOverrides, salesOrders,
   incentives, overrideAgreements, chargebacks, adjustments,
-  payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues, orderExceptions,
+  payRuns, unmatchedPayments, unmatchedChargebacks, rateIssues, orderExceptions, systemExceptions,
   auditLogs, exportBatches, counters, overrideEarnings, leads, leadDispositionHistory, commissionLineItems, mobileLineItems,
   overrideDeductionPool, overrideDistributions, knowledgeDocuments,
   payrollSchedules, payRunApprovals, deductionTypes, userDeductions,
@@ -1125,7 +1125,7 @@ export const storage = {
   async getRateIssues() {
     return db.query.rateIssues.findMany({ orderBy: [desc(rateIssues.createdAt)] });
   },
-  async createRateIssue(data: { salesOrderId: string; type: "MISSING_RATE" | "CONFLICT_RATE"; details: string }) {
+  async createRateIssue(data: { salesOrderId: string; type: "MISSING_RATE" | "CONFLICT_RATE" | "MISSING_ACCOUNTING_RECIPIENT"; details: string }) {
     const [record] = await db.insert(rateIssues).values(data).returning();
     return record;
   },
@@ -1135,6 +1135,71 @@ export const storage = {
       resolvedAt: new Date(),
       resolutionNote: note,
     }).where(eq(rateIssues.id, id)).returning();
+    return record;
+  },
+
+  // System Exceptions
+  async getSystemExceptions(filter?: { status?: string; exceptionType?: string }) {
+    const conditions = [];
+    if (filter?.status) conditions.push(eq(systemExceptions.status, filter.status));
+    if (filter?.exceptionType) conditions.push(eq(systemExceptions.exceptionType, filter.exceptionType));
+    if (conditions.length > 0) {
+      return db.select().from(systemExceptions).where(and(...conditions)).orderBy(desc(systemExceptions.createdAt));
+    }
+    return db.select().from(systemExceptions).orderBy(desc(systemExceptions.createdAt));
+  },
+  async createSystemException(data: {
+    exceptionType: string;
+    severity?: string;
+    title: string;
+    detail?: string;
+    relatedUserId?: string;
+    relatedEntityId?: string;
+    relatedEntityType?: string;
+    status?: string;
+  }) {
+    const [record] = await db.insert(systemExceptions).values({
+      ...data,
+      severity: data.severity ?? "WARNING",
+      status: data.status ?? "OPEN",
+    }).returning();
+    return record;
+  },
+  async createSystemExceptionIfNotOpen(data: {
+    exceptionType: string;
+    severity?: string;
+    title: string;
+    detail?: string;
+    relatedUserId?: string;
+    relatedEntityId?: string;
+    relatedEntityType?: string;
+  }): Promise<{ record: typeof systemExceptions.$inferSelect; created: boolean }> {
+    if (data.relatedEntityId) {
+      const existing = await db.select().from(systemExceptions).where(
+        and(
+          eq(systemExceptions.exceptionType, data.exceptionType),
+          eq(systemExceptions.relatedEntityId, data.relatedEntityId),
+          eq(systemExceptions.status, "OPEN"),
+        )
+      ).limit(1);
+      if (existing.length > 0) {
+        return { record: existing[0], created: false };
+      }
+    }
+    const [record] = await db.insert(systemExceptions).values({
+      ...data,
+      severity: data.severity ?? "WARNING",
+      status: "OPEN",
+    }).returning();
+    return { record, created: true };
+  },
+  async resolveSystemException(id: string, userId: string, note: string) {
+    const [record] = await db.update(systemExceptions).set({
+      status: "RESOLVED",
+      resolvedByUserId: userId,
+      resolvedAt: new Date(),
+      resolutionNote: note,
+    }).where(eq(systemExceptions.id, id)).returning();
     return record;
   },
 
