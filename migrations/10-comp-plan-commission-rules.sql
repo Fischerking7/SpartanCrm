@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS comp_plan_rates (
   executive_pay_cents integer NOT NULL DEFAULT 0,
   ic_profit_cents integer NOT NULL DEFAULT 0,
   elevated_personal_sales_cents integer NOT NULL DEFAULT 0,
-  effective_start varchar(10) NOT NULL DEFAULT '2025-01-01',
-  effective_end varchar(10),
+  effective_start date NOT NULL DEFAULT '2025-01-01',
+  effective_end date,
   active boolean NOT NULL DEFAULT true,
   created_at timestamp DEFAULT now() NOT NULL,
   updated_at timestamp DEFAULT now() NOT NULL

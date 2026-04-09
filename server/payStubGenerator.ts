@@ -6,7 +6,6 @@ import { reserveTransactions, payStatements, users } from "@shared/schema";
 import { eq, sql, and, isNull } from "drizzle-orm";
 import {
   lookupCompPlanRate,
-  getElevatedAdjustmentCents,
   isOwnerRole,
   calculateDdFeeCents,
   getRateForRole,
@@ -664,7 +663,6 @@ async function generatePayStubFromPayRun(
   if (!user) throw new Error(`User ${userId} not found`);
 
   const isOwner = user.compPlanType === "OWNER" || isOwnerRole(user.role);
-  const isElevated = user.compPlanType === "ELEVATED";
 
   const stubSeq = await storage.getNextStubSequence(payRunId, txDb);
   const stubNumber = buildStubNumber(periodEnd, user.repId, stubSeq);
@@ -678,7 +676,6 @@ async function generatePayStubFromPayRun(
   let totalMobileLines = 0;
 
   let incentivesTotalCents2 = 0;
-  let elevatedBoostCents = 0;
   const compPlanType = user.compPlanType || "STANDARD";
 
   for (const order of userOrders) {
@@ -701,10 +698,6 @@ async function generatePayStubFromPayRun(
         const roleRate = getRateForRole(cpRate, user.role, compPlanType);
         if (roleRate > 0) {
           orderCommCents = roleRate;
-        }
-        if (isElevated) {
-          const boost = getElevatedAdjustmentCents(cpRate, orderCommCents);
-          elevatedBoostCents += boost;
         }
       }
     }
@@ -771,7 +764,15 @@ async function generatePayStubFromPayRun(
     } catch {}
 
     for (const order of userOrders) {
-      const orderNetCents = Math.round(parseFloat(order.commissionAmount || "0") * 100);
+      let orderNetCents = Math.round(parseFloat(order.commissionAmount || "0") * 100);
+      if (order.serviceId) {
+        let cpRate = await lookupCompPlanRate(order.serviceId, order.providerId, order.clientId || null, periodEnd, txDb);
+        if (!cpRate) cpRate = await lookupCompPlanRate(order.serviceId, null, null, periodEnd, txDb);
+        if (cpRate) {
+          const roleRate = getRateForRole(cpRate, user.role, compPlanType);
+          if (roleRate > 0) orderNetCents = roleRate;
+        }
+      }
       if (orderNetCents <= 0) continue;
 
       const withholdingResult = await applyWithholding(userId, order.id, "PENDING", orderNetCents, txDb);
@@ -799,10 +800,6 @@ async function generatePayStubFromPayRun(
         }
       }
     }
-  }
-
-  if (elevatedBoostCents > 0) {
-    grossCommissionCents += elevatedBoostCents;
   }
 
   const pendingCarryForwards2 = await storage.getPendingCarryForwardForUser(userId, txDb);
@@ -1006,17 +1003,6 @@ async function generatePayStubFromPayRun(
       }, txDb);
       lineItemCount++;
     }
-  }
-
-  if (elevatedBoostCents > 0) {
-    await storage.createPayStatementLineItemFull({
-      payStatementId: statement.id,
-      category: "COMMISSION",
-      description: "Elevated Personal Sales Adjustment (Col J)",
-      sourceType: "ELEVATED_PERSONAL_SALES",
-      amount: (elevatedBoostCents / 100).toFixed(2),
-    }, txDb);
-    lineItemCount++;
   }
 
   if (isOwner && ownerPooledAmountCents !== undefined) {
