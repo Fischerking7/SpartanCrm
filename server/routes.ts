@@ -21,6 +21,7 @@ import { matchInstallationsToOrders, normalizeWoStatus, computeRowHash, type Ord
 import { emailService } from "./email";
 import { getOrCreateReserve, applyWithholding, applyChargebackToReserve, applyEquipmentRecovery, handleRepSeparation, checkAndReleaseMaturedReserves, calculateWithholding, isReserveEligibleRole } from "./reserves/reserveService";
 import { generatePayStub, generatePayStubsForPayRun } from "./payStubGenerator";
+import { lookupCompPlanRate, checkOverrideEligibility, type CompPlanLookupResult } from "./commissionEngine";
 import { generatePayStubPdf } from "./payStubPdf";
 import { deliverPayStubsForPayRun, queuePayStubEmail } from "./payStubEmailService";
 import archiver from "archiver";
@@ -414,11 +415,19 @@ const MANAGER_BOOST_ELIGIBLE_SERVICES = new Set([
   OVERRIDE_RULE_SERVICE_IDS["MULTI_GIG"],
 ]);
 
+function extractSpeedFromService(serviceId: string): number | undefined {
+  const speedMap: Record<string, number> = {
+    [OVERRIDE_RULE_SERVICE_IDS["300_MBPS"]]: 300,
+    [OVERRIDE_RULE_SERVICE_IDS["600_MBPS"]]: 600,
+    [OVERRIDE_RULE_SERVICE_IDS["1_GIG"]]: 1000,
+    [OVERRIDE_RULE_SERVICE_IDS["GIG_PLUS"]]: 1500,
+    [OVERRIDE_RULE_SERVICE_IDS["MULTI_GIG"]]: 2000,
+  };
+  return speedMap[serviceId];
+}
+
 async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder: SalesOrder): Promise<OverrideEarning[]> {
   const salesRep = await storage.getUserByRepId(approvedOrder.repId);
-  if (salesRep?.role === "EXECUTIVE") {
-    return [];
-  }
   
   return db.transaction(async (tx) => {
     const txDb = tx as unknown as TxDb;
@@ -642,134 +651,91 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
     let totalRackRateCents = 0;
 
     const accountingUsers = admins.filter(u => u.role === "ACCOUNTING" && u.status === "ACTIVE" && !u.deletedAt);
+    const operationsUsers = admins.filter(u => u.role === "OPERATIONS" && u.status === "ACTIVE" && !u.deletedAt);
+    const executiveUsers = admins.filter(u => u.role === "EXECUTIVE" && u.status === "ACTIVE" && !u.deletedAt);
+    const directorUsers = admins.filter(u => u.role === "DIRECTOR" && u.status === "ACTIVE" && !u.deletedAt);
 
     for (const rateCardId of usedRateCardIds) {
       const rateCard = await storage.getRateCardById(rateCardId);
       if (!rateCard) continue;
-
       if (rateCard.ironCrestRackRateCents) totalRackRateCents += rateCard.ironCrestRackRateCents;
+    }
 
-      const directorCents = rateCard.directorOverrideCents || 0;
-      if (directorCents > 0) {
-        totalDirectorOverrideCents += directorCents;
-        if (hierarchy.executive) {
-          const earning = await storage.createOverrideEarning({
-            salesOrderId: approvedOrder.id,
-            recipientUserId: hierarchy.executive.id,
-            sourceRepId: approvedOrder.repId,
-            sourceLevelUsed: "EXECUTIVE",
-            amount: (directorCents / 100).toFixed(2),
-            overrideType: "DIRECTOR_OVERRIDE",
-            approvalStatus: "PENDING_APPROVAL",
-          }, txDb);
-          earnings.push(earning);
+    const compPlanLookup = await lookupCompPlanRate(
+      approvedOrder.serviceId || null,
+      approvedOrder.providerId || null,
+      approvedOrder.clientId || null,
+      approvedOrder.dateSold,
+      txDb,
+    );
 
-          const executiveUsers = admins.filter(u => u.role === "EXECUTIVE" && u.status === "ACTIVE" && !u.deletedAt);
-          const operationsUsersForDirector = admins.filter(u => u.role === "OPERATIONS" && u.status === "ACTIVE" && !u.deletedAt);
-          const directorNotifyList = [
-            ...executiveUsers.filter(u => u.id !== hierarchy.executive!.id),
-            ...operationsUsersForDirector,
-          ];
-          for (const notifyUser of directorNotifyList) {
-            try {
-              await storage.createEmailNotification({
-                userId: notifyUser.id,
-                notificationType: "OVERRIDE_PENDING_APPROVAL",
-                subject: "Override Earning Pending Approval",
-                body: `A DIRECTOR_OVERRIDE override of $${(directorCents / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
-                recipientEmail: "",
-                status: "PENDING",
-                isRead: false,
-              });
-            } catch (e) {}
-          }
-        }
-      }
+    const sellingRepRole = salesRep?.role || "REP";
+    const sellingRepCompPlanType = salesRep?.compPlanType || "STANDARD";
+    const isOwnerSale = sellingRepCompPlanType === "OWNER";
 
-      const adminCents = rateCard.adminOverrideCents || 0;
-      if (adminCents > 0) {
-        totalAdminOverrideCents += adminCents;
-        const operationsUsers = admins.filter(u => u.role === "OPERATIONS" && u.status === "ACTIVE" && !u.deletedAt);
-        const recipientId = operationsUsers[0]?.id || activeAdmins[0]?.id;
-        if (recipientId) {
-          const earning = await storage.createOverrideEarning({
-            salesOrderId: approvedOrder.id,
-            recipientUserId: recipientId,
-            sourceRepId: approvedOrder.repId,
-            sourceLevelUsed: "ADMIN",
-            amount: (adminCents / 100).toFixed(2),
-            overrideType: "ADMIN_OVERRIDE",
-            approvalStatus: "PENDING_APPROVAL",
-          }, txDb);
-          earnings.push(earning);
+    const orderContext = {
+      serviceId: approvedOrder.serviceId || null,
+      providerId: approvedOrder.providerId || null,
+      clientId: approvedOrder.clientId || null,
+      speedMbps: approvedOrder.serviceId ? extractSpeedFromService(approvedOrder.serviceId) : undefined,
+      dateSold: approvedOrder.dateSold,
+    };
 
-          const adminNotifyList = operationsUsers.length > 0 ? operationsUsers : activeAdmins;
-          for (const notifyUser of adminNotifyList) {
-            if (notifyUser.id === recipientId) continue;
-            try {
-              await storage.createEmailNotification({
-                userId: notifyUser.id,
-                notificationType: "OVERRIDE_PENDING_APPROVAL",
-                subject: "Override Earning Pending Approval",
-                body: `An ADMIN_OVERRIDE override of $${(adminCents / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
-                recipientEmail: "",
-                status: "PENDING",
-                isRead: false,
-              });
-            } catch (e) {}
-          }
-        }
-      }
+    const overrideRecipients: Array<{ userId: string; role: string; overrideType: string }> = [];
 
-      const accountingCents = (rateCard as any).accountingOverrideCents || 0;
-      if (accountingCents > 0) {
-        totalAccountingOverrideCents += accountingCents;
-        if (accountingUsers.length === 0) {
-          try {
-            await storage.createRateIssue({
-              salesOrderId: approvedOrder.id,
-              type: "MISSING_ACCOUNTING_RECIPIENT",
-              details: `No active ACCOUNTING users found to receive accounting override of ${accountingCents}c for rate card ${rateCardId}`,
-            });
-          } catch (e) {
-            console.error("[generateOverrideEarnings] Failed to create rate issue:", e);
-          }
-        } else {
-          const totalAccountingDollars = accountingCents / 100;
-          const perUserBase = Math.floor(totalAccountingDollars * 100 / accountingUsers.length) / 100;
-          const remainderCents = Math.round(totalAccountingDollars * 100) - Math.round(perUserBase * 100 * accountingUsers.length);
-          for (let i = 0; i < accountingUsers.length; i++) {
-            const acctUser = accountingUsers[i];
-            const userAmount = i === 0 ? (perUserBase + remainderCents / 100).toFixed(2) : perUserBase.toFixed(2);
-            const earning = await storage.createOverrideEarning({
-              salesOrderId: approvedOrder.id,
-              recipientUserId: acctUser.id,
-              sourceRepId: approvedOrder.repId,
-              sourceLevelUsed: "ACCOUNTING",
-              amount: userAmount,
-              overrideType: "ACCOUNTING_OVERRIDE",
-              approvalStatus: "PENDING_APPROVAL",
-            }, txDb);
-            earnings.push(earning);
-          }
+    for (const director of directorUsers) {
+      overrideRecipients.push({ userId: director.id, role: "DIRECTOR", overrideType: "DIRECTOR_OVERRIDE" });
+    }
+    for (const ops of operationsUsers) {
+      overrideRecipients.push({ userId: ops.id, role: "OPERATIONS", overrideType: "ADMIN_OVERRIDE" });
+    }
+    for (const acct of accountingUsers) {
+      overrideRecipients.push({ userId: acct.id, role: "ACCOUNTING", overrideType: "ACCOUNTING_OVERRIDE" });
+    }
 
-          const executiveUsers = admins.filter(u => u.role === "EXECUTIVE" && u.status === "ACTIVE" && !u.deletedAt);
-          const operationsUsers = admins.filter(u => u.role === "OPERATIONS" && u.status === "ACTIVE" && !u.deletedAt);
-          const notifyUsers = [...executiveUsers, ...operationsUsers];
-          for (const notifyUser of notifyUsers) {
-            try {
-              await storage.createEmailNotification({
-                userId: notifyUser.id,
-                notificationType: "OVERRIDE_PENDING_APPROVAL",
-                subject: "Override Earning Pending Approval",
-                body: `An ACCOUNTING_OVERRIDE override of $${(accountingCents / 100).toFixed(2)} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
-                recipientEmail: "",
-                status: "PENDING",
-                isRead: false,
-              });
-            } catch (e) {}
-          }
-        }
+    for (const recipient of overrideRecipients) {
+      const eligibility = await checkOverrideEligibility(
+        recipient.userId,
+        recipient.role,
+        approvedOrder.repId,
+        sellingRepRole,
+        orderContext,
+        compPlanLookup,
+        txDb,
+      );
+
+      if (!eligibility.eligible || eligibility.amountCents <= 0) continue;
+
+      const amountDollars = (eligibility.amountCents / 100).toFixed(2);
+
+      if (recipient.overrideType === "DIRECTOR_OVERRIDE") totalDirectorOverrideCents += eligibility.amountCents;
+      else if (recipient.overrideType === "ADMIN_OVERRIDE") totalAdminOverrideCents += eligibility.amountCents;
+      else if (recipient.overrideType === "ACCOUNTING_OVERRIDE") totalAccountingOverrideCents += eligibility.amountCents;
+
+      const earning = await storage.createOverrideEarning({
+        salesOrderId: approvedOrder.id,
+        recipientUserId: recipient.userId,
+        sourceRepId: approvedOrder.repId,
+        sourceLevelUsed: recipient.role as "DIRECTOR" | "OPERATIONS" | "ACCOUNTING",
+        amount: amountDollars,
+        overrideType: recipient.overrideType,
+        approvalStatus: "PENDING_APPROVAL",
+      }, txDb);
+      earnings.push(earning);
+
+      const notifyUsers = [...executiveUsers, ...operationsUsers].filter(u => u.id !== recipient.userId);
+      for (const notifyUser of notifyUsers) {
+        try {
+          await storage.createEmailNotification({
+            userId: notifyUser.id,
+            notificationType: "OVERRIDE_PENDING_APPROVAL",
+            subject: "Override Earning Pending Approval",
+            body: `A ${recipient.overrideType} override of $${amountDollars} for order ${approvedOrder.invoiceNumber || approvedOrder.id} (${approvedOrder.customerName}) is pending your approval.`,
+            recipientEmail: "",
+            status: "PENDING",
+            isRead: false,
+          });
+        } catch (e) {}
       }
     }
 

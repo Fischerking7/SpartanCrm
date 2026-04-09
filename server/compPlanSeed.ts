@@ -86,30 +86,6 @@ export async function seedCompPlanData() {
       results.rulesCreated++;
     }
 
-    if (dan) {
-      const jose = findUser("Jose") || findUser("Molina");
-      const cindy = findUser("Cindy") || findUser("Reyes");
-      const maria = findUser("Maria") || findUser("Rico");
-
-      const teamRepIds = [jose, cindy, maria].filter(Boolean).map(u => u!.id);
-
-      await storage.createCommissionOverrideRule({
-        ruleName: "Manager Override — Dan DeLeon ($10 on team sales)",
-        recipientUserId: dan.id,
-        recipientRole: "MANAGER",
-        overrideType: "MANAGER_OVERRIDE",
-        overrideColumn: "D",
-        flatAmountCents: 1000,
-        useCompPlanColumn: false,
-        excludeOwnerSales: true,
-        excludeSelfSales: true,
-        active: true,
-        priority: 20,
-        notes: "Manager override: $10 flat on Jose/Cindy/Maria team sales. No override on owner sales.",
-      });
-      results.rulesCreated++;
-    }
-
     if (stefano) {
       await storage.createCommissionOverrideRule({
         ruleName: "Operations Override — Stefano Fischer ($10 all sales, excl self/own team)",
