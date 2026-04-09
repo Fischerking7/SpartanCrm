@@ -9,6 +9,7 @@ import {
   getElevatedAdjustmentCents,
   isOwnerRole,
   calculateDdFeeCents,
+  getRateForRole,
 } from "./commissionEngine";
 
 async function computeYtd(userId: string, periodEnd: string, excludeStatementId?: string, txDb?: TxDb) {
@@ -678,18 +679,18 @@ async function generatePayStubFromPayRun(
 
   let incentivesTotalCents2 = 0;
   let elevatedBoostCents = 0;
-  let ownerColHTotal = 0;
+  const compPlanType = user.compPlanType || "STANDARD";
 
   for (const order of userOrders) {
-    const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
-    grossCommissionCents += Math.round(commAmount * 100);
+    const fallbackCommCents = Math.round((order.commissionAmount ? parseFloat(order.commissionAmount) : 0) * 100);
     const incAmount = order.incentiveEarned ? parseFloat(order.incentiveEarned) : 0;
     incentivesTotalCents2 += Math.round(incAmount * 100);
     totalOrders++;
     if (order.jobStatus === "COMPLETED") totalConnects++;
     if (order.mobileLinesQty) totalMobileLines += order.mobileLinesQty;
 
-    if ((isElevated || isOwner) && order.serviceId) {
+    let orderCommCents = fallbackCommCents;
+    if (order.serviceId) {
       let cpRate = await lookupCompPlanRate(
         order.serviceId, order.providerId, order.clientId || null, periodEnd, txDb,
       );
@@ -697,21 +698,21 @@ async function generatePayStubFromPayRun(
         cpRate = await lookupCompPlanRate(order.serviceId, null, null, periodEnd, txDb);
       }
       if (cpRate) {
-        if (isElevated) {
-          const boost = getElevatedAdjustmentCents(cpRate, Math.round(commAmount * 100));
-          elevatedBoostCents += boost;
+        const roleRate = getRateForRole(cpRate, user.role, compPlanType);
+        if (roleRate > 0) {
+          orderCommCents = roleRate;
         }
-        if (isOwner) {
-          ownerColHTotal += cpRate.executivePayCents;
+        if (isElevated) {
+          const boost = getElevatedAdjustmentCents(cpRate, orderCommCents);
+          elevatedBoostCents += boost;
         }
       }
     }
+    grossCommissionCents += orderCommCents;
   }
 
   if (isOwner && ownerPooledAmountCents !== undefined) {
     grossCommissionCents = ownerPooledAmountCents;
-  } else if (isOwner && ownerColHTotal > 0) {
-    grossCommissionCents = ownerColHTotal;
   }
 
   const overrideEarnings = await storage.getApprovedOverrideEarningsForUser(userId, periodStart, periodEnd);
@@ -919,8 +920,16 @@ async function generatePayStubFromPayRun(
 
   if (!skipPerOrderLines) {
     for (const order of userOrders) {
-      const commAmount = order.commissionAmount ? parseFloat(order.commissionAmount) : 0;
-      const commCents = Math.round(commAmount * 100);
+      let commCents = Math.round((order.commissionAmount ? parseFloat(order.commissionAmount) : 0) * 100);
+      if (order.serviceId) {
+        let cpRate = await lookupCompPlanRate(order.serviceId, order.providerId, order.clientId || null, periodEnd, txDb);
+        if (!cpRate) cpRate = await lookupCompPlanRate(order.serviceId, null, null, periodEnd, txDb);
+        if (cpRate) {
+          const roleRate = getRateForRole(cpRate, user.role, compPlanType);
+          if (roleRate > 0) commCents = roleRate;
+        }
+      }
+      const commAmount = commCents / 100;
       const withheldForThisOrder = reservePerOrder2.find(r => r.orderId === order.id)?.withheldCents || 0;
       const netForOrder = (commCents - withheldForThisOrder) / 100;
 

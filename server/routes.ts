@@ -18067,6 +18067,25 @@ Rules:
       let totalStubNetCents = 0;
       let totalStubDeductionsCents = 0;
       const discrepancies: Array<{ userId: string; repId: string; name: string; issue: string }> = [];
+      const perRepResults: Array<{
+        userId: string;
+        repId: string;
+        name: string;
+        role: string;
+        orderCount: number;
+        expectedGrossCents: number;
+        actualGrossCents: number;
+        actualNetCents: number;
+        deltaCents: number;
+        status: "PASS" | "WARN" | "FAIL";
+      }> = [];
+
+      const ordersByUser = new Map<string, typeof payRunOrders>();
+      for (const order of payRunOrders) {
+        const uid = order.userId;
+        if (!ordersByUser.has(uid)) ordersByUser.set(uid, []);
+        ordersByUser.get(uid)!.push(order);
+      }
 
       for (const stmt of stmts) {
         const grossCents = Math.round(parseFloat(stmt.grossCommission || "0") * 100);
@@ -18075,6 +18094,55 @@ Rules:
         totalStubGrossCents += grossCents;
         totalStubNetCents += netCents;
         totalStubDeductionsCents += deductionCents;
+
+        const userOrders = ordersByUser.get(stmt.userId) || [];
+        let expectedGrossCents = 0;
+        const user = await storage.getUserById(stmt.userId);
+        const compPlanType = user?.compPlanType || "STANDARD";
+        const userRole = user?.role || "REP";
+
+        for (const order of userOrders) {
+          let orderCents = Math.round(parseFloat(order.commissionAmount || "0") * 100);
+          if (order.serviceId) {
+            const { lookupCompPlanRate } = await import("./commissionEngine");
+            let cpRate = await lookupCompPlanRate(order.serviceId, order.providerId, order.clientId || null, payRun.periodEnd);
+            if (!cpRate) cpRate = await lookupCompPlanRate(order.serviceId, null, null, payRun.periodEnd);
+            if (cpRate) {
+              const { getRateForRole } = await import("./commissionEngine");
+              const roleRate = getRateForRole(cpRate, userRole, compPlanType);
+              if (roleRate > 0) orderCents = roleRate;
+            }
+          }
+          expectedGrossCents += orderCents;
+        }
+
+        const deltaCents = Math.abs(grossCents - expectedGrossCents);
+        const toleranceCents = Math.max(100, Math.round(expectedGrossCents * 0.05));
+        let status: "PASS" | "WARN" | "FAIL" = "PASS";
+        if (deltaCents > toleranceCents) status = "FAIL";
+        else if (deltaCents > 50) status = "WARN";
+
+        perRepResults.push({
+          userId: stmt.userId,
+          repId: stmt.repId || "",
+          name: stmt.repName || "",
+          role: userRole,
+          orderCount: userOrders.length,
+          expectedGrossCents,
+          actualGrossCents: grossCents,
+          actualNetCents: netCents,
+          deltaCents,
+          status,
+        });
+
+        if (status === "FAIL") {
+          discrepancies.push({
+            userId: stmt.userId,
+            repId: stmt.repId || "",
+            name: stmt.repName || "",
+            issue: `Expected gross $${(expectedGrossCents / 100).toFixed(2)} vs actual $${(grossCents / 100).toFixed(2)} (delta $${(deltaCents / 100).toFixed(2)})`,
+          });
+        }
 
         if (netCents < 0) {
           discrepancies.push({
@@ -18109,7 +18177,8 @@ Rules:
         });
       }
 
-      const passed = discrepancies.length === 0;
+      const passed = discrepancies.filter(d => d.repId !== "SYSTEM" || orderVsStubDiffPct > 5).length === 0
+        && perRepResults.every(r => r.status !== "FAIL");
 
       res.json({
         payRunId: req.params.payRunId,
@@ -18123,6 +18192,17 @@ Rules:
           totalStubNet: (totalStubNetCents / 100).toFixed(2),
           discrepancyPct: orderVsStubDiffPct.toFixed(1),
         },
+        perRepResults: perRepResults.map(r => ({
+          repId: r.repId,
+          name: r.name,
+          role: r.role,
+          orderCount: r.orderCount,
+          expectedGross: (r.expectedGrossCents / 100).toFixed(2),
+          actualGross: (r.actualGrossCents / 100).toFixed(2),
+          actualNet: (r.actualNetCents / 100).toFixed(2),
+          delta: (r.deltaCents / 100).toFixed(2),
+          status: r.status,
+        })),
         discrepancies,
       });
     } catch (error: any) {
