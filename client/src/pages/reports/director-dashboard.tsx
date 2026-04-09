@@ -1,14 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Trophy, Users, Camera, Plus } from "lucide-react";
+import { Trophy, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface TeamData {
@@ -45,7 +43,6 @@ function getDefaultPeriod() {
 }
 
 export default function DirectorDashboard() {
-  const [, navigate] = useLocation();
   const defaultPeriod = getDefaultPeriod();
   const [dateFrom, setDateFrom] = useState(defaultPeriod.from);
   const [dateTo, setDateTo] = useState(defaultPeriod.to);
@@ -84,17 +81,6 @@ export default function DirectorDashboard() {
             <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-36" data-testid="input-date-to" />
           </div>
         </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2" data-testid="director-quick-actions">
-        <Button onClick={() => navigate("/mobile-entry")} data-testid="button-capture-order-photo">
-          <Camera className="h-4 w-4 mr-2" />
-          Capture Order from Photo
-        </Button>
-        <Button variant="outline" onClick={() => navigate("/orders")} data-testid="button-go-to-orders">
-          <Plus className="h-4 w-4 mr-2" />
-          New Order
-        </Button>
       </div>
 
       <Card data-testid="card-team-comparison">
