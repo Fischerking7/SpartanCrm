@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc, not, ilike } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders, commissionDisputes } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, insertCompPlanRateSchema, insertCommissionOverrideRuleSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
@@ -19476,8 +19476,207 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
+  app.get("/api/my/team-health", auth, requireRoles("MANAGER", "EXECUTIVE", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const actor = req.user!;
+      const now = new Date();
+      const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const today = nyNow.toISOString().split("T")[0];
+      const sevenDaysAgo = new Date(nyNow.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+      // Determine scope of reps based on user role, using hierarchy
+      let allRepIds: string[] = [];
+      let allRepRepIds: string[] = [];
+
+      if (actor.role === "MANAGER") {
+        const scope = await storage.getManagerScope(actor.id);
+        allRepIds = scope.allRepIds;
+        allRepRepIds = scope.allRepRepIds;
+      } else if (actor.role === "EXECUTIVE") {
+        const scope = await storage.getExecutiveScope(actor.id);
+        allRepIds = scope.allRepIds;
+        allRepRepIds = scope.allRepRepIds;
+      } else {
+        // ADMIN — full org view
+        const allReps = await db.query.users.findMany({
+          where: and(
+            inArray(users.role, ["REP", "MDU", "LEAD"]),
+            eq(users.status, "ACTIVE"),
+            isNull(users.deletedAt)
+          )
+        });
+        allRepIds = allReps.map(r => r.id);
+        allRepRepIds = allReps.map(r => r.repId);
+      }
+
+      if (allRepIds.length === 0) {
+        return res.json({
+          overallScore: 100,
+          scoreLabel: "Healthy",
+          metrics: { connectRate7d: 0, connectRateTarget: 70, avgDaysToApproval: 0, pendingApprovals: 0, openChargebacks: 0, repsWithNoSales7d: 0, repsWithOpenDisputes: 0 },
+          repAlerts: [],
+          topPerformers: [],
+          needsAttention: [],
+        });
+      }
+
+      // Orders in last 7 days for these reps
+      const recentOrders = allRepRepIds.length > 0
+        ? await db.query.salesOrders.findMany({
+            where: and(
+              inArray(salesOrders.repId, allRepRepIds),
+              gte(salesOrders.dateSold, sevenDaysAgo),
+              lte(salesOrders.dateSold, today)
+            )
+          })
+        : [];
+
+      const totalOrders7d = recentOrders.length;
+      const completedOrders7d = recentOrders.filter(o => o.jobStatus === "COMPLETED").length;
+      const connectRate7d = totalOrders7d > 0 ? Math.round((completedOrders7d / totalOrders7d) * 100) : 0;
+
+      // Reps with no sales in last 7 days
+      const repRepIdsWithSales = new Set(recentOrders.map(o => o.repId));
+      const repsWithNoSales7d = allRepRepIds.filter(rid => !repRepIdsWithSales.has(rid)).length;
+
+      // Pending approvals (orders pending approval for these reps)
+      const pendingApprovalsResult = allRepRepIds.length > 0
+        ? await db.select({ count: sql<number>`count(*)` }).from(salesOrders)
+            .where(and(inArray(salesOrders.repId, allRepRepIds), eq(salesOrders.approvalStatus, "PENDING")))
+        : [{ count: 0 }];
+      const pendingApprovals = Number(pendingApprovalsResult[0]?.count || 0);
+
+      // Avg days to approval
+      const approvedOrdersData = allRepRepIds.length > 0
+        ? await db.select({
+            avgDays: sql<string>`COALESCE(AVG(EXTRACT(EPOCH FROM ("approved_at" - "date_sold"::timestamp)) / 86400), 0)`,
+          }).from(salesOrders)
+            .where(and(
+              inArray(salesOrders.repId, allRepRepIds),
+              eq(salesOrders.approvalStatus, "APPROVED"),
+              isNotNull(salesOrders.approvedAt),
+              gte(salesOrders.dateSold, sevenDaysAgo)
+            ))
+        : [{ avgDays: "0" }];
+      const avgDaysToApproval = Math.round(parseFloat(approvedOrdersData[0]?.avgDays || "0") * 10) / 10;
+
+      // Open chargebacks
+      const openChargebacksResult = allRepRepIds.length > 0
+        ? await db.select({ count: sql<number>`count(*)` }).from(chargebacks)
+            .where(and(inArray(chargebacks.repId, allRepRepIds), isNull(chargebacks.payRunId)))
+        : [{ count: 0 }];
+      const openChargebacks = Number(openChargebacksResult[0]?.count || 0);
+
+      // Open disputes
+      const openDisputesResult = allRepIds.length > 0
+        ? await db.select({ count: sql<number>`count(*)` }).from(commissionDisputes)
+            .where(and(inArray(commissionDisputes.userId, allRepIds), inArray(commissionDisputes.status, ["PENDING", "UNDER_REVIEW"])))
+        : [{ count: 0 }];
+      const openDisputes = Number(openDisputesResult[0]?.count || 0);
+
+      // Count reps with open disputes
+      const repsWithDisputesResult = allRepIds.length > 0
+        ? await db.select({ userId: commissionDisputes.userId }).from(commissionDisputes)
+            .where(and(inArray(commissionDisputes.userId, allRepIds), inArray(commissionDisputes.status, ["PENDING", "UNDER_REVIEW"])))
+            .groupBy(commissionDisputes.userId)
+        : [];
+      const repsWithOpenDisputes = repsWithDisputesResult.length;
+
+      // Score calculation: start 100
+      let score = 100;
+      score -= Math.min(repsWithNoSales7d * 5, 25);
+      score -= Math.min(openChargebacks * 10, 20);
+      if (connectRate7d < 60) score -= 15;
+      if (avgDaysToApproval > 3) score -= 5;
+      score -= Math.min(openDisputes * 10, 20);
+      score = Math.max(0, Math.min(100, score));
+
+      const scoreLabel = score >= 75 ? "Healthy" : score >= 50 ? "At Risk" : "Critical";
+
+      // Per-rep stats for alerts/top/bottom
+      const allRepsData = await db.query.users.findMany({
+        where: and(inArray(users.id, allRepIds), eq(users.status, "ACTIVE"), isNull(users.deletedAt))
+      });
+
+      const repStats = await Promise.all(allRepsData.map(async (rep) => {
+        const repOrders = recentOrders.filter(o => o.repId === rep.repId);
+        const repTotal = repOrders.length;
+        const repConnects = repOrders.filter(o => o.jobStatus === "COMPLETED").length;
+        const repConnectRate = repTotal > 0 ? Math.round((repConnects / repTotal) * 100) : 0;
+
+        const repChargebacks = await db.select({ count: sql<number>`count(*)` }).from(chargebacks)
+          .where(and(eq(chargebacks.repId, rep.repId), isNull(chargebacks.payRunId)));
+        const repCbCount = Number(repChargebacks[0]?.count || 0);
+
+        const repDisputes = await db.select({ count: sql<number>`count(*)` }).from(commissionDisputes)
+          .where(and(eq(commissionDisputes.userId, rep.id), inArray(commissionDisputes.status, ["PENDING", "UNDER_REVIEW"])));
+        const repDisputeCount = Number(repDisputes[0]?.count || 0);
+
+        const alerts: string[] = [];
+        if (repTotal === 0) alerts.push("No sales in 7 days");
+        if (repTotal > 0 && repConnectRate < 60) alerts.push(`Low connect rate (${repConnectRate}%)`);
+        if (repCbCount > 0) alerts.push(`${repCbCount} open chargeback${repCbCount > 1 ? "s" : ""}`);
+        if (repDisputeCount > 0) alerts.push(`${repDisputeCount} open dispute${repDisputeCount > 1 ? "s" : ""}`);
+
+        return {
+          id: rep.id,
+          name: rep.name,
+          repId: rep.repId,
+          role: rep.role,
+          sales7d: repTotal,
+          connects7d: repConnects,
+          connectRate7d: repConnectRate,
+          openChargebacks: repCbCount,
+          openDisputes: repDisputeCount,
+          alerts,
+        };
+      }));
+
+      const repAlerts = repStats.filter(r => r.alerts.length > 0).map(r => ({
+        id: r.id,
+        name: r.name,
+        repId: r.repId,
+        alerts: r.alerts,
+      }));
+
+      const sortedByConnectRate = [...repStats].sort((a, b) => {
+        if (b.sales7d === 0 && a.sales7d === 0) return 0;
+        if (b.sales7d === 0) return -1;
+        if (a.sales7d === 0) return 1;
+        return b.connectRate7d - a.connectRate7d;
+      });
+      const topPerformers = sortedByConnectRate.slice(0, 5).map(r => ({
+        id: r.id, name: r.name, repId: r.repId, sales7d: r.sales7d, connectRate7d: r.connectRate7d,
+      }));
+      const needsAttention = sortedByConnectRate.slice(-5).reverse().map(r => ({
+        id: r.id, name: r.name, repId: r.repId, sales7d: r.sales7d, connectRate7d: r.connectRate7d, alerts: r.alerts,
+      }));
+
+      res.json({
+        overallScore: score,
+        scoreLabel,
+        metrics: {
+          connectRate7d,
+          connectRateTarget: 70,
+          avgDaysToApproval,
+          pendingApprovals,
+          openChargebacks,
+          repsWithNoSales7d,
+          repsWithOpenDisputes,
+        },
+        repAlerts,
+        topPerformers,
+        needsAttention,
+      });
+    } catch (error: any) {
+      console.error("Team health error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/executive/financial-snapshot", auth, execAccess, async (req: AuthRequest, res) => {
     try {
+      const actor = req.user!;
       const now = new Date();
       const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
       const mtdStart = new Date(nyNow.getFullYear(), nyNow.getMonth(), 1).toISOString().split("T")[0];
@@ -19485,7 +19684,26 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
       const lmStart = new Date(nyNow.getFullYear(), nyNow.getMonth() - 1, 1).toISOString().split("T")[0];
       const lmEnd = new Date(nyNow.getFullYear(), nyNow.getMonth(), 0).toISOString().split("T")[0];
 
+      // Scope data strictly to the executive's hierarchy — no org-wide fallbacks
+      const execScope = await storage.getExecutiveScope(actor.id);
+      const scopedRepRepIds = execScope.allRepRepIds;
+      const scopedUserIds = execScope.allRepIds;
+
+      // Empty scope returns zeroed snapshot (executive has no assigned hierarchy)
+      const emptyPeriod = {
+        grossRevenueCents: 0, repPayoutsCents: 0, overridePayoutsCents: 0,
+        ironCrestProfitCents: 0, profitMargin: 0, ordersCompleted: 0, totalOrders: 0,
+        arReceivedCents: 0, arOutstandingCents: 0,
+      };
+
+      function momChange(current: number, prior: number): number {
+        if (prior === 0) return current > 0 ? 100 : 0;
+        return Math.round(((current - prior) / prior) * 100);
+      }
+
       async function periodMetrics(start: string, end: string) {
+        if (scopedRepRepIds.length === 0) return emptyPeriod;
+        // Sales metrics for the period, scoped to executive's reps
         const data = await db.select({
           totalRackRate: sql<string>`COALESCE(SUM("iron_crest_rack_rate_cents"), 0)`,
           totalRepPayout: sql<string>`COALESCE(SUM(CAST("base_commission_earned" AS DECIMAL) * 100), 0)`,
@@ -19493,7 +19711,16 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
           totalAdminOverride: sql<string>`COALESCE(SUM("admin_override_cents"), 0)`,
           totalAccountingOverride: sql<string>`COALESCE(SUM("accounting_override_cents"), 0)`,
           totalProfit: sql<string>`COALESCE(SUM("iron_crest_profit_cents"), 0)`,
-        }).from(salesOrders).where(sql`"approval_status" = 'APPROVED' AND "date_sold" >= ${start}::date AND "date_sold" <= ${end}::date`);
+          ordersCompleted: sql<number>`count(*) FILTER (WHERE "job_status" = 'COMPLETED')`,
+          totalOrders: sql<number>`count(*)`,
+        }).from(salesOrders).where(
+          and(
+            eq(salesOrders.approvalStatus, "APPROVED"),
+            gte(salesOrders.dateSold, start),
+            lte(salesOrders.dateSold, end),
+            inArray(salesOrders.repId, scopedRepRepIds)
+          )
+        );
         const row = data[0];
         const rr = parseInt(row?.totalRackRate || "0");
         const rp = parseInt(row?.totalRepPayout || "0");
@@ -19501,23 +19728,45 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         const aOvr = parseInt(row?.totalAdminOverride || "0");
         const acOvr = parseInt(row?.totalAccountingOverride || "0");
         const profit = parseInt(row?.totalProfit || "0");
+
+        // AR scoped to orders belonging to executive's reps in the period
+        // arExpectations links to salesOrders via orderId — use a subquery to scope
+        const arData = await db.select({
+          arReceived: sql<string>`COALESCE(SUM(ae."actual_amount_cents"), 0)`,
+          arOutstanding: sql<string>`COALESCE(SUM(ae."expected_amount_cents" - ae."actual_amount_cents"), 0)`,
+        }).from(sql`ar_expectations ae`)
+          .innerJoin(
+            sql`sales_orders so`,
+            sql`ae."order_id" = so."id" AND so."rep_id" = ANY(${scopedRepRepIds}) AND so."date_sold" >= ${start}::date AND so."date_sold" <= ${end}::date`
+          )
+          .where(sql`ae."order_id" IS NOT NULL`);
+
         return {
-          revenueCents: rr,
+          grossRevenueCents: rr,
           repPayoutsCents: rp,
           overridePayoutsCents: dOvr + aOvr + acOvr,
-          profitCents: profit,
+          ironCrestProfitCents: profit,
           profitMargin: rr > 0 ? Math.round((profit / rr) * 100) : 0,
+          ordersCompleted: Number(row?.ordersCompleted || 0),
+          totalOrders: Number(row?.totalOrders || 0),
+          arReceivedCents: parseInt(arData[0]?.arReceived || "0"),
+          arOutstandingCents: Math.max(0, parseInt(arData[0]?.arOutstanding || "0")),
         };
       }
 
-      const thisMonth = await periodMetrics(mtdStart, today);
-      const lastMonth = await periodMetrics(lmStart, lmEnd);
+      const [thisMonth, lastMonth] = await Promise.all([
+        periodMetrics(mtdStart, today),
+        periodMetrics(lmStart, lmEnd),
+      ]);
 
+      // Profit breakdown by service and manager — strictly within scoped orders
       const servicesList = await storage.getServices();
       const serviceMap = new Map(servicesList.map((s: any) => [s.id, s]));
-      const profitOrders = await db.query.salesOrders.findMany({
-        where: and(eq(salesOrders.approvalStatus, "APPROVED"), gte(salesOrders.dateSold, mtdStart), lte(salesOrders.dateSold, today))
-      });
+      const profitOrders = scopedRepRepIds.length > 0
+        ? await db.query.salesOrders.findMany({
+            where: and(eq(salesOrders.approvalStatus, "APPROVED"), gte(salesOrders.dateSold, mtdStart), lte(salesOrders.dateSold, today), inArray(salesOrders.repId, scopedRepRepIds))
+          })
+        : [];
       const svcProfit = new Map<string, { name: string; profitCents: number; rackRateCents: number; count: number }>();
       for (const o of profitOrders) {
         const svc = serviceMap.get(o.serviceId);
@@ -19530,79 +19779,118 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
       }
       const profitByService = [...svcProfit.values()].sort((a, b) => b.profitCents - a.profitCents);
 
-      const allManagers = await db.query.users.findMany({
-        where: and(eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"), isNull(users.deletedAt))
-      });
+      const allManagers = execScope.managerIds.length > 0
+        ? await db.query.users.findMany({
+            where: and(eq(users.role, "MANAGER"), eq(users.status, "ACTIVE"), isNull(users.deletedAt), inArray(users.id, execScope.managerIds))
+          })
+        : [];
       const profitByManager = [];
       for (const mgr of allManagers) {
         const mgrScope = await storage.getManagerScope(mgr.id);
         const mgrOrders = profitOrders.filter(o => mgrScope.allRepRepIds.includes(o.repId));
-        const profitCents = mgrOrders.reduce((sum: number, o: any) => sum + (o.ironCrestProfitCents || 0), 0);
-        const rackRateCents = mgrOrders.reduce((sum: number, o: any) => sum + (o.ironCrestRackRateCents || 0), 0);
-        profitByManager.push({ name: mgr.name, id: mgr.id, profitCents, rackRateCents, orderCount: mgrOrders.length });
+        profitByManager.push({
+          name: mgr.name, id: mgr.id,
+          profitCents: mgrOrders.reduce((s: number, o: any) => s + (o.ironCrestProfitCents || 0), 0),
+          rackRateCents: mgrOrders.reduce((s: number, o: any) => s + (o.ironCrestRackRateCents || 0), 0),
+          orderCount: mgrOrders.length,
+        });
       }
       profitByManager.sort((a, b) => b.profitCents - a.profitCents);
 
-      const payrollReady = await db.select({
-        count: sql<number>`count(*)`,
-        totalCents: sql<string>`COALESCE(SUM(CAST("base_commission_earned" AS DECIMAL) * 100), 0)`,
-      }).from(salesOrders).where(sql`"payroll_ready_at" IS NOT NULL AND "pay_run_id" IS NULL`);
+      // Payroll obligations — all scoped strictly to executive's hierarchy; return 0 if no scope
+      const payrollReadyCents = scopedRepRepIds.length > 0
+        ? parseInt((await db.select({
+            totalCents: sql<string>`COALESCE(SUM(CAST("base_commission_earned" AS DECIMAL) * 100), 0)`,
+          }).from(salesOrders).where(and(isNotNull(salesOrders.payrollReadyAt), isNull(salesOrders.payRunId), inArray(salesOrders.repId, scopedRepRepIds))))[0]?.totalCents || "0")
+        : 0;
+      const payrollReadyCount = scopedRepRepIds.length > 0
+        ? Number((await db.select({ count: sql<number>`count(*)` }).from(salesOrders).where(and(isNotNull(salesOrders.payrollReadyAt), isNull(salesOrders.payRunId), inArray(salesOrders.repId, scopedRepRepIds))))[0]?.count || 0)
+        : 0;
+      const overridesPendingCents = scopedUserIds.length > 0
+        ? parseInt((await db.select({ totalCents: sql<string>`COALESCE(SUM(CAST("amount" AS DECIMAL) * 100), 0)` }).from(overrideEarnings).where(and(eq(overrideEarnings.approvalStatus, "PENDING_APPROVAL"), inArray(overrideEarnings.recipientUserId, scopedUserIds))))[0]?.totalCents || "0")
+        : 0;
+      const advanceCents = scopedUserIds.length > 0
+        ? parseInt((await db.select({ totalCents: sql<string>`COALESCE(SUM(CAST("remaining_balance" AS DECIMAL) * 100), 0)` }).from(advances).where(and(inArray(advances.status, ["APPROVED", "REPAYING"]), inArray(advances.userId, scopedUserIds))))[0]?.totalCents || "0")
+        : 0;
 
-      const approvedOverrides = await db.select({
-        totalCents: sql<string>`COALESCE(SUM(CAST("amount" AS DECIMAL) * 100), 0)`,
-      }).from(overrideEarnings).where(eq(overrideEarnings.approvalStatus, "APPROVED"));
+      // AR health — scoped to executive's rep hierarchy via arExpectations.orderId → salesOrders.repId
+      // When scope is empty, return zeroed AR health
+      let arOpen = [{ totalExpected: "0", totalActual: "0", avgDays: "0" }];
+      let arOverdue = [{ totalExpected: "0", totalActual: "0" }];
+      let satisfied30d = [{ totalActual: "0", totalExpected: "0" }];
+      let riskClient: any[] = [];
 
-      const outstandingAdvances = await db.select({
-        totalCents: sql<string>`COALESCE(SUM(CAST("remaining_balance" AS DECIMAL) * 100), 0)`,
-      }).from(advances).where(sql`"status" = 'ACTIVE'`);
+      if (scopedRepRepIds.length > 0) {
+        [arOpen, arOverdue, satisfied30d] = await Promise.all([
+          db.select({
+            totalExpected: sql<string>`COALESCE(SUM(ae."expected_amount_cents"), 0)`,
+            totalActual: sql<string>`COALESCE(SUM(ae."actual_amount_cents"), 0)`,
+            avgDays: sql<string>`COALESCE(AVG(EXTRACT(EPOCH FROM (NOW() - ae."created_at")) / 86400)::int, 0)`,
+          }).from(sql`ar_expectations ae`)
+            .innerJoin(sql`sales_orders so`, sql`ae."order_id" = so."id" AND so."rep_id" = ANY(${scopedRepRepIds})`)
+            .where(sql`ae."status" IN ('OPEN', 'PARTIAL')`),
+          db.select({
+            totalExpected: sql<string>`COALESCE(SUM(ae."expected_amount_cents"), 0)`,
+            totalActual: sql<string>`COALESCE(SUM(ae."actual_amount_cents"), 0)`,
+          }).from(sql`ar_expectations ae`)
+            .innerJoin(sql`sales_orders so`, sql`ae."order_id" = so."id" AND so."rep_id" = ANY(${scopedRepRepIds})`)
+            .where(sql`ae."status" IN ('OPEN', 'PARTIAL') AND ae."created_at" < NOW() - INTERVAL '30 days'`),
+          db.select({
+            totalActual: sql<string>`COALESCE(SUM(ae."actual_amount_cents"), 0)`,
+            totalExpected: sql<string>`COALESCE(SUM(ae."expected_amount_cents"), 0)`,
+          }).from(sql`ar_expectations ae`)
+            .innerJoin(sql`sales_orders so`, sql`ae."order_id" = so."id" AND so."rep_id" = ANY(${scopedRepRepIds})`)
+            .where(sql`ae."status" = 'SATISFIED' AND ae."created_at" >= NOW() - INTERVAL '30 days'`),
+        ]);
 
-      const payrollReadyCents = parseInt(payrollReady[0]?.totalCents || "0");
-      const overrideCents = parseInt(approvedOverrides[0]?.totalCents || "0");
-      const advanceCents = parseInt(outstandingAdvances[0]?.totalCents || "0");
-
-      const arHealth = await db.select({
-        totalExpected: sql<string>`COALESCE(SUM("expected_amount_cents"), 0)`,
-        totalActual: sql<string>`COALESCE(SUM("actual_amount_cents"), 0)`,
-        overdueCount: sql<number>`count(*) FILTER (WHERE "created_at" < NOW() - INTERVAL '30 days')`,
-        avgDays: sql<string>`COALESCE(AVG(EXTRACT(EPOCH FROM (NOW() - "created_at")) / 86400)::int, 0)`,
-      }).from(arExpectations).where(sql`"status" IN ('OPEN', 'PARTIAL')`);
-
-      const satisfied30d = await db.select({
-        totalActual: sql<string>`COALESCE(SUM("actual_amount_cents"), 0)`,
-        totalExpected: sql<string>`COALESCE(SUM("expected_amount_cents"), 0)`,
-      }).from(arExpectations).where(sql`"status" = 'SATISFIED' AND "created_at" >= NOW() - INTERVAL '30 days'`);
+        riskClient = await db.select({
+          clientName: sql<string>`COALESCE(c."name", 'Unknown')`,
+          outstanding: sql<string>`SUM(ae."expected_amount_cents" - ae."actual_amount_cents")`,
+          daysOld: sql<number>`MAX(EXTRACT(EPOCH FROM (NOW() - ae."created_at")) / 86400)::int`,
+        }).from(sql`ar_expectations ae`)
+          .innerJoin(sql`sales_orders so`, sql`ae."order_id" = so."id" AND so."rep_id" = ANY(${scopedRepRepIds})`)
+          .innerJoin(sql`clients c`, sql`ae."client_id" = c."id"`)
+          .where(sql`ae."status" IN ('OPEN', 'PARTIAL') AND ae."created_at" < NOW() - INTERVAL '30 days'`)
+          .groupBy(sql`c."name"`)
+          .orderBy(sql`SUM(ae."expected_amount_cents" - ae."actual_amount_cents") DESC`)
+          .limit(1);
+      }
 
       const satActual = parseInt(satisfied30d[0]?.totalActual || "0");
       const satExpected = parseInt(satisfied30d[0]?.totalExpected || "0");
-      const collectionRate = satExpected > 0 ? Math.round((satActual / satExpected) * 100) : 100;
+      const collectionRate30d = satExpected > 0 ? Math.round((satActual / satExpected) * 100) : 100;
+      const openBalanceCents = Math.max(0, parseInt(arOpen[0]?.totalExpected || "0") - parseInt(arOpen[0]?.totalActual || "0"));
+      const overdueBalanceCents = Math.max(0, parseInt(arOverdue[0]?.totalExpected || "0") - parseInt(arOverdue[0]?.totalActual || "0"));
 
-      const riskClient = await db.select({
-        clientName: sql<string>`COALESCE("clients"."name", 'Unknown')`,
-        outstanding: sql<string>`SUM("ar_expectations"."expected_amount_cents" - "ar_expectations"."actual_amount_cents")`,
-        daysOld: sql<number>`MAX(EXTRACT(EPOCH FROM (NOW() - "ar_expectations"."created_at")) / 86400)::int`,
-      }).from(arExpectations)
-        .innerJoin(clients, eq(arExpectations.clientId, clients.id))
-        .where(sql`"ar_expectations"."status" IN ('OPEN', 'PARTIAL') AND "ar_expectations"."created_at" < NOW() - INTERVAL '30 days'`)
-        .groupBy(sql`"clients"."name"`)
-        .orderBy(sql`SUM("ar_expectations"."expected_amount_cents" - "ar_expectations"."actual_amount_cents") DESC`)
-        .limit(1);
+      const momChanges = {
+        grossRevenue: momChange(thisMonth.grossRevenueCents, lastMonth.grossRevenueCents),
+        repPayouts: momChange(thisMonth.repPayoutsCents, lastMonth.repPayoutsCents),
+        overridePayouts: momChange(thisMonth.overridePayoutsCents, lastMonth.overridePayoutsCents),
+        ironCrestProfit: momChange(thisMonth.ironCrestProfitCents, lastMonth.ironCrestProfitCents),
+        profitMargin: thisMonth.profitMargin - lastMonth.profitMargin,
+        ordersCompleted: momChange(thisMonth.ordersCompleted, lastMonth.ordersCompleted),
+        arReceived: momChange(thisMonth.arReceivedCents, lastMonth.arReceivedCents),
+        arOutstanding: momChange(thisMonth.arOutstandingCents, lastMonth.arOutstandingCents),
+      };
 
       res.json({
-        periodComparison: { thisMonth, lastMonth },
+        thisMonth,
+        lastMonth,
+        monthOverMonth: momChanges,
         profitByService,
         profitByManager,
         payrollObligations: {
-          readyToPayCents: payrollReadyCents,
-          readyToPayCount: payrollReady[0]?.count || 0,
-          overrideApprovedCents: overrideCents,
+          nextPayRunEstimateCents: payrollReadyCents,
+          overridesPendingApprovalCents: overridesPendingCents,
           advancesOutstandingCents: advanceCents,
-          totalObligationCents: payrollReadyCents + overrideCents + advanceCents,
+          totalObligationCents: payrollReadyCents + overridesPendingCents + advanceCents,
+          readyToPayCount: payrollReadyCount,
         },
         arHealth: {
-          collectionRate,
-          overdueCents: parseInt(arHealth[0]?.totalExpected || "0") - parseInt(arHealth[0]?.totalActual || "0"),
-          overdueCount: arHealth[0]?.overdueCount || 0,
-          avgDaysToCollect: parseInt(arHealth[0]?.avgDays || "0"),
+          collectionRate30d,
+          avgDaysToCollection: parseInt(arOpen[0]?.avgDays || "0"),
+          openBalanceCents,
+          overdueBalanceCents,
           riskClient: riskClient[0] ? {
             name: riskClient[0].clientName,
             outstandingCents: parseInt(riskClient[0].outstanding || "0"),

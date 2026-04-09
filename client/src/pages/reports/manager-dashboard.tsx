@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Users } from "lucide-react";
+import TeamHealthCard from "./team-health-card";
 
 interface RepData {
   id: string;
@@ -136,6 +137,11 @@ export default function ManagerDashboard() {
           </Table>
         </CardContent>
       </Card>
+
+      <div>
+        <h2 className="text-base font-semibold mb-3">Team Health</h2>
+        <TeamHealthCard />
+      </div>
     </div>
   );
 }

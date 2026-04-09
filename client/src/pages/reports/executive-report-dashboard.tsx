@@ -6,6 +6,8 @@ import { TimeHorizonSelector, type TimeHorizon } from "@/components/time-horizon
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle } from "lucide-react";
+import FinancialSnapshotCard from "./financial-snapshot-card";
+import TeamHealthCard from "./team-health-card";
 
 interface BucketData {
   totalOrders: number;
@@ -110,6 +112,16 @@ export default function ExecutiveReportDashboard() {
           <span className="text-sm text-muted-foreground">Active Reps:</span>
           <span className="text-sm font-medium" data-testid="text-unique-reps">{bucket.uniqueReps}</span>
         </div>
+      </div>
+
+      <div>
+        <h2 className="text-base font-semibold mb-3">Financial Snapshot</h2>
+        <FinancialSnapshotCard />
+      </div>
+
+      <div>
+        <h2 className="text-base font-semibold mb-3">Team Health</h2>
+        <TeamHealthCard />
       </div>
     </div>
   );
