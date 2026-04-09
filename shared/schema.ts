@@ -2674,7 +2674,7 @@ export type MatchCorrection = typeof matchCorrections.$inferSelect;
 export type InsertMatchCorrection = z.infer<typeof insertMatchCorrectionSchema>;
 
 // Finance Import Schedules - recurring import configuration per client
-export const financeImportScheduleFrequencyEnum = pgEnum("finance_import_schedule_frequency", ["DAILY", "WEEKLY", "MONTHLY"]);
+export const financeImportScheduleFrequencyEnum = pgEnum("finance_import_frequency", ["DAILY", "WEEKLY", "MONTHLY"]);
 
 export const financeImportSchedules = pgTable("finance_import_schedules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -2686,7 +2686,7 @@ export const financeImportSchedules = pgTable("finance_import_schedules", {
   expectedByDaysAfterPeriod: integer("expected_by_days_after_period").notNull().default(7),
   emailToWatch: text("email_to_watch"),
   sftpPath: text("sftp_path"),
-  lastImportedAt: timestamp("last_imported_at"),
+  lastImportedAt: timestamp("last_import_at"),
   nextExpectedAt: timestamp("next_expected_at"),
   isActive: boolean("is_active").notNull().default(true),
   notes: text("notes"),

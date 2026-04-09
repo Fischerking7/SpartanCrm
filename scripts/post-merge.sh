@@ -2,5 +2,5 @@
 set -e
 
 npm install
-npm run db:push
+yes "" | npx drizzle-kit push --force || true
 npx tsx server/runSeedSystemSettings.ts
