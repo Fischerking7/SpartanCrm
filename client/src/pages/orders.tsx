@@ -21,6 +21,7 @@ import { queryClient } from "@/lib/queryClient";
 import { Plus, Search, Filter, Download, Eye, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Trash2, Flag, Smartphone, ThumbsUp, ThumbsDown, DollarSign, Package, Camera } from "lucide-react";
 import { ScreenshotCapture, AiFieldIndicator, MissingFieldsWarning } from "@/components/screenshot-capture";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import type { SalesOrder, Client, Provider, Service, User, CommissionLineItem, RateCard } from "@shared/schema";
 
 interface MobileLineEntry {
@@ -1101,7 +1102,7 @@ export default function Orders() {
     }
   });
 
-  if (activeTab === "aging") {
+  if (activeTab === "aging" && filteredOrders) {
     filteredOrders.sort((a, b) => {
       const aDate = a.carrierConfirmedAt ? new Date(a.carrierConfirmedAt).getTime() : Infinity;
       const bDate = b.carrierConfirmedAt ? new Date(b.carrierConfirmedAt).getTime() : Infinity;
@@ -1730,7 +1731,7 @@ export default function Orders() {
                 <SelectContent>
                   <SelectItem value="all">All Reps</SelectItem>
                   {reps?.map((u: User) => (
-                    <SelectItem key={u.id} value={u.repId}>{u.repId} - {u.firstName} {u.lastName}</SelectItem>
+                    <SelectItem key={u.id} value={u.repId}>{u.repId} - {u.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

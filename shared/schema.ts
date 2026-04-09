@@ -323,8 +323,6 @@ export const salesOrders = pgTable("sales_orders", {
   carrierMaturityType: varchar("carrier_maturity_type", { length: 30 }),
   maturityExpiresAt: timestamp("maturity_expires_at"),
   carrierConfirmedAt: timestamp("carrier_confirmed_at"),
-  autoApprovalAttemptedAt: timestamp("auto_approval_attempted_at"),
-  autoApprovalResult: text("auto_approval_result"),
   captureMethod: captureMethodEnum("capture_method").default("manual"),
   captureImageUrl: text("capture_image_url"),
   captureRawJson: jsonb("capture_raw_json"),
@@ -335,7 +333,6 @@ export const salesOrders = pgTable("sales_orders", {
   isDuplicateFlag: boolean("is_duplicate_flag").notNull().default(false),
   duplicateFlagReason: text("duplicate_flag_reason"),
   duplicateOfOrderId: varchar("duplicate_of_order_id"),
-  simplifiedStatus: varchar("simplified_status"),
   notes: text("notes"),
   simplifiedStatus: varchar("simplified_status", { length: 30 }),
   hasActiveChargeback: boolean("has_active_chargeback").notNull().default(false),
@@ -2576,22 +2573,6 @@ export type CompPlanRate = typeof compPlanRates.$inferSelect;
 export type InsertCompPlanRate = z.infer<typeof insertCompPlanRateSchema>;
 
 // System Settings table - configurable key/value pairs for system-level settings
-export const systemSettings = pgTable("system_settings", {
-  key: text("key").primaryKey(),
-  value: text("value").notNull(),
-  description: text("description"),
-  updatedByUserId: varchar("updated_by_user_id").references(() => users.id),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
-export const insertSystemSettingSchema = z.object({
-  key: z.string().min(1),
-  value: z.string(),
-  description: z.string().optional(),
-});
-export type SystemSetting = typeof systemSettings.$inferSelect;
-export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
-
 export const overrideRuleTypeEnum = pgEnum("override_rule_type", [
   "DIRECTOR_OVERRIDE", "MANAGER_OVERRIDE", "OPERATIONS_OVERRIDE",
   "ACCOUNTING_OVERRIDE", "LEADER_OVERRIDE", "CUSTOM"
@@ -2754,6 +2735,7 @@ export type InsertAutomationRule = z.infer<typeof insertAutomationRuleSchema>;
 export const systemSettings = pgTable("system_settings", {
   key: varchar("key").primaryKey(),
   value: text("value").notNull(),
+  description: text("description"),
   updatedByUserId: varchar("updated_by_user_id").references(() => users.id),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

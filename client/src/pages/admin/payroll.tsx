@@ -220,7 +220,7 @@ function SchedulesTab() {
     return s[(v - 20) % 10] || s[v] || s[0];
   };
 
-  const frequency = form.watch("frequency");
+  const frequency = form.watch("frequency") as string;
 
   if (isLoading) return <Skeleton className="h-64" />;
 

@@ -1244,7 +1244,7 @@ export default function OrderTracker() {
               onEdit={() => setEditingOrderId(order.id)}
               onCancelEdit={() => setEditingOrderId(null)}
               onSelect={() => setSelectedOrder(order)}
-              repName={repMap.get(order.repId) || (order as any).repName || ""}
+              repName={repMap.get(order.repId || "") || (order as any).repName || ""}
               isSelectable={isPaidTab}
               isSelected={selectedOrderIds.has(order.id)}
               onToggleSelect={() => {
@@ -1574,7 +1574,7 @@ export default function OrderTracker() {
               onClose={() => setSelectedOrder(null)}
               canSeeGross={canSeeGrossCommissions}
               canSeeCommission={canSeeCommission}
-              repName={repMap.get(selectedOrder.repId) || (selectedOrder as any).repName || ""}
+              repName={repMap.get(selectedOrder.repId || "") || (selectedOrder as any).repName || ""}
             />
           )}
         </DialogContent>

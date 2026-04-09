@@ -2232,7 +2232,7 @@ export default function Finance() {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {selectedAr.payments.map((p) => (
+                            {selectedAr.payments.map((p: { id: string; paymentDate: string; amountCents: number; paymentReference?: string; recordedBy?: { name: string } }) => (
                               <TableRow key={p.id}>
                                 <TableCell>{new Date(p.paymentDate).toLocaleDateString()}</TableCell>
                                 <TableCell>{formatCurrency(p.amountCents)}</TableCell>
