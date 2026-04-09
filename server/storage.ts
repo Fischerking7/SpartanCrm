@@ -19,7 +19,8 @@ import {
   emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
   mduStagingOrders, scheduledReports, commissionDisputes,
   financeImports, financeImportRowsRaw, financeImportRows, arExpectations, clientColumnMappings,
-  compPlanRates, commissionOverrideRules, systemSettings, automationRules, savedReports,
+  compPlanRates, commissionOverrideRules,
+  systemSettings, automationRules, savedReports, matchCorrections, financeImportSchedules,
   type CompPlanRate, type InsertCompPlanRate,
   type CommissionOverrideRule, type InsertCommissionOverrideRule,
   type SystemSetting,
@@ -75,6 +76,9 @@ import {
   type ArExpectation, type InsertArExpectation,
   type ArPayment, type InsertArPayment, arPayments,
   type ClientColumnMapping, type InsertClientColumnMapping,
+  type SystemSetting, type InsertSystemSetting,
+  type MatchCorrection, type InsertMatchCorrection,
+  type FinanceImportSchedule, type InsertFinanceImportSchedule,
   userActivityLogs, type UserActivityLog, type InsertUserActivityLog,
   installSyncRuns, type InstallSyncRun, type InsertInstallSyncRun,
   processedWorkOrders, type ProcessedWorkOrder,
@@ -5125,20 +5129,90 @@ export const storage = {
   async getSystemSettings(): Promise<SystemSetting[]> {
     return db.select().from(systemSettings).orderBy(asc(systemSettings.key));
   },
+
+
   async getSystemSettingByKey(key: string): Promise<SystemSetting | undefined> {
     const [setting] = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
     return setting;
   },
+
+  async getSystemSettingsMap(keys: string[]): Promise<Record<string, string>> {
+    const rows = await db.select().from(systemSettings).where(inArray(systemSettings.key, keys));
+    return Object.fromEntries(rows.map(r => [r.key, r.value]));
+  },
+
   async upsertSystemSetting(key: string, value: string, description?: string, updatedByUserId?: string): Promise<SystemSetting> {
-    const [setting] = await db
-      .insert(systemSettings)
-      .values({ key, value, description, updatedByUserId, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: systemSettings.key,
-        set: { value, description, updatedByUserId, updatedAt: new Date() },
-      })
+    const existing = await this.getSystemSettingByKey(key);
+    if (existing) {
+      const [updated] = await db.update(systemSettings)
+        .set({ value, description: description ?? existing.description, updatedByUserId: updatedByUserId ?? existing.updatedByUserId, updatedAt: new Date() })
+        .where(eq(systemSettings.key, key))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(systemSettings)
+      .values({ key, value, description, updatedByUserId })
       .returning();
-    return setting;
+    return created;
+  },
+
+  async deleteSystemSetting(key: string): Promise<void> {
+    await db.delete(systemSettings).where(eq(systemSettings.key, key));
+  },
+
+  // Match Corrections
+  async createMatchCorrection(data: InsertMatchCorrection): Promise<MatchCorrection> {
+    const [correction] = await db.insert(matchCorrections).values(data).returning();
+    return correction;
+  },
+
+  async getMatchCorrections(financeImportId?: string): Promise<MatchCorrection[]> {
+    const conditions = financeImportId ? [eq(matchCorrections.financeImportId, financeImportId)] : [];
+    return db.select().from(matchCorrections)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(matchCorrections.createdAt));
+  },
+
+  async getMatchCorrectionsByRow(financeImportRowId: string): Promise<MatchCorrection[]> {
+    return db.select().from(matchCorrections)
+      .where(eq(matchCorrections.financeImportRowId, financeImportRowId))
+      .orderBy(desc(matchCorrections.createdAt));
+  },
+
+  // Finance Import Schedules
+  async getFinanceImportSchedules(clientId?: string): Promise<FinanceImportSchedule[]> {
+    const conditions = clientId ? [eq(financeImportSchedules.clientId, clientId)] : [];
+    return db.select().from(financeImportSchedules)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(financeImportSchedules.createdAt));
+  },
+
+  async getFinanceImportScheduleById(id: string): Promise<FinanceImportSchedule | undefined> {
+    const [schedule] = await db.select().from(financeImportSchedules).where(eq(financeImportSchedules.id, id));
+    return schedule;
+  },
+
+  async getActiveFinanceImportSchedules(): Promise<FinanceImportSchedule[]> {
+    return db.select().from(financeImportSchedules)
+      .where(eq(financeImportSchedules.isActive, true))
+      .orderBy(asc(financeImportSchedules.nextExpectedAt));
+  },
+
+  async createFinanceImportSchedule(data: InsertFinanceImportSchedule): Promise<FinanceImportSchedule> {
+    const [schedule] = await db.insert(financeImportSchedules).values(data).returning();
+    return schedule;
+  },
+
+  async updateFinanceImportSchedule(id: string, data: Partial<FinanceImportSchedule>): Promise<FinanceImportSchedule> {
+    const [updated] = await db.update(financeImportSchedules)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(financeImportSchedules.id, id))
+      .returning();
+    return updated;
+  },
+
+  async deleteFinanceImportSchedule(id: string): Promise<void> {
+    await db.delete(financeImportSchedules).where(eq(financeImportSchedules.id, id));
   },
 
   // Automation Rules

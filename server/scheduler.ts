@@ -2,7 +2,7 @@ import { storage } from "./storage";
 import { emailService } from "./email";
 import { setForceLogoutTimestamp } from "./auth";
 import { db } from "./db";
-import { salesOrders, chargebacks, arExpectations, users, clients, carrierImportSchedules, integrationLogs, rollingReserves, systemExceptions, overrideEarnings, payStatementLineItems, financeImportRows, backgroundJobs } from "@shared/schema";
+import { salesOrders, chargebacks, arExpectations, users, clients, carrierImportSchedules, integrationLogs, rollingReserves, systemExceptions, overrideEarnings, payStatementLineItems, financeImportRows, backgroundJobs, financeImportSchedules, financeImports } from "@shared/schema";
 import type { SalesOrder } from "@shared/schema";
 import { eq, sql, and, gte, lte, inArray, isNull, isNotNull, desc } from "drizzle-orm";
 import { evaluateOrderForAutoApproval, loadAutoApprovalConfig } from "./autoApprovalEngine";
@@ -94,6 +94,7 @@ export const scheduler = {
     this.scheduleReserveDeficitCheck();
     this.scheduleCommissionIntegrityCheck();
     this.scheduleOrphanedRecordCheck();
+    this.scheduleFinanceImportOverdueCheck();
 
     setTimeout(() => {
       runJobWithLock('checkScheduledPayRuns', () => this.checkScheduledPayRuns());
@@ -1866,5 +1867,104 @@ export const scheduler = {
         }
       } catch (_) {}
     }
+  },
+
+  scheduleFinanceImportOverdueCheck() {
+    const ms = msUntilEasternTime(9, 0);
+    console.log(`[Scheduler] Finance import overdue check scheduled in ${Math.round(ms / 60000)} minutes (9:00 AM ET)`);
+    const overdueJob = async () => {
+      try {
+        const now = new Date();
+        const activeSchedules = await db.select().from(financeImportSchedules)
+          .where(eq(financeImportSchedules.isActive, true));
+
+        let overdueCount = 0;
+        for (const schedule of activeSchedules) {
+          if (!schedule.nextExpectedAt) continue;
+          const nextExpected = new Date(schedule.nextExpectedAt);
+          if (now <= nextExpected) continue;
+
+          // Check if a posted import exists for this client since nextExpectedAt window start
+          // (i.e., since the last period's expected date). Use nextExpectedAt minus one full period
+          // as the search window lower bound.
+          const windowStart = schedule.lastImportedAt
+            ? new Date(schedule.lastImportedAt)
+            : new Date(nextExpected.getTime() - 32 * 24 * 60 * 60 * 1000);
+
+          const recentPosted = await db.select({ id: financeImports.id })
+            .from(financeImports)
+            .where(and(
+              eq(financeImports.clientId, schedule.clientId),
+              eq(financeImports.status, "POSTED"),
+              gte(financeImports.importedAt, windowStart)
+            ))
+            .limit(1);
+
+          if (recentPosted.length > 0) {
+            // A posted import was found — advance schedule using the same computeNextExpectedAt logic
+            const graceDays = schedule.expectedByDaysAfterPeriod ?? 7;
+            const nextDate = new Date(nextExpected);
+            if (schedule.frequency === 'DAILY') {
+              nextDate.setDate(nextDate.getDate() + 1 + graceDays);
+            } else if (schedule.frequency === 'WEEKLY') {
+              nextDate.setDate(nextDate.getDate() + 7 + graceDays);
+            } else if (schedule.frequency === 'MONTHLY') {
+              nextDate.setMonth(nextDate.getMonth() + 1);
+              nextDate.setDate(1);
+              nextDate.setDate(nextDate.getDate() + graceDays - 1);
+              if (schedule.dayOfMonth) {
+                const candidate = new Date(nextDate.getFullYear(), nextDate.getMonth(), schedule.dayOfMonth);
+                if (candidate > nextExpected) nextDate.setTime(candidate.getTime());
+              }
+            }
+            await db.update(financeImportSchedules)
+              .set({ lastImportedAt: now, nextExpectedAt: nextDate, updatedAt: now })
+              .where(eq(financeImportSchedules.id, schedule.id));
+            continue;
+          }
+
+          // Check if an open exception already exists for this schedule (created in the last 7 days)
+          const recentCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          const existing = await db.select({ id: systemExceptions.id })
+            .from(systemExceptions)
+            .where(and(
+              eq(systemExceptions.exceptionType, "FINANCE_IMPORT_OVERDUE"),
+              eq(systemExceptions.relatedEntityId, schedule.id),
+              eq(systemExceptions.status, "OPEN"),
+              gte(systemExceptions.createdAt, recentCutoff)
+            ))
+            .limit(1);
+
+          if (existing.length > 0) continue;
+
+          // Get client name
+          const [clientRow] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, schedule.clientId));
+          const clientName = clientRow?.name || schedule.clientId;
+
+          const overdueDays = Math.round((now.getTime() - nextExpected.getTime()) / (1000 * 60 * 60 * 24));
+          await db.insert(systemExceptions).values({
+            exceptionType: "FINANCE_IMPORT_OVERDUE",
+            severity: "WARNING",
+            title: `Finance import overdue: ${schedule.name} (${clientName})`,
+            detail: `Finance import schedule "${schedule.name}" for client "${clientName}" was expected by ${nextExpected.toISOString().split('T')[0]} and is ${overdueDays} day(s) overdue. Schedule frequency: ${schedule.frequency}.`,
+            relatedEntityId: schedule.id,
+            relatedEntityType: "finance_import_schedule",
+          });
+
+          overdueCount++;
+          console.log(`[Scheduler] Finance import overdue: ${schedule.name} (${clientName}) - ${overdueDays} days overdue`);
+        }
+
+        if (overdueCount > 0) {
+          console.log(`[Scheduler] Finance import overdue check: ${overdueCount} overdue schedule(s) flagged`);
+        }
+      } catch (error: any) {
+        console.error("[Scheduler] Finance import overdue check failed:", error);
+      }
+    };
+    setTimeout(() => {
+      runJobWithLock("financeImportOverdueCheck", overdueJob);
+      setInterval(() => runJobWithLock("financeImportOverdueCheck", overdueJob), 24 * 60 * 60 * 1000);
+    }, ms);
   },
 };

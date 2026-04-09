@@ -2638,31 +2638,32 @@ export const insertExceptionDismissalSchema = createInsertSchema(exceptionDismis
 export type ExceptionDismissal = typeof exceptionDismissals.$inferSelect;
 export type InsertExceptionDismissal = z.infer<typeof insertExceptionDismissalSchema>;
 
-export const matchCorrectionTypeEnum = pgEnum("match_correction_type", [
-  "MANUAL_MATCH", "UNMATCH", "CREATE_NEW", "IGNORE",
-]);
+// Match Corrections - learning records from manual match/unmatch/ignore actions
+export const matchCorrectionTypeEnum = pgEnum("match_correction_type", ["MANUAL_MATCH", "MANUAL_UNMATCH", "MANUAL_IGNORE"]);
 
 export const matchCorrections = pgTable("match_corrections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  financeImportId: varchar("finance_import_id").notNull().references(() => financeImports.id),
   financeImportRowId: varchar("finance_import_row_id").notNull().references(() => financeImportRows.id),
-  originalMatchedOrderId: varchar("original_matched_order_id").references(() => salesOrders.id),
-  correctedOrderId: varchar("corrected_order_id").references(() => salesOrders.id),
   correctionType: matchCorrectionTypeEnum("correction_type").notNull(),
-  correctedByUserId: varchar("corrected_by_user_id").notNull().references(() => users.id),
+  originalMatchedOrderId: varchar("original_matched_order_id").references(() => salesOrders.id),
+  correctedMatchedOrderId: varchar("corrected_matched_order_id").references(() => salesOrders.id),
   scoreAtCorrection: integer("score_at_correction"),
-  nameTokenOverlap: integer("name_token_overlap"),
+  nameOverlapScore: integer("name_overlap_score"),
   dateDiffDays: integer("date_diff_days"),
   amountDiffCents: integer("amount_diff_cents"),
+  correctedByUserId: varchar("corrected_by_user_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
-  index("mc_row_idx").on(table.financeImportRowId),
-  index("mc_corrected_by_idx").on(table.correctedByUserId),
+  index("mc_import_id_idx").on(table.financeImportId),
+  index("mc_row_id_idx").on(table.financeImportRowId),
 ]);
 
 export const matchCorrectionsRelations = relations(matchCorrections, ({ one }) => ({
+  financeImport: one(financeImports, { fields: [matchCorrections.financeImportId], references: [financeImports.id] }),
   financeImportRow: one(financeImportRows, { fields: [matchCorrections.financeImportRowId], references: [financeImportRows.id] }),
-  originalMatchedOrder: one(salesOrders, { fields: [matchCorrections.originalMatchedOrderId], references: [salesOrders.id] }),
-  correctedOrder: one(salesOrders, { fields: [matchCorrections.correctedOrderId], references: [salesOrders.id] }),
+  originalMatchedOrder: one(salesOrders, { fields: [matchCorrections.originalMatchedOrderId], references: [salesOrders.id], relationName: "originalMatch" }),
+  correctedMatchedOrder: one(salesOrders, { fields: [matchCorrections.correctedMatchedOrderId], references: [salesOrders.id], relationName: "correctedMatch" }),
   correctedBy: one(users, { fields: [matchCorrections.correctedByUserId], references: [users.id] }),
 }));
 
@@ -2672,35 +2673,38 @@ export const insertMatchCorrectionSchema = createInsertSchema(matchCorrections).
 export type MatchCorrection = typeof matchCorrections.$inferSelect;
 export type InsertMatchCorrection = z.infer<typeof insertMatchCorrectionSchema>;
 
-export const financeImportFrequencyEnum = pgEnum("finance_import_frequency", [
-  "WEEKLY", "BIWEEKLY", "MONTHLY",
-]);
+// Finance Import Schedules - recurring import configuration per client
+export const financeImportScheduleFrequencyEnum = pgEnum("finance_import_schedule_frequency", ["DAILY", "WEEKLY", "MONTHLY"]);
 
 export const financeImportSchedules = pgTable("finance_import_schedules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   clientId: varchar("client_id").notNull().references(() => clients.id),
   name: text("name").notNull(),
-  frequency: financeImportFrequencyEnum("frequency").notNull(),
-  dayOfWeek: integer("day_of_week"),
+  frequency: financeImportScheduleFrequencyEnum("frequency").notNull().default("MONTHLY"),
   dayOfMonth: integer("day_of_month"),
+  dayOfWeek: integer("day_of_week"),
+  expectedByDaysAfterPeriod: integer("expected_by_days_after_period").notNull().default(7),
   emailToWatch: text("email_to_watch"),
   sftpPath: text("sftp_path"),
-  lastImportAt: timestamp("last_import_at"),
+  lastImportedAt: timestamp("last_imported_at"),
   nextExpectedAt: timestamp("next_expected_at"),
   isActive: boolean("is_active").notNull().default(true),
+  notes: text("notes"),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
-  index("fis_client_idx").on(table.clientId),
+  index("fis_client_id_idx").on(table.clientId),
   index("fis_active_idx").on(table.isActive),
 ]);
 
 export const financeImportSchedulesRelations = relations(financeImportSchedules, ({ one }) => ({
   client: one(clients, { fields: [financeImportSchedules.clientId], references: [clients.id] }),
+  createdBy: one(users, { fields: [financeImportSchedules.createdByUserId], references: [users.id] }),
 }));
 
 export const insertFinanceImportScheduleSchema = createInsertSchema(financeImportSchedules).omit({
-  id: true, createdAt: true, updatedAt: true,
+  id: true, createdAt: true, updatedAt: true, lastImportedAt: true, nextExpectedAt: true,
 });
 export type FinanceImportSchedule = typeof financeImportSchedules.$inferSelect;
 export type InsertFinanceImportSchedule = z.infer<typeof insertFinanceImportScheduleSchema>;
@@ -2749,11 +2753,14 @@ export const insertAutomationRuleSchema = createInsertSchema(automationRules).om
 export type AutomationRule = typeof automationRules.$inferSelect;
 export type InsertAutomationRule = z.infer<typeof insertAutomationRuleSchema>;
 
+// System Settings - key/value store for configurable application settings
 export const systemSettings = pgTable("system_settings", {
-  key: varchar("key").primaryKey(),
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(),
   value: text("value").notNull(),
   description: text("description"),
   updatedByUserId: varchar("updated_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -2761,7 +2768,9 @@ export const systemSettingsRelations = relations(systemSettings, ({ one }) => ({
   updatedBy: one(users, { fields: [systemSettings.updatedByUserId], references: [users.id] }),
 }));
 
-export const insertSystemSettingSchema = createInsertSchema(systemSettings);
+export const insertSystemSettingSchema = createInsertSchema(systemSettings).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
 export type SystemSetting = typeof systemSettings.$inferSelect;
 export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
 

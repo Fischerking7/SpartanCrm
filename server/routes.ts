@@ -1097,6 +1097,220 @@ function normalizeCustomerName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+function calcNameTokenOverlap(a: string, b: string): number {
+  if (!a || !b) return 0;
+  const tokensA = a.split(' ').filter(Boolean);
+  const tokensB = b.split(' ').filter(Boolean);
+  if (tokensA.length === 0 || tokensB.length === 0) return 0;
+  const matched = tokensA.filter(tA =>
+    tokensB.some(tB => tA === tB || (tA.length >= 3 && tB.startsWith(tA)) || (tB.length >= 3 && tA.startsWith(tB)))
+  ).length;
+  return matched / Math.max(tokensA.length, tokensB.length);
+}
+
+function computeNextExpectedAt(frequency: string, dayOfMonth: number | null, dayOfWeek: number | null, from: Date, expectedByDaysAfterPeriod: number = 7): Date {
+  // Determine the start of the next period, then add expectedByDaysAfterPeriod
+  const next = new Date(from);
+  if (frequency === 'DAILY') {
+    // Next period starts tomorrow; due expectedByDaysAfterPeriod days after that
+    next.setDate(next.getDate() + 1 + expectedByDaysAfterPeriod);
+  } else if (frequency === 'WEEKLY') {
+    // Advance to the next occurrence of targetDay (start of next period), then add grace days
+    const targetDay = dayOfWeek ?? 1;
+    const currentDay = next.getDay();
+    const daysUntil = (targetDay - currentDay + 7) % 7 || 7;
+    next.setDate(next.getDate() + daysUntil + expectedByDaysAfterPeriod);
+  } else if (frequency === 'MONTHLY') {
+    // Next period is next month; due expectedByDaysAfterPeriod days into the month (or after period-end day)
+    next.setMonth(next.getMonth() + 1);
+    next.setDate(1); // Start of next month
+    next.setDate(next.getDate() + expectedByDaysAfterPeriod - 1);
+    // If dayOfMonth is specified, use that as the reference day (import expected by that day-of-month)
+    if (dayOfMonth) {
+      const candidate = new Date(next.getFullYear(), next.getMonth(), dayOfMonth);
+      if (candidate > from) next.setTime(candidate.getTime());
+    }
+  }
+  return next;
+}
+
+async function executeFinanceImportPost(importId: string, financeImport: any, userId: string, isAutoPost: boolean, extraContext: Record<string, any> = {}): Promise<{ arCreated: number; ordersAccepted: number; ordersRejected: number }> {
+  const rows = await storage.getFinanceImportRows(importId);
+  let arCreated = 0;
+  let ordersAccepted = 0;
+  let ordersRejected = 0;
+
+  const orderRowGroups: Record<string, typeof rows> = {};
+  for (const row of rows) {
+    if (row.isDuplicate) continue;
+    if (row.matchStatus === 'MATCHED' && row.matchedOrderId) {
+      if (!orderRowGroups[row.matchedOrderId]) orderRowGroups[row.matchedOrderId] = [];
+      orderRowGroups[row.matchedOrderId].push(row);
+    }
+  }
+
+  for (const [orderId, groupRows] of Object.entries(orderRowGroups)) {
+    const enrolledRows = groupRows.filter(r => {
+      const status = (r.clientStatus || '').toUpperCase();
+      return status === 'ENROLLED' || status === 'ACCEPTED' || status === 'COMPLETED' || status === 'ACTIVE';
+    });
+    const rejectedRows = groupRows.filter(r => {
+      const status = (r.clientStatus || '').toUpperCase();
+      return status === 'REJECTED';
+    });
+
+    if (enrolledRows.length > 0) {
+      const totalPaidCents = enrolledRows.reduce((sum, r) => sum + (r.paidAmountCents || 0), 0);
+      const order = await storage.getOrderById(orderId);
+      const orderBase = Math.round(parseFloat(order?.baseCommissionEarned || "0") * 100);
+      const orderIncentive = Math.round(parseFloat(order?.incentiveEarned || "0") * 100);
+      const orderOverride = Math.round(parseFloat(order?.overrideDeduction || "0") * 100);
+      const expectedCents = orderBase + orderIncentive + orderOverride;
+
+      await storage.setOrderClientAcceptance(orderId, 'ACCEPTED', expectedCents || undefined);
+      ordersAccepted++;
+
+      const primaryRow = enrolledRows[0];
+      const existingArs = await storage.getArExpectationsByOrderId(orderId);
+      if (existingArs.length === 0) {
+        const hasMultipleServices = order && (order.tvSold || order.mobileSold);
+
+        if (hasMultipleServices && order) {
+          const lineItems = await storage.getCommissionLineItemsByOrderId(orderId);
+          const internetItems = lineItems.filter((li: any) => li.serviceCategory === 'INTERNET');
+          const videoItems = lineItems.filter((li: any) => li.serviceCategory === 'VIDEO');
+          const mobileItems = lineItems.filter((li: any) => li.serviceCategory === 'MOBILE');
+
+          const internetCents = internetItems.reduce((s: number, li: any) => s + Math.round(parseFloat(li.totalAmount || "0") * 100), 0);
+          const videoCents = videoItems.reduce((s: number, li: any) => s + Math.round(parseFloat(li.totalAmount || "0") * 100), 0);
+          const mobileCents = mobileItems.reduce((s: number, li: any) => s + Math.round(parseFloat(li.totalAmount || "0") * 100), 0);
+          const lineItemTotal = internetCents + videoCents + mobileCents;
+
+          if (lineItemTotal > 0 && (videoCents > 0 || mobileCents > 0)) {
+            const serviceBreakdown: { type: string; amountCents: number; installDate: string | null }[] = [];
+            const internetWithOverride = internetCents + orderOverride;
+            if (internetCents > 0) serviceBreakdown.push({ type: 'INTERNET', amountCents: internetWithOverride, installDate: order.installDate });
+            if (videoCents > 0) serviceBreakdown.push({ type: 'VIDEO', amountCents: videoCents, installDate: order.tvInstallDate || order.installDate });
+            if (mobileCents > 0) serviceBreakdown.push({ type: 'MOBILE', amountCents: mobileCents, installDate: order.mobileInstallDate || order.installDate });
+
+            let paidRemaining = totalPaidCents;
+            for (let i = 0; i < serviceBreakdown.length; i++) {
+              const svc = serviceBreakdown[i];
+              const isFirst = i === 0;
+              const allocated = Math.min(paidRemaining, svc.amountCents);
+              paidRemaining -= allocated;
+              const svcVariance = allocated - svc.amountCents;
+              let svcStatus = 'OPEN';
+              if (allocated > 0 && allocated >= svc.amountCents) svcStatus = 'SATISFIED';
+              else if (allocated > 0) svcStatus = 'PARTIAL';
+
+              await storage.createArExpectation({
+                clientId: financeImport.clientId,
+                orderId,
+                financeImportRowId: isFirst ? primaryRow.id : null as any,
+                expectedAmountCents: svc.amountCents,
+                actualAmountCents: allocated,
+                varianceAmountCents: svcVariance,
+                expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
+                status: svcStatus,
+                serviceType: svc.type,
+                serviceInstallDate: svc.installDate,
+                commissionAmountCents: svc.amountCents,
+              });
+              arCreated++;
+            }
+
+            const freshArs = await storage.getArExpectationsByOrderId(orderId);
+            const allArsSatisfied = freshArs.every((ar: any) => ar.status === 'SATISFIED');
+            if (allArsSatisfied && order) {
+              const orderUpdate: Record<string, any> = { paymentStatus: 'PAID', paidDate: new Date().toISOString().split('T')[0] };
+              if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+              if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+              await storage.updateOrder(orderId, orderUpdate);
+              const freshOrder = await storage.getOrderById(orderId);
+              if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
+                await storage.setPayrollReady(orderId, "AR_SATISFIED");
+              }
+            }
+          } else {
+            const varianceCents = totalPaidCents - expectedCents;
+            let arStatus = 'OPEN';
+            if (totalPaidCents > 0 && totalPaidCents >= expectedCents) arStatus = 'SATISFIED';
+            else if (totalPaidCents > 0) arStatus = 'PARTIAL';
+            await storage.createArExpectation({
+              clientId: financeImport.clientId,
+              orderId,
+              financeImportRowId: primaryRow.id,
+              expectedAmountCents: expectedCents,
+              actualAmountCents: totalPaidCents,
+              varianceAmountCents: varianceCents,
+              expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
+              status: arStatus,
+              serviceType: null,
+              serviceInstallDate: order?.installDate || null,
+              commissionAmountCents: expectedCents,
+            });
+            arCreated++;
+            if (arStatus === 'SATISFIED' && order) {
+              const orderUpdate: Record<string, any> = { paymentStatus: 'PAID', paidDate: new Date().toISOString().split('T')[0] };
+              if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+              if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+              await storage.updateOrder(orderId, orderUpdate);
+              const freshOrder = await storage.getOrderById(orderId);
+              if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
+                await storage.setPayrollReady(orderId, "AR_SATISFIED");
+              }
+            }
+          }
+        } else {
+          const varianceCents = totalPaidCents - expectedCents;
+          let arStatus = 'OPEN';
+          if (totalPaidCents > 0 && totalPaidCents >= expectedCents) arStatus = 'SATISFIED';
+          else if (totalPaidCents > 0) arStatus = 'PARTIAL';
+          await storage.createArExpectation({
+            clientId: financeImport.clientId,
+            orderId,
+            financeImportRowId: primaryRow.id,
+            expectedAmountCents: expectedCents,
+            actualAmountCents: totalPaidCents,
+            varianceAmountCents: varianceCents,
+            expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
+            status: arStatus,
+            serviceType: null,
+            serviceInstallDate: order?.installDate || null,
+            commissionAmountCents: expectedCents,
+          });
+          arCreated++;
+          if (arStatus === 'SATISFIED' && order) {
+            const orderUpdate: Record<string, any> = { paymentStatus: 'PAID', paidDate: new Date().toISOString().split('T')[0] };
+            if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
+            if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
+            await storage.updateOrder(orderId, orderUpdate);
+            const freshOrder = await storage.getOrderById(orderId);
+            if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
+              await storage.setPayrollReady(orderId, "AR_SATISFIED");
+            }
+          }
+        }
+      }
+    } else if (rejectedRows.length > 0) {
+      await storage.setOrderClientAcceptance(orderId, 'REJECTED');
+      ordersRejected++;
+    }
+  }
+
+  await storage.updateFinanceImport(importId, { status: 'POSTED' });
+  await storage.createAuditLog({
+    userId,
+    action: isAutoPost ? "finance_import_auto_posted" : "finance_import_posted",
+    tableName: "finance_imports",
+    recordId: importId,
+    afterJson: JSON.stringify({ arCreated, ordersAccepted, ordersRejected, ...extraContext }),
+  });
+
+  return { arCreated, ordersAccepted, ordersRejected };
+}
+
 function computeFileHash(buffer: Buffer): string {
   return crypto.createHash('sha256').update(buffer).digest('hex');
 }
@@ -14927,10 +15141,23 @@ Rules:
       // Re-fetch after reset
       const freshRows = await storage.getFinanceImportRows(req.params.id);
 
+      // Fetch configurable thresholds from system settings (fetch once before loop)
+      const thresholdSettings = await storage.getSystemSettingsMap([
+        'auto_match_confident_threshold',
+        'auto_match_ambiguous_threshold',
+        'auto_post_match_threshold',
+      ]);
+      const confidentRaw = parseInt(thresholdSettings['auto_match_confident_threshold'] || '70', 10);
+      const ambiguousRaw = parseInt(thresholdSettings['auto_match_ambiguous_threshold'] || '50', 10);
+      const autoPostRaw = parseFloat(thresholdSettings['auto_post_match_threshold'] || '90');
+      const confidentThreshold = isNaN(confidentRaw) ? 70 : Math.max(0, Math.min(100, confidentRaw));
+      const ambiguousThreshold = isNaN(ambiguousRaw) ? 50 : Math.max(0, Math.min(confidentThreshold, ambiguousRaw));
+      const autoPostThreshold = isNaN(autoPostRaw) ? 90 : Math.max(0, Math.min(100, autoPostRaw));
+
       let matchedCount = 0;
       let ambiguousCount = 0;
 
-      console.log(`[AutoMatch] Starting auto-match for import ${req.params.id} with ${freshRows.length} processed rows`);
+      console.log(`[AutoMatch] Starting auto-match for import ${req.params.id} with ${freshRows.length} processed rows (confidentThreshold=${confidentThreshold}, ambiguousThreshold=${ambiguousThreshold})`);
 
       const matchableRows = freshRows.filter(row =>
         row.matchStatus !== 'MATCHED' && row.matchStatus !== 'IGNORED' && !row.isDuplicate && row.saleDate && !isNaN(new Date(row.saleDate).getTime())
@@ -15136,19 +15363,33 @@ Rules:
         // Sort by score descending
         scored.sort((a, b) => b.score - a.score);
 
-        if (scored.length > 0 && scored[0].score >= 50) {
+        if (scored.length > 0 && scored[0].score >= ambiguousThreshold) {
           const topScore = scored[0].score;
-          const topMatch = scored[0];
-          const hasRepMismatch = topMatch.reasons.some(r => r.startsWith('rep_mismatch'));
-          const hasRowRep = !!(row.repNameNorm && row.repNameNorm.length > 0);
 
-          if (hasRowRep && hasRepMismatch) {
+          if (topScore >= confidentThreshold) {
+            // Score meets or exceeds confident threshold → MATCHED (strict tier semantics)
+            const matchedOrder = scored[0].order;
+            const grossCommissionCents = Math.round(calcGrossCommission(matchedOrder) * 100);
+            await storage.updateFinanceImportRow(row.id, {
+              matchedOrderId: matchedOrder.id,
+              matchStatus: 'MATCHED',
+              matchConfidence: topScore,
+              expectedAmountCents: grossCommissionCents,
+              matchReason: JSON.stringify({
+                orderId: matchedOrder.id,
+                score: topScore,
+                reasons: scored[0].reasons
+              })
+            });
+            matchedCount++;
+          } else {
+            // Score is between ambiguousThreshold and confidentThreshold → AMBIGUOUS for human review
             await storage.updateFinanceImportRow(row.id, {
               matchStatus: 'AMBIGUOUS',
               matchConfidence: topScore,
               matchReason: JSON.stringify({
-                note: 'Rep mismatch - requires manual review',
-                candidates: scored.filter(s => s.score >= 30).slice(0, 5).map(c => ({
+                note: 'Score below confident threshold - requires manual review',
+                candidates: scored.filter(s => s.score >= ambiguousThreshold).slice(0, 5).map(c => ({
                   orderId: c.order.id,
                   score: c.score,
                   reasons: c.reasons
@@ -15156,44 +15397,57 @@ Rules:
               })
             });
             ambiguousCount++;
-          } else {
-            const closeMatches = scored.filter(s => s.score >= 50 && topScore - s.score <= 10);
-
-            if (closeMatches.length > 1) {
-              await storage.updateFinanceImportRow(row.id, {
-                matchStatus: 'AMBIGUOUS',
-                matchConfidence: topScore,
-                matchReason: JSON.stringify({
-                  candidates: closeMatches.slice(0, 5).map(c => ({
-                    orderId: c.order.id,
-                    score: c.score,
-                    reasons: c.reasons
-                  }))
-                })
-              });
-              ambiguousCount++;
-            } else {
-              const matchedOrder = scored[0].order;
-              const grossCommissionCents = Math.round(calcGrossCommission(matchedOrder) * 100);
-              await storage.updateFinanceImportRow(row.id, {
-                matchedOrderId: matchedOrder.id,
-                matchStatus: 'MATCHED',
-                matchConfidence: scored[0].score,
-                expectedAmountCents: grossCommissionCents,
-                matchReason: JSON.stringify({
-                  orderId: matchedOrder.id,
-                  score: scored[0].score,
-                  reasons: scored[0].reasons
-                })
-              });
-              matchedCount++;
-            }
           }
         }
       }
 
       // Update import status
       await storage.updateFinanceImport(req.params.id, { status: 'MATCHED' });
+
+      // Re-read persisted row statuses to compute accurate match rate (handles re-runs correctly)
+      const persistedRows = await storage.getFinanceImportRows(req.params.id);
+      const totalMatchable = persistedRows.filter(r => !r.isDuplicate && r.matchStatus !== 'IGNORED').length;
+      const persistedMatchedCount = persistedRows.filter(r => !r.isDuplicate && r.matchStatus === 'MATCHED').length;
+      const persistedAmbiguousCount = persistedRows.filter(r => !r.isDuplicate && r.matchStatus === 'AMBIGUOUS').length;
+      const matchRate = totalMatchable > 0 ? (persistedMatchedCount / totalMatchable) * 100 : 0;
+      console.log(`[AutoMatch] Match rate: ${matchRate.toFixed(1)}% (${persistedMatchedCount}/${totalMatchable}), autoPostThreshold=${autoPostThreshold}%`);
+
+      let autoPosted = false;
+      if (matchRate >= autoPostThreshold && totalMatchable > 0) {
+        console.log(`[AutoMatch] Match rate ${matchRate.toFixed(1)}% >= ${autoPostThreshold}%, triggering auto-post`);
+        try {
+          const { arCreated, ordersAccepted } = await executeFinanceImportPost(
+            req.params.id,
+            financeImport,
+            req.user!.id,
+            true,
+            { matchRate: matchRate.toFixed(1), autoPostThreshold }
+          );
+          autoPosted = true;
+          console.log(`[AutoMatch] Auto-post complete: ${arCreated} AR records created, ${ordersAccepted} orders accepted`);
+        } catch (postErr: any) {
+          console.error("[AutoMatch] Auto-post failed:", postErr.message);
+        }
+      } else if (matchRate < autoPostThreshold) {
+        // Below threshold: create notification for admin review
+        try {
+          const allUsers = await storage.getUsers();
+          const adminUsers = allUsers.filter(u => ['ACCOUNTING', 'ADMIN'].includes(u.role) && u.status === 'ACTIVE' && !u.deletedAt && u.email);
+          for (const adminUser of adminUsers) {
+            await storage.createEmailNotification({
+              userId: adminUser.id,
+              notificationType: 'GENERAL',
+              subject: `Finance Import Requires Review - ${matchRate.toFixed(1)}% Match Rate`,
+              body: `Finance import (ID: ${req.params.id}) auto-matched at ${matchRate.toFixed(1)}%, which is below the ${autoPostThreshold}% auto-post threshold. Human review is required before posting.\n\nMatched: ${persistedMatchedCount}, Ambiguous: ${persistedAmbiguousCount}, Total matchable: ${totalMatchable}`,
+              recipientEmail: adminUser.email!,
+              relatedEntityType: 'FINANCE_IMPORT',
+              relatedEntityId: req.params.id,
+            });
+          }
+        } catch (notifyErr: any) {
+          console.error("[AutoMatch] Notification failed:", notifyErr.message);
+        }
+      }
 
       // Trigger automation rules for import now that matching is complete
       const matchedImportId = req.params.id;
@@ -15207,7 +15461,7 @@ Rules:
         }
       });
 
-      res.json({ matchedCount, ambiguousCount });
+      res.json({ matchedCount: persistedMatchedCount, ambiguousCount: persistedAmbiguousCount, matchRate: parseFloat(matchRate.toFixed(1)), autoPosted });
     } catch (error: any) {
       console.error("Auto-match error:", error);
       res.status(500).json({ message: error.message || "Failed to run auto-match" });
@@ -15232,6 +15486,7 @@ Rules:
         return res.status(404).json({ message: "Order not found" });
       }
 
+      const originalMatchedOrderId = row.matchedOrderId || null;
       const grossCommissionCents = Math.round(calcGrossCommission(order) * 100);
       await storage.updateFinanceImportRow(rowId, {
         matchedOrderId: orderId,
@@ -15241,9 +15496,96 @@ Rules:
         matchReason: JSON.stringify({ manual: true, matchedBy: req.user!.id })
       });
 
+      // Write correction record for future matching improvement
+      try {
+        const orderDate = order.dateSold ? new Date(order.dateSold) : null;
+        const rowDate = row.saleDate ? new Date(row.saleDate) : null;
+        const dateDiffDays = (orderDate && rowDate) ? Math.round(Math.abs(orderDate.getTime() - rowDate.getTime()) / (1000 * 60 * 60 * 24)) : null;
+        const orderAmount = Math.round(calcGrossCommission(order) * 100);
+        const amountDiffCents = row.paidAmountCents != null ? Math.abs(orderAmount - row.paidAmountCents) : null;
+        const orderNameNorm = normalizeCustomerName(order.customerName || '');
+        const rowNameNorm = row.customerNameNorm || normalizeCustomerName(row.customerName || '');
+        const nameOverlapScore = (orderNameNorm && rowNameNorm) ? Math.round(calcNameTokenOverlap(orderNameNorm, rowNameNorm) * 100) : null;
+        await storage.createMatchCorrection({
+          financeImportId: req.params.id,
+          financeImportRowId: rowId,
+          correctionType: 'MANUAL_MATCH',
+          originalMatchedOrderId,
+          correctedMatchedOrderId: orderId,
+          scoreAtCorrection: row.matchConfidence || 0,
+          nameOverlapScore,
+          dateDiffDays,
+          amountDiffCents,
+          correctedByUserId: req.user!.id,
+        });
+      } catch (correctionErr: any) {
+        console.error("[ManualMatch] Failed to write correction record:", correctionErr.message);
+      }
+
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to manual match" });
+    }
+  });
+
+  // Unmatch a row (revert to UNMATCHED)
+  app.post("/api/finance/imports/:id/unmatch-row", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
+    try {
+      const { rowId } = req.body;
+      if (!rowId) {
+        return res.status(400).json({ message: "Row ID is required" });
+      }
+
+      const row = await storage.getFinanceImportRowById(rowId);
+      if (!row || row.financeImportId !== req.params.id) {
+        return res.status(404).json({ message: "Row not found" });
+      }
+
+      const originalMatchedOrderId = row.matchedOrderId || null;
+      await storage.updateFinanceImportRow(rowId, {
+        matchedOrderId: null,
+        matchStatus: 'UNMATCHED',
+        matchConfidence: 0,
+        matchReason: null,
+      });
+
+      // Write correction record
+      try {
+        let nameOverlapScore: number | null = null;
+        let dateDiffDays: number | null = null;
+        let amountDiffCents: number | null = null;
+        if (originalMatchedOrderId) {
+          const origOrder = await storage.getOrderById(originalMatchedOrderId);
+          if (origOrder) {
+            const orderNameNorm = normalizeCustomerName(origOrder.customerName || '');
+            const rowNameNorm = row.customerNameNorm || normalizeCustomerName(row.customerName || '');
+            if (orderNameNorm && rowNameNorm) nameOverlapScore = Math.round(calcNameTokenOverlap(orderNameNorm, rowNameNorm) * 100);
+            const orderDate = origOrder.dateSold ? new Date(origOrder.dateSold) : null;
+            const rowDate = row.saleDate ? new Date(row.saleDate) : null;
+            if (orderDate && rowDate) dateDiffDays = Math.round(Math.abs(orderDate.getTime() - rowDate.getTime()) / (1000 * 60 * 60 * 24));
+            const orderAmount = Math.round(calcGrossCommission(origOrder) * 100);
+            if (row.paidAmountCents != null) amountDiffCents = Math.abs(orderAmount - row.paidAmountCents);
+          }
+        }
+        await storage.createMatchCorrection({
+          financeImportId: req.params.id,
+          financeImportRowId: rowId,
+          correctionType: 'MANUAL_UNMATCH',
+          originalMatchedOrderId,
+          correctedMatchedOrderId: null,
+          scoreAtCorrection: row.matchConfidence || 0,
+          nameOverlapScore,
+          dateDiffDays,
+          amountDiffCents,
+          correctedByUserId: req.user!.id,
+        });
+      } catch (correctionErr: any) {
+        console.error("[UnmatchRow] Failed to write correction record:", correctionErr.message);
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to unmatch row" });
     }
   });
 
@@ -15565,10 +15907,50 @@ Rules:
         return res.status(400).json({ message: "Row ID is required" });
       }
 
+      const row = await storage.getFinanceImportRowById(rowId);
+      if (!row || row.financeImportId !== req.params.id) {
+        return res.status(404).json({ message: "Row not found" });
+      }
+
+      const originalMatchedOrderId = row.matchedOrderId || null;
       await storage.updateFinanceImportRow(rowId, {
         matchStatus: 'IGNORED',
         ignoreReason: reason || 'Manually ignored'
       });
+
+      // Write correction record for future matching improvement
+      try {
+        let ignoreNameOverlapScore: number | null = null;
+        let ignoreDateDiffDays: number | null = null;
+        let ignoreAmountDiffCents: number | null = null;
+        if (originalMatchedOrderId) {
+          const origOrder = await storage.getOrderById(originalMatchedOrderId);
+          if (origOrder) {
+            const orderNameNorm = normalizeCustomerName(origOrder.customerName || '');
+            const rowNameNorm = row.customerNameNorm || normalizeCustomerName(row.customerName || '');
+            if (orderNameNorm && rowNameNorm) ignoreNameOverlapScore = Math.round(calcNameTokenOverlap(orderNameNorm, rowNameNorm) * 100);
+            const orderDate = origOrder.dateSold ? new Date(origOrder.dateSold) : null;
+            const rowDate = row.saleDate ? new Date(row.saleDate) : null;
+            if (orderDate && rowDate) ignoreDateDiffDays = Math.round(Math.abs(orderDate.getTime() - rowDate.getTime()) / (1000 * 60 * 60 * 24));
+            const orderAmount = Math.round(calcGrossCommission(origOrder) * 100);
+            if (row.paidAmountCents != null) ignoreAmountDiffCents = Math.abs(orderAmount - row.paidAmountCents);
+          }
+        }
+        await storage.createMatchCorrection({
+          financeImportId: req.params.id,
+          financeImportRowId: rowId,
+          correctionType: 'MANUAL_IGNORE',
+          originalMatchedOrderId,
+          correctedMatchedOrderId: null,
+          scoreAtCorrection: row.matchConfidence || 0,
+          nameOverlapScore: ignoreNameOverlapScore,
+          dateDiffDays: ignoreDateDiffDays,
+          amountDiffCents: ignoreAmountDiffCents,
+          correctedByUserId: req.user!.id,
+        });
+      } catch (correctionErr: any) {
+        console.error("[IgnoreRow] Failed to write correction record:", correctionErr.message);
+      }
 
       res.json({ success: true });
     } catch (error: any) {
@@ -15588,222 +15970,12 @@ Rules:
         return res.status(400).json({ message: "Import has already been posted" });
       }
 
-      const rows = await storage.getFinanceImportRows(req.params.id);
-      let arCreated = 0;
-      let ordersAccepted = 0;
-      let ordersRejected = 0;
-
-      const orderRowGroups: Record<string, typeof rows> = {};
-      for (const row of rows) {
-        if (row.isDuplicate) continue;
-        if (row.matchStatus === 'MATCHED' && row.matchedOrderId) {
-          if (!orderRowGroups[row.matchedOrderId]) {
-            orderRowGroups[row.matchedOrderId] = [];
-          }
-          orderRowGroups[row.matchedOrderId].push(row);
-        }
-      }
-
-      for (const [orderId, groupRows] of Object.entries(orderRowGroups)) {
-        const enrolledRows = groupRows.filter(r => {
-          const status = (r.clientStatus || '').toUpperCase();
-          return status === 'ENROLLED' || status === 'ACCEPTED' || status === 'COMPLETED' || status === 'ACTIVE';
-        });
-        const rejectedRows = groupRows.filter(r => {
-          const status = (r.clientStatus || '').toUpperCase();
-          return status === 'REJECTED';
-        });
-
-        if (enrolledRows.length > 0) {
-          const totalPaidCents = enrolledRows.reduce((sum, r) => sum + (r.paidAmountCents || 0), 0);
-
-          const order = await storage.getOrderById(orderId);
-          const orderBase = Math.round(parseFloat(order?.baseCommissionEarned || "0") * 100);
-          const orderIncentive = Math.round(parseFloat(order?.incentiveEarned || "0") * 100);
-          const orderOverride = Math.round(parseFloat(order?.overrideDeduction || "0") * 100);
-          const expectedCents = orderBase + orderIncentive + orderOverride;
-
-          await storage.setOrderClientAcceptance(
-            orderId,
-            'ACCEPTED',
-            expectedCents || undefined
-          );
-          ordersAccepted++;
-
-          const primaryRow = enrolledRows[0];
-          const existingArs = await storage.getArExpectationsByOrderId(orderId);
-          if (existingArs.length === 0) {
-            const hasMultipleServices = order && (order.tvSold || order.mobileSold);
-
-            if (hasMultipleServices && order) {
-              const lineItems = await storage.getCommissionLineItemsByOrderId(orderId);
-              const serviceBreakdown: { type: string; amountCents: number; installDate: string | null }[] = [];
-
-              const internetItems = lineItems.filter(li => li.serviceCategory === 'INTERNET');
-              const videoItems = lineItems.filter(li => li.serviceCategory === 'VIDEO');
-              const mobileItems = lineItems.filter(li => li.serviceCategory === 'MOBILE');
-
-              const internetCents = internetItems.reduce((s, li) => s + Math.round(parseFloat(li.totalAmount || "0") * 100), 0);
-              const videoCents = videoItems.reduce((s, li) => s + Math.round(parseFloat(li.totalAmount || "0") * 100), 0);
-              const mobileCents = mobileItems.reduce((s, li) => s + Math.round(parseFloat(li.totalAmount || "0") * 100), 0);
-              const lineItemTotal = internetCents + videoCents + mobileCents;
-
-              if (lineItemTotal > 0 && (videoCents > 0 || mobileCents > 0)) {
-                const overridePortion = orderOverride;
-                const internetWithOverride = internetCents + overridePortion;
-
-                if (internetCents > 0) {
-                  serviceBreakdown.push({
-                    type: 'INTERNET',
-                    amountCents: internetWithOverride,
-                    installDate: order.installDate,
-                  });
-                }
-                if (videoCents > 0) {
-                  serviceBreakdown.push({
-                    type: 'VIDEO',
-                    amountCents: videoCents,
-                    installDate: order.tvInstallDate || order.installDate,
-                  });
-                }
-                if (mobileCents > 0) {
-                  serviceBreakdown.push({
-                    type: 'MOBILE',
-                    amountCents: mobileCents,
-                    installDate: order.mobileInstallDate || order.installDate,
-                  });
-                }
-              }
-
-              if (serviceBreakdown.length > 0) {
-                let paidRemaining = totalPaidCents;
-                for (let i = 0; i < serviceBreakdown.length; i++) {
-                  const svc = serviceBreakdown[i];
-                  const isFirst = i === 0;
-                  const allocated = Math.min(paidRemaining, svc.amountCents);
-                  paidRemaining -= allocated;
-                  const svcVariance = allocated - svc.amountCents;
-                  let svcStatus: string = 'OPEN';
-                  if (allocated > 0 && allocated >= svc.amountCents) svcStatus = 'SATISFIED';
-                  else if (allocated > 0) svcStatus = 'PARTIAL';
-
-                  await storage.createArExpectation({
-                    clientId: financeImport.clientId,
-                    orderId: orderId,
-                    financeImportRowId: isFirst ? primaryRow.id : null as any,
-                    expectedAmountCents: svc.amountCents,
-                    actualAmountCents: allocated,
-                    varianceAmountCents: svcVariance,
-                    expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
-                    status: svcStatus,
-                    serviceType: svc.type,
-                    serviceInstallDate: svc.installDate,
-                    commissionAmountCents: svc.amountCents,
-                  });
-                  arCreated++;
-                }
-
-                const allSatisfied = serviceBreakdown.every((svc, i) => {
-                  const allocated = i === 0 ? Math.min(totalPaidCents, svc.amountCents) : 0;
-                  return allocated >= svc.amountCents;
-                });
-                const freshArs = await storage.getArExpectationsByOrderId(orderId);
-                const allArsSatisfied = freshArs.every(ar => ar.status === 'SATISFIED');
-                if (allArsSatisfied && order) {
-                  const orderUpdate: Record<string, any> = {
-                    paymentStatus: 'PAID',
-                    paidDate: new Date().toISOString().split('T')[0],
-                  };
-                  if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
-                  if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
-                  await storage.updateOrder(orderId, orderUpdate);
-                  await computeAndPersistSimplifiedStatus(orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", orderId, ":", e?.message || e));
-
-                  const freshOrder = await storage.getOrderById(orderId);
-                  if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
-                    await storage.setPayrollReady(orderId, "AR_SATISFIED");
-                  }
-                }
-              } else {
-                const varianceCents = totalPaidCents - expectedCents;
-                let arStatus: string = 'OPEN';
-                if (totalPaidCents > 0 && totalPaidCents >= expectedCents) arStatus = 'SATISFIED';
-                else if (totalPaidCents > 0) arStatus = 'PARTIAL';
-                await storage.createArExpectation({
-                  clientId: financeImport.clientId,
-                  orderId: orderId,
-                  financeImportRowId: primaryRow.id,
-                  expectedAmountCents: expectedCents,
-                  actualAmountCents: totalPaidCents,
-                  varianceAmountCents: varianceCents,
-                  expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
-                  status: arStatus,
-                  serviceType: null,
-                  serviceInstallDate: order?.installDate || null,
-                  commissionAmountCents: expectedCents,
-                });
-                arCreated++;
-                if (arStatus === 'SATISFIED' && order) {
-                  const orderUpdate: Record<string, any> = { paymentStatus: 'PAID', paidDate: new Date().toISOString().split('T')[0] };
-                  if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
-                  if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
-                  await storage.updateOrder(orderId, orderUpdate);
-                  await computeAndPersistSimplifiedStatus(orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", orderId, ":", e?.message || e));
-                  const freshOrder = await storage.getOrderById(orderId);
-                  if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
-                    await storage.setPayrollReady(orderId, "AR_SATISFIED");
-                  }
-                }
-              }
-            } else {
-              const varianceCents = totalPaidCents - expectedCents;
-              let arStatus: string = 'OPEN';
-              if (totalPaidCents > 0 && totalPaidCents >= expectedCents) arStatus = 'SATISFIED';
-              else if (totalPaidCents > 0) arStatus = 'PARTIAL';
-
-              await storage.createArExpectation({
-                clientId: financeImport.clientId,
-                orderId: orderId,
-                financeImportRowId: primaryRow.id,
-                expectedAmountCents: expectedCents,
-                actualAmountCents: totalPaidCents,
-                varianceAmountCents: varianceCents,
-                expectedFromDate: primaryRow.saleDate || new Date().toISOString().split('T')[0],
-                status: arStatus,
-                serviceType: null,
-                serviceInstallDate: order?.installDate || null,
-                commissionAmountCents: expectedCents,
-              });
-              arCreated++;
-
-              if (arStatus === 'SATISFIED' && order) {
-                const orderUpdate: Record<string, any> = { paymentStatus: 'PAID', paidDate: new Date().toISOString().split('T')[0] };
-                if (order.jobStatus !== 'COMPLETED') orderUpdate.jobStatus = 'COMPLETED';
-                if (order.approvalStatus !== 'APPROVED') orderUpdate.approvalStatus = 'APPROVED';
-                await storage.updateOrder(orderId, orderUpdate);
-                const freshOrder = await storage.getOrderById(orderId);
-                if (freshOrder && freshOrder.approvalStatus === 'APPROVED' && !freshOrder.isPayrollHeld && !freshOrder.payrollReadyAt) {
-                  await storage.setPayrollReady(orderId, "AR_SATISFIED");
-                }
-              }
-            }
-          }
-        } else if (rejectedRows.length > 0) {
-          await storage.setOrderClientAcceptance(orderId, 'REJECTED');
-          ordersRejected++;
-        }
-      }
-
-      // Update import status
-      await storage.updateFinanceImport(req.params.id, { status: 'POSTED' });
-
-      await storage.createAuditLog({
-        userId: req.user!.id,
-        action: "finance_import_posted",
-        tableName: "finance_imports",
-        recordId: req.params.id,
-        afterJson: JSON.stringify({ arCreated, ordersAccepted, ordersRejected })
-      });
+      const { arCreated, ordersAccepted, ordersRejected } = await executeFinanceImportPost(
+        req.params.id,
+        financeImport,
+        req.user!.id,
+        false
+      );
 
       res.json({ success: true, arCreated, ordersAccepted, ordersRejected });
     } catch (error: any) {
@@ -15828,6 +16000,143 @@ Rules:
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to lock import" });
+    }
+  });
+
+  // Finance Import Schedules CRUD
+  app.get("/api/finance/import-schedules", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
+    try {
+      const clientId = req.query.clientId as string | undefined;
+      const schedules = await storage.getFinanceImportSchedules(clientId);
+      const allClients = await storage.getClients();
+      const clientMap = new Map(allClients.map(c => [c.id, c.name]));
+      const enriched = schedules.map(s => ({ ...s, clientName: clientMap.get(s.clientId) || s.clientId }));
+      res.json(enriched);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get import schedules" });
+    }
+  });
+
+  app.get("/api/finance/import-schedules/:id", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
+    try {
+      const schedule = await storage.getFinanceImportScheduleById(req.params.id);
+      if (!schedule) return res.status(404).json({ message: "Schedule not found" });
+      res.json(schedule);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get import schedule" });
+    }
+  });
+
+  app.post("/api/finance/import-schedules", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
+    try {
+      const { clientId, name, frequency, dayOfMonth, dayOfWeek, expectedByDaysAfterPeriod, notes } = req.body;
+      if (!clientId || !name || !frequency) {
+        return res.status(400).json({ message: "clientId, name, and frequency are required" });
+      }
+
+      const graceDays = expectedByDaysAfterPeriod || 7;
+      const now = new Date();
+      const nextExpectedAt = computeNextExpectedAt(frequency, dayOfMonth || null, dayOfWeek ?? null, now, graceDays);
+
+      const schedule = await storage.createFinanceImportSchedule({
+        clientId,
+        name,
+        frequency,
+        dayOfMonth: dayOfMonth || null,
+        dayOfWeek: dayOfWeek !== undefined ? dayOfWeek : null,
+        expectedByDaysAfterPeriod: graceDays,
+        notes: notes || null,
+        isActive: true,
+        createdByUserId: req.user!.id,
+      });
+
+      await storage.updateFinanceImportSchedule(schedule.id, { nextExpectedAt });
+
+      res.json(await storage.getFinanceImportScheduleById(schedule.id));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create import schedule" });
+    }
+  });
+
+  app.patch("/api/finance/import-schedules/:id", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
+    try {
+      const schedule = await storage.getFinanceImportScheduleById(req.params.id);
+      if (!schedule) return res.status(404).json({ message: "Schedule not found" });
+
+      const { name, frequency, dayOfMonth, dayOfWeek, expectedByDaysAfterPeriod, isActive, notes } = req.body;
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name;
+      if (frequency !== undefined) updateData.frequency = frequency;
+      if (dayOfMonth !== undefined) updateData.dayOfMonth = dayOfMonth;
+      if (dayOfWeek !== undefined) updateData.dayOfWeek = dayOfWeek;
+      if (expectedByDaysAfterPeriod !== undefined) updateData.expectedByDaysAfterPeriod = expectedByDaysAfterPeriod;
+      if (isActive !== undefined) updateData.isActive = isActive;
+      if (notes !== undefined) updateData.notes = notes;
+
+      // Recompute nextExpectedAt if any scheduling parameters changed
+      const scheduleParamsChanged = frequency !== undefined || dayOfMonth !== undefined ||
+        dayOfWeek !== undefined || expectedByDaysAfterPeriod !== undefined;
+      if (scheduleParamsChanged) {
+        const effectiveFrequency = frequency ?? schedule.frequency;
+        const effectiveDayOfMonth = dayOfMonth !== undefined ? dayOfMonth : schedule.dayOfMonth;
+        const effectiveDayOfWeek = dayOfWeek !== undefined ? dayOfWeek : schedule.dayOfWeek;
+        const effectiveGraceDays = expectedByDaysAfterPeriod ?? schedule.expectedByDaysAfterPeriod;
+        updateData.nextExpectedAt = computeNextExpectedAt(
+          effectiveFrequency,
+          effectiveDayOfMonth,
+          effectiveDayOfWeek,
+          new Date(),
+          effectiveGraceDays
+        );
+      }
+
+      const updated = await storage.updateFinanceImportSchedule(req.params.id, updateData);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update import schedule" });
+    }
+  });
+
+  app.delete("/api/finance/import-schedules/:id", auth, requirePermission("admin:finance:imports"), async (req: AuthRequest, res) => {
+    try {
+      const schedule = await storage.getFinanceImportScheduleById(req.params.id);
+      if (!schedule) return res.status(404).json({ message: "Schedule not found" });
+
+      await storage.deleteFinanceImportSchedule(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete import schedule" });
+    }
+  });
+
+  // System Settings endpoints (admin only)
+  app.get("/api/system-settings", auth, requirePermission("admin:system"), async (req: AuthRequest, res) => {
+    try {
+      const settings = await storage.getSystemSettings();
+      res.json(settings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get system settings" });
+    }
+  });
+
+  app.put("/api/system-settings/:key", auth, requirePermission("admin:system"), async (req: AuthRequest, res) => {
+    try {
+      const { value, description } = req.body;
+      if (value === undefined) return res.status(400).json({ message: "value is required" });
+
+      const setting = await storage.upsertSystemSetting(req.params.key, String(value), description, req.user!.id);
+      res.json(setting);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update system setting" });
+    }
+  });
+
+  app.delete("/api/system-settings/:key", auth, requirePermission("admin:system"), async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteSystemSetting(req.params.key);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete system setting" });
     }
   });
 
