@@ -679,9 +679,12 @@ async function generatePayStubFromPayRun(
     if (order.mobileLinesQty) totalMobileLines += order.mobileLinesQty;
 
     if (isElevated && order.serviceId) {
-      const cpRate = await lookupCompPlanRate(
+      let cpRate = await lookupCompPlanRate(
         order.serviceId, order.providerId, order.clientId || null, periodEnd, txDb,
       );
+      if (!cpRate) {
+        cpRate = await lookupCompPlanRate(order.serviceId, null, null, periodEnd, txDb);
+      }
       if (cpRate) {
         const commCents = Math.round(commAmount * 100);
         const boost = getElevatedAdjustmentCents(cpRate, commCents);

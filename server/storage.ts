@@ -218,6 +218,9 @@ export const storage = {
   async getServices() {
     return db.query.services.findMany({ orderBy: [desc(services.createdAt)] });
   },
+  async getServiceById(id: string) {
+    return db.query.services.findFirst({ where: eq(services.id, id) });
+  },
   async createService(data: InsertService) {
     const [service] = await db.insert(services).values(data).returning();
     return service;

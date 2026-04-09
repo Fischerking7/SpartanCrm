@@ -415,15 +415,55 @@ const MANAGER_BOOST_ELIGIBLE_SERVICES = new Set([
   OVERRIDE_RULE_SERVICE_IDS["MULTI_GIG"],
 ]);
 
-function extractSpeedFromService(serviceId: string): number | undefined {
-  const speedMap: Record<string, number> = {
+const SERVICE_SPEED_CACHE = new Map<string, number | undefined>();
+
+async function extractSpeedFromServiceAsync(serviceId: string): Promise<number | undefined> {
+  if (SERVICE_SPEED_CACHE.has(serviceId)) return SERVICE_SPEED_CACHE.get(serviceId);
+
+  const staticMap: Record<string, number> = {
     [OVERRIDE_RULE_SERVICE_IDS["300_MBPS"]]: 300,
     [OVERRIDE_RULE_SERVICE_IDS["600_MBPS"]]: 600,
     [OVERRIDE_RULE_SERVICE_IDS["1_GIG"]]: 1000,
     [OVERRIDE_RULE_SERVICE_IDS["GIG_PLUS"]]: 1500,
     [OVERRIDE_RULE_SERVICE_IDS["MULTI_GIG"]]: 2000,
   };
-  return speedMap[serviceId];
+
+  if (staticMap[serviceId]) {
+    SERVICE_SPEED_CACHE.set(serviceId, staticMap[serviceId]);
+    return staticMap[serviceId];
+  }
+
+  const service = await storage.getServiceById(serviceId);
+  if (service) {
+    const nameUpper = (service.name || "").toUpperCase();
+    const codeUpper = (service.code || "").toUpperCase();
+    const combined = `${nameUpper} ${codeUpper}`;
+
+    const patterns: Array<[RegExp, number]> = [
+      [/8\s*GIG/i, 8000],
+      [/2\s*GIG/i, 2000],
+      [/1\.5\s*GIG/i, 1500],
+      [/1\s*GIG/i, 1000],
+      [/500\s*M/i, 500],
+      [/600\s*M/i, 600],
+      [/300\s*M/i, 300],
+      [/200\s*M/i, 200],
+    ];
+
+    for (const [regex, speed] of patterns) {
+      if (regex.test(combined)) {
+        SERVICE_SPEED_CACHE.set(serviceId, speed);
+        return speed;
+      }
+    }
+  }
+
+  SERVICE_SPEED_CACHE.set(serviceId, undefined);
+  return undefined;
+}
+
+function extractSpeedFromService(serviceId: string): number | undefined {
+  return SERVICE_SPEED_CACHE.get(serviceId);
 }
 
 async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder: SalesOrder): Promise<OverrideEarning[]> {
@@ -565,6 +605,10 @@ async function generateOverrideEarnings(originalOrder: SalesOrder, approvedOrder
     
     const isMobileOnlyOrder = !approvedOrder.serviceId;
     const isInternetOrder = !!approvedOrder.serviceId;
+
+    if (approvedOrder.serviceId) {
+      await extractSpeedFromServiceAsync(approvedOrder.serviceId);
+    }
 
     const admins = await storage.getUsers();
     const activeAdmins = admins.filter(u => u.role === "ADMIN" && u.status === "ACTIVE" && !u.deletedAt);
