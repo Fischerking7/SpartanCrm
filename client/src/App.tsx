@@ -70,6 +70,11 @@ import AdminOnboardingReview from "@/pages/admin/onboarding-review";
 import AdminAutomationRules from "@/pages/admin/automation-rules";
 import AdminSavedReports from "@/pages/admin/saved-reports";
 import NotFound from "@/pages/not-found";
+import SlaDashboard from "@/pages/operations/sla-dashboard";
+import OnboardingPipeline from "@/pages/operations/onboarding-pipeline";
+import PaymentVariances from "@/pages/accounting/payment-variances";
+import MonthEnd from "@/pages/accounting/month-end";
+import CashFlow from "@/pages/accounting/cash-flow";
 
 function Dashboard() {
   const { user } = useAuth();
@@ -144,6 +149,11 @@ const routeTitles: Record<string, string> = {
   "/admin/user-activity": "User Activity",
   "/admin/automation-rules": "Automation Rules",
   "/admin/saved-reports": "Saved Reports",
+  "/operations/sla-dashboard": "SLA & Bottlenecks",
+  "/operations/onboarding-pipeline": "Onboarding Pipeline",
+  "/accounting/payment-variances": "Payment Variances",
+  "/accounting/month-end": "Month-End Checklist",
+  "/accounting/cash-flow": "Cash Flow Forecast",
 };
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -225,6 +235,8 @@ function Router() {
   }
 
   const isAdmin = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE" || user.role === "ACCOUNTING" || user.role === "DIRECTOR";
+  const canViewOpsAutomation = ["OPERATIONS", "ADMIN", "EXECUTIVE", "DIRECTOR"].includes(user.role);
+  const canViewAcctAutomation = ["ACCOUNTING", "ADMIN", "OPERATIONS", "EXECUTIVE"].includes(user.role);
   const canReviewMdu = user.role === "ADMIN" || user.role === "OPERATIONS" || user.role === "EXECUTIVE";
   const canViewReports = user.role !== "REP";
 
@@ -297,6 +309,21 @@ function Router() {
         
         {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "DIRECTOR"].includes(user.role) && (
           <Route path="/admin/user-activity" component={UserActivityPage} />
+        )}
+
+        {canViewOpsAutomation && (
+          <>
+            <Route path="/operations/sla-dashboard" component={SlaDashboard} />
+            <Route path="/operations/onboarding-pipeline" component={OnboardingPipeline} />
+          </>
+        )}
+
+        {canViewAcctAutomation && (
+          <>
+            <Route path="/accounting/payment-variances" component={PaymentVariances} />
+            <Route path="/accounting/month-end" component={MonthEnd} />
+            <Route path="/accounting/cash-flow" component={CashFlow} />
+          </>
         )}
         
         <Route path="/">

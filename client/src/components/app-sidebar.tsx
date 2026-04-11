@@ -55,6 +55,11 @@ import {
   Radio,
   Zap,
   BookMarked,
+  Timer,
+  UserCheck,
+  BadgeAlert,
+  CalendarCheck,
+  TrendingDown,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -124,6 +129,15 @@ const MENU = {
   quickbooks: { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
   automationRules: { title: "Automation Rules", url: "/admin/automation-rules", icon: Zap },
   savedReports: { title: "Saved Reports", url: "/admin/saved-reports", icon: BookMarked },
+
+  // New: Operations Automation
+  slaDashboard: { title: "SLA & Bottlenecks", url: "/operations/sla-dashboard", icon: Timer },
+  onboardingPipeline: { title: "Onboarding Pipeline", url: "/operations/onboarding-pipeline", icon: UserCheck },
+
+  // New: Accounting Automation
+  paymentVariances: { title: "Payment Variances", url: "/accounting/payment-variances", icon: BadgeAlert },
+  monthEnd: { title: "Month-End Checklist", url: "/accounting/month-end", icon: CalendarCheck },
+  cashFlow: { title: "Cash Flow Forecast", url: "/accounting/cash-flow", icon: TrendingDown },
 } as const;
 
 // ============ COMPOSED MENU GROUPS ============
@@ -152,6 +166,19 @@ const execOpsItems: MenuItem[] = [
   MENU.mduReview,
   MENU.payRuns,
   MENU.adjustments,
+];
+
+// Operations Automation items
+const operationsAutomationItems: MenuItem[] = [
+  MENU.slaDashboard,
+  MENU.onboardingPipeline,
+];
+
+// Accounting Automation items
+const accountingAutomationItems: MenuItem[] = [
+  MENU.paymentVariances,
+  MENU.monthEnd,
+  MENU.cashFlow,
 ];
 
 // Admin: Operations group (limited)
@@ -415,6 +442,7 @@ export function AppSidebar() {
 
   const renderExecutiveSidebar = () => {
     const isExec = user.role === "EXECUTIVE";
+    const isOps = user.role === "OPERATIONS";
     const opsItems = isExec
       ? execOpsItems.filter(i => i !== MENU.payRuns)
       : execOpsItems;
@@ -431,21 +459,35 @@ export function AppSidebar() {
           location={location}
           defaultOpen={true}
         />
+        <CollapsibleSection
+          title="Ops Automation"
+          icon={Timer}
+          items={operationsAutomationItems}
+          location={location}
+        />
         {isExec ? (
           <CollapsibleSection 
             title="Accounting" 
             icon={Wallet} 
-            items={[MENU.audit]} 
+            items={[MENU.audit, ...accountingAutomationItems]} 
             location={location}
           />
         ) : (
-          <CollapsibleSection 
-            title="Accounting" 
-            icon={Wallet} 
-            items={adminAccountingItems} 
-            location={location}
-            badges={exceptionBadges}
-          />
+          <>
+            <CollapsibleSection 
+              title="Accounting" 
+              icon={Wallet} 
+              items={adminAccountingItems} 
+              location={location}
+              badges={exceptionBadges}
+            />
+            <CollapsibleSection
+              title="Acct Automation"
+              icon={CalendarCheck}
+              items={accountingAutomationItems}
+              location={location}
+            />
+          </>
         )}
         <CollapsibleSection 
           title="Insights" 
@@ -538,6 +580,12 @@ export function AppSidebar() {
         items={[...adminAccountingItems, MENU.payRuns, MENU.overrideApprovals]}
         location={location}
         badges={exceptionBadges}
+      />
+      <CollapsibleSection
+        title="Acct Automation"
+        icon={CalendarCheck}
+        items={accountingAutomationItems}
+        location={location}
       />
       <CollapsibleSection
         title="Insights"

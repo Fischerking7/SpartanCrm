@@ -10,6 +10,9 @@ const SYSTEM_SETTINGS_DEFAULTS = [
   { key: "auto_match_ambiguous_threshold", value: "40" },
   { key: "auto_post_match_threshold", value: "90" },
   { key: "connect_rate_target", value: "70" },
+  // Payment variance alert thresholds (configurable by ADMIN via system settings)
+  { key: "variance_threshold_pct", value: "5" },
+  { key: "variance_threshold_cents", value: "1000" },
 ];
 
 export async function seedSystemSettings() {

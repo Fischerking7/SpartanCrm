@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc, not, ilike } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders, commissionDisputes, exceptionDismissals, userTaxProfiles, userDeductions, carryForwardBalances } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders, commissionDisputes, exceptionDismissals, userTaxProfiles, userDeductions, carryForwardBalances, quickbooksConnection, systemSettings } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, insertCompPlanRateSchema, insertCommissionOverrideRuleSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
@@ -1307,6 +1307,58 @@ async function executeFinanceImportPost(importId: string, financeImport: any, us
     recordId: importId,
     afterJson: JSON.stringify({ arCreated, ordersAccepted, ordersRejected, ...extraContext }),
   });
+
+  // Automatically emit PAYMENT_VARIANCE exceptions for any newly-created AR expectations with significant variances
+  // Thresholds are read from system_settings (keys: variance_threshold_pct, variance_threshold_cents) with safe defaults
+  try {
+    const [pctSetting] = await db.select({ value: systemSettings.value })
+      .from(systemSettings).where(eq(systemSettings.key, "variance_threshold_pct")).limit(1);
+    const [centsSetting] = await db.select({ value: systemSettings.value })
+      .from(systemSettings).where(eq(systemSettings.key, "variance_threshold_cents")).limit(1);
+    const VARIANCE_THRESHOLD_PCT = parseFloat(pctSetting?.value ?? "5");
+    const VARIANCE_THRESHOLD_CENTS = parseInt(centsSetting?.value ?? "1000", 10);
+
+    const allNewArRows = await db.select({
+      id: arExpectations.id, clientId: arExpectations.clientId, orderId: arExpectations.orderId,
+      expectedAmountCents: arExpectations.expectedAmountCents, actualAmountCents: arExpectations.actualAmountCents,
+      varianceAmountCents: arExpectations.varianceAmountCents, serviceType: arExpectations.serviceType,
+    }).from(arExpectations)
+      .where(inArray(arExpectations.orderId, Object.keys(orderRowGroups)));
+
+    const existingExceptions = await db.select({ relatedEntityId: systemExceptions.relatedEntityId })
+      .from(systemExceptions)
+      .where(and(
+        eq(systemExceptions.exceptionType, "PAYMENT_VARIANCE"),
+        eq(systemExceptions.status, "OPEN"),
+      ));
+    const existingEntityIds = new Set(existingExceptions.map(e => e.relatedEntityId));
+
+    for (const ar of allNewArRows) {
+      if (!ar.orderId || !ar.varianceAmountCents || ar.varianceAmountCents === 0) continue;
+      if (existingEntityIds.has(ar.id)) continue;
+
+      const varPct = ar.expectedAmountCents > 0
+        ? Math.abs(ar.varianceAmountCents / ar.expectedAmountCents * 100)
+        : 0;
+      if (Math.abs(ar.varianceAmountCents) < VARIANCE_THRESHOLD_CENTS && varPct < VARIANCE_THRESHOLD_PCT) continue;
+
+      const order = await storage.getOrderById(ar.orderId);
+      const direction = ar.varianceAmountCents < 0 ? "underpaid" : "overpaid";
+      const severity = Math.abs(ar.varianceAmountCents) >= 10000 || varPct >= 20 ? "HIGH" : "WARNING";
+
+      await db.insert(systemExceptions).values({
+        exceptionType: "PAYMENT_VARIANCE",
+        severity,
+        title: `Payment ${direction} by $${(Math.abs(ar.varianceAmountCents) / 100).toFixed(2)} (${Math.round(varPct)}%)`,
+        detail: `Import: ${importId}${order?.invoiceNumber ? `, Invoice: ${order.invoiceNumber}` : ""}${order?.customerName ? `, Customer: ${order.customerName}` : ""}${ar.serviceType ? `, Service: ${ar.serviceType}` : ""}. Expected: $${(ar.expectedAmountCents / 100).toFixed(2)}, Actual: $${(ar.actualAmountCents / 100).toFixed(2)}.`,
+        relatedEntityId: ar.id,
+        relatedEntityType: "ar_expectation",
+        status: "OPEN",
+      });
+    }
+  } catch (excErr) {
+    console.error("[executeFinanceImportPost] Failed to emit variance exceptions:", excErr);
+  }
 
   return { arCreated, ordersAccepted, ordersRejected };
 }
@@ -24141,6 +24193,891 @@ function registerReportRoutes(app: Express, auth: any) {
     } catch (error) {
       console.error("Failed to dismiss exception:", error);
       res.status(500).json({ message: "Failed to dismiss exception" });
+    }
+  });
+
+  // ============================================================
+  // OPERATIONS: SLA & BOTTLENECK DASHBOARD
+  // ============================================================
+
+  app.get("/api/operations/sla-dashboard", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE", "DIRECTOR"), async (req: AuthRequest, res) => {
+    try {
+      const slaThresholds = {
+        saleToInstall: parseInt(req.query.saleToInstallDays as string || "14"),
+        installToApproval: parseInt(req.query.installToApprovalDays as string || "7"),
+        approvalToPayment: parseInt(req.query.approvalToPaymentDays as string || "14"),
+      };
+
+      const now = new Date();
+      const cutoff = new Date(now);
+      cutoff.setDate(cutoff.getDate() - 90);
+
+      const orders = await db.select({
+        id: salesOrders.id,
+        repId: salesOrders.repId,
+        providerId: salesOrders.providerId,
+        dateSold: salesOrders.dateSold,
+        installDate: salesOrders.installDate,
+        approvedAt: salesOrders.approvedAt,
+        paidDate: salesOrders.paidDate,
+        paymentStatus: salesOrders.paymentStatus,
+        approvalStatus: salesOrders.approvalStatus,
+        jobStatus: salesOrders.jobStatus,
+        createdAt: salesOrders.createdAt,
+        customerName: salesOrders.customerName,
+        invoiceNumber: salesOrders.invoiceNumber,
+      }).from(salesOrders)
+        .where(and(
+          gte(salesOrders.dateSold, cutoff.toISOString().split("T")[0]),
+          isNull(salesOrders.deletedAt),
+          ne(salesOrders.approvalStatus, "REJECTED"),
+        ));
+
+      const allUsers = await db.select({ id: users.id, name: users.name, repId: users.repId }).from(users);
+      const userMap = new Map(allUsers.map(u => [u.repId, u.name]));
+
+      const allProviders = await db.select({ id: providers.id, name: providers.name }).from(providers);
+      const providerMap = new Map(allProviders.map(p => [p.id, p.name]));
+
+      const slaViolations: any[] = [];
+      const stageDwellTimes = { saleToInstall: [] as number[], installToApproval: [] as number[], approvalToPayment: [] as number[] };
+      const repStats: Record<string, { repName: string; violations: number; totalOrders: number; avgSaleToInstall: number[]; avgInstallToApproval: number[]; avgApprovalToPayment: number[] }> = {};
+      const providerStats: Record<string, { providerName: string; violations: number; totalOrders: number; avgSaleToInstall: number[] }> = {};
+
+      for (const order of orders) {
+        const repName = userMap.get(order.repId || "") || order.repId || "Unknown";
+        const providerName = providerMap.get(order.providerId || "") || "Unknown";
+
+        if (!repStats[order.repId || ""]) {
+          repStats[order.repId || ""] = { repName, violations: 0, totalOrders: 0, avgSaleToInstall: [], avgInstallToApproval: [], avgApprovalToPayment: [] };
+        }
+        if (!providerStats[order.providerId || ""]) {
+          providerStats[order.providerId || ""] = { providerName, violations: 0, totalOrders: 0, avgSaleToInstall: [] };
+        }
+
+        repStats[order.repId || ""].totalOrders++;
+        providerStats[order.providerId || ""].totalOrders++;
+
+        const dateSold = order.dateSold ? new Date(order.dateSold + "T00:00:00") : null;
+        const installDate = order.installDate ? new Date(order.installDate + "T00:00:00") : null;
+        const approvedAt = order.approvedAt ? new Date(order.approvedAt) : null;
+        const paidDate = order.paidDate ? new Date(order.paidDate + "T00:00:00") : null;
+
+        let hasViolation = false;
+
+        if (dateSold && installDate) {
+          const days = Math.floor((installDate.getTime() - dateSold.getTime()) / 86400000);
+          stageDwellTimes.saleToInstall.push(days);
+          repStats[order.repId || ""].avgSaleToInstall.push(days);
+          providerStats[order.providerId || ""].avgSaleToInstall.push(days);
+          if (days > slaThresholds.saleToInstall) {
+            hasViolation = true;
+            slaViolations.push({
+              orderId: order.id, invoiceNumber: order.invoiceNumber, customerName: order.customerName,
+              repId: order.repId, repName, stage: "Sale → Install", daysInStage: days,
+              threshold: slaThresholds.saleToInstall, excess: days - slaThresholds.saleToInstall,
+            });
+          }
+        } else if (dateSold && !installDate) {
+          const daysSince = Math.floor((now.getTime() - dateSold.getTime()) / 86400000);
+          if (daysSince > slaThresholds.saleToInstall) {
+            hasViolation = true;
+            slaViolations.push({
+              orderId: order.id, invoiceNumber: order.invoiceNumber, customerName: order.customerName,
+              repId: order.repId, repName, stage: "Sale → Install (pending)", daysInStage: daysSince,
+              threshold: slaThresholds.saleToInstall, excess: daysSince - slaThresholds.saleToInstall,
+            });
+          }
+        }
+
+        if (installDate && approvedAt) {
+          const days = Math.floor((approvedAt.getTime() - installDate.getTime()) / 86400000);
+          if (days >= 0) {
+            stageDwellTimes.installToApproval.push(days);
+            repStats[order.repId || ""].avgInstallToApproval.push(days);
+            if (days > slaThresholds.installToApproval) {
+              hasViolation = true;
+              slaViolations.push({
+                orderId: order.id, invoiceNumber: order.invoiceNumber, customerName: order.customerName,
+                repId: order.repId, repName, stage: "Install → Approval", daysInStage: days,
+                threshold: slaThresholds.installToApproval, excess: days - slaThresholds.installToApproval,
+              });
+            }
+          }
+        } else if (installDate && !approvedAt && order.approvalStatus !== "APPROVED") {
+          const daysSince = Math.floor((now.getTime() - installDate.getTime()) / 86400000);
+          if (daysSince > slaThresholds.installToApproval) {
+            hasViolation = true;
+            slaViolations.push({
+              orderId: order.id, invoiceNumber: order.invoiceNumber, customerName: order.customerName,
+              repId: order.repId, repName, stage: "Install → Approval (pending)", daysInStage: daysSince,
+              threshold: slaThresholds.installToApproval, excess: daysSince - slaThresholds.installToApproval,
+            });
+          }
+        }
+
+        if (approvedAt && paidDate) {
+          const days = Math.floor((paidDate.getTime() - approvedAt.getTime()) / 86400000);
+          if (days >= 0) {
+            stageDwellTimes.approvalToPayment.push(days);
+            repStats[order.repId || ""].avgApprovalToPayment.push(days);
+            if (days > slaThresholds.approvalToPayment) {
+              hasViolation = true;
+              slaViolations.push({
+                orderId: order.id, invoiceNumber: order.invoiceNumber, customerName: order.customerName,
+                repId: order.repId, repName, stage: "Approval → Payment", daysInStage: days,
+                threshold: slaThresholds.approvalToPayment, excess: days - slaThresholds.approvalToPayment,
+              });
+            }
+          }
+        } else if (approvedAt && order.paymentStatus !== "PAID") {
+          const daysSince = Math.floor((now.getTime() - approvedAt.getTime()) / 86400000);
+          if (daysSince > slaThresholds.approvalToPayment) {
+            hasViolation = true;
+            slaViolations.push({
+              orderId: order.id, invoiceNumber: order.invoiceNumber, customerName: order.customerName,
+              repId: order.repId, repName, stage: "Approval → Payment (pending)", daysInStage: daysSince,
+              threshold: slaThresholds.approvalToPayment, excess: daysSince - slaThresholds.approvalToPayment,
+            });
+          }
+        }
+
+        if (hasViolation) {
+          repStats[order.repId || ""].violations++;
+          providerStats[order.providerId || ""].violations++;
+        }
+      }
+
+      const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
+
+      const cycleTimeByStage = {
+        saleToInstall: { avg: avg(stageDwellTimes.saleToInstall), threshold: slaThresholds.saleToInstall, count: stageDwellTimes.saleToInstall.length },
+        installToApproval: { avg: avg(stageDwellTimes.installToApproval), threshold: slaThresholds.installToApproval, count: stageDwellTimes.installToApproval.length },
+        approvalToPayment: { avg: avg(stageDwellTimes.approvalToPayment), threshold: slaThresholds.approvalToPayment, count: stageDwellTimes.approvalToPayment.length },
+      };
+
+      const bottleneck = Object.entries(cycleTimeByStage).reduce((worst, [stage, data]) => {
+        if (data.avg > (worst.avg || 0)) return { stage, avg: data.avg, threshold: data.threshold };
+        return worst;
+      }, { stage: "", avg: 0, threshold: 0 });
+
+      const repLeaderboard = Object.entries(repStats).map(([repId, data]) => ({
+        repId, repName: data.repName, totalOrders: data.totalOrders,
+        violations: data.violations, violationRate: data.totalOrders > 0 ? Math.round((data.violations / data.totalOrders) * 100) : 0,
+        avgSaleToInstall: avg(data.avgSaleToInstall), avgInstallToApproval: avg(data.avgInstallToApproval),
+        avgApprovalToPayment: avg(data.avgApprovalToPayment),
+      })).sort((a, b) => b.violations - a.violations).slice(0, 20);
+
+      const providerLeaderboard = Object.entries(providerStats).map(([providerId, data]) => ({
+        providerId, providerName: data.providerName, totalOrders: data.totalOrders,
+        violations: data.violations, violationRate: data.totalOrders > 0 ? Math.round((data.violations / data.totalOrders) * 100) : 0,
+        avgSaleToInstall: avg(data.avgSaleToInstall),
+      })).sort((a, b) => b.violations - a.violations);
+
+      res.json({
+        totalOrders: orders.length,
+        totalViolations: slaViolations.length,
+        slaThresholds,
+        cycleTimeByStage,
+        bottleneck,
+        slaViolations: slaViolations.sort((a, b) => b.excess - a.excess).slice(0, 50),
+        repLeaderboard,
+        providerLeaderboard,
+      });
+    } catch (error: any) {
+      console.error("SLA dashboard error:", error);
+      res.status(500).json({ message: error.message || "Failed to load SLA data" });
+    }
+  });
+
+  // ============================================================
+  // OPERATIONS: ONBOARDING PIPELINE VIEW
+  // ============================================================
+
+  app.get("/api/operations/onboarding-pipeline", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE", "DIRECTOR"), async (req: AuthRequest, res) => {
+    try {
+      const slaDays = parseInt(req.query.slaDays as string || "7");
+
+      const allUsers = await db.select({
+        id: users.id, name: users.name, repId: users.repId, email: users.email,
+        onboardingStatus: users.onboardingStatus, onboardingStartedAt: users.onboardingStartedAt,
+        onboardingSubmittedAt: users.onboardingSubmittedAt, onboardingApprovedAt: users.onboardingApprovedAt,
+        onboardingRejectedAt: users.onboardingRejectedAt, backgroundCheckStatus: users.backgroundCheckStatus,
+        drugTestStatus: users.drugTestStatus, createdAt: users.createdAt,
+        ipadIssued: users.ipadIssued, ipadSerialNumber: users.ipadSerialNumber,
+        ipadIssuedAt: users.ipadIssuedAt, ipadReturnedAt: users.ipadReturnedAt,
+        appAccessGrantedAt: users.appAccessGrantedAt, status: users.status,
+      }).from(users)
+        .where(and(
+          isNull(users.deletedAt),
+          ne(users.onboardingStatus, "NOT_STARTED"),
+        ))
+        .orderBy(desc(users.createdAt));
+
+      const now = new Date();
+
+      const pipeline: Record<string, any[]> = {
+        OTP_SENT: [], OTP_VERIFIED: [], IN_PROGRESS: [], SUBMITTED: [], UNDER_REVIEW: [], APPROVED: [], REJECTED: [],
+      };
+
+      for (const u of allUsers) {
+        const stage = u.onboardingStatus || "OTP_SENT";
+        // Use stage-specific transition timestamp for accurate per-stage dwell time
+        const stageEnteredAt: Date | null = (() => {
+          switch (stage) {
+            case "OTP_SENT":
+            case "OTP_VERIFIED":
+              return u.createdAt ? new Date(u.createdAt) : null;
+            case "IN_PROGRESS":
+            case "SUBMITTED":
+              return u.onboardingStartedAt ? new Date(u.onboardingStartedAt) : (u.createdAt ? new Date(u.createdAt) : null);
+            case "UNDER_REVIEW":
+              return u.onboardingSubmittedAt ? new Date(u.onboardingSubmittedAt) : null;
+            case "APPROVED":
+              return u.onboardingApprovedAt ? new Date(u.onboardingApprovedAt) : null;
+            case "REJECTED":
+              return u.onboardingRejectedAt ? new Date(u.onboardingRejectedAt) : null;
+            default:
+              return u.onboardingStartedAt ? new Date(u.onboardingStartedAt) : (u.createdAt ? new Date(u.createdAt) : null);
+          }
+        })();
+        const daysInStage = stageEnteredAt ? Math.floor((now.getTime() - stageEnteredAt.getTime()) / 86400000) : 0;
+        const isSlaBreached = daysInStage > slaDays && !["APPROVED", "REJECTED"].includes(stage);
+
+        const entry = {
+          id: u.id, name: u.name, repId: u.repId, email: u.email,
+          onboardingStatus: stage, daysInStage,
+          isSlaBreached, slaDays,
+          startedAt: u.onboardingStartedAt, submittedAt: u.onboardingSubmittedAt,
+          approvedAt: u.onboardingApprovedAt, rejectedAt: u.onboardingRejectedAt,
+          backgroundCheckStatus: u.backgroundCheckStatus, drugTestStatus: u.drugTestStatus,
+          ipadIssued: u.ipadIssued, ipadSerialNumber: u.ipadSerialNumber,
+          ipadIssuedAt: u.ipadIssuedAt, ipadReturnedAt: u.ipadReturnedAt,
+          appAccessGrantedAt: u.appAccessGrantedAt,
+        };
+
+        if (pipeline[stage]) {
+          pipeline[stage].push(entry);
+        } else {
+          pipeline["OTP_SENT"].push(entry);
+        }
+      }
+
+      const stageOrder = ["OTP_SENT", "OTP_VERIFIED", "IN_PROGRESS", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "REJECTED"];
+      const stageSummary = stageOrder.map(stage => ({
+        stage,
+        count: pipeline[stage]?.length || 0,
+        slaBreached: pipeline[stage]?.filter((e: any) => e.isSlaBreached).length || 0,
+      }));
+
+      const ipadStats = {
+        totalIssued: allUsers.filter(u => u.ipadIssued && !u.ipadReturnedAt).length,
+        totalReturned: allUsers.filter(u => u.ipadReturnedAt).length,
+        pendingReturn: allUsers.filter(u => u.ipadIssued && !u.ipadReturnedAt && (u.status === "DEACTIVATED" || u.onboardingStatus === "REJECTED")).length,
+      };
+
+      res.json({ pipeline, stageSummary, ipadStats, slaDays });
+    } catch (error: any) {
+      console.error("Onboarding pipeline error:", error);
+      res.status(500).json({ message: error.message || "Failed to load onboarding pipeline" });
+    }
+  });
+
+  app.patch("/api/operations/users/:id/ipad", auth, requireRoles("OPERATIONS", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { action, serialNumber } = req.body;
+      const userId = req.params.id;
+      const u = await storage.getUserById(userId);
+      if (!u) return res.status(404).json({ message: "User not found" });
+
+      let updateData: any = {};
+      if (action === "issue") {
+        updateData = { ipadIssued: true, ipadSerialNumber: serialNumber || null, ipadIssuedAt: new Date(), ipadReturnedAt: null };
+      } else if (action === "return") {
+        updateData = { ipadReturnedAt: new Date() };
+      } else {
+        return res.status(400).json({ message: "Invalid action" });
+      }
+
+      const updated = await storage.updateUser(userId, updateData);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update iPad status" });
+    }
+  });
+
+  // ============================================================
+  // ACCOUNTING: PAYMENT VARIANCE ALERTS
+  // ============================================================
+
+  app.get("/api/accounting/payment-variances", auth, requireRoles("ACCOUNTING", "ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      // Read configurable variance thresholds from system_settings (query params can override)
+      const [pctSettingRow] = await db.select({ value: systemSettings.value }).from(systemSettings).where(eq(systemSettings.key, "variance_threshold_pct")).limit(1);
+      const [centsSettingRow] = await db.select({ value: systemSettings.value }).from(systemSettings).where(eq(systemSettings.key, "variance_threshold_cents")).limit(1);
+      const thresholdPct = parseFloat(req.query.thresholdPct as string || pctSettingRow?.value || "5");
+      const thresholdCents = parseInt(req.query.thresholdCents as string || centsSettingRow?.value || "1000");
+      const limitDays = parseInt(req.query.days as string || "90");
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - limitDays);
+
+      const arRows = await db.select({
+        id: arExpectations.id,
+        clientId: arExpectations.clientId,
+        orderId: arExpectations.orderId,
+        expectedAmountCents: arExpectations.expectedAmountCents,
+        actualAmountCents: arExpectations.actualAmountCents,
+        varianceAmountCents: arExpectations.varianceAmountCents,
+        status: arExpectations.status,
+        serviceType: arExpectations.serviceType,
+        createdAt: arExpectations.createdAt,
+      }).from(arExpectations)
+        .where(and(
+          gte(arExpectations.createdAt, cutoff),
+          ne(arExpectations.varianceAmountCents, 0),
+        ))
+        .orderBy(desc(sql`ABS(${arExpectations.varianceAmountCents})`))
+        .limit(200);
+
+      const allClients = await db.select({ id: clients.id, name: clients.name }).from(clients);
+      const clientMap = new Map(allClients.map(c => [c.id, c.name]));
+
+      const allOrders = await db.select({
+        id: salesOrders.id, customerName: salesOrders.customerName,
+        invoiceNumber: salesOrders.invoiceNumber, repId: salesOrders.repId,
+      }).from(salesOrders)
+        .where(inArray(salesOrders.id, [...new Set(arRows.map(r => r.orderId).filter(Boolean) as string[])]));
+      const orderMap = new Map(allOrders.map(o => [o.id, o]));
+
+      const allUsers = await db.select({ repId: users.repId, name: users.name }).from(users);
+      const repMap = new Map(allUsers.map(u => [u.repId, u.name]));
+
+      const variances = arRows
+        .map(row => {
+          const varPct = row.expectedAmountCents > 0
+            ? Math.abs(row.varianceAmountCents / row.expectedAmountCents * 100)
+            : 0;
+          const isAlertWorthy = Math.abs(row.varianceAmountCents) >= thresholdCents || varPct >= thresholdPct;
+          const order = orderMap.get(row.orderId || "");
+          return {
+            id: row.id, clientName: clientMap.get(row.clientId || "") || "Unknown",
+            customerName: order?.customerName, invoiceNumber: order?.invoiceNumber,
+            repId: order?.repId, repName: repMap.get(order?.repId || "") || order?.repId,
+            expectedAmountCents: row.expectedAmountCents, actualAmountCents: row.actualAmountCents,
+            varianceAmountCents: row.varianceAmountCents, variancePct: Math.round(varPct * 10) / 10,
+            status: row.status, serviceType: row.serviceType, createdAt: row.createdAt,
+            isAlert: isAlertWorthy, direction: row.varianceAmountCents < 0 ? "UNDERPAID" : "OVERPAID",
+          };
+        })
+        .filter(v => v.isAlert);
+
+      const summary = {
+        totalVariances: variances.length,
+        underpaid: variances.filter(v => v.direction === "UNDERPAID").length,
+        overpaid: variances.filter(v => v.direction === "OVERPAID").length,
+        totalVarianceCents: variances.reduce((s, v) => s + v.varianceAmountCents, 0),
+        avgVarianceCents: variances.length > 0 ? Math.round(variances.reduce((s, v) => s + Math.abs(v.varianceAmountCents), 0) / variances.length) : 0,
+      };
+
+      res.json({ variances, summary, thresholdPct, thresholdCents });
+    } catch (error: any) {
+      console.error("Payment variance error:", error);
+      res.status(500).json({ message: error.message || "Failed to load payment variances" });
+    }
+  });
+
+  // ============================================================
+  // ACCOUNTING: MONTH-END CLOSE CHECKLIST
+  // ============================================================
+
+  app.get("/api/accounting/month-end-status", auth, requireRoles("ACCOUNTING", "ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthStartStr = monthStart.toISOString().split("T")[0];
+      const todayStr = now.toISOString().split("T")[0];
+
+      const [importsResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(financeImports)
+        .where(and(gte(financeImports.createdAt, monthStart), ne(financeImports.status, "POSTED"), ne(financeImports.status, "LOCKED")));
+      const pendingImports = Number(importsResult?.count || 0);
+
+      const [postedResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(financeImports)
+        .where(and(gte(financeImports.createdAt, monthStart), or(eq(financeImports.status, "POSTED"), eq(financeImports.status, "LOCKED"))));
+      const postedImports = Number(postedResult?.count || 0);
+
+      const [unmatchedResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(financeImportRows)
+        .where(and(gte(financeImportRows.createdAt, monthStart), eq(financeImportRows.matchStatus, "UNMATCHED")));
+      const unmatchedRows = Number(unmatchedResult?.count || 0);
+
+      const [disputesResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(commissionDisputes)
+        .where(and(gte(commissionDisputes.createdAt, monthStart), ne(commissionDisputes.status, "RESOLVED"), ne(commissionDisputes.status, "CLOSED")));
+      const openDisputes = Number(disputesResult?.count || 0);
+
+      const [pendingOverridesResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(overrideEarnings)
+        .where(and(gte(overrideEarnings.createdAt, monthStart), eq(overrideEarnings.status, "PENDING")));
+      const pendingOverrides = Number(pendingOverridesResult?.count || 0);
+
+      const [payRunsResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(payRuns)
+        .where(and(
+          gte(payRuns.createdAt, monthStart),
+          ne(payRuns.status, "FINALIZED"),
+          isNull(payRuns.deletedAt),
+        ));
+      const unfinishedPayRuns = Number(payRunsResult?.count || 0);
+
+      const qbRows = await db.select().from(quickbooksConnection).limit(1);
+      const qbConnection = qbRows[0] || null;
+      const qbSynced = qbConnection?.isConnected === true;
+
+      const [openArResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(arExpectations)
+        .where(and(
+          gte(arExpectations.createdAt, monthStart),
+          sql`${arExpectations.status} IN ('OPEN', 'PARTIAL')`,
+        ));
+      const openArCount = Number(openArResult?.count || 0);
+
+      // Reserves reconciliation: check for separated without release date + negative balances
+      const [reserveSeparatedResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(rollingReserves)
+        .where(and(eq(rollingReserves.status, "SEPARATED"), isNull(rollingReserves.separatedAt)));
+      const [reserveNegativeResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(rollingReserves)
+        .where(and(eq(rollingReserves.status, "ACTIVE"), sql`${rollingReserves.currentBalanceCents} < 0`));
+      const reserveIssues = {
+        separatedWithoutRelease: Number(reserveSeparatedResult?.count || 0),
+        negativeBalances: Number(reserveNegativeResult?.count || 0),
+      };
+
+      const checklist = [
+        {
+          id: "all_imports_posted", label: "All carrier files imported & posted",
+          description: `${pendingImports} import(s) pending posting`,
+          complete: pendingImports === 0, blocker: pendingImports > 0,
+          count: pendingImports, completedCount: postedImports,
+          href: "/finance",
+        },
+        {
+          id: "unmatched_resolved", label: "All import rows matched or resolved",
+          description: `${unmatchedRows} unmatched row(s)`,
+          complete: unmatchedRows === 0, blocker: unmatchedRows > 0,
+          count: unmatchedRows, href: "/finance",
+        },
+        {
+          id: "open_disputes_resolved", label: "All disputes resolved",
+          description: `${openDisputes} open dispute(s)`,
+          complete: openDisputes === 0, blocker: false,
+          count: openDisputes, href: "/admin/disputes",
+        },
+        {
+          id: "overrides_approved", label: "All override earnings approved",
+          description: `${pendingOverrides} override(s) pending approval`,
+          complete: pendingOverrides === 0, blocker: false,
+          count: pendingOverrides, href: "/admin/override-approvals",
+        },
+        {
+          id: "open_ar_reconciled", label: "AR reconciled (open AR reviewed)",
+          description: `${openArCount} open AR expectation(s) this month`,
+          complete: openArCount === 0, blocker: false,
+          count: openArCount, href: "/finance",
+        },
+        {
+          id: "pay_runs_finalized", label: "All pay runs finalized",
+          description: `${unfinishedPayRuns} unfinalized pay run(s)`,
+          complete: unfinishedPayRuns === 0, blocker: false,
+          count: unfinishedPayRuns, href: "/payruns",
+        },
+        {
+          id: "quickbooks_synced", label: "QuickBooks sync current",
+          description: qbSynced ? "QuickBooks is connected" : "QuickBooks not connected",
+          complete: qbSynced, blocker: false,
+          count: qbSynced ? 0 : 1, href: "/admin/quickbooks",
+        },
+        (() => {
+          const separatedWithoutRelease = reserveIssues.separatedWithoutRelease;
+          const negativeReserves = reserveIssues.negativeBalances;
+          const reserveIssueCount = separatedWithoutRelease + negativeReserves;
+          const parts: string[] = [];
+          if (separatedWithoutRelease > 0) parts.push(`${separatedWithoutRelease} separated without release date`);
+          if (negativeReserves > 0) parts.push(`${negativeReserves} negative balance(s)`);
+          return {
+            id: "reserves_reconciled", label: "Reserves reconciled",
+            description: reserveIssueCount === 0 ? "All reserve accounts balanced" : parts.join("; "),
+            complete: reserveIssueCount === 0, blocker: false,
+            count: reserveIssueCount, href: "/admin/users",
+          };
+        })(),
+      ];
+
+      const completedCount = checklist.filter(c => c.complete).length;
+      const totalCount = checklist.length;
+      const blockers = checklist.filter(c => c.blocker && !c.complete);
+
+      res.json({
+        checklist, completedCount, totalCount,
+        completionPct: Math.round((completedCount / totalCount) * 100),
+        blockers, monthStart: monthStartStr, today: todayStr,
+        isMonthEndPeriod: now.getDate() >= 25,
+      });
+    } catch (error: any) {
+      console.error("Month-end status error:", error);
+      res.status(500).json({ message: error.message || "Failed to load month-end status" });
+    }
+  });
+
+  // ============================================================
+  // ACCOUNTING: CASH FLOW FORECASTING
+  // ============================================================
+
+  app.get("/api/accounting/cash-flow-forecast", auth, requireRoles("ACCOUNTING", "ADMIN", "OPERATIONS", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const now = new Date();
+
+      const getDateStr = (daysOut: number) => {
+        const d = new Date(now);
+        d.setDate(d.getDate() + daysOut);
+        return d.toISOString().split("T")[0];
+      };
+
+      const pendingOrApproved = await db.select({
+        id: salesOrders.id,
+        repId: salesOrders.repId,
+        providerId: salesOrders.providerId,
+        baseCommissionEarned: salesOrders.baseCommissionEarned,
+        incentiveEarned: salesOrders.incentiveEarned,
+        overrideDeduction: salesOrders.overrideDeduction,
+        paymentStatus: salesOrders.paymentStatus,
+        approvalStatus: salesOrders.approvalStatus,
+        installDate: salesOrders.installDate,
+        dateSold: salesOrders.dateSold,
+        payrollReadyAt: salesOrders.payrollReadyAt,
+        isPayrollHeld: salesOrders.isPayrollHeld,
+        clientId: salesOrders.clientId,
+      }).from(salesOrders)
+        .where(and(
+          ne(salesOrders.paymentStatus, "PAID"),
+          ne(salesOrders.approvalStatus, "REJECTED"),
+          ne(salesOrders.jobStatus, "CANCELED"),
+          isNull(salesOrders.deletedAt),
+        ));
+
+      const allProviders = await db.select({ id: providers.id, name: providers.name }).from(providers);
+      const providerMap = new Map(allProviders.map(p => [p.id, p.name]));
+
+      const allClients = await db.select({ id: clients.id, name: clients.name }).from(clients);
+      const clientMap = new Map(allClients.map(c => [c.id, c.name]));
+
+      const allUsers = await db.select({ repId: users.repId, name: users.name, assignedManagerId: users.assignedManagerId }).from(users);
+      const repMap = new Map(allUsers.map(u => [u.repId, u]));
+
+      const allManagers = await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.role, "MANAGER"));
+      const managerMap = new Map(allManagers.map(m => [m.id, m.name]));
+
+      const buckets = { d30: 0, d60: 0, d90: 0, beyond: 0 };
+      const byProvider: Record<string, { name: string; d30: number; d60: number; d90: number; beyond: number }> = {};
+      const byTeam: Record<string, { name: string; d30: number; d60: number; d90: number; beyond: number }> = {};
+
+      const day30 = getDateStr(30);
+      const day60 = getDateStr(60);
+      const day90 = getDateStr(90);
+
+      for (const order of pendingOrApproved) {
+        const commission = parseFloat(order.baseCommissionEarned || "0") + parseFloat(order.incentiveEarned || "0");
+        if (commission <= 0) continue;
+
+        const estimatedPayDate = order.installDate
+          ? new Date(new Date(order.installDate + "T00:00:00").getTime() + 14 * 86400000).toISOString().split("T")[0]
+          : new Date(new Date(order.dateSold + "T00:00:00").getTime() + 30 * 86400000).toISOString().split("T")[0];
+
+        let bucket: "d30" | "d60" | "d90" | "beyond" = "beyond";
+        if (estimatedPayDate <= day30) bucket = "d30";
+        else if (estimatedPayDate <= day60) bucket = "d60";
+        else if (estimatedPayDate <= day90) bucket = "d90";
+
+        buckets[bucket] += commission;
+
+        const providerName = providerMap.get(order.providerId || "") || "Unknown";
+        if (!byProvider[order.providerId || ""]) {
+          byProvider[order.providerId || ""] = { name: providerName, d30: 0, d60: 0, d90: 0, beyond: 0 };
+        }
+        byProvider[order.providerId || ""][bucket] += commission;
+
+        const rep = repMap.get(order.repId || "");
+        const managerId = rep?.assignedManagerId || "unassigned";
+        const managerName = managerMap.get(managerId) || "No Team";
+        if (!byTeam[managerId]) {
+          byTeam[managerId] = { name: managerName, d30: 0, d60: 0, d90: 0, beyond: 0 };
+        }
+        byTeam[managerId][bucket] += commission;
+      }
+
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const paidOrders = await db.select({
+        paidDate: salesOrders.paidDate,
+        baseCommissionEarned: salesOrders.baseCommissionEarned,
+        incentiveEarned: salesOrders.incentiveEarned,
+        payRunId: salesOrders.payRunId,
+      }).from(salesOrders)
+        .where(and(
+          eq(salesOrders.paymentStatus, "PAID"),
+          gte(salesOrders.paidDate, new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString().split("T")[0]),
+          isNull(salesOrders.deletedAt),
+        ));
+
+      const historicalByMonth: Record<string, { actual: number; label: string }> = {};
+      for (const o of paidOrders) {
+        if (!o.paidDate) continue;
+        const d = new Date(o.paidDate + "T00:00:00");
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const label = d.toLocaleString("en-US", { month: "short", year: "numeric" });
+        if (!historicalByMonth[key]) historicalByMonth[key] = { actual: 0, label };
+        historicalByMonth[key].actual += parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0");
+      }
+
+      res.json({
+        forecast: {
+          d30: Math.round(buckets.d30 * 100) / 100,
+          d60: Math.round(buckets.d60 * 100) / 100,
+          d90: Math.round(buckets.d90 * 100) / 100,
+          beyond: Math.round(buckets.beyond * 100) / 100,
+          total: Math.round((buckets.d30 + buckets.d60 + buckets.d90 + buckets.beyond) * 100) / 100,
+        },
+        byProvider: Object.values(byProvider).sort((a, b) => (b.d30 + b.d60 + b.d90) - (a.d30 + a.d60 + a.d90)),
+        byTeam: Object.values(byTeam).sort((a, b) => (b.d30 + b.d60 + b.d90) - (a.d30 + a.d60 + a.d90)),
+        historical: Object.entries(historicalByMonth).sort((a, b) => a[0].localeCompare(b[0])).map(([key, val]) => ({ month: key, label: val.label, actual: Math.round(val.actual * 100) / 100 })),
+        generatedAt: now.toISOString(),
+        accuracy: (() => {
+          const months = Object.values(historicalByMonth);
+          if (months.length < 2) return null;
+          const sorted = Object.entries(historicalByMonth).sort((a, b) => a[0].localeCompare(b[0]));
+          const latest = sorted[sorted.length - 1];
+          const prev = sorted[sorted.length - 2];
+          if (!latest || !prev) return null;
+          const prevActual = prev[1].actual;
+          const currActual = latest[1].actual;
+          const monthOverMonth = prevActual > 0 ? Math.round(((currActual - prevActual) / prevActual) * 100) : null;
+          const avgActual = months.reduce((s, m) => s + m.actual, 0) / months.length;
+          const forecast30 = Math.round(buckets.d30 * 100) / 100;
+          const forecastAccuracyVsAvg = avgActual > 0 ? Math.round(((forecast30 - avgActual) / avgActual) * 100) : null;
+          return {
+            avgMonthlyActual: Math.round(avgActual * 100) / 100,
+            monthOverMonthPct: monthOverMonth,
+            forecast30VsAvgPct: forecastAccuracyVsAvg,
+            periodCount: months.length,
+          };
+        })(),
+      });
+    } catch (error: any) {
+      console.error("Cash flow forecast error:", error);
+      res.status(500).json({ message: error.message || "Failed to load cash flow forecast" });
+    }
+  });
+
+  // ============================================================
+  // ACCOUNTING: PAYMENT VARIANCE EXCEPTION EMISSION
+  // POST triggers a scan and emits systemExceptions for breaching variances
+  // ============================================================
+
+  app.post("/api/accounting/payment-variances/emit-exceptions", auth, requireRoles("ACCOUNTING", "ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      // Read configurable variance thresholds from system_settings (body params can override)
+      const [pctEmitRow] = await db.select({ value: systemSettings.value }).from(systemSettings).where(eq(systemSettings.key, "variance_threshold_pct")).limit(1);
+      const [centsEmitRow] = await db.select({ value: systemSettings.value }).from(systemSettings).where(eq(systemSettings.key, "variance_threshold_cents")).limit(1);
+      const thresholdPct = parseFloat(req.body?.thresholdPct || pctEmitRow?.value || "5");
+      const thresholdCents = parseInt(req.body?.thresholdCents || centsEmitRow?.value || "1000");
+      const limitDays = parseInt(req.body?.days || "30");
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - limitDays);
+
+      const arRows = await db.select({
+        id: arExpectations.id,
+        clientId: arExpectations.clientId,
+        orderId: arExpectations.orderId,
+        expectedAmountCents: arExpectations.expectedAmountCents,
+        actualAmountCents: arExpectations.actualAmountCents,
+        varianceAmountCents: arExpectations.varianceAmountCents,
+        status: arExpectations.status,
+        serviceType: arExpectations.serviceType,
+        createdAt: arExpectations.createdAt,
+      }).from(arExpectations)
+        .where(and(
+          gte(arExpectations.createdAt, cutoff),
+          ne(arExpectations.varianceAmountCents, 0),
+        ))
+        .orderBy(desc(sql`ABS(${arExpectations.varianceAmountCents})`))
+        .limit(200);
+
+      const allOrders = await db.select({
+        id: salesOrders.id, customerName: salesOrders.customerName,
+        invoiceNumber: salesOrders.invoiceNumber,
+      }).from(salesOrders)
+        .where(inArray(salesOrders.id, [...new Set(arRows.map(r => r.orderId).filter(Boolean) as string[])]));
+      const orderMap = new Map(allOrders.map(o => [o.id, o]));
+
+      const allClients = await db.select({ id: clients.id, name: clients.name }).from(clients);
+      const clientMap = new Map(allClients.map(c => [c.id, c.name]));
+
+      const existingExceptions = await db.select({ relatedEntityId: systemExceptions.relatedEntityId })
+        .from(systemExceptions)
+        .where(and(
+          eq(systemExceptions.exceptionType, "PAYMENT_VARIANCE"),
+          eq(systemExceptions.status, "OPEN"),
+        ));
+      const existingEntityIds = new Set(existingExceptions.map(e => e.relatedEntityId));
+
+      let emitted = 0;
+      for (const row of arRows) {
+        const varPct = row.expectedAmountCents > 0
+          ? Math.abs(row.varianceAmountCents / row.expectedAmountCents * 100)
+          : 0;
+        const isAlertWorthy = Math.abs(row.varianceAmountCents) >= thresholdCents || varPct >= thresholdPct;
+        if (!isAlertWorthy) continue;
+        if (existingEntityIds.has(row.id)) continue;
+
+        const clientName = clientMap.get(row.clientId || "") || "Unknown";
+        const order = orderMap.get(row.orderId || "");
+        const direction = row.varianceAmountCents < 0 ? "underpaid" : "overpaid";
+        const severity = Math.abs(row.varianceAmountCents) >= 10000 || varPct >= 20 ? "HIGH" : "WARNING";
+
+        await db.insert(systemExceptions).values({
+          exceptionType: "PAYMENT_VARIANCE",
+          severity,
+          title: `Payment ${direction} by ${(Math.abs(row.varianceAmountCents) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })} (${Math.round(varPct)}%)`,
+          detail: `Client: ${clientName}${order?.invoiceNumber ? `, Invoice: ${order.invoiceNumber}` : ""}${order?.customerName ? `, Customer: ${order.customerName}` : ""}. Expected: $${(row.expectedAmountCents / 100).toFixed(2)}, Actual: $${(row.actualAmountCents / 100).toFixed(2)}.`,
+          relatedEntityId: row.id,
+          relatedEntityType: "ar_expectation",
+          status: "OPEN",
+        });
+        emitted++;
+      }
+
+      res.json({ success: true, emitted, scanned: arRows.length });
+    } catch (error: any) {
+      console.error("Payment variance exception emit error:", error);
+      res.status(500).json({ message: error.message || "Failed to emit exceptions" });
+    }
+  });
+
+  // OPERATIONS: Emit systemExceptions for orders with SLA breaches
+  app.post("/api/operations/sla-dashboard/emit-exceptions", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE", "DIRECTOR"), async (req: AuthRequest, res) => {
+    try {
+      const slaThresholds = { saleToInstall: 30, installToApproval: 14, approvalToPayment: 21 };
+      const now = new Date();
+      const cutoff = new Date(now.getTime() - 90 * 86400000);
+
+      const orders = await db.select().from(salesOrders)
+        .where(and(gte(salesOrders.dateSold, cutoff), isNull(salesOrders.deletedAt)));
+
+      let emitted = 0;
+      for (const order of orders) {
+        const stages: Array<{ id: string; from: Date | null; to: Date | null; threshold: number; label: string }> = [
+          { id: `sla_s2i_${order.id}`, from: order.dateSold ? new Date(order.dateSold) : null, to: order.installDate ? new Date(order.installDate) : null, threshold: slaThresholds.saleToInstall, label: "Sale → Install" },
+          { id: `sla_i2a_${order.id}`, from: order.installDate ? new Date(order.installDate) : null, to: order.approvedAt ? new Date(order.approvedAt) : null, threshold: slaThresholds.installToApproval, label: "Install → Approval" },
+          { id: `sla_a2p_${order.id}`, from: order.approvedAt ? new Date(order.approvedAt) : null, to: order.paidDate ? new Date(order.paidDate) : null, threshold: slaThresholds.approvalToPayment, label: "Approval → Payment" },
+        ];
+        for (const stage of stages) {
+          if (!stage.from) continue;
+          const end = stage.to || now;
+          const days = Math.floor((end.getTime() - stage.from.getTime()) / 86400000);
+          if (days <= stage.threshold) continue;
+          // Dedup: only emit if no open SLA_BREACH exception exists for this order+stage
+          const existing = await db.select({ id: systemExceptions.id }).from(systemExceptions)
+            .where(and(
+              eq(systemExceptions.exceptionType, "SLA_BREACH"),
+              eq(systemExceptions.relatedEntityId, order.id),
+              eq(systemExceptions.relatedEntityType, "salesOrder"),
+              eq(systemExceptions.status, "OPEN"),
+              sql`${systemExceptions.title} LIKE ${`%${stage.label}%`}`,
+            )).limit(1);
+          if (existing.length > 0) continue;
+          await db.insert(systemExceptions).values({
+            exceptionType: "SLA_BREACH",
+            severity: days > stage.threshold * 2 ? "HIGH" : "MEDIUM",
+            title: `SLA Breach: ${stage.label} (${days} days)`,
+            detail: `Order ${order.orderNumber || order.id} exceeded ${stage.threshold}-day SLA for ${stage.label} by ${days - stage.threshold} day(s).`,
+            relatedEntityId: order.id,
+            relatedEntityType: "salesOrder",
+            status: "OPEN",
+          });
+          emitted++;
+        }
+      }
+
+      res.json({ success: true, emitted, scanned: orders.length });
+    } catch (error: any) {
+      console.error("SLA breach exception emit error:", error);
+      res.status(500).json({ message: error.message || "Failed to emit SLA breach exceptions" });
+    }
+  });
+
+  // OPERATIONS: Emit systemExceptions for onboarding users with SLA breaches
+  app.post("/api/operations/onboarding-pipeline/emit-exceptions", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE", "DIRECTOR"), async (req: AuthRequest, res) => {
+    try {
+      const slaDays: Record<string, number> = {
+        OTP_SENT: 3, OTP_VERIFIED: 1, IN_PROGRESS: 7, SUBMITTED: 5, UNDER_REVIEW: 3,
+      };
+      const now = new Date();
+
+      const allUsers = await db.select().from(users)
+        .where(and(
+          isNotNull(users.onboardingStatus),
+          sql`${users.onboardingStatus} NOT IN ('APPROVED', 'REJECTED')`,
+        ));
+
+      let emitted = 0;
+      for (const u of allUsers) {
+        const stage = u.onboardingStatus || "OTP_SENT";
+        const threshold = slaDays[stage];
+        if (!threshold) continue;
+
+        const stageEnteredAt: Date | null = (() => {
+          switch (stage) {
+            case "OTP_SENT":
+            case "OTP_VERIFIED": return u.createdAt ? new Date(u.createdAt) : null;
+            case "IN_PROGRESS":
+            case "SUBMITTED": return u.onboardingStartedAt ? new Date(u.onboardingStartedAt) : (u.createdAt ? new Date(u.createdAt) : null);
+            case "UNDER_REVIEW": return u.onboardingSubmittedAt ? new Date(u.onboardingSubmittedAt) : null;
+            default: return u.onboardingStartedAt ? new Date(u.onboardingStartedAt) : null;
+          }
+        })();
+        if (!stageEnteredAt) continue;
+
+        const daysInStage = Math.floor((now.getTime() - stageEnteredAt.getTime()) / 86400000);
+        if (daysInStage <= threshold) continue;
+
+        // Dedup: only emit if no open ONBOARDING_SLA_BREACH exception for this user in this stage
+        const existing = await db.select({ id: systemExceptions.id }).from(systemExceptions)
+          .where(and(
+            eq(systemExceptions.exceptionType, "ONBOARDING_SLA_BREACH"),
+            eq(systemExceptions.relatedEntityId, u.id),
+            eq(systemExceptions.relatedEntityType, "user"),
+            eq(systemExceptions.status, "OPEN"),
+            sql`${systemExceptions.title} LIKE ${`%${stage}%`}`,
+          )).limit(1);
+        if (existing.length > 0) continue;
+
+        await db.insert(systemExceptions).values({
+          exceptionType: "ONBOARDING_SLA_BREACH",
+          severity: daysInStage > threshold * 2 ? "HIGH" : "MEDIUM",
+          title: `Onboarding SLA Breach: ${stage} (${daysInStage} days)`,
+          detail: `Rep ${u.name || u.email} has been in onboarding stage ${stage} for ${daysInStage} day(s), exceeding the ${threshold}-day SLA.`,
+          relatedEntityId: u.id,
+          relatedEntityType: "user",
+          status: "OPEN",
+        });
+        emitted++;
+      }
+
+      res.json({ success: true, emitted, scanned: allUsers.length });
+    } catch (error: any) {
+      console.error("Onboarding SLA exception emit error:", error);
+      res.status(500).json({ message: error.message || "Failed to emit onboarding SLA exceptions" });
     }
   });
 }
