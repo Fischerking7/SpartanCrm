@@ -26446,6 +26446,23 @@ function registerReportRoutes(app: Express, auth: any) {
       const recipient = await storage.getUserById(toUserId);
       if (!recipient) return res.status(404).json({ message: "Recipient not found" });
 
+      const allowedRecipientIds = new Set<string>();
+      if (user.assignedSupervisorId) allowedRecipientIds.add(user.assignedSupervisorId);
+      if (user.assignedManagerId) allowedRecipientIds.add(user.assignedManagerId);
+      if (user.assignedExecutiveId) allowedRecipientIds.add(user.assignedExecutiveId);
+      const isLeadership = ["LEAD", "MANAGER", "DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user.role);
+      if (isLeadership) {
+        const teamMembers = await storage.getActiveUsers();
+        for (const tm of teamMembers) {
+          if (tm.assignedSupervisorId === user.id || tm.assignedManagerId === user.id) {
+            allowedRecipientIds.add(tm.id);
+          }
+        }
+      }
+      if (!allowedRecipientIds.has(toUserId)) {
+        return res.status(403).json({ message: "Not authorized to message this recipient" });
+      }
+
       const msg = await storage.createRepMessage({
         fromUserId: user.id,
         toUserId,
@@ -26456,6 +26473,24 @@ function registerReportRoutes(app: Express, auth: any) {
         relatedEntityType: relatedEntityType || null,
         relatedEntityId: relatedEntityId || null,
       });
+
+      if (recipient.email) {
+        try {
+          const { emailService } = await import("./email");
+          await emailService.queueNotification({
+            userId: recipient.id,
+            notificationType: "GENERAL",
+            subject: `New message from ${user.name}: ${subject}`,
+            body: `${user.name} sent you a message:\n\n${body}\n\nLog in to Iron Crest CRM to reply.`,
+            recipientEmail: recipient.email,
+            relatedEntityType: "MESSAGE",
+            relatedEntityId: msg.id,
+          });
+        } catch (emailErr) {
+          console.error("Failed to queue message notification email:", emailErr);
+        }
+      }
+
       res.json(msg);
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : "Failed to send message";
@@ -26466,9 +26501,28 @@ function registerReportRoutes(app: Express, auth: any) {
   app.get("/api/messages/recipients", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
+      const recipientIds = new Set<string>();
+      if (user.assignedSupervisorId) recipientIds.add(user.assignedSupervisorId);
+      if (user.assignedManagerId) recipientIds.add(user.assignedManagerId);
+      if (user.assignedExecutiveId) recipientIds.add(user.assignedExecutiveId);
+
+      const isLeadership = ["LEAD", "MANAGER", "DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user.role);
+      if (isLeadership) {
+        const teamMembers = await storage.getActiveUsers();
+        for (const tm of teamMembers) {
+          if (tm.assignedSupervisorId === user.id || tm.assignedManagerId === user.id) {
+            recipientIds.add(tm.id);
+          }
+        }
+      }
+      recipientIds.delete(user.id);
+
+      if (recipientIds.size === 0) {
+        return res.json([]);
+      }
       const allUsers = await storage.getActiveUsers();
       const recipients = allUsers
-        .filter(u => u.id !== user.id)
+        .filter(u => recipientIds.has(u.id))
         .map(u => ({ id: u.id, name: u.name, role: u.role, repId: u.repId }));
       res.json(recipients);
     } catch (error: unknown) {

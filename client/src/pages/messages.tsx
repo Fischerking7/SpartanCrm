@@ -1,19 +1,19 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { queryClient } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Send, Inbox, CheckCheck, Clock, Plus, ArrowLeft, Mail, MailOpen } from "lucide-react";
+import { MessageSquare, Send, Inbox, Plus, ArrowLeft, Mail, MailOpen } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 interface Message {
@@ -66,6 +66,15 @@ function ComposeDialog({ open, onOpenChange, defaultCategory, defaultSubject, de
   const [subject, setSubject] = useState(defaultSubject || "");
   const [body, setBody] = useState(defaultBody || "");
   const [category, setCategory] = useState(defaultCategory || "GENERAL");
+
+  useEffect(() => {
+    if (open) {
+      setToUserId(defaultToUserId || "");
+      setSubject(defaultSubject || "");
+      setBody(defaultBody || "");
+      setCategory(defaultCategory || "GENERAL");
+    }
+  }, [open, defaultToUserId, defaultSubject, defaultBody, defaultCategory]);
 
   const { data: supervisors } = useQuery<Array<{ id: string; name: string; role: string }>>({
     queryKey: ["/api/messages/recipients"],
@@ -246,8 +255,6 @@ function MessageCard({ message, isIncoming, onReply, onMarkRead }: {
   onReply: () => void;
   onMarkRead: () => void;
 }) {
-  const isMobile = useIsMobile();
-
   return (
     <Card
       className={`cursor-pointer transition-colors hover:bg-muted/30 ${isIncoming && !message.isRead ? "border-l-4 border-l-[hsl(var(--sidebar-primary))]" : ""}`}
@@ -335,7 +342,7 @@ export default function Messages() {
   const inboxMessages = (messages || []).filter(m => m.toUserId === user?.id);
   const sentMessages = (messages || []).filter(m => m.fromUserId === user?.id);
   const unreadCount = inboxMessages.filter(m => !m.isRead).length;
-  const teamUnreadCount = (teamMessages || []).filter(m => !m.isRead).length;
+  const teamUnreadCount = (teamMessages || []).filter(m => m.toUserId === user?.id && !m.isRead).length;
 
   if (isLoading) {
     return (
@@ -439,15 +446,18 @@ export default function Messages() {
                 </CardContent>
               </Card>
             ) : (
-              (teamMessages || []).map(m => (
-                <MessageCard
-                  key={m.id}
-                  message={m}
-                  isIncoming={true}
-                  onReply={() => setReplyingTo(m)}
-                  onMarkRead={() => markReadMutation.mutate(m.id)}
-                />
-              ))
+              (teamMessages || []).map(m => {
+                const isIncoming = m.toUserId === user?.id;
+                return (
+                  <MessageCard
+                    key={m.id}
+                    message={m}
+                    isIncoming={isIncoming}
+                    onReply={() => isIncoming ? setReplyingTo(m) : undefined}
+                    onMarkRead={() => isIncoming ? markReadMutation.mutate(m.id) : undefined}
+                  />
+                );
+              })
             )}
           </TabsContent>
         )}

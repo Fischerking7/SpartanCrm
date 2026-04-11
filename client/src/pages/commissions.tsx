@@ -64,6 +64,7 @@ export default function Commissions() {
   const { user } = useAuth();
   const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("own");
   const [inquiryOpen, setInquiryOpen] = useState(false);
+  const [inquiryContext, setInquiryContext] = useState<{ subject: string; body: string } | null>(null);
   const isExecutive = user?.role === "EXECUTIVE";
 
   const { data, isLoading } = useQuery<CommissionsData>({
@@ -399,7 +400,27 @@ export default function Commissions() {
                         <span className="font-medium" data-testid={`text-commission-customer-${comm.id}`}>{comm.customerName}</span>
                         <span className="font-bold text-green-600 dark:text-green-400" data-testid={`text-commission-amount-${comm.id}`}>{formatCurrency(comm.total)}</span>
                       </div>
-                      <div className="text-sm text-muted-foreground" data-testid={`text-commission-date-${comm.id}`}>{comm.dateSold}</div>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-sm text-muted-foreground" data-testid={`text-commission-date-${comm.id}`}>{comm.dateSold}</span>
+                        {isRep && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => {
+                              setInquiryContext({
+                                subject: `Question about commission - ${comm.customerName}`,
+                                body: `I have a question about my commission for order ${comm.customerName} (${comm.dateSold}, Acct: ${comm.accountNumber}). Commission amount: ${formatCurrency(comm.total)}.`,
+                              });
+                              setInquiryOpen(true);
+                            }}
+                            data-testid={`btn-inquiry-${comm.id}`}
+                          >
+                            <MessageSquare className="h-3 w-3 mr-1" />
+                            Ask
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -414,6 +435,7 @@ export default function Commissions() {
                         {!isRep && <th className="text-right py-3 px-2 font-medium">Base</th>}
                         {!isRep && <th className="text-right py-3 px-2 font-medium">Incentive</th>}
                         <th className="text-right py-3 px-2 font-medium">{isRep ? "Commission" : "Total"}</th>
+                        {isRep && <th className="py-3 px-2 w-10"></th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -425,6 +447,25 @@ export default function Commissions() {
                           {!isRep && <td className="py-3 px-2 text-right">{formatCurrency(comm.baseCommission)}</td>}
                           {!isRep && <td className="py-3 px-2 text-right">{formatCurrency(comm.incentive)}</td>}
                           <td className="py-3 px-2 text-right font-medium">{formatCurrency(comm.total)}</td>
+                          {isRep && (
+                            <td className="py-3 px-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0"
+                                onClick={() => {
+                                  setInquiryContext({
+                                    subject: `Question about commission - ${comm.customerName}`,
+                                    body: `I have a question about my commission for order ${comm.customerName} (${comm.dateSold}, Acct: ${comm.accountNumber}). Commission amount: ${formatCurrency(comm.total)}.`,
+                                  });
+                                  setInquiryOpen(true);
+                                }}
+                                data-testid={`btn-inquiry-${comm.id}`}
+                              >
+                                <MessageSquare className="h-3.5 w-3.5" />
+                              </Button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -513,24 +554,12 @@ export default function Commissions() {
         </Card>
       )}
 
-      {isRep && (
-        <div className="fixed bottom-20 md:bottom-6 right-4 z-40">
-          <Button
-            onClick={() => setInquiryOpen(true)}
-            className="rounded-full shadow-lg h-12 px-4 bg-[hsl(var(--sidebar-primary))] hover:bg-[hsl(var(--sidebar-primary))]/90 text-white"
-            data-testid="btn-commission-inquiry"
-          >
-            <MessageSquare className="h-5 w-5 mr-2" />
-            Ask About Commission
-          </Button>
-        </div>
-      )}
-
       <ComposeDialog
         open={inquiryOpen}
-        onOpenChange={setInquiryOpen}
+        onOpenChange={(open) => { setInquiryOpen(open); if (!open) setInquiryContext(null); }}
         defaultCategory="COMMISSION_INQUIRY"
-        defaultSubject="Commission Inquiry"
+        defaultSubject={inquiryContext?.subject || "Commission Inquiry"}
+        defaultBody={inquiryContext?.body || ""}
         defaultToUserId={user?.assignedSupervisorId || undefined}
       />
     </div>

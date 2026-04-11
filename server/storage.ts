@@ -5518,9 +5518,9 @@ export const storage = {
     const teamIds = teamMembers.map(m => m.id);
     if (teamIds.length === 0) return [];
     return db.select().from(repMessages)
-      .where(and(
-        inArray(repMessages.fromUserId, teamIds),
-        eq(repMessages.toUserId, managerUserId)
+      .where(or(
+        and(inArray(repMessages.fromUserId, teamIds), eq(repMessages.toUserId, managerUserId)),
+        and(eq(repMessages.fromUserId, managerUserId), inArray(repMessages.toUserId, teamIds))
       ))
       .orderBy(desc(repMessages.createdAt));
   },

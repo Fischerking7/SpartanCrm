@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { FileText, Calendar, Eye, Wallet, Receipt, ArrowDownCircle, ArrowUpCircle, MinusCircle, Download, Shield, ChevronDown } from "lucide-react";
+import { FileText, Calendar, Eye, Wallet, Receipt, ArrowDownCircle, ArrowUpCircle, MinusCircle, Download, Shield, ChevronDown, MessageSquare } from "lucide-react";
 import { useState } from "react";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { ComposeDialog } from "./messages";
 
 interface PayStatement {
   id: string;
@@ -571,6 +572,8 @@ export default function MyPayHistory() {
   const isRep = user?.role === "REP";
   const isMobile = useIsMobile();
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const [payInquiryOpen, setPayInquiryOpen] = useState(false);
+  const [payInquiryContext, setPayInquiryContext] = useState<{ subject: string; body: string } | null>(null);
   const toggleCard = (id: string) => {
     setExpandedCards(prev => {
       const next = new Set(prev);
@@ -730,16 +733,36 @@ export default function MyPayHistory() {
                           )}
                           <div className="flex items-center justify-between gap-2 pt-1 border-t">
                             <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-9"
-                              onClick={() => downloadPdf(statement.id)}
-                              data-testid={`button-download-pdf-${statement.id}`}
-                            >
-                              <Download className="h-3.5 w-3.5 mr-1" />
-                              PDF
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              {isRep && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-9"
+                                  onClick={() => {
+                                    setPayInquiryContext({
+                                      subject: `Pay statement question - ${formatDate(statement.periodStart)} to ${formatDate(statement.periodEnd)}`,
+                                      body: `I have a question about my pay statement for period ${formatDate(statement.periodStart)} - ${formatDate(statement.periodEnd)}. Net pay: ${formatCurrency(statement.netPay)}.`,
+                                    });
+                                    setPayInquiryOpen(true);
+                                  }}
+                                  data-testid={`button-pay-inquiry-${statement.id}`}
+                                >
+                                  <MessageSquare className="h-3.5 w-3.5 mr-1" />
+                                  Ask
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-9"
+                                onClick={() => downloadPdf(statement.id)}
+                                data-testid={`button-download-pdf-${statement.id}`}
+                              >
+                                <Download className="h-3.5 w-3.5 mr-1" />
+                                PDF
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -782,6 +805,23 @@ export default function MyPayHistory() {
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
+                          {isRep && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setPayInquiryContext({
+                                  subject: `Pay statement question - ${formatDate(statement.periodStart)} to ${formatDate(statement.periodEnd)}`,
+                                  body: `I have a question about my pay statement for period ${formatDate(statement.periodStart)} - ${formatDate(statement.periodEnd)}. Net pay: ${formatCurrency(statement.netPay)}.`,
+                                });
+                                setPayInquiryOpen(true);
+                              }}
+                              data-testid={`button-pay-inquiry-${statement.id}`}
+                              title="Ask about this"
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button 
                             size="sm" 
                             variant="ghost" 
@@ -874,16 +914,36 @@ export default function MyPayHistory() {
                         )}
                         <div className="flex items-center justify-between gap-2 pt-1 border-t">
                           <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-9"
-                            onClick={() => downloadPdf(statement.id)}
-                            data-testid={`button-download-pdf-${statement.id}`}
-                          >
-                            <Download className="h-3.5 w-3.5 mr-1" />
-                            PDF
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            {isRep && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-9"
+                                onClick={() => {
+                                  setPayInquiryContext({
+                                    subject: `Pay statement question - ${formatDate(statement.periodStart)} to ${formatDate(statement.periodEnd)}`,
+                                    body: `I have a question about my pay statement for period ${formatDate(statement.periodStart)} - ${formatDate(statement.periodEnd)}. Net pay: ${formatCurrency(statement.netPay)}.`,
+                                  });
+                                  setPayInquiryOpen(true);
+                                }}
+                                data-testid={`button-pay-inquiry-${statement.id}`}
+                              >
+                                <MessageSquare className="h-3.5 w-3.5 mr-1" />
+                                Ask
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9"
+                              onClick={() => downloadPdf(statement.id)}
+                              data-testid={`button-download-pdf-${statement.id}`}
+                            >
+                              <Download className="h-3.5 w-3.5 mr-1" />
+                              PDF
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -930,6 +990,23 @@ export default function MyPayHistory() {
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
+                        {isRep && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setPayInquiryContext({
+                                subject: `Pay statement question - ${formatDate(statement.periodStart)} to ${formatDate(statement.periodEnd)}`,
+                                body: `I have a question about my pay statement for period ${formatDate(statement.periodStart)} - ${formatDate(statement.periodEnd)}. Net pay: ${formatCurrency(statement.netPay)}.`,
+                              });
+                              setPayInquiryOpen(true);
+                            }}
+                            data-testid={`button-pay-inquiry-${statement.id}`}
+                            title="Ask about this"
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button 
                           size="sm" 
                           variant="ghost" 
@@ -957,6 +1034,15 @@ export default function MyPayHistory() {
           )}
         </CardContent>
       </Card>
+
+      <ComposeDialog
+        open={payInquiryOpen}
+        onOpenChange={(open) => { setPayInquiryOpen(open); if (!open) setPayInquiryContext(null); }}
+        defaultCategory="PAY_QUESTION"
+        defaultSubject={payInquiryContext?.subject || "Pay Statement Question"}
+        defaultBody={payInquiryContext?.body || ""}
+        defaultToUserId={user?.assignedSupervisorId || undefined}
+      />
     </div>
   );
 }
