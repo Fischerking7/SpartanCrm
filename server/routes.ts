@@ -22532,7 +22532,11 @@ function registerReportRoutes(app: Express, auth: any) {
       const activeUsers = await db.select({
         repId: users.repId,
         name: users.name,
-      }).from(users).where(and(eq(users.status, "ACTIVE"), isNotNull(users.repId)));
+      }).from(users).where(and(
+        eq(users.status, "ACTIVE"),
+        isNotNull(users.repId),
+        inArray(users.role, ["REP", "LEAD", "MANAGER"]),
+      ));
 
       const userNameMap = new Map<string, string>();
       for (const u of activeUsers) {
