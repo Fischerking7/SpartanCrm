@@ -17414,6 +17414,7 @@ Rules:
         let matchesProcessedCount = 0;
 
         async function processMatchResult(match: { sheetData: Record<string, string>; orderId: string; workOrderNumber?: string; isUpgrade?: boolean; confidence: number; scoreBreakdown?: { acctScore?: number }; serviceLineType?: string; sheetRowIndex: number; orderInvoice: string; orderCustomerName: string; reasoning: string }) {
+            matchesProcessedCount++;
             const woStatus = normalizeWoStatus(match.sheetData || {}, carrierCtx);
 
             const order = await storage.getOrderById(match.orderId);
@@ -17688,7 +17689,6 @@ Rules:
               userId: user.id,
             });
 
-            matchesProcessedCount++;
             if (!isDryRun && matchesProcessedCount % 50 === 0) {
               await storage.updateInstallSyncRun(syncRunId, {
                 matchedCount: matchesProcessedCount,
