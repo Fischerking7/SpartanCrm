@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Edit2, Trash2, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Plus, Edit2, Trash2, CheckCircle, XCircle, Clock, Camera } from "lucide-react";
+import { ScreenshotCapture, AiFieldIndicator, MissingFieldsWarning } from "@/components/screenshot-capture";
 
 interface MduStagingOrder {
   id: string;
@@ -49,6 +50,9 @@ export default function MduOrders() {
   const { toast } = useToast();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingOrder, setEditingOrder] = useState<MduStagingOrder | null>(null);
+  const [showCapture, setShowCapture] = useState(false);
+  const [aiExtractedFields, setAiExtractedFields] = useState<Set<string>>(new Set());
+  const [captureMissingFields, setCaptureMissingFields] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     dateSold: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })(),
     installDate: "",
@@ -176,6 +180,29 @@ export default function MduOrders() {
       creditCardName: "",
       notes: "",
     });
+    setShowCapture(false);
+    setAiExtractedFields(new Set());
+    setCaptureMissingFields([]);
+  };
+
+  const handleCaptureExtracted = (result: { orderData: Record<string, string>; confidence: Record<string, string>; imageObjectPath: string; imageObjectPaths?: string[]; rawExtraction: Record<string, unknown>; missingRequired: string[]; extractedFields: string[] }) => {
+    const { orderData, missingRequired } = result;
+    const newFields = new Set<string>();
+
+    setFormData(f => {
+      const updated = { ...f };
+      if (orderData.customerName) { updated.customerName = orderData.customerName; newFields.add("customerName"); }
+      if (orderData.customerPhone) { updated.customerPhone = orderData.customerPhone; newFields.add("customerPhone"); }
+      if (orderData.customerEmail) { updated.customerEmail = orderData.customerEmail; newFields.add("customerEmail"); }
+      if (orderData.customerAddress) { updated.customerAddress = orderData.customerAddress; newFields.add("customerAddress"); }
+      if (orderData.accountNumber) { updated.accountNumber = orderData.accountNumber; newFields.add("accountNumber"); }
+      if (orderData.installDate) { updated.installDate = orderData.installDate; newFields.add("installDate"); }
+      return updated;
+    });
+
+    setAiExtractedFields(newFields);
+    setCaptureMissingFields(missingRequired || []);
+    setShowCapture(false);
   };
 
   const openEditDialog = (order: MduStagingOrder) => {
@@ -323,9 +350,34 @@ export default function MduOrders() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4 overflow-y-auto flex-1 pr-2">
+            {!editingOrder && (
+              !showCapture ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full border-dashed border-primary/50 text-primary"
+                  onClick={() => setShowCapture(true)}
+                  data-testid="button-capture-from-screenshot"
+                >
+                  <Camera className="h-4 w-4 mr-2" />
+                  Capture from Screenshot
+                </Button>
+              ) : (
+                <ScreenshotCapture
+                  onExtracted={handleCaptureExtracted}
+                  onClose={() => setShowCapture(false)}
+                />
+              )
+            )}
+            {captureMissingFields.length > 2 && (
+              <MissingFieldsWarning missingFields={captureMissingFields} />
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="customerName">Customer Name *</Label>
+                <Label htmlFor="customerName" className="flex items-center gap-1">
+                  Customer Name *
+                  {aiExtractedFields.has("customerName") && <AiFieldIndicator fieldName="customerName" />}
+                </Label>
                 <Input
                   id="customerName"
                   value={formData.customerName}
@@ -334,7 +386,10 @@ export default function MduOrders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="customerPhone">Phone</Label>
+                <Label htmlFor="customerPhone" className="flex items-center gap-1">
+                  Phone
+                  {aiExtractedFields.has("customerPhone") && <AiFieldIndicator fieldName="customerPhone" />}
+                </Label>
                 <Input
                   id="customerPhone"
                   value={formData.customerPhone}
@@ -344,7 +399,10 @@ export default function MduOrders() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="customerAddress">Address</Label>
+              <Label htmlFor="customerAddress" className="flex items-center gap-1">
+                Address
+                {aiExtractedFields.has("customerAddress") && <AiFieldIndicator fieldName="customerAddress" />}
+              </Label>
               <Input
                 id="customerAddress"
                 value={formData.customerAddress}
@@ -354,7 +412,10 @@ export default function MduOrders() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="customerEmail">Email</Label>
+                <Label htmlFor="customerEmail" className="flex items-center gap-1">
+                  Email
+                  {aiExtractedFields.has("customerEmail") && <AiFieldIndicator fieldName="customerEmail" />}
+                </Label>
                 <Input
                   id="customerEmail"
                   type="email"
@@ -458,7 +519,10 @@ export default function MduOrders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="installDate">Install Date</Label>
+                <Label htmlFor="installDate" className="flex items-center gap-1">
+                  Install Date
+                  {aiExtractedFields.has("installDate") && <AiFieldIndicator fieldName="installDate" />}
+                </Label>
                 <Input
                   id="installDate"
                   type="date"
@@ -468,7 +532,10 @@ export default function MduOrders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="accountNumber">Account #</Label>
+                <Label htmlFor="accountNumber" className="flex items-center gap-1">
+                  Account #
+                  {aiExtractedFields.has("accountNumber") && <AiFieldIndicator fieldName="accountNumber" />}
+                </Label>
                 <Input
                   id="accountNumber"
                   value={formData.accountNumber}
