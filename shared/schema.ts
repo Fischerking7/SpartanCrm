@@ -2170,6 +2170,7 @@ export const installSyncRuns = pgTable("install_sync_runs", {
   newCount: integer("new_count").notNull().default(0),
   changedCount: integer("changed_count").notNull().default(0),
   unchangedCount: integer("unchanged_count").notNull().default(0),
+  processedRows: integer("processed_rows").notNull().default(0),
   emailSent: boolean("email_sent").notNull().default(false),
   status: text("status").notNull().default("RUNNING"),
   isIncremental: boolean("is_incremental").notNull().default(false),

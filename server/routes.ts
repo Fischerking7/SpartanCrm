@@ -17339,7 +17339,14 @@ Rules:
           });
         }
 
-        const matchResult = await matchInstallationsToOrders(sheetData.rows, orderSummaries, carrierCtx, processedWoMap, isIncremental);
+        const SYNC_TIMEOUT_MS = 30 * 60 * 1000;
+        const matchResult = await matchInstallationsToOrders(sheetData.rows, orderSummaries, carrierCtx, processedWoMap, isIncremental, {
+          onProgress: !isDryRun ? async (processed, total) => {
+            await storage.updateInstallSyncRun(syncRunId, { processedRows: processed });
+          } : undefined,
+          progressInterval: 50,
+          timeoutMs: SYNC_TIMEOUT_MS,
+        });
 
         let approvedCount = 0;
         const approvedOrders: any[] = [];

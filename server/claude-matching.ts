@@ -604,13 +604,121 @@ export function computeRowHash(row: Record<string, string>, ctx: CarrierContext 
   return `${wo}|${status}|${checkIn}`;
 }
 
+export interface MatchProgressCallback {
+  (processedRows: number, totalRows: number): Promise<void>;
+}
+
+interface OrderIndex {
+  byZip: Map<string, OrderSummary[]>;
+  byAccount: Map<string, OrderSummary[]>;
+  byNameToken: Map<string, OrderSummary[]>;
+  all: OrderSummary[];
+}
+
+function buildOrderIndex(orders: OrderSummary[]): OrderIndex {
+  const byZip = new Map<string, OrderSummary[]>();
+  const byAccount = new Map<string, OrderSummary[]>();
+  const byNameToken = new Map<string, OrderSummary[]>();
+
+  for (const order of orders) {
+    const zip = (order.zipCode || "").replace(/\D/g, "").slice(0, 5);
+    if (zip) {
+      const arr = byZip.get(zip) || [];
+      arr.push(order);
+      byZip.set(zip, arr);
+    }
+
+    const acctNorm = normalize(order.accountNumber || "");
+    if (acctNorm) {
+      const arr = byAccount.get(acctNorm) || [];
+      arr.push(order);
+      byAccount.set(acctNorm, arr);
+    }
+    const invNorm = normalize(order.invoiceNumber || "");
+    if (invNorm) {
+      const arr = byAccount.get(invNorm) || [];
+      arr.push(order);
+      byAccount.set(invNorm, arr);
+    }
+
+    const nameTokens = normalize(order.customerName).split(" ").filter(t => t.length >= 3);
+    for (const token of nameTokens) {
+      const arr = byNameToken.get(token) || [];
+      arr.push(order);
+      byNameToken.set(token, arr);
+    }
+  }
+
+  return { byZip, byAccount, byNameToken, all: orders };
+}
+
+function getCandidateOrders(row: Record<string, string>, ctx: CarrierContext | null, index: OrderIndex): OrderSummary[] {
+  const candidateIds = new Set<string>();
+  const candidates: OrderSummary[] = [];
+
+  const sheetAcct = normalize(extractField(row, "account_number", ctx, getAccountNumber));
+  if (sheetAcct) {
+    const acctMatches = index.byAccount.get(sheetAcct);
+    if (acctMatches) {
+      for (const o of acctMatches) {
+        if (!candidateIds.has(o.id)) {
+          candidateIds.add(o.id);
+          candidates.push(o);
+        }
+      }
+    }
+  }
+
+  const sheetZip = extractField(row, "zip", ctx, getZip).replace(/\D/g, "").slice(0, 5);
+  if (sheetZip) {
+    const zipMatches = index.byZip.get(sheetZip);
+    if (zipMatches) {
+      for (const o of zipMatches) {
+        if (!candidateIds.has(o.id)) {
+          candidateIds.add(o.id);
+          candidates.push(o);
+        }
+      }
+    }
+  }
+
+  const sheetName = extractField(row, "customer_name", ctx, getCustomerName);
+  const nameTokens = normalize(sheetName).split(" ").filter(t => t.length >= 3);
+  for (const token of nameTokens) {
+    const nameMatches = index.byNameToken.get(token);
+    if (nameMatches) {
+      for (const o of nameMatches) {
+        if (!candidateIds.has(o.id)) {
+          candidateIds.add(o.id);
+          candidates.push(o);
+        }
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    return index.all;
+  }
+
+  return candidates;
+}
+
 export async function matchInstallationsToOrders(
   sheetRows: SheetRow[],
   orders: OrderSummary[],
   carrierCtx: CarrierContext | null = null,
   processedWoMap?: Map<string, DedupEntry>,
   incrementalOnly: boolean = false,
+  options?: {
+    onProgress?: MatchProgressCallback;
+    progressInterval?: number;
+    timeoutMs?: number;
+  },
 ): Promise<MatchingResponse> {
+  const progressInterval = options?.progressInterval ?? 50;
+  const timeoutMs = options?.timeoutMs ?? 30 * 60 * 1000;
+  const startTime = Date.now();
+
   if (sheetRows.length === 0) {
     return { matches: [], unmatched: [], dedupSkipped: [], summary: "No installation records to match.", rowClassifications: { new: 0, changed: 0, unchanged: 0 } };
   }
@@ -705,18 +813,65 @@ export async function matchInstallationsToOrders(
 
   console.log(`[Install Sync] Matching ${matchableRows.length} sheet rows against ${orders.length} orders (threshold: ${MATCH_THRESHOLD}%)`);
 
+  const orderIndex = buildOrderIndex(orders);
+
   const candidates: { rowIndex: number; data: Record<string, string>; orderId: string; score: ScoreBreakdown; serviceLine: string; woNumber: string; woType: string }[] = [];
+  const rowBestScores = new Map<number, { score: number; reasons: string[] }>();
+  let processedCount = 0;
+  let timedOut = false;
 
   for (const row of matchableRows) {
+    if (Date.now() - startTime > timeoutMs) {
+      timedOut = true;
+      console.warn(`[Install Sync] Timeout after ${Math.round((Date.now() - startTime) / 1000)}s at row ${processedCount}/${matchableRows.length}`);
+      break;
+    }
+
     const serviceLine = determineServiceLine(row.data, carrierCtx);
     const woNumber = extractField(row.data, "work_order_number", carrierCtx, getWorkOrderNumber).trim();
     const woType = extractField(row.data, "work_order_type", carrierCtx, getWorkOrderType).trim().toUpperCase();
-    for (const order of orders) {
+
+    const candidateOrders = getCandidateOrders(row.data, carrierCtx, orderIndex);
+
+    let rowBest = 0;
+    let rowBestReasons: string[] = [];
+
+    for (const order of candidateOrders) {
       const score = scoreMatch(row.data, order, carrierCtx);
+      if (score.total > rowBest) {
+        rowBest = score.total;
+        rowBestReasons = score.reasons;
+      }
       if (score.total >= MATCH_THRESHOLD) {
         candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score, serviceLine, woNumber, woType });
       }
     }
+
+    if (rowBest < MATCH_THRESHOLD && candidateOrders !== orderIndex.all && orderIndex.all.length > candidateOrders.length) {
+      const candidateIdSet = new Set(candidateOrders.map(o => o.id));
+      for (const order of orderIndex.all) {
+        if (candidateIdSet.has(order.id)) continue;
+        const score = scoreMatch(row.data, order, carrierCtx);
+        if (score.total > rowBest) {
+          rowBest = score.total;
+          rowBestReasons = score.reasons;
+        }
+        if (score.total >= MATCH_THRESHOLD) {
+          candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score, serviceLine, woNumber, woType });
+        }
+      }
+    }
+
+    rowBestScores.set(row.rowIndex, { score: rowBest, reasons: rowBestReasons });
+
+    processedCount++;
+    if (options?.onProgress && processedCount % progressInterval === 0) {
+      await options.onProgress(processedCount, matchableRows.length);
+    }
+  }
+
+  if (options?.onProgress && !timedOut) {
+    await options.onProgress(processedCount, matchableRows.length);
   }
 
   candidates.sort((a, b) => b.score.total - a.score.total);
@@ -766,15 +921,9 @@ export async function matchInstallationsToOrders(
   const unmatchedRows = matchableRows
     .filter(r => !usedRowIndices.has(r.rowIndex))
     .map(r => {
-      let bestScore = 0;
-      let bestReasons: string[] = [];
-      for (const order of orders) {
-        const s = scoreMatch(r.data, order, carrierCtx);
-        if (s.total > bestScore) {
-          bestScore = s.total;
-          bestReasons = s.reasons;
-        }
-      }
+      const cached = rowBestScores.get(r.rowIndex);
+      const bestScore = cached?.score ?? 0;
+      const bestReasons = cached?.reasons ?? [];
       const customerName = extractField(r.data, "customer_name", carrierCtx, getCustomerName);
       const addr = extractField(r.data, "address", carrierCtx, getAddress);
       const detail = customerName ? ` (customer: ${customerName})` : addr ? ` (address: ${addr.slice(0, 40)})` : "";
@@ -788,14 +937,17 @@ export async function matchInstallationsToOrders(
     });
 
   const allUnmatched = [...unmatchedRows, ...skippedRows];
+  const elapsedSec = Math.round((Date.now() - startTime) / 1000);
 
-  console.log(`[Install Sync] Done: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped (new:${rowClassifications.new} changed:${rowClassifications.changed} unchanged:${rowClassifications.unchanged})`);
+  console.log(`[Install Sync] Done in ${elapsedSec}s: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped (new:${rowClassifications.new} changed:${rowClassifications.changed} unchanged:${rowClassifications.unchanged})${timedOut ? " [TIMED OUT]" : ""}`);
+
+  const timeoutNote = timedOut ? ` (timed out after ${elapsedSec}s, processed ${processedCount}/${matchableRows.length} rows)` : "";
 
   return {
     matches: validMatches,
     unmatched: allUnmatched,
     dedupSkipped,
-    summary: `Matched ${validMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced (dedup).`,
+    summary: `Matched ${validMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced (dedup).${timeoutNote}`,
     rowClassifications,
   };
 }

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -141,6 +141,7 @@ interface SyncRun {
   newCount: number;
   changedCount: number;
   unchangedCount: number;
+  processedRows: number;
   isIncremental: boolean;
   emailSent: boolean;
   status: string;
@@ -187,13 +188,44 @@ export default function InstallSync() {
   const [bulkLinkSearch, setBulkLinkSearch] = useState("");
   const [bulkSearchResults, setBulkSearchResults] = useState<any[]>([]);
   const [bulkSearchLoading, setBulkSearchLoading] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ processedRows: number; totalRows: number } | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const historyQuery = useQuery<SyncRun[]>({
     queryKey: ["/api/admin/install-sync/history"],
   });
 
+  useEffect(() => {
+    if (!isSyncing) {
+      setSyncProgress(null);
+      return;
+    }
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/admin/install-sync/history", {
+          headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+        });
+        if (!res.ok) return;
+        const runs: SyncRun[] = await res.json();
+        const running = activeSyncRunId.current
+          ? runs.find(r => r.id === activeSyncRunId.current)
+          : runs.find(r => r.status === "RUNNING");
+        if (!activeSyncRunId.current && running) {
+          activeSyncRunId.current = running.id;
+        }
+        if (running && running.totalSheetRows > 0) {
+          setSyncProgress({ processedRows: running.processedRows, totalRows: running.totalSheetRows });
+        }
+      } catch {}
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [isSyncing]);
+
+  const activeSyncRunId = useRef<string | null>(null);
+
   const syncMutation = useMutation({
     mutationFn: async () => {
+      setIsSyncing(true);
       const formData = new FormData();
       if (sourceMode === "upload" && selectedFile) {
         formData.append("file", selectedFile);
@@ -221,6 +253,8 @@ export default function InstallSync() {
       return response.json() as Promise<SyncResult>;
     },
     onSuccess: (data) => {
+      setIsSyncing(false);
+      activeSyncRunId.current = null;
       setResult(data);
       if (sheetUrl) localStorage.setItem("installSync_sheetUrl", sheetUrl);
       if (emailTo) localStorage.setItem("installSync_emailTo", emailTo);
@@ -238,6 +272,8 @@ export default function InstallSync() {
       });
     },
     onError: (error: Error) => {
+      setIsSyncing(false);
+      activeSyncRunId.current = null;
       toast({ title: "Sync Failed", description: error.message, variant: "destructive" });
     },
   });
@@ -553,7 +589,9 @@ export default function InstallSync() {
               {syncMutation.isPending ? (
                 <>
                   <Clock className="h-4 w-4 mr-2 animate-spin" />
-                  Running Sync...
+                  {syncProgress
+                    ? `Processing row ${syncProgress.processedRows} of ${syncProgress.totalRows}...`
+                    : "Running Sync..."}
                 </>
               ) : (
                 <>
@@ -562,6 +600,19 @@ export default function InstallSync() {
                 </>
               )}
             </Button>
+            {syncMutation.isPending && syncProgress && syncProgress.totalRows > 0 && (
+              <div className="mt-3 space-y-1" data-testid="sync-progress">
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div
+                    className="bg-[#C9A84C] h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.min(100, Math.round((syncProgress.processedRows / syncProgress.totalRows) * 100))}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {Math.round((syncProgress.processedRows / syncProgress.totalRows) * 100)}% complete
+                </p>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
