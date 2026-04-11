@@ -4,7 +4,7 @@ import { z } from "zod";
 import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc, not, ilike } from "drizzle-orm";
-import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders, commissionDisputes, exceptionDismissals, userTaxProfiles } from "@shared/schema";
+import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders, commissionDisputes, exceptionDismissals, userTaxProfiles, userDeductions, carryForwardBalances } from "@shared/schema";
 import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
 import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, insertCompPlanRateSchema, insertCommissionOverrideRuleSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
@@ -22381,6 +22381,155 @@ function registerReportRoutes(app: Express, auth: any) {
     } catch (error: any) {
       console.error("Manager dashboard error:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/reports/manager/team-earnings", auth, requireRoles("MANAGER", "DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const period = getCurrentPayPeriod();
+
+      const teamReps = await db.query.users.findMany({
+        where: and(eq(users.assignedManagerId, user.id), eq(users.status, "ACTIVE")),
+      });
+
+      const repIds = teamReps.map(r => r.repId);
+      const repUserIds = teamReps.map(r => r.id);
+
+      if (repIds.length === 0) {
+        return res.json({ reps: [], totals: { grossCommission: "0", chargebacks: "0", deductions: "0", carryForward: "0", estimatedNet: "0" } });
+      }
+
+      const periodCommissions = await db.select({
+        repId: salesOrders.repId,
+        grossCommission: sql<string>`coalesce(sum(${salesOrders.baseCommissionEarned}::numeric), 0)::text`,
+      }).from(salesOrders).where(and(
+        inArray(salesOrders.repId, repIds),
+        gte(salesOrders.dateSold, period.start),
+        lte(salesOrders.dateSold, period.end),
+      )).groupBy(salesOrders.repId);
+
+      const periodChargebacks = await db.select({
+        repId: chargebacks.repId,
+        totalChargebacks: sql<string>`coalesce(sum(${chargebacks.amount}::numeric), 0)::text`,
+        chargebackCount: sql<number>`count(*)::int`,
+      }).from(chargebacks).where(and(
+        inArray(chargebacks.repId, repIds),
+        gte(chargebacks.chargebackDate, period.start),
+        lte(chargebacks.chargebackDate, period.end),
+      )).groupBy(chargebacks.repId);
+
+      const activeDeductions = await db.select({
+        userId: userDeductions.userId,
+        totalDeduction: sql<string>`coalesce(sum(${userDeductions.amount}::numeric), 0)::text`,
+      }).from(userDeductions).where(and(
+        inArray(userDeductions.userId, repUserIds),
+        eq(userDeductions.active, true),
+        lte(userDeductions.effectiveStart, period.end),
+        or(isNull(userDeductions.effectiveEnd), gte(userDeductions.effectiveEnd, period.start)),
+      )).groupBy(userDeductions.userId);
+
+      const carryForwards = await db.select({
+        userId: carryForwardBalances.userId,
+        totalCarryForward: sql<string>`coalesce(sum(${carryForwardBalances.remainingAmountCents}), 0)::text`,
+      }).from(carryForwardBalances).where(and(
+        inArray(carryForwardBalances.userId, repUserIds),
+        eq(carryForwardBalances.status, "PENDING"),
+      )).groupBy(carryForwardBalances.userId);
+
+      const [pYear, pMonth, pDay] = period.start.split("-").map(Number);
+      let prevStart: string;
+      let prevEnd: string;
+      if (pDay <= 1) {
+        const pm = pMonth - 1 <= 0 ? 12 : pMonth - 1;
+        const py = pMonth - 1 <= 0 ? pYear - 1 : pYear;
+        const lastDay = new Date(py, pm, 0).getDate();
+        prevStart = `${py}-${String(pm).padStart(2, "0")}-16`;
+        prevEnd = `${py}-${String(pm).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+      } else {
+        prevStart = `${pYear}-${String(pMonth).padStart(2, "0")}-01`;
+        prevEnd = `${pYear}-${String(pMonth).padStart(2, "0")}-15`;
+      }
+
+      const priorCommissions = await db.select({
+        repId: salesOrders.repId,
+        grossCommission: sql<string>`coalesce(sum(${salesOrders.baseCommissionEarned}::numeric), 0)::text`,
+      }).from(salesOrders).where(and(
+        inArray(salesOrders.repId, repIds),
+        gte(salesOrders.dateSold, prevStart),
+        lte(salesOrders.dateSold, prevEnd),
+      )).groupBy(salesOrders.repId);
+
+      const commissionMap = new Map(periodCommissions.map(c => [c.repId, c]));
+      const chargebackMap = new Map(periodChargebacks.map(c => [c.repId, c]));
+      const deductionMap = new Map(activeDeductions.map(d => [d.userId, d]));
+      const carryForwardMap = new Map(carryForwards.map(c => [c.userId, c]));
+      const priorMap = new Map(priorCommissions.map(p => [p.repId, parseFloat(p.grossCommission)]));
+
+      let totalGross = 0, totalChargebacks = 0, totalDeductions = 0, totalCarryForward = 0, totalNet = 0;
+
+      const reps = teamReps.map(rep => {
+        const commData = commissionMap.get(rep.repId);
+        const gross = parseFloat(commData?.grossCommission || "0");
+        const cbData = chargebackMap.get(rep.repId);
+        const cb = parseFloat(cbData?.totalChargebacks || "0");
+        const cbCount = cbData?.chargebackCount || 0;
+        const dedData = deductionMap.get(rep.id);
+        const ded = parseFloat(dedData?.totalDeduction || "0");
+        const cfData = carryForwardMap.get(rep.id);
+        const cfCents = parseInt(cfData?.totalCarryForward || "0", 10);
+        const cf = cfCents / 100;
+        const net = Math.max(gross - cb - ded - cf, 0);
+
+        const priorGross = priorMap.get(rep.repId) || 0;
+        const delta = gross - priorGross;
+
+        const chargebackRatio = gross > 0 ? (cb / gross) * 100 : 0;
+
+        const risks: string[] = [];
+        if (net <= 0) risks.push("ZERO_PAY");
+        if (cfCents > 0) risks.push("CARRY_FORWARD");
+        if (chargebackRatio > 20) risks.push("HIGH_CHARGEBACKS");
+
+        totalGross += gross;
+        totalChargebacks += cb;
+        totalDeductions += ded;
+        totalCarryForward += cf;
+        totalNet += net;
+
+        return {
+          id: rep.id,
+          name: `${rep.firstName} ${rep.lastName}`,
+          repId: rep.repId,
+          grossCommission: gross.toFixed(2),
+          chargebacks: cb.toFixed(2),
+          chargebackCount: cbCount,
+          deductions: ded.toFixed(2),
+          carryForward: cf.toFixed(2),
+          estimatedNet: net.toFixed(2),
+          priorPeriodGross: priorGross.toFixed(2),
+          delta: delta.toFixed(2),
+          chargebackRatio: chargebackRatio.toFixed(1),
+          risks,
+        };
+      }).sort((a, b) => parseFloat(b.grossCommission) - parseFloat(a.grossCommission));
+
+      res.json({
+        reps,
+        totals: {
+          grossCommission: totalGross.toFixed(2),
+          chargebacks: totalChargebacks.toFixed(2),
+          deductions: totalDeductions.toFixed(2),
+          carryForward: totalCarryForward.toFixed(2),
+          estimatedNet: totalNet.toFixed(2),
+        },
+        period: { start: period.start, end: period.end },
+        priorPeriod: { start: prevStart, end: prevEnd },
+      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      console.error("Manager team earnings error:", msg);
+      res.status(500).json({ message: msg });
     }
   });
 
