@@ -5,7 +5,6 @@ import { KpiCard } from "@/components/kpi-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, AlertCircle, CheckCircle, Clock, ChevronDown, ChevronRight, ClipboardCheck, Search } from "lucide-react";
 
@@ -165,13 +164,17 @@ function OrderQualityScorecard() {
                     </div>
                     <div className="flex items-center gap-2 md:justify-center">
                       <span className="text-xs text-muted-foreground md:hidden">Clean Rate:</span>
-                      <Badge
-                        variant={isBelowThreshold ? "destructive" : "default"}
-                        className={`text-xs ${!isBelowThreshold ? "bg-green-600 hover:bg-green-700" : ""}`}
-                        data-testid={`badge-clean-rate-${rep.repId}`}
-                      >
-                        {cleanRate}%
-                      </Badge>
+                      {rep.totalOrders === 0 ? (
+                        <Badge variant="secondary" className="text-xs" data-testid={`badge-clean-rate-${rep.repId}`}>—</Badge>
+                      ) : (
+                        <Badge
+                          variant={isBelowThreshold ? "destructive" : "default"}
+                          className={`text-xs ${!isBelowThreshold ? "bg-green-600 hover:bg-green-700" : ""}`}
+                          data-testid={`badge-clean-rate-${rep.repId}`}
+                        >
+                          {cleanRate}%
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-1 mt-1 md:mt-0">
                       {rep.issues.slice(0, 3).map((issue) => (

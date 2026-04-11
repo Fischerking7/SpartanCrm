@@ -22550,6 +22550,12 @@ function registerReportRoutes(app: Express, auth: any) {
 
       const repMap = new Map<string, { total: number; clean: number; issueCounts: Record<string, number>; orderIssues: RepIssue[] }>();
 
+      for (const u of activeUsers) {
+        if (u.repId) {
+          repMap.set(u.repId, { total: 0, clean: 0, issueCounts: {}, orderIssues: [] });
+        }
+      }
+
       for (const order of orders) {
         const repId = order.repId!;
         if (!repMap.has(repId)) {
