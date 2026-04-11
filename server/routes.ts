@@ -17339,15 +17339,6 @@ Rules:
           });
         }
 
-        const SYNC_TIMEOUT_MS = 30 * 60 * 1000;
-        const matchResult = await matchInstallationsToOrders(sheetData.rows, orderSummaries, carrierCtx, processedWoMap, isIncremental, {
-          onProgress: !isDryRun ? async (processed, total) => {
-            await storage.updateInstallSyncRun(syncRunId, { processedRows: processed });
-          } : undefined,
-          progressInterval: 50,
-          timeoutMs: SYNC_TIMEOUT_MS,
-        });
-
         let approvedCount = 0;
         const approvedOrders: any[] = [];
         const statusUpdatedOrders: any[] = [];
@@ -17418,17 +17409,15 @@ Rules:
           carrierInsights.carrierStats.cancelRate = Math.round((carrierInsights.carrierStats.canceledCount / totalWithStatus) * 100);
         }
 
-        const MATCH_CHUNK_SIZE = 50;
+        const now = new Date();
+
         let matchesProcessedCount = 0;
 
-        if (matchResult.matches.length > 0) {
-          const now = new Date();
-          for (const match of matchResult.matches) {
-            matchesProcessedCount++;
+        async function processMatchResult(match: { sheetData: Record<string, string>; orderId: string; workOrderNumber?: string; isUpgrade?: boolean; confidence: number; scoreBreakdown?: { acctScore?: number }; serviceLineType?: string; sheetRowIndex: number; orderInvoice: string; orderCustomerName: string; reasoning: string }) {
             const woStatus = normalizeWoStatus(match.sheetData || {}, carrierCtx);
 
             const order = await storage.getOrderById(match.orderId);
-            if (!order) continue;
+            if (!order) return;
 
             const beforeJson = JSON.stringify(order);
             const updates: Record<string, any> = {};
@@ -17632,7 +17621,7 @@ Rules:
               }
             }
 
-            if (Object.keys(updates).length === 0) continue;
+            if (Object.keys(updates).length === 0) return;
 
             if (woStatus === "CN" && order.approvalStatus === "APPROVED") {
               try {
@@ -17674,10 +17663,10 @@ Rules:
                 const errMsg = cascadeErr instanceof Error ? cascadeErr.message : String(cascadeErr);
                 console.error(`[InstallSync] Cancellation cascade error for order ${match.orderId}:`, errMsg);
               }
-              continue;
+              return;
             }
 
-            if (isDryRun) continue;
+            if (isDryRun) return;
 
             const updatedOrder = await storage.updateOrder(match.orderId, updates);
             await computeAndPersistSimplifiedStatus(match.orderId).catch(e => console.error("[order-status] Failed to persist simplified status for order", match.orderId, ":", e?.message || e));
@@ -17699,16 +17688,29 @@ Rules:
               userId: user.id,
             });
 
-            if (!isDryRun && matchesProcessedCount % MATCH_CHUNK_SIZE === 0) {
+            matchesProcessedCount++;
+            if (!isDryRun && matchesProcessedCount % 50 === 0) {
               await storage.updateInstallSyncRun(syncRunId, {
                 matchedCount: matchesProcessedCount,
                 approvedCount,
               });
             }
-          }
         }
 
-        
+        const SYNC_TIMEOUT_MS = 30 * 60 * 1000;
+        const matchResult = await matchInstallationsToOrders(sheetData.rows, orderSummaries, carrierCtx, processedWoMap, isIncremental, {
+          onProgress: !isDryRun ? async (processed, total) => {
+            await storage.updateInstallSyncRun(syncRunId, { processedRows: processed });
+          } : undefined,
+          onChunk: async (chunk) => {
+            for (const match of chunk.matches) {
+              await processMatchResult(match);
+            }
+          },
+          chunkSize: 100,
+          progressInterval: 50,
+          timeoutMs: SYNC_TIMEOUT_MS,
+        });
 
         let emailSent = false;
         if (!isDryRun && emailTo && approvedOrders.length > 0) {

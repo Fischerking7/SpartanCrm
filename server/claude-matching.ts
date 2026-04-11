@@ -608,6 +608,16 @@ export interface MatchProgressCallback {
   (processedRows: number, totalRows: number): Promise<void>;
 }
 
+export interface ChunkResult {
+  matches: MatchResult[];
+  unmatched: { rowIndex: number; data: Record<string, string>; reason: string }[];
+  chunkIndex: number;
+}
+
+export interface MatchChunkCallback {
+  (chunk: ChunkResult): Promise<void>;
+}
+
 interface OrderIndex {
   byZip: Map<string, OrderSummary[]>;
   byAccount: Map<string, OrderSummary[]>;
@@ -696,10 +706,6 @@ function getCandidateOrders(row: Record<string, string>, ctx: CarrierContext | n
     }
   }
 
-  if (candidates.length === 0) {
-    return index.all;
-  }
-
   return candidates;
 }
 
@@ -711,11 +717,14 @@ export async function matchInstallationsToOrders(
   incrementalOnly: boolean = false,
   options?: {
     onProgress?: MatchProgressCallback;
+    onChunk?: MatchChunkCallback;
+    chunkSize?: number;
     progressInterval?: number;
     timeoutMs?: number;
   },
 ): Promise<MatchingResponse> {
   const progressInterval = options?.progressInterval ?? 50;
+  const chunkSize = options?.chunkSize ?? 100;
   const timeoutMs = options?.timeoutMs ?? 30 * 60 * 1000;
   const startTime = Date.now();
 
@@ -811,111 +820,142 @@ export async function matchInstallationsToOrders(
     };
   }
 
-  console.log(`[Install Sync] Matching ${matchableRows.length} sheet rows against ${orders.length} orders (threshold: ${MATCH_THRESHOLD}%)`);
+  console.log(`[Install Sync] Matching ${matchableRows.length} sheet rows against ${orders.length} orders (threshold: ${MATCH_THRESHOLD}%) in chunks of ${chunkSize}`);
 
   const orderIndex = buildOrderIndex(orders);
+  const orderMap = new Map(orders.map(o => [o.id, o]));
 
-  const candidates: { rowIndex: number; data: Record<string, string>; orderId: string; score: ScoreBreakdown; serviceLine: string; woNumber: string; woType: string }[] = [];
+  const usedRowIndices = new Set<number>();
+  const orderServiceLineUsed = new Map<string, Set<string>>();
+  const allMatches: MatchResult[] = [];
   const rowBestScores = new Map<number, { score: number; reasons: string[] }>();
   let processedCount = 0;
   let timedOut = false;
+  let chunkIndex = 0;
 
-  for (const row of matchableRows) {
+  for (let chunkStart = 0; chunkStart < matchableRows.length; chunkStart += chunkSize) {
     if (Date.now() - startTime > timeoutMs) {
       timedOut = true;
       console.warn(`[Install Sync] Timeout after ${Math.round((Date.now() - startTime) / 1000)}s at row ${processedCount}/${matchableRows.length}`);
       break;
     }
 
-    const serviceLine = determineServiceLine(row.data, carrierCtx);
-    const woNumber = extractField(row.data, "work_order_number", carrierCtx, getWorkOrderNumber).trim();
-    const woType = extractField(row.data, "work_order_type", carrierCtx, getWorkOrderType).trim().toUpperCase();
+    const chunkEnd = Math.min(chunkStart + chunkSize, matchableRows.length);
+    const chunkRows = matchableRows.slice(chunkStart, chunkEnd);
 
-    const candidateOrders = getCandidateOrders(row.data, carrierCtx, orderIndex);
+    const chunkCandidates: { rowIndex: number; data: Record<string, string>; orderId: string; score: ScoreBreakdown; serviceLine: string; woNumber: string; woType: string }[] = [];
 
-    let rowBest = 0;
-    let rowBestReasons: string[] = [];
-
-    for (const order of candidateOrders) {
-      const score = scoreMatch(row.data, order, carrierCtx);
-      if (score.total > rowBest) {
-        rowBest = score.total;
-        rowBestReasons = score.reasons;
+    for (const row of chunkRows) {
+      if (Date.now() - startTime > timeoutMs) {
+        timedOut = true;
+        console.warn(`[Install Sync] Timeout after ${Math.round((Date.now() - startTime) / 1000)}s at row ${processedCount}/${matchableRows.length}`);
+        break;
       }
-      if (score.total >= MATCH_THRESHOLD) {
-        candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score, serviceLine, woNumber, woType });
-      }
-    }
 
-    if (rowBest < MATCH_THRESHOLD && candidateOrders !== orderIndex.all && orderIndex.all.length > candidateOrders.length) {
-      const candidateIdSet = new Set(candidateOrders.map(o => o.id));
-      for (const order of orderIndex.all) {
-        if (candidateIdSet.has(order.id)) continue;
+      const serviceLine = determineServiceLine(row.data, carrierCtx);
+      const woNumber = extractField(row.data, "work_order_number", carrierCtx, getWorkOrderNumber).trim();
+      const woType = extractField(row.data, "work_order_type", carrierCtx, getWorkOrderType).trim().toUpperCase();
+
+      const candidateOrders = getCandidateOrders(row.data, carrierCtx, orderIndex);
+
+      let rowBest = 0;
+      let rowBestReasons: string[] = [];
+
+      for (const order of candidateOrders) {
         const score = scoreMatch(row.data, order, carrierCtx);
         if (score.total > rowBest) {
           rowBest = score.total;
           rowBestReasons = score.reasons;
         }
         if (score.total >= MATCH_THRESHOLD) {
-          candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score, serviceLine, woNumber, woType });
+          chunkCandidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score, serviceLine, woNumber, woType });
         }
+      }
+
+      rowBestScores.set(row.rowIndex, { score: rowBest, reasons: rowBestReasons });
+
+      processedCount++;
+      if (options?.onProgress && processedCount % progressInterval === 0) {
+        await options.onProgress(processedCount, matchableRows.length);
       }
     }
 
-    rowBestScores.set(row.rowIndex, { score: rowBest, reasons: rowBestReasons });
+    if (timedOut) break;
 
-    processedCount++;
-    if (options?.onProgress && processedCount % progressInterval === 0) {
-      await options.onProgress(processedCount, matchableRows.length);
+    chunkCandidates.sort((a, b) => b.score.total - a.score.total);
+
+    const chunkMatches: MatchResult[] = [];
+    const chunkUnmatched: { rowIndex: number; data: Record<string, string>; reason: string }[] = [];
+    const chunkMatchedRowIndices = new Set<number>();
+
+    for (const c of chunkCandidates) {
+      if (usedRowIndices.has(c.rowIndex) || chunkMatchedRowIndices.has(c.rowIndex)) continue;
+      const order = orderMap.get(c.orderId);
+      if (!order) continue;
+
+      const orderServiceLines = orderServiceLineUsed.get(c.orderId) || new Set();
+      if (orderServiceLines.has(c.serviceLine)) continue;
+
+      chunkMatchedRowIndices.add(c.rowIndex);
+      usedRowIndices.add(c.rowIndex);
+      orderServiceLines.add(c.serviceLine);
+      orderServiceLineUsed.set(c.orderId, orderServiceLines);
+
+      const isUpgrade = c.woType === "UP";
+
+      const matchResult: MatchResult = {
+        sheetRowIndex: c.rowIndex,
+        sheetData: c.data,
+        orderId: order.id,
+        orderInvoice: order.invoiceNumber,
+        orderCustomerName: order.customerName,
+        confidence: Math.min(100, c.score.total),
+        reasoning: c.score.reasons.join("; ") || "Matched by deterministic scoring",
+        scoreBreakdown: {
+          nameScore: Math.round(c.score.nameScore * 100),
+          addressScore: Math.round(c.score.addressScore * 100),
+          cityScore: Math.round(c.score.cityScore * 100),
+          zipScore: Math.round(c.score.zipScore * 100),
+          repScore: Math.round(c.score.repScore * 100),
+          acctScore: Math.round(c.score.acctScore * 100),
+          confidenceTier: c.score.confidenceTier,
+        },
+        serviceLineType: c.serviceLine,
+        workOrderNumber: c.woNumber || undefined,
+        isUpgrade,
+      };
+
+      chunkMatches.push(matchResult);
+      allMatches.push(matchResult);
     }
+
+    for (const row of chunkRows) {
+      if (!usedRowIndices.has(row.rowIndex)) {
+        const cached = rowBestScores.get(row.rowIndex);
+        const bestScore = cached?.score ?? 0;
+        const bestReasons = cached?.reasons ?? [];
+        const customerName = extractField(row.data, "customer_name", carrierCtx, getCustomerName);
+        const addr = extractField(row.data, "address", carrierCtx, getAddress);
+        const detail = customerName ? ` (customer: ${customerName})` : addr ? ` (address: ${addr.slice(0, 40)})` : "";
+        chunkUnmatched.push({
+          rowIndex: row.rowIndex,
+          data: row.data,
+          reason: bestScore > 0
+            ? `Best score ${bestScore}% (below ${MATCH_THRESHOLD}% threshold)${detail}. Partial: ${bestReasons.join(", ") || "none"}`
+            : `No matching order found${detail}`,
+        });
+      }
+    }
+
+    if (options?.onChunk) {
+      await options.onChunk({ matches: chunkMatches, unmatched: chunkUnmatched, chunkIndex });
+    }
+
+    chunkIndex++;
   }
 
-  if (options?.onProgress && !timedOut) {
+  if (options?.onProgress) {
     await options.onProgress(processedCount, matchableRows.length);
-  }
-
-  candidates.sort((a, b) => b.score.total - a.score.total);
-
-  const usedRowIndices = new Set<number>();
-  const orderServiceLineUsed = new Map<string, Set<string>>();
-  const validMatches: MatchResult[] = [];
-  const orderMap = new Map(orders.map(o => [o.id, o]));
-
-  for (const c of candidates) {
-    if (usedRowIndices.has(c.rowIndex)) continue;
-    const order = orderMap.get(c.orderId);
-    if (!order) continue;
-
-    const orderServiceLines = orderServiceLineUsed.get(c.orderId) || new Set();
-    if (orderServiceLines.has(c.serviceLine)) continue;
-
-    usedRowIndices.add(c.rowIndex);
-    orderServiceLines.add(c.serviceLine);
-    orderServiceLineUsed.set(c.orderId, orderServiceLines);
-
-    const isUpgrade = c.woType === "UP";
-
-    validMatches.push({
-      sheetRowIndex: c.rowIndex,
-      sheetData: c.data,
-      orderId: order.id,
-      orderInvoice: order.invoiceNumber,
-      orderCustomerName: order.customerName,
-      confidence: Math.min(100, c.score.total),
-      reasoning: c.score.reasons.join("; ") || "Matched by deterministic scoring",
-      scoreBreakdown: {
-        nameScore: Math.round(c.score.nameScore * 100),
-        addressScore: Math.round(c.score.addressScore * 100),
-        cityScore: Math.round(c.score.cityScore * 100),
-        zipScore: Math.round(c.score.zipScore * 100),
-        repScore: Math.round(c.score.repScore * 100),
-        acctScore: Math.round(c.score.acctScore * 100),
-        confidenceTier: c.score.confidenceTier,
-      },
-      serviceLineType: c.serviceLine,
-      workOrderNumber: c.woNumber || undefined,
-      isUpgrade,
-    });
   }
 
   const unmatchedRows = matchableRows
@@ -939,15 +979,15 @@ export async function matchInstallationsToOrders(
   const allUnmatched = [...unmatchedRows, ...skippedRows];
   const elapsedSec = Math.round((Date.now() - startTime) / 1000);
 
-  console.log(`[Install Sync] Done in ${elapsedSec}s: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped (new:${rowClassifications.new} changed:${rowClassifications.changed} unchanged:${rowClassifications.unchanged})${timedOut ? " [TIMED OUT]" : ""}`);
+  console.log(`[Install Sync] Done in ${elapsedSec}s: ${allMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped (new:${rowClassifications.new} changed:${rowClassifications.changed} unchanged:${rowClassifications.unchanged})${timedOut ? " [TIMED OUT]" : ""}`);
 
   const timeoutNote = timedOut ? ` (timed out after ${elapsedSec}s, processed ${processedCount}/${matchableRows.length} rows)` : "";
 
   return {
-    matches: validMatches,
+    matches: allMatches,
     unmatched: allUnmatched,
     dedupSkipped,
-    summary: `Matched ${validMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced (dedup).${timeoutNote}`,
+    summary: `Matched ${allMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced (dedup).${timeoutNote}`,
     rowClassifications,
   };
 }
