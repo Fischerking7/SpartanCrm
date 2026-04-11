@@ -873,11 +873,15 @@ export async function matchInstallationsToOrders(
     await options.onProgress(processedCount, matchableRows.length);
   }
 
+  const processedRowIndices = new Set(matchableRows.slice(0, processedCount).map(r => r.rowIndex));
+
   candidates.sort((a, b) => b.score.total - a.score.total);
 
   const usedRowIndices = new Set<number>();
   const orderServiceLineUsed = new Map<string, Set<string>>();
   const validMatches: MatchResult[] = [];
+  let pendingChunk: MatchResult[] = [];
+  let chunkIdx = 0;
 
   for (const c of candidates) {
     if (usedRowIndices.has(c.rowIndex)) continue;
@@ -893,7 +897,7 @@ export async function matchInstallationsToOrders(
 
     const isUpgrade = c.woType === "UP";
 
-    validMatches.push({
+    const matchResult: MatchResult = {
       sheetRowIndex: c.rowIndex,
       sheetData: c.data,
       orderId: order.id,
@@ -913,47 +917,62 @@ export async function matchInstallationsToOrders(
       serviceLineType: c.serviceLine,
       workOrderNumber: c.woNumber || undefined,
       isUpgrade,
-    });
-  }
+    };
 
-  if (options?.onChunk) {
-    for (let i = 0; i < validMatches.length; i += chunkSize) {
-      const chunkMatches = validMatches.slice(i, i + chunkSize);
-      const chunkIdx = Math.floor(i / chunkSize);
-      await options.onChunk({ matches: chunkMatches, unmatched: [], chunkIndex: chunkIdx });
+    validMatches.push(matchResult);
+    pendingChunk.push(matchResult);
+
+    if (options?.onChunk && pendingChunk.length >= chunkSize) {
+      await options.onChunk({ matches: pendingChunk, unmatched: [], chunkIndex: chunkIdx++ });
+      pendingChunk = [];
     }
   }
 
-  const unmatchedRows = matchableRows
-    .filter(r => !usedRowIndices.has(r.rowIndex))
-    .map(r => {
-      const cached = rowBestScores.get(r.rowIndex);
-      const bestScore = cached?.score ?? 0;
-      const bestReasons = cached?.reasons ?? [];
-      const customerName = extractField(r.data, "customer_name", carrierCtx, getCustomerName);
-      const addr = extractField(r.data, "address", carrierCtx, getAddress);
-      const detail = customerName ? ` (customer: ${customerName})` : addr ? ` (address: ${addr.slice(0, 40)})` : "";
-      return {
+  if (options?.onChunk && pendingChunk.length > 0) {
+    await options.onChunk({ matches: pendingChunk, unmatched: [], chunkIndex: chunkIdx });
+  }
+
+  const unmatchedRows: { rowIndex: number; data: Record<string, string>; reason: string }[] = [];
+  for (const r of matchableRows) {
+    if (usedRowIndices.has(r.rowIndex)) continue;
+
+    if (!processedRowIndices.has(r.rowIndex)) {
+      unmatchedRows.push({
         rowIndex: r.rowIndex,
         data: r.data,
-        reason: bestScore > 0
-          ? `Best score ${bestScore}% (below ${MATCH_THRESHOLD}% threshold)${detail}. Partial: ${bestReasons.join(", ") || "none"}`
-          : `No matching order found${detail}`,
-      };
+        reason: "Not evaluated (sync timed out before reaching this row)",
+      });
+      continue;
+    }
+
+    const cached = rowBestScores.get(r.rowIndex);
+    const bestScore = cached?.score ?? 0;
+    const bestReasons = cached?.reasons ?? [];
+    const customerName = extractField(r.data, "customer_name", carrierCtx, getCustomerName);
+    const addr = extractField(r.data, "address", carrierCtx, getAddress);
+    const detail = customerName ? ` (customer: ${customerName})` : addr ? ` (address: ${addr.slice(0, 40)})` : "";
+    unmatchedRows.push({
+      rowIndex: r.rowIndex,
+      data: r.data,
+      reason: bestScore > 0
+        ? `Best score ${bestScore}% (below ${MATCH_THRESHOLD}% threshold)${detail}. Partial: ${bestReasons.join(", ") || "none"}`
+        : `No matching order found${detail}`,
     });
+  }
 
   const allUnmatched = [...unmatchedRows, ...skippedRows];
   const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+  const unevaluatedCount = timedOut ? matchableRows.length - processedCount : 0;
 
-  console.log(`[Install Sync] Done in ${elapsedSec}s: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped (new:${rowClassifications.new} changed:${rowClassifications.changed} unchanged:${rowClassifications.unchanged})${timedOut ? " [TIMED OUT]" : ""}`);
+  console.log(`[Install Sync] Done in ${elapsedSec}s: ${validMatches.length} matched, ${unmatchedRows.length} unmatched (${unevaluatedCount} unevaluated), ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped (new:${rowClassifications.new} changed:${rowClassifications.changed} unchanged:${rowClassifications.unchanged})${timedOut ? " [TIMED OUT]" : ""}`);
 
-  const timeoutNote = timedOut ? ` (timed out after ${elapsedSec}s, processed ${processedCount}/${matchableRows.length} rows)` : "";
+  const timeoutNote = timedOut ? ` (timed out after ${elapsedSec}s, processed ${processedCount}/${matchableRows.length} rows, ${unevaluatedCount} unevaluated)` : "";
 
   return {
     matches: validMatches,
     unmatched: allUnmatched,
     dedupSkipped,
-    summary: `Matched ${validMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced (dedup).${timeoutNote}`,
+    summary: `Matched ${validMatches.length} of ${processedCount} evaluated records. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced (dedup).${timeoutNote}`,
     rowClassifications,
   };
 }
