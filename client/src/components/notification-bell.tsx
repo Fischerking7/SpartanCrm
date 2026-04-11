@@ -31,6 +31,13 @@ import {
   Shield,
   Settings,
 } from "lucide-react";
+import {
+  NOTIFICATION_NAV_MAP,
+  HIGH_PRIORITY_TYPES,
+  CATEGORY_LABELS,
+  getCategoryForType,
+  type CategoryKey,
+} from "@/lib/notification-types";
 
 type Notification = {
   id: string;
@@ -45,61 +52,17 @@ type Notification = {
   sentAt: string | null;
 };
 
-const HIGH_PRIORITY_TYPES = ["PAY_RUN_FINALIZED", "COMPLIANCE_EXPIRING", "DISPUTE_RESOLVED"];
-
-const NOTIFICATION_NAV_MAP: Record<string, string> = {
-  ORDER_APPROVED: "/order-tracker",
-  ORDER_REJECTED: "/order-tracker",
-  ORDER_SUBMITTED: "/orders",
-  PAY_RUN_FINALIZED: "/my-pay",
-  ADVANCE_APPROVED: "/my-pay",
-  ADVANCE_REJECTED: "/my-pay",
-  PAY_STUB_DELIVERY: "/my-pay",
-  CHARGEBACK_ALERT: "/commissions",
-  CHARGEBACK_APPLIED: "/commissions",
-  DISPUTE_RESOLVED: "/my-disputes",
-  PENDING_APPROVAL_ALERT: "/orders",
-  LOW_PERFORMANCE_WARNING: "/dashboard",
-  COMPLIANCE_EXPIRING: "/my-credentials",
+const CATEGORY_ICONS: Record<CategoryKey, typeof Bell> = {
+  orders: CheckCircle,
+  pay: CheckCheck,
+  compliance: Shield,
+  system: Settings,
 };
-
-type CategoryKey = "orders" | "pay" | "compliance" | "system";
-
-const CATEGORY_CONFIG: Record<CategoryKey, { label: string; types: string[]; icon: typeof Bell }> = {
-  orders: {
-    label: "Orders",
-    types: ["ORDER_APPROVED", "ORDER_REJECTED", "ORDER_SUBMITTED", "PENDING_APPROVAL_ALERT"],
-    icon: CheckCircle,
-  },
-  pay: {
-    label: "Pay",
-    types: ["PAY_RUN_FINALIZED", "ADVANCE_APPROVED", "ADVANCE_REJECTED", "PAY_STUB_DELIVERY", "CHARGEBACK_ALERT", "CHARGEBACK_APPLIED", "DISPUTE_RESOLVED"],
-    icon: CheckCheck,
-  },
-  compliance: {
-    label: "Compliance",
-    types: ["COMPLIANCE_EXPIRING", "LOW_PERFORMANCE_WARNING"],
-    icon: Shield,
-  },
-  system: {
-    label: "System",
-    types: [],
-    icon: Settings,
-  },
-};
-
-function getCategoryForType(type: string): CategoryKey {
-  for (const [key, config] of Object.entries(CATEGORY_CONFIG)) {
-    if (config.types.includes(type)) return key as CategoryKey;
-  }
-  return "system";
-}
 
 function groupByCategory(notifications: Notification[]): Record<CategoryKey, Notification[]> {
   const groups: Record<CategoryKey, Notification[]> = { orders: [], pay: [], compliance: [], system: [] };
   for (const n of notifications) {
-    const cat = getCategoryForType(n.type);
-    groups[cat].push(n);
+    groups[getCategoryForType(n.type)].push(n);
   }
   return groups;
 }
@@ -187,13 +150,12 @@ function CategoryGroup({
   onClick: (n: Notification) => void;
 }) {
   if (notifications.length === 0) return null;
-  const config = CATEGORY_CONFIG[categoryKey];
-  const Icon = config.icon;
+  const Icon = CATEGORY_ICONS[categoryKey];
   return (
     <div>
       <div className="flex items-center gap-2 px-4 py-2 bg-muted/50">
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{config.label}</span>
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{CATEGORY_LABELS[categoryKey]}</span>
         <span className="text-xs text-muted-foreground">({notifications.length})</span>
       </div>
       <div className="divide-y">

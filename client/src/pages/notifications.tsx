@@ -20,6 +20,11 @@ import {
   MailOpen,
   Shield,
 } from "lucide-react";
+import {
+  NOTIFICATION_NAV_MAP,
+  filterByCategory,
+  type CategoryKeyWithAll,
+} from "@/lib/notification-types";
 
 type Notification = {
   id: string;
@@ -33,32 +38,6 @@ type Notification = {
   createdAt: string;
   sentAt: string | null;
 };
-
-const NOTIFICATION_NAV_MAP: Record<string, string> = {
-  ORDER_APPROVED: "/order-tracker",
-  ORDER_REJECTED: "/order-tracker",
-  ORDER_SUBMITTED: "/orders",
-  PAY_RUN_FINALIZED: "/my-pay",
-  ADVANCE_APPROVED: "/my-pay",
-  ADVANCE_REJECTED: "/my-pay",
-  PAY_STUB_DELIVERY: "/my-pay",
-  CHARGEBACK_ALERT: "/commissions",
-  CHARGEBACK_APPLIED: "/commissions",
-  DISPUTE_RESOLVED: "/my-disputes",
-  PENDING_APPROVAL_ALERT: "/orders",
-  LOW_PERFORMANCE_WARNING: "/dashboard",
-  COMPLIANCE_EXPIRING: "/my-credentials",
-};
-
-type CategoryKey = "all" | "orders" | "pay" | "compliance" | "system";
-
-const CATEGORY_TYPES: Record<Exclude<CategoryKey, "all" | "system">, string[]> = {
-  orders: ["ORDER_APPROVED", "ORDER_REJECTED", "ORDER_SUBMITTED", "PENDING_APPROVAL_ALERT"],
-  pay: ["PAY_RUN_FINALIZED", "ADVANCE_APPROVED", "ADVANCE_REJECTED", "PAY_STUB_DELIVERY", "CHARGEBACK_ALERT", "CHARGEBACK_APPLIED", "DISPUTE_RESOLVED"],
-  compliance: ["COMPLIANCE_EXPIRING", "LOW_PERFORMANCE_WARNING"],
-};
-
-const ALL_KNOWN_TYPES = Object.values(CATEGORY_TYPES).flat();
 
 const getNotificationIcon = (type: string) => {
   switch (type) {
@@ -106,18 +85,9 @@ const getNotificationBadge = (type: string) => {
   }
 };
 
-function filterByCategory(notifications: Notification[], category: CategoryKey): Notification[] {
-  if (category === "all") return notifications;
-  if (category === "system") {
-    return notifications.filter(n => !ALL_KNOWN_TYPES.includes(n.type));
-  }
-  const types = CATEGORY_TYPES[category];
-  return notifications.filter(n => types.includes(n.type));
-}
-
 export default function NotificationsPage() {
   const [, navigate] = useLocation();
-  const [category, setCategory] = useState<CategoryKey>("all");
+  const [category, setCategory] = useState<CategoryKeyWithAll>("all");
 
   const { data: notifications, isLoading } = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
@@ -166,7 +136,7 @@ export default function NotificationsPage() {
   const filteredNotifications = notifications ? filterByCategory(notifications, category) : [];
   const filteredUnread = filteredNotifications.filter(n => !n.isRead).length;
 
-  const getCategoryCount = (cat: CategoryKey) => {
+  const getCategoryCount = (cat: CategoryKeyWithAll) => {
     if (!notifications) return 0;
     return filterByCategory(notifications, cat).length;
   };
@@ -205,7 +175,7 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      <Tabs value={category} onValueChange={(v) => setCategory(v as CategoryKey)}>
+      <Tabs value={category} onValueChange={(v) => setCategory(v as CategoryKeyWithAll)}>
         <TabsList className="w-full justify-start overflow-x-auto" data-testid="tabs-notification-category">
           <TabsTrigger value="all" data-testid="tab-all">
             All ({notifications?.length || 0})
