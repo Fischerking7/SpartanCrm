@@ -855,7 +855,8 @@ export async function matchInstallationsToOrders(
       }
     }
 
-    if (!usedFallback && rowBest < MATCH_THRESHOLD && orderIndex.all.length > candidateOrders.length) {
+    const HIGH_CONFIDENCE_SKIP_THRESHOLD = 80;
+    if (!usedFallback && rowBest < HIGH_CONFIDENCE_SKIP_THRESHOLD && orderIndex.all.length > candidateOrders.length) {
       const candidateIdSet = new Set(candidateOrders.map(o => o.id));
       for (const order of orderIndex.all) {
         if (candidateIdSet.has(order.id)) continue;
