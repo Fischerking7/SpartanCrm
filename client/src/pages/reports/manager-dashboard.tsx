@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { KpiCard } from "@/components/kpi-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,14 +12,16 @@ import TeamEarningsPreview from "./team-earnings-preview";
 import { Link } from "wouter";
 
 interface TeamMessage {
-  id: number;
+  id: string;
   subject: string;
   body: string;
-  fromUser: { name: string; repId: string } | null;
+  fromUserName: string;
+  fromRepId: string;
+  toUserId: string;
   isRead: boolean;
   createdAt: string;
   category: string | null;
-  parentMessageId: number | null;
+  parentMessageId: string | null;
 }
 
 interface RepData {
@@ -63,6 +65,7 @@ function formatTime(iso: string | null) {
 }
 
 export default function ManagerDashboard() {
+  const { user } = useAuth();
   const { data, isLoading } = useQuery<ManagerDashboardData>({
     queryKey: ["/api/reports/manager/dashboard"],
     queryFn: async () => {
@@ -231,7 +234,7 @@ export default function ManagerDashboard() {
                 <MessageSquare className="w-4 h-4" />
                 Team Messages
                 {(() => {
-                  const unreadCount = teamMessages.filter(m => !m.isRead).length;
+                  const unreadCount = teamMessages.filter(m => !m.isRead && m.toUserId === user?.id).length;
                   return unreadCount > 0 ? (
                     <Badge variant="destructive" className="text-[10px] h-5">{unreadCount}</Badge>
                   ) : null;
@@ -249,7 +252,7 @@ export default function ManagerDashboard() {
               <div key={msg.id} className={`flex items-start justify-between gap-2 py-1.5 border-b last:border-0 ${!msg.isRead ? "bg-muted/30" : ""}`} data-testid={`team-msg-${msg.id}`}>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm truncate">{msg.fromUser?.name || "Unknown"}</span>
+                    <span className="font-medium text-sm truncate">{msg.fromUserName || "Unknown"}</span>
                     {!msg.isRead && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />}
                   </div>
                   <p className="text-xs text-muted-foreground truncate">{msg.subject}</p>
