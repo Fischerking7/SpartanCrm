@@ -25639,7 +25639,7 @@ function registerReportRoutes(app: Express, auth: any) {
         period: { type: period, start: startStr, end: endStr },
         funnel: [
           { stage: "Sold", count: sold, label: "Orders Created" },
-          { stage: "Installed", count: installed, label: "Job Completed" },
+          { stage: "Connected", count: installed, label: "Job Completed" },
           { stage: "Approved", count: approved, label: "Approved" },
           { stage: "Paid", count: paid, label: "Commission Paid" },
         ],

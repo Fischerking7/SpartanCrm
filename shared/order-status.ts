@@ -4,8 +4,8 @@ export type SimplifiedOrderStatus =
   | "Paid"
   | "Pay Ready"
   | "Approved"
-  | "Installed"
-  | "Pending Install"
+  | "Connected"
+  | "Pending Connect"
   | "Cancelled"
   | "Rejected";
 
@@ -26,9 +26,9 @@ export function getSimplifiedOrderStatus(order: OrderStatusInput): SimplifiedOrd
   if (order.paymentStatus === "PAID") return "Paid";
   if (order.payrollReadyAt) return "Pay Ready";
   if (order.approvalStatus === "APPROVED") {
-    if (order.jobStatus === "COMPLETED") return "Installed";
+    if (order.jobStatus === "COMPLETED") return "Connected";
     return "Approved";
   }
-  if (order.jobStatus === "COMPLETED") return "Installed";
-  return "Pending Install";
+  if (order.jobStatus === "COMPLETED") return "Connected";
+  return "Pending Connect";
 }

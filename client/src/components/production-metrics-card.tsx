@@ -137,7 +137,7 @@ export function ProductionMetricsCard({ title, metrics, period }: ProductionMetr
           icon={ShoppingCart}
         />
         <MetricRow
-          label="Connects"
+          label="Connected"
           value={metrics.connectedCount}
           delta={metrics.deltas.connectedCount}
           sparklineData={metrics.sparklineSeries}

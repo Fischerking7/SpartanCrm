@@ -485,7 +485,7 @@ export default function Commissions() {
             <div className="py-8 text-center text-muted-foreground">
               <DollarSign className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No commission earnings yet</p>
-              <p className="text-sm">Commissions appear when your orders are completed and approved</p>
+              <p className="text-sm">Commissions appear when your orders are connected and approved</p>
             </div>
           )}
         </CardContent>

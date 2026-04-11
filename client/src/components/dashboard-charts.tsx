@@ -95,11 +95,11 @@ export function ConnectsTrendChart({ personalData, teamData, period, showTeam }:
           <LineChart data={personalData}>
             <XAxis dataKey="date" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
-            <Tooltip formatter={(value: number) => [value, "Connects"]} />
+            <Tooltip formatter={(value: number) => [value, "Connected"]} />
             <Line
               type="monotone"
               dataKey="connectedCount"
-              name="Connects"
+              name="Connected"
               stroke="hsl(var(--chart-2))"
               strokeWidth={2}
               dot={{ r: 3 }}

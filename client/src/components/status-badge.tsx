@@ -18,8 +18,8 @@ const statusConfig: Record<StatusType, { label: string; variant: "default" | "se
   approved: { label: "Approved", variant: "default", icon: Check },
   rejected: { label: "Rejected", variant: "destructive", icon: X },
   unapproved: { label: "Pending Approval", variant: "secondary", icon: Clock },
-  completed: { label: "Completed", variant: "default", icon: FileText },
-  canceled: { label: "Canceled", variant: "destructive", icon: X },
+  completed: { label: "Connected", variant: "default", icon: FileText },
+  canceled: { label: "Cancelled", variant: "destructive", icon: X },
 };
 
 export function StatusBadge({ status, showIcon = true, className }: StatusBadgeProps) {
@@ -67,8 +67,8 @@ const simplifiedStatusConfig: Record<SimplifiedOrderStatus, { variant: "default"
   "Paid": { variant: "default", icon: DollarSign, colorClass: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-0" },
   "Pay Ready": { variant: "default", icon: Check, colorClass: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-0" },
   "Approved": { variant: "default", icon: Check, colorClass: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-0" },
-  "Installed": { variant: "default", icon: Wrench, colorClass: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200 border-0" },
-  "Pending Install": { variant: "secondary", icon: Clock },
+  "Connected": { variant: "default", icon: Wrench, colorClass: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200 border-0" },
+  "Pending Connect": { variant: "secondary", icon: Clock },
   "Charged Back": { variant: "destructive", icon: AlertTriangle },
   "Disputed": { variant: "destructive", icon: AlertTriangle, colorClass: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 border-0" },
   "Cancelled": { variant: "destructive", icon: Ban },

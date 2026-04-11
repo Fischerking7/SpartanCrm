@@ -189,7 +189,7 @@ export function QuotaProgress() {
         
         {goals?.connectsTarget && goals.connectsTarget > 0 && (
           <ProgressBar
-            label="Connects"
+            label="Connected"
             current={actual.connectsCount}
             target={goals.connectsTarget}
             progress={progress.connects}

@@ -38,7 +38,7 @@ export function MobileBottomNav() {
     { label: "Dashboard", icon: <LayoutDashboard className="h-5 w-5" />, path: "/" },
     { label: "Orders", icon: <ClipboardList className="h-5 w-5" />, path: "/order-tracker" },
     { label: "Quick Entry", icon: <Zap className="h-5 w-5" />, path: "/mobile-entry" },
-    { label: "Stats", icon: <Target className="h-5 w-5" />, path: "/my-performance" },
+    { label: "Performance", icon: <Target className="h-5 w-5" />, path: "/my-performance" },
     { label: "Messages", icon: <MessageSquare className="h-5 w-5" />, path: "/messages", badge: unreadCount },
   ];
 

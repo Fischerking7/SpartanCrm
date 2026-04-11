@@ -61,13 +61,13 @@ function getStatusConfig(status: OrderStatus) {
     case "pending":
       return { label: "Pending", variant: "outline" as const, icon: Clock, color: "text-yellow-600 dark:text-yellow-400" };
     case "completed":
-      return { label: "Completed", variant: "secondary" as const, icon: CheckCircle2, color: "text-blue-600 dark:text-blue-400" };
+      return { label: "Connected", variant: "secondary" as const, icon: CheckCircle2, color: "text-blue-600 dark:text-blue-400" };
     case "approved":
       return { label: "Approved", variant: "default" as const, icon: ThumbsUp, color: "text-green-600 dark:text-green-400" };
     case "paid":
       return { label: "Paid", variant: "default" as const, icon: DollarSign, color: "text-emerald-600 dark:text-emerald-400" };
     case "canceled":
-      return { label: "Canceled", variant: "outline" as const, icon: XCircle, color: "text-muted-foreground" };
+      return { label: "Cancelled", variant: "outline" as const, icon: XCircle, color: "text-muted-foreground" };
   }
 }
 
@@ -83,7 +83,7 @@ function getStepIndex(status: OrderStatus): number {
 
 const pipelineSteps = [
   { label: "Pending", icon: Clock },
-  { label: "Completed", icon: CheckCircle2 },
+  { label: "Connected", icon: CheckCircle2 },
   { label: "Approved", icon: ThumbsUp },
   { label: "Paid", icon: DollarSign },
 ];
