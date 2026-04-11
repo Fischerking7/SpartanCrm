@@ -84,9 +84,9 @@ export default function ManagerDashboard() {
   });
 
   const { data: teamMessages } = useQuery<TeamMessage[]>({
-    queryKey: ["/api/messages/team"],
+    queryKey: ["/api/messages/team-inbox"],
     queryFn: async () => {
-      const res = await fetch("/api/messages/team", { headers: getAuthHeaders() });
+      const res = await fetch("/api/messages/team-inbox", { headers: getAuthHeaders() });
       if (!res.ok) return [];
       return res.json();
     },
