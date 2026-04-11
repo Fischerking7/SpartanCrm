@@ -51,7 +51,7 @@ function DeltaIndicator({ delta }: { delta: string }) {
   if (v < 0) {
     return (
       <span className="inline-flex items-center gap-0.5 text-red-600 dark:text-red-400 text-xs" data-testid="indicator-trend-down">
-        <TrendingDown className="w-3 h-3" />{fmt(delta)}
+        <TrendingDown className="w-3 h-3" />-{fmt(String(Math.abs(v)))}
       </span>
     );
   }
