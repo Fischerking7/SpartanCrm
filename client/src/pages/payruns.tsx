@@ -1898,61 +1898,82 @@ export default function PayRuns() {
               )}
 
               {(() => {
-                const categories = [...new Set(preValidationData.checks.map(c => c.category))];
-                return categories.map(category => {
-                  const categoryChecks = preValidationData.checks.filter(c => c.category === category);
-                  return (
-                    <div key={category} className="border rounded-lg overflow-hidden" data-testid={`section-prevalidation-${category.toLowerCase().replace(/\s+/g, "-")}`}>
-                      <div className="bg-muted px-4 py-2 flex items-center justify-between">
-                        <h4 className="font-medium text-sm">{category}</h4>
-                        <Badge variant="outline" className="text-xs">
-                          {categoryChecks.length} item{categoryChecks.length !== 1 ? "s" : ""}
+                const blockingChecks = preValidationData.checks.filter(c => c.severity === "BLOCKING");
+                const warningChecks = preValidationData.checks.filter(c => c.severity === "WARNING");
+
+                const renderCheckItem = (check: PreValidationCheck) => (
+                  <div
+                    key={check.id}
+                    className={`px-4 py-3 flex items-start gap-3 ${
+                      check.severity === "BLOCKING"
+                        ? "bg-red-50/50 dark:bg-red-950/20"
+                        : "bg-orange-50/50 dark:bg-orange-950/20"
+                    }`}
+                    data-testid={`check-item-${check.id}`}
+                  >
+                    {check.severity === "WARNING" ? (
+                      <Checkbox
+                        checked={acknowledgedChecks.has(check.id)}
+                        onCheckedChange={(checked) => {
+                          const next = new Set(acknowledgedChecks);
+                          if (checked) next.add(check.id);
+                          else next.delete(check.id);
+                          setAcknowledgedChecks(next);
+                        }}
+                        className="mt-0.5"
+                        data-testid={`checkbox-ack-${check.id}`}
+                      />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{check.label}</span>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
+                          {check.category}
                         </Badge>
                       </div>
-                      <div className="divide-y">
-                        {categoryChecks.map((check) => (
-                          <div
-                            key={check.id}
-                            className={`px-4 py-3 flex items-start gap-3 ${
-                              check.severity === "BLOCKING"
-                                ? "bg-red-50/50 dark:bg-red-950/20"
-                                : "bg-orange-50/50 dark:bg-orange-950/20"
-                            }`}
-                            data-testid={`check-item-${check.id}`}
-                          >
-                            {check.severity === "WARNING" ? (
-                              <Checkbox
-                                checked={acknowledgedChecks.has(check.id)}
-                                onCheckedChange={(checked) => {
-                                  const next = new Set(acknowledgedChecks);
-                                  if (checked) next.add(check.id);
-                                  else next.delete(check.id);
-                                  setAcknowledgedChecks(next);
-                                }}
-                                className="mt-0.5"
-                                data-testid={`checkbox-ack-${check.id}`}
-                              />
-                            ) : (
-                              <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium">{check.label}</span>
-                                <Badge
-                                  variant={check.severity === "BLOCKING" ? "destructive" : "outline"}
-                                  className={`text-[10px] px-1.5 py-0 ${check.severity === "WARNING" ? "text-orange-600 border-orange-300 dark:text-orange-400 dark:border-orange-700" : ""}`}
-                                >
-                                  {check.severity}
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-0.5">{check.detail}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">{check.detail}</p>
                     </div>
-                  );
-                });
+                  </div>
+                );
+
+                return (
+                  <>
+                    {blockingChecks.length > 0 && (
+                      <div className="border border-red-200 dark:border-red-800 rounded-lg overflow-hidden" data-testid="section-prevalidation-blocking">
+                        <div className="bg-red-50 dark:bg-red-950/40 px-4 py-2 flex items-center justify-between">
+                          <h4 className="font-medium text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
+                            <XCircle className="h-4 w-4" />
+                            Blocking Issues
+                          </h4>
+                          <Badge variant="destructive" className="text-xs">
+                            {blockingChecks.length} item{blockingChecks.length !== 1 ? "s" : ""}
+                          </Badge>
+                        </div>
+                        <div className="divide-y divide-red-100 dark:divide-red-900">
+                          {blockingChecks.map(renderCheckItem)}
+                        </div>
+                      </div>
+                    )}
+                    {warningChecks.length > 0 && (
+                      <div className="border border-orange-200 dark:border-orange-800 rounded-lg overflow-hidden" data-testid="section-prevalidation-warnings">
+                        <div className="bg-orange-50 dark:bg-orange-950/40 px-4 py-2 flex items-center justify-between">
+                          <h4 className="font-medium text-sm text-orange-700 dark:text-orange-400 flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4" />
+                            Warnings — Acknowledge to Proceed
+                          </h4>
+                          <Badge variant="outline" className="text-xs text-orange-600 border-orange-300 dark:text-orange-400 dark:border-orange-700">
+                            {warningChecks.length} item{warningChecks.length !== 1 ? "s" : ""}
+                          </Badge>
+                        </div>
+                        <div className="divide-y divide-orange-100 dark:divide-orange-900">
+                          {warningChecks.map(renderCheckItem)}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
               })()}
 
               {preValidationData.checks.length > 0 && preValidationData.blockingCount === 0 && (
