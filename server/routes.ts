@@ -22620,7 +22620,7 @@ function registerReportRoutes(app: Express, auth: any) {
           totalOrders: data.total,
           cleanOrders: data.clean,
           issues: sortedIssues,
-          orderIssues: data.orderIssues,
+          orderIssues: data.orderIssues.slice(0, 50),
         });
       }
 

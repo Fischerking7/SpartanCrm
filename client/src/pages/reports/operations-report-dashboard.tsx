@@ -68,7 +68,7 @@ function OrderQualityScorecard() {
   const [expandedRep, setExpandedRep] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
 
-  const { data, isLoading } = useQuery<ScorecardData>({
+  const { data, isLoading, isError } = useQuery<ScorecardData>({
     queryKey: ["/api/admin/order-quality-scorecard", startDate, endDate],
     queryFn: async () => {
       const res = await fetch(`/api/admin/order-quality-scorecard?startDate=${startDate}&endDate=${endDate}`, { headers: getAuthHeaders() });
@@ -126,6 +126,11 @@ function OrderQualityScorecard() {
         {isLoading ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+          </div>
+        ) : isError ? (
+          <div className="flex items-center gap-2 p-4 text-sm text-red-600 dark:text-red-400" data-testid="text-scorecard-error">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            Failed to load scorecard data. Please try again.
           </div>
         ) : filteredScorecard.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-scorecard-empty">
