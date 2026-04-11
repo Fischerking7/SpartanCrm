@@ -1,10 +1,13 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useLocation } from "wouter";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
+import { useState } from "react";
 import {
   Bell,
   CheckCircle,
@@ -14,7 +17,7 @@ import {
   TrendingDown,
   CheckCheck,
   Mail,
-  MailOpen
+  MailOpen,
 } from "lucide-react";
 
 type Notification = {
@@ -30,6 +33,30 @@ type Notification = {
   sentAt: string | null;
 };
 
+const NOTIFICATION_NAV_MAP: Record<string, string> = {
+  ORDER_APPROVED: "/order-tracker",
+  ORDER_REJECTED: "/order-tracker",
+  PAY_RUN_FINALIZED: "/my-pay",
+  CHARGEBACK_ALERT: "/commissions",
+  CHARGEBACK_APPLIED: "/commissions",
+  DISPUTE_RESOLVED: "/my-disputes",
+  PENDING_APPROVAL_ALERT: "/orders",
+  LOW_PERFORMANCE_WARNING: "/dashboard",
+};
+
+type CategoryKey = "all" | "orders" | "payroll" | "chargebacks" | "performance" | "other";
+
+const CATEGORY_TYPES: Record<CategoryKey, string[]> = {
+  all: [],
+  orders: ["ORDER_APPROVED", "ORDER_REJECTED", "ORDER_SUBMITTED", "PENDING_APPROVAL_ALERT"],
+  payroll: ["PAY_RUN_FINALIZED", "ADVANCE_APPROVED", "ADVANCE_REJECTED", "PAY_STUB_DELIVERY"],
+  chargebacks: ["CHARGEBACK_ALERT", "CHARGEBACK_APPLIED", "DISPUTE_RESOLVED"],
+  performance: ["LOW_PERFORMANCE_WARNING"],
+  other: [],
+};
+
+const ALL_KNOWN_TYPES = Object.values(CATEGORY_TYPES).flat();
+
 const getNotificationIcon = (type: string) => {
   switch (type) {
     case "ORDER_APPROVED":
@@ -39,6 +66,7 @@ const getNotificationIcon = (type: string) => {
     case "PENDING_APPROVAL_ALERT":
       return <Clock className="h-5 w-5 text-orange-500" />;
     case "CHARGEBACK_ALERT":
+    case "CHARGEBACK_APPLIED":
       return <AlertTriangle className="h-5 w-5 text-yellow-500" />;
     case "LOW_PERFORMANCE_WARNING":
       return <TrendingDown className="h-5 w-5 text-red-500" />;
@@ -52,23 +80,38 @@ const getNotificationIcon = (type: string) => {
 const getNotificationBadge = (type: string) => {
   switch (type) {
     case "ORDER_APPROVED":
-      return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Approved</Badge>;
+      return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">Approved</Badge>;
     case "ORDER_REJECTED":
-      return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">Rejected</Badge>;
+      return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800">Rejected</Badge>;
     case "PENDING_APPROVAL_ALERT":
-      return <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">Pending</Badge>;
+      return <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-800">Pending</Badge>;
     case "CHARGEBACK_ALERT":
-      return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">Chargeback</Badge>;
+    case "CHARGEBACK_APPLIED":
+      return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-800">Chargeback</Badge>;
     case "LOW_PERFORMANCE_WARNING":
-      return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">Performance</Badge>;
+      return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800">Performance</Badge>;
     case "PAY_RUN_FINALIZED":
-      return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Payroll</Badge>;
+      return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">Payroll</Badge>;
+    case "DISPUTE_RESOLVED":
+      return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">Dispute</Badge>;
     default:
       return <Badge variant="outline">Info</Badge>;
   }
 };
 
+function filterByCategory(notifications: Notification[], category: CategoryKey): Notification[] {
+  if (category === "all") return notifications;
+  if (category === "other") {
+    return notifications.filter(n => !ALL_KNOWN_TYPES.includes(n.type));
+  }
+  const types = CATEGORY_TYPES[category];
+  return notifications.filter(n => types.includes(n.type));
+}
+
 export default function NotificationsPage() {
+  const [, navigate] = useLocation();
+  const [category, setCategory] = useState<CategoryKey>("all");
+
   const { data: notifications, isLoading } = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
   });
@@ -99,11 +142,12 @@ export default function NotificationsPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="p-3 md:p-6 space-y-4">
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-9 w-32" />
         </div>
+        <Skeleton className="h-10 w-full" />
         {[1, 2, 3, 4, 5].map((i) => (
           <Skeleton key={i} className="h-24 w-full" />
         ))}
@@ -112,13 +156,30 @@ export default function NotificationsPage() {
   }
 
   const unreadCount = unreadData?.count || 0;
+  const filteredNotifications = notifications ? filterByCategory(notifications, category) : [];
+  const filteredUnread = filteredNotifications.filter(n => !n.isRead).length;
+
+  const getCategoryCount = (cat: CategoryKey) => {
+    if (!notifications) return 0;
+    return filterByCategory(notifications, cat).length;
+  };
+
+  const handleNotificationClick = (notification: Notification) => {
+    if (!notification.isRead) {
+      markReadMutation.mutate(notification.id);
+    }
+    const navTarget = NOTIFICATION_NAV_MAP[notification.type];
+    if (navTarget) {
+      navigate(navTarget);
+    }
+  };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
-          <Bell className="h-6 w-6" />
-          <h1 className="text-2xl font-semibold">Notifications</h1>
+          <Bell className="h-5 w-5 md:h-6 md:w-6" />
+          <h1 className="text-xl md:text-2xl font-semibold">Notifications</h1>
           {unreadCount > 0 && (
             <Badge variant="default" data-testid="badge-unread-count">{unreadCount} unread</Badge>
           )}
@@ -137,40 +198,72 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      {!notifications || notifications.length === 0 ? (
+      <Tabs value={category} onValueChange={(v) => setCategory(v as CategoryKey)}>
+        <TabsList className="w-full justify-start overflow-x-auto" data-testid="tabs-notification-category">
+          <TabsTrigger value="all" data-testid="tab-all">
+            All ({notifications?.length || 0})
+          </TabsTrigger>
+          <TabsTrigger value="orders" data-testid="tab-orders">
+            Orders ({getCategoryCount("orders")})
+          </TabsTrigger>
+          <TabsTrigger value="payroll" data-testid="tab-payroll">
+            Payroll ({getCategoryCount("payroll")})
+          </TabsTrigger>
+          <TabsTrigger value="chargebacks" data-testid="tab-chargebacks">
+            Chargebacks ({getCategoryCount("chargebacks")})
+          </TabsTrigger>
+          <TabsTrigger value="performance" data-testid="tab-performance">
+            Performance ({getCategoryCount("performance")})
+          </TabsTrigger>
+          <TabsTrigger value="other" data-testid="tab-other">
+            Other ({getCategoryCount("other")})
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {filteredUnread > 0 && category !== "all" && (
+        <div className="text-sm text-muted-foreground">
+          {filteredUnread} unread in this category
+        </div>
+      )}
+
+      {filteredNotifications.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Bell className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground text-center">
-              No notifications yet. You'll receive alerts here for order updates, chargebacks, and more.
+              {category === "all"
+                ? "No notifications yet. You'll receive alerts here for order updates, chargebacks, and more."
+                : `No ${category} notifications.`}
             </p>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {notifications.map((notification) => (
+        <div className="space-y-2 md:space-y-3">
+          {filteredNotifications.map((notification) => (
             <Card
               key={notification.id}
-              className={`transition-colors ${!notification.isRead ? "bg-accent/30 border-primary/20" : ""}`}
+              className={`transition-colors cursor-pointer hover:bg-accent/10 ${!notification.isRead ? "bg-accent/30 border-primary/20" : ""}`}
+              onClick={() => handleNotificationClick(notification)}
               data-testid={`card-notification-${notification.id}`}
             >
-              <CardContent className="p-4">
-                <div className="flex items-start gap-4">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-start gap-3 md:gap-4">
                   <div className="flex-shrink-0 mt-1">
                     {getNotificationIcon(notification.type)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       {getNotificationBadge(notification.type)}
-                      <span className="text-sm text-muted-foreground">
+                      <span className="text-xs md:text-sm text-muted-foreground">
                         {format(new Date(notification.createdAt), "MMM d, yyyy 'at' h:mm a")}
                       </span>
                       {!notification.isRead && (
                         <Badge variant="secondary" className="text-xs">New</Badge>
                       )}
                     </div>
-                    <h3 className="font-medium mb-1">{notification.subject}</h3>
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                    <h3 className="font-medium text-sm md:text-base mb-1">{notification.subject}</h3>
+                    <p className="text-xs md:text-sm text-muted-foreground whitespace-pre-wrap">
                       {notification.body}
                     </p>
                   </div>
@@ -184,7 +277,10 @@ export default function NotificationsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => markReadMutation.mutate(notification.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          markReadMutation.mutate(notification.id);
+                        }}
                         disabled={markReadMutation.isPending}
                         title="Mark as read"
                         data-testid={`button-mark-read-${notification.id}`}

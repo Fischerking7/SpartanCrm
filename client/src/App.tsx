@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { NotificationBell } from "@/components/notification-bell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActivityTracker } from "@/hooks/use-activity-tracker";
 import { useQuery } from "@tanstack/react-query";
@@ -335,7 +336,10 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
                 <span className="text-sm font-semibold truncate" data-testid="text-page-title">{pageTitle}</span>
               </div>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-1">
+              <NotificationBell />
+              <ThemeToggle />
+            </div>
           </header>
           <main className={`flex-1 overflow-auto ${showBottomNav ? "pb-20 md:pb-0" : ""}`}>
             <ComplianceAlertBanner />

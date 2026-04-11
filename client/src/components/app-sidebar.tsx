@@ -315,7 +315,7 @@ function MenuItems({ items, location, badges }: { items: MenuItem[]; location: s
                 <item.icon className="h-4 w-4" />
                 <span className="flex-1">{item.title}</span>
                 {badgeCount != null && badgeCount > 0 && (
-                  <Badge variant="destructive" className="ml-auto text-xs px-1.5 py-0.5 min-w-[1.25rem] text-center" data-testid="badge-exception-count">
+                  <Badge variant="destructive" className="ml-auto text-xs px-1.5 py-0.5 min-w-[1.25rem] text-center" data-testid={`badge-menu-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
                     {badgeCount > 99 ? "99+" : badgeCount}
                   </Badge>
                 )}
@@ -393,6 +393,16 @@ export function AppSidebar() {
     ? { "/queues": exceptionCounts.urgent + exceptionCounts.high }
     : {};
 
+  const { data: unreadNotifData } = useQuery<{ count: number }>({
+    queryKey: ["/api/notifications/unread-count"],
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
+  const notifBadges: Record<string, number> = unreadNotifData?.count
+    ? { "/notifications": unreadNotifData.count }
+    : {};
+
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -437,6 +447,7 @@ export function AppSidebar() {
           icon={BookOpen} 
           items={menu.resources} 
           location={location}
+          badges={notifBadges}
         />
       </>
     );
@@ -527,6 +538,7 @@ export function AppSidebar() {
           icon={User} 
           items={[...personalItems, ...preferencesItems]} 
           location={location}
+          badges={notifBadges}
         />
         <CollapsibleSection 
           title="Resources" 
@@ -576,6 +588,7 @@ export function AppSidebar() {
         icon={User}
         items={[...personalItems, ...preferencesItems]}
         location={location}
+        badges={notifBadges}
       />
       <CollapsibleSection
         title="Resources"
@@ -631,6 +644,7 @@ export function AppSidebar() {
         icon={User}
         items={[...personalItems, ...preferencesItems]}
         location={location}
+        badges={notifBadges}
       />
       <CollapsibleSection
         title="Resources"
