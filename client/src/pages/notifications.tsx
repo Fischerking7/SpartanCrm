@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 import {
   Bell,
@@ -18,6 +18,7 @@ import {
   CheckCheck,
   Mail,
   MailOpen,
+  Shield,
 } from "lucide-react";
 
 type Notification = {
@@ -36,23 +37,25 @@ type Notification = {
 const NOTIFICATION_NAV_MAP: Record<string, string> = {
   ORDER_APPROVED: "/order-tracker",
   ORDER_REJECTED: "/order-tracker",
+  ORDER_SUBMITTED: "/orders",
   PAY_RUN_FINALIZED: "/my-pay",
+  ADVANCE_APPROVED: "/my-pay",
+  ADVANCE_REJECTED: "/my-pay",
+  PAY_STUB_DELIVERY: "/my-pay",
   CHARGEBACK_ALERT: "/commissions",
   CHARGEBACK_APPLIED: "/commissions",
   DISPUTE_RESOLVED: "/my-disputes",
   PENDING_APPROVAL_ALERT: "/orders",
   LOW_PERFORMANCE_WARNING: "/dashboard",
+  COMPLIANCE_EXPIRING: "/my-credentials",
 };
 
-type CategoryKey = "all" | "orders" | "payroll" | "chargebacks" | "performance" | "other";
+type CategoryKey = "all" | "orders" | "pay" | "compliance" | "system";
 
-const CATEGORY_TYPES: Record<CategoryKey, string[]> = {
-  all: [],
+const CATEGORY_TYPES: Record<Exclude<CategoryKey, "all" | "system">, string[]> = {
   orders: ["ORDER_APPROVED", "ORDER_REJECTED", "ORDER_SUBMITTED", "PENDING_APPROVAL_ALERT"],
-  payroll: ["PAY_RUN_FINALIZED", "ADVANCE_APPROVED", "ADVANCE_REJECTED", "PAY_STUB_DELIVERY"],
-  chargebacks: ["CHARGEBACK_ALERT", "CHARGEBACK_APPLIED", "DISPUTE_RESOLVED"],
-  performance: ["LOW_PERFORMANCE_WARNING"],
-  other: [],
+  pay: ["PAY_RUN_FINALIZED", "ADVANCE_APPROVED", "ADVANCE_REJECTED", "PAY_STUB_DELIVERY", "CHARGEBACK_ALERT", "CHARGEBACK_APPLIED", "DISPUTE_RESOLVED"],
+  compliance: ["COMPLIANCE_EXPIRING", "LOW_PERFORMANCE_WARNING"],
 };
 
 const ALL_KNOWN_TYPES = Object.values(CATEGORY_TYPES).flat();
@@ -72,6 +75,8 @@ const getNotificationIcon = (type: string) => {
       return <TrendingDown className="h-5 w-5 text-red-500" />;
     case "PAY_RUN_FINALIZED":
       return <CheckCheck className="h-5 w-5 text-blue-500" />;
+    case "COMPLIANCE_EXPIRING":
+      return <Shield className="h-5 w-5 text-orange-500" />;
     default:
       return <Bell className="h-5 w-5 text-muted-foreground" />;
   }
@@ -94,6 +99,8 @@ const getNotificationBadge = (type: string) => {
       return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">Payroll</Badge>;
     case "DISPUTE_RESOLVED":
       return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">Dispute</Badge>;
+    case "COMPLIANCE_EXPIRING":
+      return <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-800">Compliance</Badge>;
     default:
       return <Badge variant="outline">Info</Badge>;
   }
@@ -101,7 +108,7 @@ const getNotificationBadge = (type: string) => {
 
 function filterByCategory(notifications: Notification[], category: CategoryKey): Notification[] {
   if (category === "all") return notifications;
-  if (category === "other") {
+  if (category === "system") {
     return notifications.filter(n => !ALL_KNOWN_TYPES.includes(n.type));
   }
   const types = CATEGORY_TYPES[category];
@@ -206,17 +213,14 @@ export default function NotificationsPage() {
           <TabsTrigger value="orders" data-testid="tab-orders">
             Orders ({getCategoryCount("orders")})
           </TabsTrigger>
-          <TabsTrigger value="payroll" data-testid="tab-payroll">
-            Payroll ({getCategoryCount("payroll")})
+          <TabsTrigger value="pay" data-testid="tab-pay">
+            Pay ({getCategoryCount("pay")})
           </TabsTrigger>
-          <TabsTrigger value="chargebacks" data-testid="tab-chargebacks">
-            Chargebacks ({getCategoryCount("chargebacks")})
+          <TabsTrigger value="compliance" data-testid="tab-compliance">
+            Compliance ({getCategoryCount("compliance")})
           </TabsTrigger>
-          <TabsTrigger value="performance" data-testid="tab-performance">
-            Performance ({getCategoryCount("performance")})
-          </TabsTrigger>
-          <TabsTrigger value="other" data-testid="tab-other">
-            Other ({getCategoryCount("other")})
+          <TabsTrigger value="system" data-testid="tab-system">
+            System ({getCategoryCount("system")})
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -255,8 +259,11 @@ export default function NotificationsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       {getNotificationBadge(notification.type)}
-                      <span className="text-xs md:text-sm text-muted-foreground">
-                        {format(new Date(notification.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                      <span className="text-xs text-muted-foreground">
+                        {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+                      </span>
+                      <span className="text-xs text-muted-foreground hidden md:inline">
+                        ({format(new Date(notification.createdAt), "MMM d, yyyy 'at' h:mm a")})
                       </span>
                       {!notification.isRead && (
                         <Badge variant="secondary" className="text-xs">New</Badge>
