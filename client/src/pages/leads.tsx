@@ -12,8 +12,9 @@ import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench, Plus, TrendingUp, ChevronLeft, ChevronRight, PhoneCall } from "lucide-react";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench, Plus, TrendingUp, ChevronLeft, ChevronRight, PhoneCall, MoreVertical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -764,6 +765,39 @@ export default function Leads() {
               <Wrench className="h-4 w-4 mr-2" />
               {fixAddressesMutation.isPending ? "Fixing..." : "Fix Addresses"}
             </Button>
+          )}
+          {isMobile && (canImport || canAssignToOthers || isAdmin) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 w-9 p-0" data-testid="button-more-actions">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {canImport && (
+                  <DropdownMenuItem onClick={() => setShowImportDialog(true)} data-testid="menu-import-leads">
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import Leads
+                  </DropdownMenuItem>
+                )}
+                {canAssignToOthers && (
+                  <DropdownMenuItem onClick={() => setShowManageSortsDialog(true)} data-testid="menu-manage-sorts">
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete Sort
+                  </DropdownMenuItem>
+                )}
+                {isAdmin && (
+                  <DropdownMenuItem
+                    onClick={() => fixAddressesMutation.mutate()}
+                    disabled={fixAddressesMutation.isPending}
+                    data-testid="menu-fix-addresses"
+                  >
+                    <Wrench className="h-4 w-4 mr-2" />
+                    {fixAddressesMutation.isPending ? "Fixing..." : "Fix Addresses"}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           <div className="flex items-center gap-1.5">
             <UserPlus className="h-4 w-4 md:h-5 md:w-5 text-muted-foreground" />

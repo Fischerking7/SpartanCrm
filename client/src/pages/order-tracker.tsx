@@ -38,6 +38,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from "@/hooks/use-toast";
 import type { SalesOrder, Client, Provider, Service, User as UserType } from "@shared/schema";
 import { Link } from "wouter";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
 
 interface MobileLineEntry {
   mobileProductType: string;
@@ -552,6 +554,7 @@ function OrderCard({
 export default function OrderTracker() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const canSeeGrossCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR", "ACCOUNTING"].includes(user?.role || "");
   const canSeeCommission = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR", "ACCOUNTING"].includes(user?.role || "");
   const hasViewModeToggle = ["LEAD", "MANAGER", "EXECUTIVE"].includes(user?.role || "");
@@ -1152,37 +1155,39 @@ export default function OrderTracker() {
         )}
       </div>
 
-      <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by customer, account, invoice..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
-            data-testid="input-search-orders"
-          />
+      <MobileFilterDrawer activeFilterCount={(searchTerm ? 1 : 0) + (activeTab !== "all" ? 1 : 0) + (dateRange !== "all" ? 1 : 0)}>
+        <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by customer, account, invoice..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9"
+              data-testid="input-search-orders"
+            />
+          </div>
+          <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelectedOrderIds(new Set()); }}>
+            <TabsList>
+              <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
+              <TabsTrigger value="pending" data-testid="tab-pending">
+                Pending
+                {stats.pending > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted">{stats.pending}</span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="completed" data-testid="tab-completed">
+                Completed
+                {stats.completed > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted">{stats.completed}</span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="approved" data-testid="tab-approved">Approved</TabsTrigger>
+              <TabsTrigger value="paid" data-testid="tab-paid">Paid</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
-        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelectedOrderIds(new Set()); }}>
-          <TabsList>
-            <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
-            <TabsTrigger value="pending" data-testid="tab-pending">
-              Pending
-              {stats.pending > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted">{stats.pending}</span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="completed" data-testid="tab-completed">
-              Completed
-              {stats.completed > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted">{stats.completed}</span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="approved" data-testid="tab-approved">Approved</TabsTrigger>
-            <TabsTrigger value="paid" data-testid="tab-paid">Paid</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      </MobileFilterDrawer>
 
       {isPaidTab && sortedOrders.length > 0 && (
         <div className="flex items-center justify-between gap-3 flex-wrap">
