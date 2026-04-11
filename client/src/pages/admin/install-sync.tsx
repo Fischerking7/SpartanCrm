@@ -938,7 +938,7 @@ export default function InstallSync() {
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <div className="text-center p-3 rounded-lg border bg-green-50 dark:bg-green-950/30" data-testid="stat-completed">
                     <div className="text-xl font-bold text-green-700 dark:text-green-400">{ci.carrierStats.completedCount}</div>
-                    <div className="text-xs text-green-600 dark:text-green-500">Completed</div>
+                    <div className="text-xs text-green-600 dark:text-green-500">Connected</div>
                     <div className="text-xs text-muted-foreground">{ci.carrierStats.completionRate}%</div>
                   </div>
                   <div className="text-center p-3 rounded-lg border bg-red-50 dark:bg-red-950/30" data-testid="stat-canceled">
@@ -987,7 +987,7 @@ export default function InstallSync() {
                           <TableRow>
                             <TableHead>Rep Name</TableHead>
                             <TableHead className="text-center">Total</TableHead>
-                            <TableHead className="text-center">Completed</TableHead>
+                            <TableHead className="text-center">Connected</TableHead>
                             <TableHead className="text-center">Cancelled</TableHead>
                             <TableHead className="text-center">Open</TableHead>
                             <TableHead className="text-center">Completion %</TableHead>
@@ -1083,7 +1083,7 @@ export default function InstallSync() {
                           <TableHead>Invoice</TableHead>
                           <TableHead>Customer</TableHead>
                           <TableHead>CRM Service</TableHead>
-                          <TableHead>Carrier Installed</TableHead>
+                          <TableHead>Carrier Connected</TableHead>
                           <TableHead className="w-20"></TableHead>
                         </TableRow>
                       </TableHeader>

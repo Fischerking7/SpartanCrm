@@ -141,7 +141,7 @@ const routeTitles: Record<string, string> = {
   "/commissions": "Commissions",
   "/commission-forecast": "Forecast",
   "/my-pay": "Pay History",
-  "/my-disputes": "My Disputes",
+  "/my-disputes": "Disputes",
   "/knowledge": "Knowledge Base",
   "/notifications": "Alerts",
   "/notification-settings": "Alert Settings",

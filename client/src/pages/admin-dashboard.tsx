@@ -271,7 +271,7 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
                 <div className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer" data-testid="link-installed-awaiting-payment">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-orange-500" />
-                    <span className="text-sm">Installed — Awaiting Payment</span>
+                    <span className="text-sm">Connected — Awaiting Payment</span>
                   </div>
                   <Badge variant={stats?.installedAwaitingPayment ? "destructive" : "secondary"}>
                     {stats?.installedAwaitingPayment || 0}

@@ -27,7 +27,7 @@ const ACTION_LABELS: Record<string, string> = {
   delete_order: "Deleted Order",
   hard_delete_order: "Permanently Deleted Order",
   cancel_order: "Cancelled Order",
-  complete_order: "Completed Order",
+  complete_order: "Connected Order",
   create_mobile_order: "Created Mobile Order",
   import_orders: "Imported Orders",
   orders_import: "Imported Orders",

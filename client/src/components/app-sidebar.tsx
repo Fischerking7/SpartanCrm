@@ -92,7 +92,7 @@ const MENU = {
   commissions: { title: "Commissions", url: "/commissions", icon: DollarSign },
   forecast: { title: "Forecast", url: "/commission-forecast", icon: Target },
   myPay: { title: "Pay History", url: "/my-pay", icon: Calendar },
-  myDisputes: { title: "My Disputes", url: "/my-disputes", icon: MessageSquareWarning },
+  myDisputes: { title: "Disputes", url: "/my-disputes", icon: MessageSquareWarning },
   
   // Operations
   mduReview: { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
