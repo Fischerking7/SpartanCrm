@@ -6,10 +6,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Users, AlertTriangle, ArrowRight } from "lucide-react";
+import { Users, AlertTriangle, ArrowRight, MessageSquare } from "lucide-react";
 import TeamHealthCard from "./team-health-card";
 import TeamEarningsPreview from "./team-earnings-preview";
 import { Link } from "wouter";
+
+interface TeamMessage {
+  id: number;
+  subject: string;
+  body: string;
+  fromUser: { name: string; repId: string } | null;
+  isRead: boolean;
+  createdAt: string;
+  category: string | null;
+  parentMessageId: number | null;
+}
 
 interface RepData {
   id: string;
@@ -70,6 +81,16 @@ export default function ManagerDashboard() {
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: teamMessages } = useQuery<TeamMessage[]>({
+    queryKey: ["/api/messages/team"],
+    queryFn: async () => {
+      const res = await fetch("/api/messages/team", { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 30000,
   });
 
   if (isLoading) {
@@ -196,6 +217,46 @@ export default function ManagerDashboard() {
                 <Badge variant={rep.trend === "down" ? "destructive" : "outline"} className="text-xs shrink-0">
                   {rep.trend}
                 </Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {teamMessages && teamMessages.length > 0 && (
+        <Card data-testid="team-inbox-preview">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" />
+                Team Messages
+                {(() => {
+                  const unreadCount = teamMessages.filter(m => !m.isRead).length;
+                  return unreadCount > 0 ? (
+                    <Badge variant="destructive" className="text-[10px] h-5">{unreadCount}</Badge>
+                  ) : null;
+                })()}
+              </CardTitle>
+              <Link href="/messages">
+                <Button variant="ghost" size="sm" className="text-xs" data-testid="link-view-all-messages">
+                  View All <ArrowRight className="w-3 h-3 ml-1" />
+                </Button>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {teamMessages.filter(m => !m.parentMessageId).slice(0, 5).map((msg) => (
+              <div key={msg.id} className={`flex items-start justify-between gap-2 py-1.5 border-b last:border-0 ${!msg.isRead ? "bg-muted/30" : ""}`} data-testid={`team-msg-${msg.id}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm truncate">{msg.fromUser?.name || "Unknown"}</span>
+                    {!msg.isRead && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />}
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">{msg.subject}</p>
+                </div>
+                <span className="text-[10px] text-muted-foreground whitespace-nowrap shrink-0">
+                  {new Date(msg.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </span>
               </div>
             ))}
           </CardContent>

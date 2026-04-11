@@ -16,6 +16,12 @@ interface PayPeriodTrend {
   netPay: number;
   deductions: number;
   status: string;
+  ordersSold: number;
+  ordersConnected: number;
+  connectionRate: number;
+  chargebacks: number;
+  rank: number;
+  totalReps: number;
 }
 
 interface PerformanceData {
@@ -279,32 +285,51 @@ export default function MyPerformance() {
               </ResponsiveContainer>
             </div>
 
-            {!isMobile && (
+            <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Period</TableHead>
+                    <TableHead className="text-right">Sold</TableHead>
+                    <TableHead className="text-right">Connected</TableHead>
+                    <TableHead className="text-right">Rate</TableHead>
                     <TableHead className="text-right">Gross</TableHead>
-                    <TableHead className="text-right">Deductions</TableHead>
                     <TableHead className="text-right">Net Pay</TableHead>
-                    <TableHead>Status</TableHead>
+                    {!isMobile && <TableHead className="text-right">CB</TableHead>}
+                    {!isMobile && <TableHead className="text-center">Rank</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.payPeriodTrends.map((p, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="text-sm">
-                        {new Date(p.periodStart + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })} - {new Date(p.periodEnd + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                      </TableCell>
-                      <TableCell className="text-right text-green-600 dark:text-green-400">${p.grossCommission.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                      <TableCell className="text-right text-red-600 dark:text-red-400">-${p.deductions.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                      <TableCell className="text-right font-semibold">${p.netPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-[10px]">{p.status}</Badge></TableCell>
-                    </TableRow>
-                  ))}
+                  {data.payPeriodTrends.map((p, i) => {
+                    const prev = i > 0 ? data.payPeriodTrends[i - 1] : null;
+                    const netDelta = prev ? p.netPay - prev.netPay : 0;
+                    return (
+                      <TableRow key={i}>
+                        <TableCell className="text-xs whitespace-nowrap">
+                          {new Date(p.periodStart + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })} - {new Date(p.periodEnd + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </TableCell>
+                        <TableCell className="text-right">{p.ordersSold}</TableCell>
+                        <TableCell className="text-right">{p.ordersConnected}</TableCell>
+                        <TableCell className="text-right">{p.connectionRate}%</TableCell>
+                        <TableCell className="text-right text-green-600 dark:text-green-400">${p.grossCommission.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
+                        <TableCell className="text-right font-semibold">
+                          <span>${p.netPay.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                          {prev && netDelta !== 0 && (
+                            <span className={`ml-1 text-[10px] ${netDelta > 0 ? "text-green-600" : "text-red-600"}`}>
+                              {netDelta > 0 ? "+" : ""}{Math.round(netDelta)}
+                            </span>
+                          )}
+                        </TableCell>
+                        {!isMobile && <TableCell className={`text-right ${p.chargebacks > 0 ? "text-red-600 dark:text-red-400" : ""}`}>${p.chargebacks > 0 ? p.chargebacks.toLocaleString(undefined, { minimumFractionDigits: 0 }) : "0"}</TableCell>}
+                        {!isMobile && <TableCell className="text-center">
+                          <Badge variant="outline" className="text-[10px]">#{p.rank}/{p.totalReps}</Badge>
+                        </TableCell>}
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
-            )}
+            </div>
           </CardContent>
         </Card>
       )}

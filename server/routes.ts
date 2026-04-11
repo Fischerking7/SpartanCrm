@@ -26660,21 +26660,48 @@ function registerReportRoutes(app: Express, auth: any) {
         orderBy: [desc(payStatements.periodEnd)],
         limit: 6,
       });
-      const payPeriodTrends = myStatements.reverse().map(s => ({
-        periodStart: s.periodStart instanceof Date ? s.periodStart.toISOString().slice(0, 10) : String(s.periodStart).slice(0, 10),
-        periodEnd: s.periodEnd instanceof Date ? s.periodEnd.toISOString().slice(0, 10) : String(s.periodEnd).slice(0, 10),
-        grossCommission: parseFloat(String(s.grossCommission || "0")),
-        netPay: parseFloat(String(s.netPay || "0")),
-        deductions: parseFloat(String(s.deductionsTotal || "0")),
-        status: s.status,
-      }));
-
-      const chargebacks = await db.query.chargebacks.findMany({
+      const allChargebacks = await db.query.chargebacks.findMany({
         where: eq(chargebacks.repId, user.repId),
       });
-      const recentChargebackTotal = chargebacks
+      const recentChargebackTotal = allChargebacks
         .filter(cb => new Date(cb.dateApplied) >= monthStart)
         .reduce((s, cb) => s + parseFloat(String(cb.amount || "0")), 0);
+
+      const payPeriodTrends = myStatements.reverse().map(s => {
+        const pStart = s.periodStart instanceof Date ? s.periodStart : new Date(s.periodStart);
+        const pEnd = s.periodEnd instanceof Date ? s.periodEnd : new Date(s.periodEnd);
+        const periodOrders = myOrders.filter(o => {
+          const d = new Date(o.dateSold);
+          return d >= pStart && d <= pEnd;
+        });
+        const periodConnected = periodOrders.filter(o => o.jobStatus === "COMPLETED");
+        const periodSold = periodOrders.length;
+        const periodConnectionRate = periodSold > 0 ? Math.round((periodConnected.length / periodSold) * 100) : 0;
+        const periodChargebackAmt = allChargebacks
+          .filter(cb => { const d = new Date(cb.dateApplied); return d >= pStart && d <= pEnd; })
+          .reduce((sum, cb) => sum + parseFloat(String(cb.amount || "0")), 0);
+
+        const periodRepSales = reps.map(r => ({
+          repId: r.repId,
+          count: allOrders.filter(o => o.repId === r.repId && o.jobStatus === "COMPLETED" && (() => { const d = new Date(o.dateSold); return d >= pStart && d <= pEnd; })()).length,
+        })).sort((a, b) => b.count - a.count);
+        const periodRank = periodRepSales.findIndex(r => r.repId === user.repId) + 1;
+
+        return {
+          periodStart: pStart.toISOString().slice(0, 10),
+          periodEnd: pEnd.toISOString().slice(0, 10),
+          grossCommission: parseFloat(String(s.grossCommission || "0")),
+          netPay: parseFloat(String(s.netPay || "0")),
+          deductions: parseFloat(String(s.deductionsTotal || "0")),
+          status: s.status,
+          ordersSold: periodSold,
+          ordersConnected: periodConnected.length,
+          connectionRate: periodConnectionRate,
+          chargebacks: periodChargebackAmt,
+          rank: periodRank,
+          totalReps: reps.length,
+        };
+      });
 
       res.json({
         mtd: { sold: mtdSold, connected: mtdConnected, earned: mtdEarned, connectRate, monthOverMonthDelta },
