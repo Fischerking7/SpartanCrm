@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { getAuthHeaders } from "@/lib/auth";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,8 +87,6 @@ const CATEGORY_CONFIG: Record<CategoryKey, { label: string; types: string[]; ico
     icon: Settings,
   },
 };
-
-const ALL_CATEGORIZED_TYPES = Object.values(CATEGORY_CONFIG).flatMap(c => c.types);
 
 function getCategoryForType(type: string): CategoryKey {
   for (const [key, config] of Object.entries(CATEGORY_CONFIG)) {
@@ -305,7 +304,7 @@ export function NotificationBell() {
     queryKey: ["/api/notifications", { limit: 10 }],
     queryFn: async () => {
       const res = await fetch("/api/notifications?limit=10", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+        headers: getAuthHeaders(),
       });
       if (!res.ok) throw new Error("Failed");
       return res.json();
