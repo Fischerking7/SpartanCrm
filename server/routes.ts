@@ -5538,11 +5538,32 @@ Rules:
       if (orders.length === 0) return res.status(400).json({ message: "Pay run has no orders linked" });
       
       const statements = await storage.getPayStatements(req.params.id);
-      
+      if (statements.length === 0 && orders.length > 0) return res.status(400).json({ message: "No pay statements generated. Generate statements before finalizing." });
+
+      const allUsers = await storage.getUsers();
+      const repsWithOrders = new Set(orders.map(o => { const u = allUsers.find(u2 => u2.repId === o.repId); return u?.id; }).filter(Boolean));
+      const stmtUserIds = new Set(statements.map(s => s.userId));
+      const missingStmts = [...repsWithOrders].filter(uid => uid && !stmtUserIds.has(uid));
+      if (missingStmts.length > 0) return res.status(400).json({ message: `${missingStmts.length} rep(s) have orders but no pay statement. Regenerate statements.` });
+
+      const orderIds = orders.map(o => o.id);
+      const preCheckPoolEntries = await storage.getOverrideDeductionPoolByOrderIds(orderIds);
+      const preCheckDistributions = await storage.getOverrideDistributionsByPayRun(req.params.id);
+      const preCheckDistIds = new Set(preCheckDistributions.map(d => d.poolEntryId));
+      const undistributed = preCheckPoolEntries.filter(e => !preCheckDistIds.has(e.id) && e.status === "PENDING");
+      if (undistributed.length > 0) return res.status(400).json({ message: `${undistributed.length} undistributed override pool entries. Distribute overrides before finalizing.` });
+
+      for (const stmt of statements) {
+        const netPay = parseFloat(stmt.netPay || "0");
+        if (Math.round(netPay * 100) < -10000) {
+          const u = allUsers.find(u2 => u2.id === stmt.userId);
+          return res.status(400).json({ message: `Negative net pay exceeds -$100.00 threshold for ${u?.name || stmt.userId}. Review before finalizing.` });
+        }
+      }
+
       const result = await db.transaction(async (tx) => {
         const txDb = tx as unknown as TxDb;
         
-        const orderIds = orders.map(o => o.id);
         const pendingPoolEntries = await storage.getOverrideDeductionPoolByOrderIds(orderIds);
         const manualDistributions = await storage.getOverrideDistributionsByPayRun(req.params.id);
         const distributedPoolIds = new Set(manualDistributions.map(d => d.poolEntryId));
