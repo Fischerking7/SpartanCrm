@@ -3,8 +3,10 @@ import { getAuthHeaders } from "@/lib/auth";
 import { KpiCard } from "@/components/kpi-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Clock, DollarSign, FileText } from "lucide-react";
+import { Clock, DollarSign, FileText, Users, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Link } from "wouter";
 
 interface MyDashboardData {
   todayOrders: number;
@@ -25,6 +27,18 @@ interface MyDashboardData {
   } | null;
 }
 
+interface ReferralStats {
+  total: number;
+  converted: number;
+  pending: number;
+  conversionRate: string;
+}
+
+interface ReferralsData {
+  referrals: unknown[];
+  stats: ReferralStats;
+}
+
 function formatTime(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
@@ -39,6 +53,16 @@ export default function MyDashboard() {
       return res.json();
     },
     refetchInterval: 60000,
+  });
+
+  const { data: referralsData } = useQuery<ReferralsData>({
+    queryKey: ["/api/referrals"],
+    queryFn: async () => {
+      const res = await fetch("/api/referrals", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to load");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
   });
 
   if (isLoading) {
@@ -119,6 +143,39 @@ export default function MyDashboard() {
           </Card>
         )}
       </div>
+
+      {referralsData && (
+        <Card data-testid="card-referral-stats-dashboard">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Users className="w-4 h-4 text-primary" /> Referrals
+              </CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/referrals" data-testid="link-referrals-from-dashboard">
+                  Manage <ArrowRight className="h-3 w-3 ml-1" />
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <div className="text-2xl font-bold" data-testid="text-dashboard-referrals-total">{referralsData.stats.total}</div>
+                <div className="text-xs text-muted-foreground">Total</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-dashboard-referrals-converted">{referralsData.stats.converted}</div>
+                <div className="text-xs text-muted-foreground">Converted</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-primary" data-testid="text-dashboard-referrals-rate">{referralsData.stats.conversionRate}%</div>
+                <div className="text-xs text-muted-foreground">Rate</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -136,9 +136,17 @@ export function managerOrAdmin(req: AuthRequest, res: Response, next: NextFuncti
 }
 
 export function leadOrAbove(req: AuthRequest, res: Response, next: NextFunction) {
-  const allowedRoles = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "LEAD"];
+  const allowedRoles = ["ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"];
   if (!req.user?.role || !allowedRoles.includes(req.user.role)) {
     return res.status(403).json({ message: "Lead or above access required" });
+  }
+  next();
+}
+
+export function salesRepOnly(req: AuthRequest, res: Response, next: NextFunction) {
+  const allowedRoles = ["REP", "MDU", "LEAD"];
+  if (!req.user?.role || !allowedRoles.includes(req.user.role)) {
+    return res.status(403).json({ message: "Sales rep access required" });
   }
   next();
 }

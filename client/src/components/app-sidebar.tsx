@@ -61,6 +61,9 @@ import {
   CalendarCheck,
   TrendingDown,
   Shield,
+  GitBranch,
+  Award,
+  Phone,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -140,6 +143,12 @@ const MENU = {
   paymentVariances: { title: "Payment Variances", url: "/accounting/payment-variances", icon: BadgeAlert },
   monthEnd: { title: "Month-End Checklist", url: "/accounting/month-end", icon: CalendarCheck },
   cashFlow: { title: "Cash Flow Forecast", url: "/accounting/cash-flow", icon: TrendingDown },
+
+  // Task 33: Sales Leadership & Rep Experience
+  pipelineForecast: { title: "Pipeline Forecast", url: "/pipeline-forecast", icon: GitBranch },
+  coachingScorecards: { title: "Coaching Scorecards", url: "/coaching-scorecards", icon: Award },
+  earningsSimulator: { title: "Earnings Simulator", url: "/earnings-simulator", icon: Calculator },
+  referrals: { title: "Referrals & Follow-Ups", url: "/referrals", icon: Phone },
 } as const;
 
 // ============ COMPOSED MENU GROUPS ============
@@ -148,6 +157,16 @@ const MENU = {
 const personalItems: MenuItem[] = [
   MENU.commissions,
   MENU.forecast,
+  MENU.myPay,
+  MENU.myDisputes,
+  MENU.credentials,
+  MENU.onboarding,
+];
+
+const repPersonalItems: MenuItem[] = [
+  MENU.commissions,
+  MENU.forecast,
+  MENU.earningsSimulator,
   MENU.myPay,
   MENU.myDisputes,
   MENU.credentials,
@@ -238,35 +257,40 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
     resources: [MENU.knowledge, ...preferencesItems],
   };
 
+  const repBase = {
+    personal: repPersonalItems,
+    resources: [MENU.knowledge, ...preferencesItems],
+  };
+
   switch (role) {
     case "REP":
       return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.adjustments],
-        ...base,
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.adjustments, MENU.referrals],
+        ...repBase,
       };
     case "MDU":
       return {
-        sales: [MENU.dashboard, MENU.mduOrders, MENU.orderTracker, MENU.quickEntry],
-        ...base,
+        sales: [MENU.dashboard, MENU.mduOrders, MENU.orderTracker, MENU.quickEntry, MENU.referrals],
+        ...repBase,
       };
     case "LEAD":
       return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments],
-        ...base,
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments, MENU.referrals, MENU.pipelineForecast, MENU.coachingScorecards],
+        ...repBase,
       };
     case "MANAGER":
       return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments, MENU.userActivity],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments, MENU.pipelineForecast, MENU.coachingScorecards, MENU.userActivity],
         ...base,
       };
     case "DIRECTOR":
       return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.orders, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.execReports, MENU.overrideApprovals, MENU.userActivity, MENU.adjustments],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.orders, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.execReports, MENU.pipelineForecast, MENU.coachingScorecards, MENU.overrideApprovals, MENU.userActivity, MENU.adjustments],
         ...base,
       };
     case "EXECUTIVE":
       return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.reports, MENU.execReports, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users, MENU.userActivity],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.reports, MENU.execReports, MENU.pipelineForecast, MENU.coachingScorecards, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users, MENU.userActivity],
         ...base,
       };
     default:

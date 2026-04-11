@@ -4,9 +4,12 @@ import { KpiCard } from "@/components/kpi-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Users } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Users, AlertTriangle, ArrowRight } from "lucide-react";
 import TeamHealthCard from "./team-health-card";
 import TeamEarningsPreview from "./team-earnings-preview";
+import { Link } from "wouter";
 
 interface RepData {
   id: string;
@@ -32,6 +35,17 @@ interface ManagerDashboardData {
   reps: RepData[];
 }
 
+interface CoachingAlert {
+  repId: string;
+  name: string;
+  alerts: Array<{ type: string; severity: string; message: string }>;
+  trend: string;
+}
+
+interface CoachingScorecardsData {
+  needsAttention: CoachingAlert[];
+}
+
 function formatTime(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
@@ -46,6 +60,16 @@ export default function ManagerDashboard() {
       return res.json();
     },
     refetchInterval: 60000,
+  });
+
+  const { data: coachingData } = useQuery<CoachingScorecardsData>({
+    queryKey: ["/api/coaching/scorecards", "MONTH"],
+    queryFn: async () => {
+      const res = await fetch("/api/coaching/scorecards?period=MONTH", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to load");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
   });
 
   if (isLoading) {
@@ -140,6 +164,43 @@ export default function ManagerDashboard() {
       </Card>
 
       <TeamEarningsPreview />
+
+      {coachingData && coachingData.needsAttention.length > 0 && (
+        <Card data-testid="card-coaching-alerts-dashboard">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                Coaching Alerts ({coachingData.needsAttention.length})
+              </CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/coaching-scorecards" data-testid="link-coaching-scorecards">
+                  View All <ArrowRight className="h-3 w-3 ml-1" />
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {coachingData.needsAttention.slice(0, 5).map((rep) => (
+              <div key={rep.repId} className="flex items-start justify-between gap-2 py-1.5 border-b last:border-0" data-testid={`coaching-alert-${rep.repId}`}>
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium text-sm">{rep.name}</span>
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {rep.alerts.slice(0, 2).map((alert, idx) => (
+                      <Badge key={idx} variant="secondary" className="text-xs">
+                        {alert.message}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+                <Badge variant={rep.trend === "down" ? "destructive" : "outline"} className="text-xs shrink-0">
+                  {rep.trend}
+                </Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <div>
         <h2 className="text-base font-semibold mb-3">Team Health</h2>

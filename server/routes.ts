@@ -5,9 +5,9 @@ import { storage, type TxDb } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, gte, lte, inArray, isNull, isNotNull, ne, asc, or, desc, not, ilike } from "drizzle-orm";
 import { users, providers, clients, services, rateCards, salesOrders, payStatements, payStatementDeductions, leads, arPayments, chargebacks, overrideEarnings, installSyncRuns, financeImports, financeImportRows, payRuns, scheduledPayRuns, advances, arExpectations, salesGoals, carrierImportSchedules, apiKeys, integrationLogs, calendarSyncConfig, onboardingSubmissions, onboardingAuditLog, onboardingDrafts, emailNotifications, rollingReserves, reserveTransactions, systemExceptions, userActivityLogs, orderExceptions, unmatchedPayments, unmatchedChargebacks, rateIssues, processedWorkOrders, commissionDisputes, exceptionDismissals, userTaxProfiles, userDeductions, carryForwardBalances, quickbooksConnection, systemSettings } from "@shared/schema";
-import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, type AuthRequest } from "./auth";
+import { authMiddleware, generateToken, hashPassword, comparePassword, managerOrAdmin, leadOrAbove, salesRepOnly, type AuthRequest } from "./auth";
 import { requirePermission, hasPermission, canCreateRole, PERMISSIONS } from "./permissions";
-import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, insertCompPlanRateSchema, insertCommissionOverrideRuleSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder } from "@shared/schema";
+import { loginSchema, insertUserSchema, insertProviderSchema, insertClientSchema, insertServiceSchema, insertRateCardSchema, insertSalesOrderSchema, insertIncentiveSchema, insertAdjustmentSchema, insertPayRunSchema, insertChargebackSchema, insertOverrideAgreementSchema, insertKnowledgeDocumentSchema, insertMduStagingOrderSchema, insertCompPlanRateSchema, insertCommissionOverrideRuleSchema, leadDispositions, dispositionToPipelineStage, terminalDispositions, dispositionMetadata, type LeadDisposition, type SalesOrder, type OverrideEarning, type User, type Provider, type Client, type MduStagingOrder, type InsertCustomerReferral, type InsertPostInstallFollowUp } from "@shared/schema";
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 import crypto from "crypto";
@@ -24674,7 +24674,8 @@ function registerReportRoutes(app: Express, auth: any) {
     }
   });
 
-  // ============================================================
+
+  // =====================================================
   // OPERATIONS: SLA & BOTTLENECK DASHBOARD
   // ============================================================
 
@@ -25427,7 +25428,7 @@ function registerReportRoutes(app: Express, auth: any) {
           exceptionType: "PAYMENT_VARIANCE",
           severity,
           title: `Payment ${direction} by ${(Math.abs(row.varianceAmountCents) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })} (${Math.round(varPct)}%)`,
-          detail: `Client: ${clientName}${order?.invoiceNumber ? `, Invoice: ${order.invoiceNumber}` : ""}${order?.customerName ? `, Customer: ${order.customerName}` : ""}. Expected: $${(row.expectedAmountCents / 100).toFixed(2)}, Actual: $${(row.actualAmountCents / 100).toFixed(2)}.`,
+          detail: `Client: ${clientName}${order?.invoiceNumber ? `, Invoice: ${order.invoiceNumber}` : ""}${order?.customerName ? `, Customer: ${order.customerName}` : ""}. Expected: ${(row.expectedAmountCents / 100).toFixed(2)}, Actual: ${(row.actualAmountCents / 100).toFixed(2)}.`,
           relatedEntityId: row.id,
           relatedEntityType: "ar_expectation",
           status: "OPEN",
@@ -25556,6 +25557,829 @@ function registerReportRoutes(app: Express, auth: any) {
     } catch (error: any) {
       console.error("Onboarding SLA exception emit error:", error);
       res.status(500).json({ message: error.message || "Failed to emit onboarding SLA exceptions" });
+    }
+  });
+
+  // =====================================================
+  // PIPELINE FORECASTING & WIN-RATE ANALYTICS
+  // =====================================================
+
+  // Revenue conversion funnel by stage (Sold → Installed → Approved → Paid)
+  app.get("/api/pipeline-forecast/funnel", auth, leadOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { period = "MONTH", repId, teamId, providerId } = req.query;
+
+      const now = new Date();
+      let startDate: Date;
+      if (period === "WEEK") { startDate = new Date(now); startDate.setDate(now.getDate() - 7); }
+      else if (period === "QUARTER") { startDate = new Date(now); startDate.setMonth(now.getMonth() - 3); }
+      else { startDate = new Date(now); startDate.setMonth(now.getMonth() - 1); }
+      const startStr = startDate.toISOString().split("T")[0];
+      const endStr = now.toISOString().split("T")[0];
+
+      // Determine rep ID scope: compute permitted scope first, then optionally filter
+      let permittedRepIds: string[] = [];
+      if (user.role === "LEAD") {
+        const supervised = await storage.getSupervisedReps(user.id);
+        permittedRepIds = supervised.map((r: any) => r.repId);
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        permittedRepIds = [...scope.directRepIds, ...scope.indirectRepIds];
+      } else if (user.role === "DIRECTOR" || user.role === "EXECUTIVE") {
+        const allUsers = await storage.getActiveUsers();
+        permittedRepIds = allUsers.filter((u: any) => ["REP", "LEAD", "MDU"].includes(u.role)).map((u: any) => u.repId);
+      } else {
+        permittedRepIds = [user.repId];
+      }
+      // Apply optional teamId filter (filter to a specific team lead's reps)
+      let teamFilteredRepIds = permittedRepIds;
+      if (teamId && typeof teamId === "string" && teamId !== "all") {
+        const teamLead = await storage.getUserById(teamId);
+        if (!teamLead) return res.status(404).json({ message: "Team lead not found" });
+        const teamReps = await storage.getSupervisedReps(teamId);
+        const teamRepIds = teamReps.map((r: any) => r.repId);
+        // Intersect with permitted scope
+        teamFilteredRepIds = permittedRepIds.filter((id: string) => teamRepIds.includes(id));
+      }
+
+      // Apply optional repId filter only if the target is within permitted scope
+      let repIds: string[] = teamFilteredRepIds;
+      if (repId && typeof repId === "string" && repId !== "all") {
+        if (!teamFilteredRepIds.includes(repId)) return res.status(403).json({ message: "Access denied" });
+        repIds = [repId];
+      }
+
+      const conditions: any[] = [
+        gte(salesOrders.dateSold, startStr),
+        lte(salesOrders.dateSold, endStr),
+        isNull(salesOrders.deletedAt),
+      ];
+      if (repIds.length > 0) conditions.push(inArray(salesOrders.repId, repIds));
+      if (providerId && typeof providerId === "string") conditions.push(eq(salesOrders.providerId, providerId));
+
+      const orders = await db.select({
+        jobStatus: salesOrders.jobStatus,
+        approvalStatus: salesOrders.approvalStatus,
+        paymentStatus: salesOrders.paymentStatus,
+        baseCommissionEarned: salesOrders.baseCommissionEarned,
+        incentiveEarned: salesOrders.incentiveEarned,
+        commissionPaid: salesOrders.commissionPaid,
+      }).from(salesOrders).where(and(...conditions));
+
+      const sold = orders.length;
+      const installed = orders.filter(o => o.jobStatus === "COMPLETED").length;
+      const approved = orders.filter(o => o.approvalStatus === "APPROVED").length;
+      const paid = orders.filter(o => o.paymentStatus === "PAID" || o.paymentStatus === "PARTIALLY_PAID").length;
+
+      const totalCommission = orders.reduce((s, o) => s + parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0"), 0);
+      const paidCommission = orders.reduce((s, o) => s + parseFloat(o.commissionPaid || "0"), 0);
+
+      res.json({
+        period: { type: period, start: startStr, end: endStr },
+        funnel: [
+          { stage: "Sold", count: sold, label: "Orders Created" },
+          { stage: "Installed", count: installed, label: "Job Completed" },
+          { stage: "Approved", count: approved, label: "Approved" },
+          { stage: "Paid", count: paid, label: "Commission Paid" },
+        ],
+        metrics: {
+          installRate: sold > 0 ? ((installed / sold) * 100).toFixed(1) : "0",
+          approvalRate: installed > 0 ? ((approved / installed) * 100).toFixed(1) : "0",
+          paymentRate: approved > 0 ? ((paid / approved) * 100).toFixed(1) : "0",
+          totalCommission: totalCommission.toFixed(2),
+          paidCommission: paidCommission.toFixed(2),
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get funnel data" });
+    }
+  });
+
+  // Win-rate trends over time for forecasting
+  app.get("/api/pipeline-forecast/win-rate-trends", auth, leadOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { months = "6", repId, teamId } = req.query;
+      const monthCount = Math.min(parseInt(months as string) || 6, 24);
+
+      let permittedRepIds: string[] = [];
+      if (user.role === "LEAD") {
+        const supervised = await storage.getSupervisedReps(user.id);
+        permittedRepIds = supervised.map((r: any) => r.repId);
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        permittedRepIds = [...scope.directRepIds, ...scope.indirectRepIds];
+      } else if (user.role === "DIRECTOR" || user.role === "EXECUTIVE") {
+        const allUsers = await storage.getActiveUsers();
+        permittedRepIds = allUsers.filter((u: any) => ["REP", "LEAD", "MDU"].includes(u.role)).map((u: any) => u.repId);
+      } else {
+        permittedRepIds = [user.repId];
+      }
+      // Apply optional teamId filter
+      let teamFilteredRepIds = permittedRepIds;
+      if (teamId && typeof teamId === "string" && teamId !== "all") {
+        const teamReps = await storage.getSupervisedReps(teamId);
+        const teamRepIds = teamReps.map((r: any) => r.repId);
+        teamFilteredRepIds = permittedRepIds.filter((id: string) => teamRepIds.includes(id));
+      }
+      let repIds: string[] = teamFilteredRepIds;
+      if (repId && typeof repId === "string" && repId !== "all") {
+        if (!teamFilteredRepIds.includes(repId)) return res.status(403).json({ message: "Access denied" });
+        repIds = [repId];
+      }
+
+      const trendData: Array<{ month: string; monthKey: string; sold: number; approved: number; paid: number; winRate: string; revenue: number }> = [];
+      const now = new Date();
+
+      for (let i = monthCount - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const startStr = d.toISOString().split("T")[0];
+        const endD = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        const endStr = endD.toISOString().split("T")[0];
+
+        const conds: any[] = [
+          gte(salesOrders.dateSold, startStr),
+          lte(salesOrders.dateSold, endStr),
+          isNull(salesOrders.deletedAt),
+        ];
+        if (repIds.length > 0) conds.push(inArray(salesOrders.repId, repIds));
+
+        const monthOrders = await db.select({
+          approvalStatus: salesOrders.approvalStatus,
+          paymentStatus: salesOrders.paymentStatus,
+          baseCommissionEarned: salesOrders.baseCommissionEarned,
+          incentiveEarned: salesOrders.incentiveEarned,
+        }).from(salesOrders).where(and(...conds));
+
+        const sold = monthOrders.length;
+        const approved = monthOrders.filter(o => o.approvalStatus === "APPROVED").length;
+        const paid = monthOrders.filter(o => o.paymentStatus === "PAID").length;
+        const revenue = monthOrders.reduce((s, o) => s + parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0"), 0);
+
+        trendData.push({
+          month: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+          monthKey: startStr.slice(0, 7),
+          sold,
+          approved,
+          paid,
+          winRate: sold > 0 ? ((approved / sold) * 100).toFixed(1) : "0",
+          revenue,
+        });
+      }
+
+      // Calculate projected next month based on trailing 3-month average
+      const last3 = trendData.slice(-3);
+      const avgSold = last3.length > 0 ? last3.reduce((s, m) => s + m.sold, 0) / last3.length : 0;
+      const avgRate = last3.length > 0 ? last3.reduce((s, m) => s + parseFloat(m.winRate), 0) / last3.length : 0;
+      const avgRevenue = last3.length > 0 ? last3.reduce((s, m) => s + m.revenue, 0) / last3.length : 0;
+
+      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const projectedRevenue = avgRevenue;
+
+      res.json({
+        trends: trendData,
+        projection: {
+          month: nextMonth.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+          estimatedSold: Math.round(avgSold),
+          estimatedWinRate: avgRate.toFixed(1),
+          estimatedRevenue: projectedRevenue.toFixed(2),
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get win-rate trends" });
+    }
+  });
+
+  // Rep performance breakdown for pipeline forecasting
+  // List available teams (leads) for drill-down filter
+  app.get("/api/pipeline-forecast/teams", auth, leadOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      let leads: any[] = [];
+      if (["DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user.role)) {
+        const allUsers = await storage.getActiveUsers();
+        leads = allUsers.filter((u: any) => ["LEAD", "MANAGER"].includes(u.role));
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        const allUsers = await storage.getActiveUsers();
+        const teamIds = [...scope.supervisorIds, user.id];
+        leads = allUsers.filter((u: any) => teamIds.includes(u.id) && ["LEAD"].includes(u.role));
+      }
+      res.json({ teams: leads.map(l => ({ id: l.id, name: l.name, repId: l.repId })) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get teams" });
+    }
+  });
+
+  app.get("/api/pipeline-forecast/rep-performance", auth, leadOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { period = "MONTH" } = req.query;
+
+      const now = new Date();
+      let startDate: Date;
+      if (period === "WEEK") { startDate = new Date(now); startDate.setDate(now.getDate() - 7); }
+      else if (period === "QUARTER") { startDate = new Date(now); startDate.setMonth(now.getMonth() - 3); }
+      else { startDate = new Date(now); startDate.setMonth(now.getMonth() - 1); }
+      const startStr = startDate.toISOString().split("T")[0];
+
+      let scopedUsers: any[] = [];
+      if (user.role === "LEAD") {
+        scopedUsers = await storage.getSupervisedReps(user.id);
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        const allU = await storage.getActiveUsers();
+        const teamRepIds = [...scope.directRepIds, ...scope.indirectRepIds];
+        scopedUsers = allU.filter((u: any) => teamRepIds.includes(u.repId));
+      } else if (["DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user.role)) {
+        scopedUsers = (await storage.getActiveUsers()).filter((u: any) => ["REP", "LEAD", "MDU"].includes(u.role));
+      }
+
+      const repData = await Promise.all(scopedUsers.slice(0, 50).map(async (rep: any) => {
+        const orders = await db.select({
+          approvalStatus: salesOrders.approvalStatus,
+          paymentStatus: salesOrders.paymentStatus,
+          baseCommissionEarned: salesOrders.baseCommissionEarned,
+          incentiveEarned: salesOrders.incentiveEarned,
+          jobStatus: salesOrders.jobStatus,
+        }).from(salesOrders).where(and(
+          eq(salesOrders.repId, rep.repId),
+          gte(salesOrders.dateSold, startStr),
+          isNull(salesOrders.deletedAt)
+        ));
+
+        const sold = orders.length;
+        const approved = orders.filter(o => o.approvalStatus === "APPROVED").length;
+        const commission = orders.reduce((s, o) => s + parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0"), 0);
+        const avgDeal = sold > 0 ? commission / sold : 0;
+
+        return {
+          repId: rep.repId,
+          name: rep.name,
+          sold,
+          approved,
+          approvalRate: sold > 0 ? ((approved / sold) * 100).toFixed(1) : "0",
+          commission: commission.toFixed(2),
+          avgDeal: avgDeal.toFixed(2),
+        };
+      }));
+
+      repData.sort((a, b) => b.sold - a.sold);
+
+      res.json({ reps: repData, period });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get rep performance" });
+    }
+  });
+
+  // =====================================================
+  // COACHING & PERFORMANCE SCORECARDS
+  // =====================================================
+
+  // Get rep scorecards with composite scores
+  // Get/set scorecard weights (configurable by admins)
+  const DEFAULT_SCORECARD_WEIGHTS = { volume: 30, conversion: 35, avgDeal: 20, quality: 15 };
+
+  app.get("/api/coaching/scorecard-weights", auth, leadOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const setting = await storage.getSystemSettingByKey("scorecard_weights");
+      const weights = setting ? JSON.parse(setting.value) : DEFAULT_SCORECARD_WEIGHTS;
+      res.json(weights);
+    } catch (error: any) {
+      res.json(DEFAULT_SCORECARD_WEIGHTS);
+    }
+  });
+
+  app.put("/api/coaching/scorecard-weights", auth, requireRoles("ADMIN", "OPERATIONS", "DIRECTOR", "EXECUTIVE"), async (req: AuthRequest, res) => {
+    try {
+      const { volume, conversion, avgDeal, quality } = req.body;
+      const total = (volume || 0) + (conversion || 0) + (avgDeal || 0) + (quality || 0);
+      if (Math.abs(total - 100) > 0.01) return res.status(400).json({ message: "Weights must sum to 100" });
+      const weights = { volume: volume || 30, conversion: conversion || 35, avgDeal: avgDeal || 20, quality: quality || 15 };
+      await storage.upsertSystemSetting("scorecard_weights", JSON.stringify(weights));
+      res.json(weights);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update weights" });
+    }
+  });
+
+  app.get("/api/coaching/scorecards", auth, leadOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { period = "MONTH" } = req.query;
+
+      const now = new Date();
+      let startDate: Date;
+      if (period === "WEEK") { startDate = new Date(now); startDate.setDate(now.getDate() - 7); }
+      else if (period === "QUARTER") { startDate = new Date(now); startDate.setMonth(now.getMonth() - 3); }
+      else { startDate = new Date(now); startDate.setMonth(now.getMonth() - 1); }
+
+      // Also look at prior period for trend
+      const priorEnd = new Date(startDate);
+      const priorStart = new Date(startDate);
+      priorStart.setTime(startDate.getTime() - (now.getTime() - startDate.getTime()));
+
+      const startStr = startDate.toISOString().split("T")[0];
+      const priorStartStr = priorStart.toISOString().split("T")[0];
+      const priorEndStr = priorEnd.toISOString().split("T")[0];
+
+      let scopedUsers: any[] = [];
+      if (user.role === "LEAD") {
+        scopedUsers = await storage.getSupervisedReps(user.id);
+      } else if (user.role === "MANAGER") {
+        const scope = await storage.getManagerScope(user.id);
+        const allU = await storage.getActiveUsers();
+        const teamRepIds = [...scope.directRepIds, ...scope.indirectRepIds];
+        scopedUsers = allU.filter((u: any) => teamRepIds.includes(u.repId));
+      } else if (["DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user.role)) {
+        scopedUsers = (await storage.getActiveUsers()).filter((u: any) => ["REP", "LEAD", "MDU"].includes(u.role));
+      }
+
+      // Fetch configurable scorecard weights from system settings
+      let weights = { volume: 30, conversion: 35, avgDeal: 20, quality: 15 };
+      try {
+        const weightsSetting = await storage.getSystemSettingByKey("scorecard_weights");
+        if (weightsSetting) weights = JSON.parse(weightsSetting.value);
+      } catch {}
+
+      const scorecards = await Promise.all(scopedUsers.slice(0, 100).map(async (rep: any) => {
+        const [currentOrders, priorOrders] = await Promise.all([
+          db.select({
+            approvalStatus: salesOrders.approvalStatus,
+            jobStatus: salesOrders.jobStatus,
+            paymentStatus: salesOrders.paymentStatus,
+            baseCommissionEarned: salesOrders.baseCommissionEarned,
+            incentiveEarned: salesOrders.incentiveEarned,
+            hasActiveChargeback: salesOrders.hasActiveChargeback,
+          }).from(salesOrders).where(and(
+            eq(salesOrders.repId, rep.repId),
+            gte(salesOrders.dateSold, startStr),
+            isNull(salesOrders.deletedAt)
+          )),
+          db.select({
+            approvalStatus: salesOrders.approvalStatus,
+            baseCommissionEarned: salesOrders.baseCommissionEarned,
+            incentiveEarned: salesOrders.incentiveEarned,
+          }).from(salesOrders).where(and(
+            eq(salesOrders.repId, rep.repId),
+            gte(salesOrders.dateSold, priorStartStr),
+            lte(salesOrders.dateSold, priorEndStr),
+            isNull(salesOrders.deletedAt)
+          ))
+        ]);
+
+        const sold = currentOrders.length;
+        const approved = currentOrders.filter(o => o.approvalStatus === "APPROVED").length;
+        const chargebacks = currentOrders.filter(o => o.hasActiveChargeback).length;
+        const commission = currentOrders.reduce((s, o) => s + parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0"), 0);
+        const avgDeal = sold > 0 ? commission / sold : 0;
+        const conversionRate = sold > 0 ? (approved / sold) * 100 : 0;
+        const chargebackRate = sold > 0 ? (chargebacks / sold) * 100 : 0;
+
+        const priorSold = priorOrders.length;
+        const priorApproved = priorOrders.filter(o => o.approvalStatus === "APPROVED").length;
+        const priorConvRate = priorSold > 0 ? (priorApproved / priorSold) * 100 : 0;
+
+        // Composite score (0-100): configurable weights (default: volume 30%, conversion 35%, avg deal 20%, quality 15%)
+        const maxSold = 30;
+        const volumeScore = Math.min(sold / maxSold, 1) * (weights.volume);
+        const conversionScore = (conversionRate / 100) * (weights.conversion);
+        const dealScore = Math.min(avgDeal / 200, 1) * (weights.avgDeal);
+        const qualityScore = Math.max(0, 1 - chargebackRate / 20) * (weights.quality);
+        const compositeScore = Math.round(volumeScore + conversionScore + dealScore + qualityScore);
+
+        // Trend: up if volume grew >10% or conversion improved; down if conversion dropped >10%; else stable
+        const trendDirection: "up" | "down" | "stable" = (sold > priorSold * 1.1 || conversionRate > priorConvRate * 1.05) ? "up" : (priorConvRate > 0 && conversionRate < priorConvRate * 0.9) ? "down" : "stable";
+
+        // Coaching triggers
+        const alerts: Array<{ type: string; severity: string; message: string }> = [];
+        if (chargebackRate > 15) alerts.push({ type: "high_chargebacks", severity: "high", message: `${chargebackRate.toFixed(0)}% chargeback rate — needs review` });
+        if (conversionRate < 40 && sold > 3) alerts.push({ type: "low_conversion", severity: "medium", message: `${conversionRate.toFixed(0)}% approval rate — below threshold` });
+        if (sold < priorSold * 0.6 && priorSold > 3) alerts.push({ type: "declining_volume", severity: "medium", message: `Sales down ${Math.round((1 - sold/priorSold) * 100)}% vs prior period` });
+        if (sold === 0) alerts.push({ type: "no_activity", severity: "high", message: "No sales activity this period" });
+
+        return {
+          repId: rep.repId,
+          name: rep.name,
+          role: rep.role,
+          sold,
+          approved,
+          conversionRate: conversionRate.toFixed(1),
+          avgDeal: avgDeal.toFixed(2),
+          commission: commission.toFixed(2),
+          chargebackRate: chargebackRate.toFixed(1),
+          compositeScore,
+          trend: conversionRate > priorConvRate ? "up" : conversionRate < priorConvRate * 0.9 ? "down" : "stable",
+          alerts,
+        };
+      }));
+
+      scorecards.sort((a, b) => b.compositeScore - a.compositeScore);
+
+      // Coaching alerts: reps needing attention
+      const needsAttention = scorecards.filter(s => s.alerts.length > 0 || s.trend === "down");
+
+      res.json({ scorecards, needsAttention: needsAttention.slice(0, 10), period });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get scorecards" });
+    }
+  });
+
+  // Get 1:1 meeting prep data for a specific rep
+  app.get("/api/coaching/rep-prep/:repUserId", auth, leadOrAbove, async (req: AuthRequest, res) => {
+    try {
+      const { repUserId } = req.params;
+      const requestingUser = req.user!;
+      const targetUser = await storage.getUserById(repUserId);
+      if (!targetUser) return res.status(404).json({ message: "User not found" });
+
+      // Verify requester has authority over this rep
+      if (["DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(requestingUser.role)) {
+        // Full access
+      } else if (requestingUser.role === "MANAGER") {
+        const scope = await storage.getManagerScope(requestingUser.id);
+        const permitted = [...scope.directRepIds, ...scope.indirectRepIds];
+        if (!permitted.includes(targetUser.repId)) return res.status(403).json({ message: "Access denied" });
+      } else if (requestingUser.role === "LEAD") {
+        const supervised = await storage.getSupervisedReps(requestingUser.id);
+        const permitted = supervised.map((r: any) => r.repId);
+        if (!permitted.includes(targetUser.repId)) return res.status(403).json({ message: "Access denied" });
+      } else {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const now = new Date();
+      const last30Start = new Date(now); last30Start.setDate(now.getDate() - 30);
+      const last60Start = new Date(now); last60Start.setDate(now.getDate() - 60);
+
+      const [recent30, recent60] = await Promise.all([
+        db.select({
+          approvalStatus: salesOrders.approvalStatus,
+          jobStatus: salesOrders.jobStatus,
+          baseCommissionEarned: salesOrders.baseCommissionEarned,
+          incentiveEarned: salesOrders.incentiveEarned,
+          hasActiveChargeback: salesOrders.hasActiveChargeback,
+          dateSold: salesOrders.dateSold,
+        }).from(salesOrders).where(and(
+          eq(salesOrders.repId, targetUser.repId),
+          gte(salesOrders.dateSold, last30Start.toISOString().split("T")[0]),
+          isNull(salesOrders.deletedAt)
+        )),
+        db.select({
+          approvalStatus: salesOrders.approvalStatus,
+          baseCommissionEarned: salesOrders.baseCommissionEarned,
+          incentiveEarned: salesOrders.incentiveEarned,
+        }).from(salesOrders).where(and(
+          eq(salesOrders.repId, targetUser.repId),
+          gte(salesOrders.dateSold, last60Start.toISOString().split("T")[0]),
+          lte(salesOrders.dateSold, last30Start.toISOString().split("T")[0]),
+          isNull(salesOrders.deletedAt)
+        ))
+      ]);
+
+      const sold30 = recent30.length;
+      const approved30 = recent30.filter(o => o.approvalStatus === "APPROVED").length;
+      const commission30 = recent30.reduce((s, o) => s + parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0"), 0);
+      const sold60 = recent60.length;
+      const approved60 = recent60.filter(o => o.approvalStatus === "APPROVED").length;
+
+      const convRate30 = sold30 > 0 ? (approved30 / sold30) * 100 : 0;
+      const convRate60 = sold60 > 0 ? (approved60 / sold60) * 100 : 0;
+
+      const talkingPoints: string[] = [];
+      if (convRate30 < convRate60 * 0.85 && sold60 > 2) talkingPoints.push(`Approval rate dropped from ${convRate60.toFixed(0)}% to ${convRate30.toFixed(0)}% — review order quality`);
+      if (sold30 < sold60 * 0.7 && sold60 > 3) talkingPoints.push(`Sales volume down ${Math.round((1 - sold30/sold60)*100)}% compared to prior month — discuss activity`);
+      if (sold30 > sold60 * 1.2) talkingPoints.push(`Sales volume up ${Math.round((sold30/Math.max(sold60,1) - 1)*100)}% — recognize momentum`);
+      if (recent30.some(o => o.hasActiveChargeback)) talkingPoints.push("Active chargebacks present — review affected accounts");
+      if (talkingPoints.length === 0) talkingPoints.push("Performance is on track — check in on goals and development interests");
+
+      res.json({
+        rep: { id: targetUser.id, name: targetUser.name, repId: targetUser.repId, role: targetUser.role },
+        last30Days: {
+          sold: sold30,
+          approved: approved30,
+          conversionRate: convRate30.toFixed(1),
+          commission: commission30.toFixed(2),
+        },
+        priorPeriod: {
+          sold: sold60,
+          approved: approved60,
+          conversionRate: convRate60.toFixed(1),
+        },
+        trend: convRate30 > convRate60 ? "improving" : convRate30 < convRate60 * 0.85 ? "declining" : "stable",
+        talkingPoints,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get rep prep data" });
+    }
+  });
+
+  // =====================================================
+  // EARNINGS SIMULATOR
+  // =====================================================
+
+  app.get("/api/earnings-simulator/context", auth, salesRepOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const now = new Date();
+      const mtdStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+      const todayStr = now.toISOString().split("T")[0];
+
+      // Get active rate cards
+      const activeRateCards = await db.select({
+        id: rateCards.id,
+        providerId: rateCards.providerId,
+        clientId: rateCards.clientId,
+        serviceId: rateCards.serviceId,
+        baseAmount: rateCards.baseAmount,
+        tvAddonAmount: rateCards.tvAddonAmount,
+        mobilePerLineAmount: rateCards.mobilePerLineAmount,
+        overrideDeduction: rateCards.overrideDeduction,
+        effectiveStart: rateCards.effectiveStart,
+        effectiveEnd: rateCards.effectiveEnd,
+      }).from(rateCards).where(and(
+        eq(rateCards.active, true),
+        isNull(rateCards.deletedAt),
+        lte(rateCards.effectiveStart, todayStr),
+        or(isNull(rateCards.effectiveEnd), gte(rateCards.effectiveEnd, todayStr)),
+        isNull(rateCards.leadId),
+      )).limit(20);
+
+      // Get providers for rate cards
+      const allProviders = await db.select({ id: providers.id, name: providers.name }).from(providers).where(and(eq(providers.active, true), isNull(providers.deletedAt)));
+      const allServices = await db.select({ id: services.id, name: services.name }).from(services).where(and(eq(services.active, true), isNull(services.deletedAt)));
+
+      const rateCardOptions = activeRateCards.map(rc => {
+        const provider = allProviders.find(p => p.id === rc.providerId);
+        const service = allServices.find(s => s.id === rc.serviceId);
+        return {
+          id: rc.id,
+          providerName: provider?.name || "Unknown",
+          serviceName: service?.name || "General",
+          baseAmount: rc.baseAmount,
+          tvAddonAmount: rc.tvAddonAmount,
+          mobilePerLineAmount: rc.mobilePerLineAmount,
+          overrideDeduction: rc.overrideDeduction,
+        };
+      });
+
+      // Current MTD production
+      const mtdOrders = await db.select({
+        approvalStatus: salesOrders.approvalStatus,
+        baseCommissionEarned: salesOrders.baseCommissionEarned,
+        incentiveEarned: salesOrders.incentiveEarned,
+      }).from(salesOrders).where(and(
+        eq(salesOrders.repId, user.repId),
+        gte(salesOrders.dateSold, mtdStart),
+        isNull(salesOrders.deletedAt)
+      ));
+
+      const mtdSold = mtdOrders.length;
+      const mtdApproved = mtdOrders.filter(o => o.approvalStatus === "APPROVED").length;
+      const mtdEarned = mtdOrders.reduce((s, o) => s + parseFloat(o.baseCommissionEarned || "0") + parseFloat(o.incentiveEarned || "0"), 0);
+
+      // Get active sales goals
+      const goal = await db.query.salesGoals.findFirst({
+        where: and(
+          eq(salesGoals.userId, user.id),
+          lte(salesGoals.periodStart, todayStr),
+          gte(salesGoals.periodEnd, todayStr)
+        )
+      });
+
+      res.json({
+        currentProduction: {
+          mtdSold,
+          mtdApproved,
+          mtdEarned: mtdEarned.toFixed(2),
+          periodStart: mtdStart,
+          periodEnd: todayStr,
+        },
+        quota: goal ? {
+          salesTarget: goal.salesTarget,
+          revenueTarget: goal.revenueTarget,
+          salesProgress: mtdSold,
+          revenueProgress: mtdEarned,
+        } : null,
+        rateCards: rateCardOptions,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get simulator context" });
+    }
+  });
+
+  // Calculate projected earnings given simulated additional sales
+  app.post("/api/earnings-simulator/calculate", auth, salesRepOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { additionalSales } = req.body;
+
+      if (!Array.isArray(additionalSales)) {
+        return res.status(400).json({ message: "additionalSales must be an array" });
+      }
+
+      let totalProjected = 0;
+      const breakdown: Array<{ rateCardId: string; quantity: number; withTv: boolean; mobileLines: number; perUnitCommission: number; subtotal: number }> = [];
+
+      for (const sale of additionalSales) {
+        const { rateCardId, quantity = 1, withTv = false, mobileLines = 0 } = sale;
+        const rc = await db.query.rateCards.findFirst({ where: and(eq(rateCards.id, rateCardId), eq(rateCards.active, true)) });
+        if (!rc) continue;
+
+        const base = parseFloat(rc.baseAmount || "0");
+        const tv = withTv ? parseFloat(rc.tvAddonAmount || "0") : 0;
+        const mobile = mobileLines * parseFloat(rc.mobilePerLineAmount || "0");
+        const override = parseFloat(rc.overrideDeduction || "0");
+        const perUnit = Math.max(0, base + tv + mobile - override);
+        const subtotal = perUnit * quantity;
+        totalProjected += subtotal;
+        breakdown.push({ rateCardId, quantity, withTv, mobileLines, perUnitCommission: perUnit, subtotal });
+      }
+
+      res.json({
+        projectedAdditional: totalProjected.toFixed(2),
+        breakdown,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to calculate earnings" });
+    }
+  });
+
+  // =====================================================
+  // CUSTOMER REFERRALS
+  // =====================================================
+
+  app.get("/api/referrals", auth, salesRepOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { db: dbInstance } = await import("./db");
+      const { customerReferrals } = await import("@shared/schema");
+
+      const referrals = await dbInstance.select().from(customerReferrals)
+        .where(eq(customerReferrals.repId, user.repId))
+        .orderBy(desc(customerReferrals.createdAt))
+        .limit(100);
+
+      const total = referrals.length;
+      const converted = referrals.filter(r => r.status === "CONVERTED").length;
+      const pending = referrals.filter(r => r.status === "PENDING").length;
+
+      res.json({
+        referrals,
+        stats: { total, converted, pending, conversionRate: total > 0 ? ((converted / total) * 100).toFixed(1) : "0" }
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get referrals" });
+    }
+  });
+
+  app.post("/api/referrals", auth, salesRepOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { dbInstance } = { dbInstance: db };
+      const { customerReferrals } = await import("@shared/schema");
+
+      const data = {
+        repId: user.repId,
+        referrerName: req.body.referrerName || "",
+        referrerPhone: req.body.referrerPhone || null,
+        referrerOrderId: req.body.referrerOrderId || null,
+        referredName: req.body.referredName || "",
+        referredPhone: req.body.referredPhone || null,
+        referredAddress: req.body.referredAddress || null,
+        notes: req.body.notes || null,
+        status: "PENDING",
+        referralDate: req.body.referralDate || new Date().toISOString().split("T")[0],
+      };
+
+      if (!data.referrerName || !data.referredName) {
+        return res.status(400).json({ message: "referrerName and referredName are required" });
+      }
+
+      const [referral] = await db.insert(customerReferrals).values(data as InsertCustomerReferral).returning();
+      res.status(201).json(referral);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create referral" });
+    }
+  });
+
+  app.patch("/api/referrals/:id", auth, salesRepOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { id } = req.params;
+      const { customerReferrals } = await import("@shared/schema");
+
+      const existing = await db.select().from(customerReferrals).where(and(eq(customerReferrals.id, id), eq(customerReferrals.repId, user.repId))).limit(1);
+      if (!existing[0]) return res.status(404).json({ message: "Referral not found" });
+
+      const updates: any = { updatedAt: new Date() };
+      if (req.body.status) updates.status = req.body.status;
+      if (req.body.notes !== undefined) updates.notes = req.body.notes;
+      if (req.body.convertedOrderId) {
+        updates.convertedOrderId = req.body.convertedOrderId;
+        updates.convertedAt = new Date();
+        updates.status = "CONVERTED";
+      }
+
+      const [updated] = await db.update(customerReferrals).set(updates).where(eq(customerReferrals.id, id)).returning();
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update referral" });
+    }
+  });
+
+  // =====================================================
+  // POST-INSTALL FOLLOW-UPS
+  // =====================================================
+
+  app.get("/api/post-install-followups", auth, salesRepOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { postInstallFollowUps } = await import("@shared/schema");
+      const today = new Date().toISOString().split("T")[0];
+
+      const followups = await db.select().from(postInstallFollowUps)
+        .where(and(
+          eq(postInstallFollowUps.repId, user.repId),
+          ne(postInstallFollowUps.status, "CANCELLED")
+        ))
+        .orderBy(asc(postInstallFollowUps.followUpDate))
+        .limit(100);
+
+      const overdue = followups.filter(f => f.followUpDate < today && f.status === "SCHEDULED");
+      const todayItems = followups.filter(f => f.followUpDate === today && f.status === "SCHEDULED");
+      const upcoming = followups.filter(f => f.followUpDate > today && f.status === "SCHEDULED");
+      const completed = followups.filter(f => f.status === "COMPLETED");
+
+      res.json({ overdue, today: todayItems, upcoming, completed, total: followups.length });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get follow-ups" });
+    }
+  });
+
+  app.post("/api/post-install-followups", auth, salesRepOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { postInstallFollowUps } = await import("@shared/schema");
+
+      const data = {
+        repId: user.repId,
+        orderId: req.body.orderId || null,
+        customerName: req.body.customerName || "",
+        customerPhone: req.body.customerPhone || null,
+        followUpDate: req.body.followUpDate || new Date().toISOString().split("T")[0],
+        followUpType: req.body.followUpType || "SATISFACTION_CALL",
+        notes: req.body.notes || null,
+        status: "SCHEDULED",
+      };
+
+      if (!data.customerName) return res.status(400).json({ message: "customerName is required" });
+
+      const [followUp] = await db.insert(postInstallFollowUps).values(data as InsertPostInstallFollowUp).returning();
+      res.status(201).json(followUp);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create follow-up" });
+    }
+  });
+
+  app.patch("/api/post-install-followups/:id", auth, salesRepOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { id } = req.params;
+      const { postInstallFollowUps } = await import("@shared/schema");
+
+      const existing = await db.select().from(postInstallFollowUps).where(and(eq(postInstallFollowUps.id, id), eq(postInstallFollowUps.repId, user.repId))).limit(1);
+      if (!existing[0]) return res.status(404).json({ message: "Follow-up not found" });
+
+      const updates: any = { updatedAt: new Date() };
+      if (req.body.status) updates.status = req.body.status;
+      if (req.body.notes !== undefined) updates.notes = req.body.notes;
+      if (req.body.followUpDate) updates.followUpDate = req.body.followUpDate;
+      if (req.body.completionNotes !== undefined) updates.completionNotes = req.body.completionNotes;
+      if (req.body.status === "COMPLETED") updates.completedAt = new Date();
+
+      const [updated] = await db.update(postInstallFollowUps).set(updates).where(eq(postInstallFollowUps.id, id)).returning();
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update follow-up" });
+    }
+  });
+
+  app.delete("/api/post-install-followups/:id", auth, salesRepOnly, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { id } = req.params;
+      const { postInstallFollowUps } = await import("@shared/schema");
+
+      const existing = await db.select().from(postInstallFollowUps).where(and(eq(postInstallFollowUps.id, id), eq(postInstallFollowUps.repId, user.repId))).limit(1);
+      if (!existing[0]) return res.status(404).json({ message: "Follow-up not found" });
+
+      await db.update(postInstallFollowUps).set({ status: "CANCELLED", updatedAt: new Date() }).where(eq(postInstallFollowUps.id, id));
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete follow-up" });
+
     }
   });
 }

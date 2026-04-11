@@ -80,6 +80,10 @@ import OnboardingPipeline from "@/pages/operations/onboarding-pipeline";
 import PaymentVariances from "@/pages/accounting/payment-variances";
 import MonthEnd from "@/pages/accounting/month-end";
 import CashFlow from "@/pages/accounting/cash-flow";
+import PipelineForecast from "@/pages/pipeline-forecast";
+import CoachingScorecards from "@/pages/coaching-scorecards";
+import EarningsSimulator from "@/pages/earnings-simulator";
+import Referrals from "@/pages/referrals";
 
 function Dashboard() {
   const { user } = useAuth();
@@ -141,6 +145,10 @@ const routeTitles: Record<string, string> = {
   "/reports": "Reports",
   "/executive-reports": "Reports",
   "/sales-pipeline": "Sales Pipeline",
+  "/pipeline-forecast": "Pipeline Forecast",
+  "/coaching-scorecards": "Coaching Scorecards",
+  "/earnings-simulator": "Earnings Simulator",
+  "/referrals": "Referrals & Follow-Ups",
   "/adjustments": "Adjustments",
   "/change-password": "Settings",
   "/my-credentials": "My Credentials",
@@ -402,12 +410,26 @@ function Router() {
         <Route path="/mobile-entry" component={MobileOrderEntry} />
         <Route path="/my-disputes" component={MyDisputes} />
         <Route path="/onboarding" component={Onboarding} />
+
+        {["REP", "MDU", "LEAD"].includes(user.role) && (
+          <>
+            <Route path="/earnings-simulator" component={EarningsSimulator} />
+            <Route path="/referrals" component={Referrals} />
+          </>
+        )}
         
         {user.role === "MDU" && <Route path="/mdu-orders" component={MduOrders} />}
         
         {canViewReports && <Route path="/reports" component={Reports} />}
         {canViewReports && <Route path="/executive-reports" component={ExecutiveReports} />}
         {canViewReports && <Route path="/sales-pipeline" component={SalesPipeline} />}
+
+        {["LEAD", "MANAGER", "DIRECTOR", "EXECUTIVE", "ADMIN"].includes(user.role) && (
+          <>
+            <Route path="/pipeline-forecast" component={PipelineForecast} />
+            <Route path="/coaching-scorecards" component={CoachingScorecards} />
+          </>
+        )}
         
         {canReviewMdu && <Route path="/admin/mdu-review" component={AdminMduReview} />}
         

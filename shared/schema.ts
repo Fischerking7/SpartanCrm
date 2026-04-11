@@ -2921,3 +2921,60 @@ export const insertSavedReportSchema = createInsertSchema(savedReports).omit({
 });
 export type SavedReport = typeof savedReports.$inferSelect;
 export type InsertSavedReport = z.infer<typeof insertSavedReportSchema>;
+
+// Customer Referrals - reps log referrals from existing customers
+export const customerReferrals = pgTable("customer_referrals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  repId: text("rep_id").notNull(),
+  referrerOrderId: varchar("referrer_order_id").references(() => salesOrders.id),
+  referrerName: text("referrer_name").notNull(),
+  referrerPhone: text("referrer_phone"),
+  referredName: text("referred_name").notNull(),
+  referredPhone: text("referred_phone"),
+  referredAddress: text("referred_address"),
+  notes: text("notes"),
+  status: varchar("status", { length: 30 }).notNull().default("PENDING"),
+  convertedOrderId: varchar("converted_order_id").references(() => salesOrders.id),
+  convertedAt: timestamp("converted_at"),
+  referralDate: date("referral_date").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const customerReferralsRelations = relations(customerReferrals, ({ one }) => ({
+  referrerOrder: one(salesOrders, { fields: [customerReferrals.referrerOrderId], references: [salesOrders.id], relationName: "referrerOrder" }),
+  convertedOrder: one(salesOrders, { fields: [customerReferrals.convertedOrderId], references: [salesOrders.id], relationName: "convertedOrder" }),
+}));
+
+export const insertCustomerReferralSchema = createInsertSchema(customerReferrals).omit({
+  id: true, createdAt: true, updatedAt: true, convertedAt: true, convertedOrderId: true,
+});
+export type CustomerReferral = typeof customerReferrals.$inferSelect;
+export type InsertCustomerReferral = z.infer<typeof insertCustomerReferralSchema>;
+
+// Post-Install Follow-Ups - reps schedule check-in reminders after customer installations
+export const postInstallFollowUps = pgTable("post_install_follow_ups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  repId: text("rep_id").notNull(),
+  orderId: varchar("order_id").references(() => salesOrders.id),
+  customerName: text("customer_name").notNull(),
+  customerPhone: text("customer_phone"),
+  followUpDate: date("follow_up_date").notNull(),
+  followUpType: varchar("follow_up_type", { length: 30 }).notNull().default("SATISFACTION_CALL"),
+  notes: text("notes"),
+  status: varchar("status", { length: 30 }).notNull().default("SCHEDULED"),
+  completedAt: timestamp("completed_at"),
+  completionNotes: text("completion_notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const postInstallFollowUpsRelations = relations(postInstallFollowUps, ({ one }) => ({
+  order: one(salesOrders, { fields: [postInstallFollowUps.orderId], references: [salesOrders.id] }),
+}));
+
+export const insertPostInstallFollowUpSchema = createInsertSchema(postInstallFollowUps).omit({
+  id: true, createdAt: true, updatedAt: true, completedAt: true, completionNotes: true,
+});
+export type PostInstallFollowUp = typeof postInstallFollowUps.$inferSelect;
+export type InsertPostInstallFollowUp = z.infer<typeof insertPostInstallFollowUpSchema>;
