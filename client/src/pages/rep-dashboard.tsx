@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { ProductionMetricsModule } from "@/components/production-metrics-card";
@@ -159,6 +160,7 @@ export default function RepDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [timelineMonths, setTimelineMonths] = useState(6);
+  const [contactingLeadId, setContactingLeadId] = useState<string | null>(null);
 
   const { data: summary, isLoading: summaryLoading } = useQuery<DashboardSummary>({
     queryKey: ["/api/dashboard/summary"],
@@ -198,6 +200,7 @@ export default function RepDashboard() {
 
   const markContactedMutation = useMutation({
     mutationFn: async (leadId: string) => {
+      setContactingLeadId(leadId);
       const res = await fetch(`/api/leads/${leadId}/contact`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
@@ -209,9 +212,11 @@ export default function RepDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads/follow-ups"] });
       toast({ title: "Marked as contacted" });
+      setContactingLeadId(null);
     },
     onError: () => {
       toast({ title: "Failed to mark contacted", variant: "destructive" });
+      setContactingLeadId(null);
     },
   });
 
@@ -461,7 +466,7 @@ export default function RepDashboard() {
               </CardDescription>
             </div>
             <Button variant="outline" size="sm" asChild>
-              <a href="/leads" data-testid="link-view-all-leads">View Leads</a>
+              <Link href="/leads" data-testid="link-view-all-leads">View Leads</Link>
             </Button>
           </CardHeader>
           <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
@@ -502,7 +507,7 @@ export default function RepDashboard() {
                     size="sm"
                     className="shrink-0 h-8 text-xs"
                     onClick={() => markContactedMutation.mutate(lead.id)}
-                    disabled={markContactedMutation.isPending}
+                    disabled={contactingLeadId === lead.id}
                     data-testid={`button-mark-contacted-${lead.id}`}
                   >
                     <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
@@ -546,7 +551,7 @@ export default function RepDashboard() {
                     size="sm"
                     className="shrink-0 h-8 text-xs"
                     onClick={() => markContactedMutation.mutate(lead.id)}
-                    disabled={markContactedMutation.isPending}
+                    disabled={contactingLeadId === lead.id}
                     data-testid={`button-mark-contacted-${lead.id}`}
                   >
                     <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
