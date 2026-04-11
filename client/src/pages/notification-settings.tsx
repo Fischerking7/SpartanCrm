@@ -99,7 +99,7 @@ export default function NotificationSettings() {
       <div className="flex items-center gap-3 mb-6">
         <Bell className="h-6 w-6" />
         <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Notification Settings</h1>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">Alert Settings</h1>
           <p className="text-muted-foreground">Choose which email notifications you want to receive</p>
         </div>
       </div>

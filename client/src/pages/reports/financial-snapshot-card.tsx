@@ -165,7 +165,7 @@ export default function FinancialSnapshotCard() {
             momPct={mom.profitMargin}
           />
           <ComparisonRow
-            label="Orders Completed"
+            label="Orders Connected"
             thisMonth={thisMonth.ordersCompleted}
             lastMonth={lastMonth.ordersCompleted}
             momPct={mom.ordersCompleted}

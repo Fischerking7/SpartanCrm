@@ -99,7 +99,7 @@ export default function DirectorDashboard() {
                   <TableHead>Manager</TableHead>
                   <TableHead className="text-center">Reps</TableHead>
                   <TableHead className="text-center">Orders</TableHead>
-                  <TableHead className="text-center">Installs</TableHead>
+                  <TableHead className="text-center">Connected</TableHead>
                   <TableHead className="text-right">Commission</TableHead>
                   <TableHead className="text-right">Avg/Rep</TableHead>
                 </TableRow>
@@ -147,8 +147,8 @@ export default function DirectorDashboard() {
                   <TableHead>Rep</TableHead>
                   <TableHead>Manager</TableHead>
                   <TableHead className="text-center">Orders</TableHead>
-                  <TableHead className="text-center">Installs</TableHead>
-                  <TableHead className="text-center">Install %</TableHead>
+                  <TableHead className="text-center">Connected</TableHead>
+                  <TableHead className="text-center">Connect %</TableHead>
                   <TableHead className="text-right">Commission</TableHead>
                 </TableRow>
               </TableHeader>

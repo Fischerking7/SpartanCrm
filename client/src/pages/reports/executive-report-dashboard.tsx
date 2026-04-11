@@ -82,8 +82,8 @@ export default function ExecutiveReportDashboard() {
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <KpiCard label="Total Orders" value={bucket.totalOrders} variant="default" />
-        <KpiCard label="Total Installs" value={bucket.totalInstalls} variant="default" />
-        <KpiCard label="Install Rate" value={`${installRate}%`} variant={installRate >= 70 ? "success" : installRate >= 50 ? "warning" : "danger"} />
+        <KpiCard label="Total Connected" value={bucket.totalInstalls} variant="default" />
+        <KpiCard label="Connect Rate" value={`${installRate}%`} variant={installRate >= 70 ? "success" : installRate >= 50 ? "warning" : "danger"} />
         <KpiCard
           label="Total Commission"
           value={`$${parseFloat(bucket.totalCommission).toLocaleString("en-US", { minimumFractionDigits: 2 })}`}

@@ -111,7 +111,7 @@ const MENU = {
   knowledge: { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   credentials: { title: "My Credentials", url: "/my-credentials", icon: Key },
   alerts: { title: "Alerts", url: "/notifications", icon: BellRing },
-  settings: { title: "Settings", url: "/notification-settings", icon: Settings2 },
+  settings: { title: "Alert Settings", url: "/notification-settings", icon: Settings2 },
   
   // Admin Settings
   users: { title: "Users", url: "/admin/users", icon: Users },

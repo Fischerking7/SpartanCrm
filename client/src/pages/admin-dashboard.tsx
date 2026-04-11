@@ -180,7 +180,7 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
             isCurrency={false}
           />
           <StatsCard
-            title="Pending Installs"
+            title="Pending Connects"
             value={stats?.pendingInstalls || 0}
             icon={CheckSquare}
             testId="stat-pending-installs"
