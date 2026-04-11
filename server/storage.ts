@@ -2819,9 +2819,12 @@ export const storage = {
       customerName: leads.customerName,
       customerPhone: leads.customerPhone,
       customerEmail: leads.customerEmail,
+      disposition: leads.disposition,
       pipelineStage: leads.pipelineStage,
       scheduledFollowUp: leads.scheduledFollowUp,
       followUpNotes: leads.followUpNotes,
+      contactAttempts: leads.contactAttempts,
+      lastContactedAt: leads.lastContactedAt,
     }).from(leads)
       .where(and(...conditions))
       .orderBy(asc(leads.scheduledFollowUp))

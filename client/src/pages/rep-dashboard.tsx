@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { ProductionMetricsModule } from "@/components/production-metrics-card";
 import { DashboardChartsModule } from "@/components/dashboard-charts";
@@ -10,7 +10,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Download, Upload, TrendingUp, Wallet, ArrowDownCircle, AlertTriangle, Calendar, CheckCircle2, Clock, DollarSign, BarChart2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
+import { Download, Upload, TrendingUp, Wallet, ArrowDownCircle, AlertTriangle, Calendar, CheckCircle2, Clock, DollarSign, BarChart2, Phone, PhoneCall, User } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { SimplifiedOrderStatus } from "@shared/order-status";
 
@@ -124,6 +126,24 @@ interface EarningsTimeline {
   months: number;
 }
 
+interface FollowUpLead {
+  id: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  disposition: string;
+  followUpNotes: string | null;
+  scheduledFollowUp: string;
+  contactAttempts: number;
+  lastContactedAt: string | null;
+}
+
+interface FollowUpsData {
+  overdue: FollowUpLead[];
+  today: FollowUpLead[];
+  upcoming: FollowUpLead[];
+  total: number;
+}
+
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
 }
@@ -137,6 +157,7 @@ const alertSeverityConfig: Record<string, { colorClass: string; icon: typeof Ale
 
 export default function RepDashboard() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [timelineMonths, setTimelineMonths] = useState(6);
 
   const { data: summary, isLoading: summaryLoading } = useQuery<DashboardSummary>({
@@ -163,6 +184,34 @@ export default function RepDashboard() {
       const res = await fetch(`/api/my/earnings-timeline?months=${timelineMonths}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch earnings timeline");
       return res.json();
+    },
+  });
+
+  const { data: followUps, isLoading: followUpsLoading } = useQuery<FollowUpsData>({
+    queryKey: ["/api/leads/follow-ups"],
+    queryFn: async () => {
+      const res = await fetch("/api/leads/follow-ups", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch follow-ups");
+      return res.json();
+    },
+  });
+
+  const markContactedMutation = useMutation({
+    mutationFn: async (leadId: string) => {
+      const res = await fetch(`/api/leads/${leadId}/contact`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error("Failed to mark contacted");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/follow-ups"] });
+      toast({ title: "Marked as contacted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to mark contacted", variant: "destructive" });
     },
   });
 
@@ -390,6 +439,113 @@ export default function RepDashboard() {
           </Card>
         </div>
       )}
+
+      {followUpsLoading ? (
+        <Card>
+          <CardContent className="p-4 md:p-6">
+            <Skeleton className="h-6 w-48 mb-3" />
+            <Skeleton className="h-16 w-full mb-2" />
+            <Skeleton className="h-16 w-full" />
+          </CardContent>
+        </Card>
+      ) : (followUps && (followUps.overdue.length > 0 || followUps.today.length > 0)) ? (
+        <Card data-testid="card-follow-up-reminders">
+          <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <div>
+              <CardTitle className="text-base md:text-lg font-medium flex items-center gap-2">
+                <PhoneCall className="h-4 w-4 md:h-5 md:w-5 text-primary" />
+                Today's Follow-Ups
+              </CardTitle>
+              <CardDescription className="text-xs md:text-sm">
+                {followUps.overdue.length + followUps.today.length} lead{followUps.overdue.length + followUps.today.length !== 1 ? "s" : ""} need attention
+              </CardDescription>
+            </div>
+            <Button variant="outline" size="sm" asChild>
+              <a href="/leads" data-testid="link-view-all-leads">View Leads</a>
+            </Button>
+          </CardHeader>
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <div className="space-y-2">
+              {followUps.overdue.map((lead) => (
+                <div
+                  key={lead.id}
+                  className="flex items-center gap-3 p-2.5 md:p-3 rounded-lg border border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/30"
+                  data-testid={`follow-up-item-${lead.id}`}
+                >
+                  <div className="shrink-0">
+                    <div className="h-8 w-8 md:h-9 md:w-9 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center">
+                      <User className="h-4 w-4 text-red-600 dark:text-red-400" />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm truncate">{lead.customerName || "Unknown"}</span>
+                      <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4" data-testid={`badge-overdue-${lead.id}`}>Overdue</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      {lead.followUpNotes || `Disposition: ${lead.disposition}`}
+                    </p>
+                    {lead.customerPhone && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Phone className="h-3 w-3" />{lead.customerPhone}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 h-8 text-xs"
+                    onClick={() => markContactedMutation.mutate(lead.id)}
+                    disabled={markContactedMutation.isPending}
+                    data-testid={`button-mark-contacted-${lead.id}`}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                    <span className="hidden sm:inline">Contacted</span>
+                  </Button>
+                </div>
+              ))}
+              {followUps.today.map((lead) => (
+                <div
+                  key={lead.id}
+                  className="flex items-center gap-3 p-2.5 md:p-3 rounded-lg border"
+                  data-testid={`follow-up-item-${lead.id}`}
+                >
+                  <div className="shrink-0">
+                    <div className="h-8 w-8 md:h-9 md:w-9 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+                      <User className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm truncate">{lead.customerName || "Unknown"}</span>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300" data-testid={`badge-today-${lead.id}`}>Today</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      {lead.followUpNotes || `Disposition: ${lead.disposition}`}
+                    </p>
+                    {lead.customerPhone && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Phone className="h-3 w-3" />{lead.customerPhone}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 h-8 text-xs"
+                    onClick={() => markContactedMutation.mutate(lead.id)}
+                    disabled={markContactedMutation.isPending}
+                    data-testid={`button-mark-contacted-${lead.id}`}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                    <span className="hidden sm:inline">Contacted</span>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2 flex-wrap px-3 pt-3 md:px-6 md:pt-6">
