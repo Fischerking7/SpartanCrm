@@ -621,13 +621,21 @@ export interface MatchChunkCallback {
 interface OrderIndex {
   byZip: Map<string, OrderSummary[]>;
   byAccount: Map<string, OrderSummary[]>;
+  byAccountFragment: Map<string, OrderSummary[]>;
   byNameToken: Map<string, OrderSummary[]>;
   all: OrderSummary[];
+}
+
+function addToIndex(map: Map<string, OrderSummary[]>, key: string, order: OrderSummary) {
+  const arr = map.get(key) || [];
+  arr.push(order);
+  map.set(key, arr);
 }
 
 function buildOrderIndex(orders: OrderSummary[]): OrderIndex {
   const byZip = new Map<string, OrderSummary[]>();
   const byAccount = new Map<string, OrderSummary[]>();
+  const byAccountFragment = new Map<string, OrderSummary[]>();
   const byNameToken = new Map<string, OrderSummary[]>();
 
   for (const order of orders) {
@@ -640,77 +648,63 @@ function buildOrderIndex(orders: OrderSummary[]): OrderIndex {
 
     const acctNorm = normalize(order.accountNumber || "");
     if (acctNorm) {
-      const arr = byAccount.get(acctNorm) || [];
-      arr.push(order);
-      byAccount.set(acctNorm, arr);
+      addToIndex(byAccount, acctNorm, order);
+      if (acctNorm.length >= 4) addToIndex(byAccountFragment, acctNorm.slice(-4), order);
+      if (acctNorm.length >= 6) addToIndex(byAccountFragment, acctNorm.slice(-6), order);
     }
     const invNorm = normalize(order.invoiceNumber || "");
     if (invNorm) {
-      const arr = byAccount.get(invNorm) || [];
-      arr.push(order);
-      byAccount.set(invNorm, arr);
+      addToIndex(byAccount, invNorm, order);
+      if (invNorm.length >= 4) addToIndex(byAccountFragment, invNorm.slice(-4), order);
+      if (invNorm.length >= 6) addToIndex(byAccountFragment, invNorm.slice(-6), order);
     }
 
     const nameTokens = normalize(order.customerName).split(" ").filter(t => t.length >= 3);
     for (const token of nameTokens) {
-      const arr = byNameToken.get(token) || [];
-      arr.push(order);
-      byNameToken.set(token, arr);
+      addToIndex(byNameToken, token, order);
     }
   }
 
-  return { byZip, byAccount, byNameToken, all: orders };
+  return { byZip, byAccount, byAccountFragment, byNameToken, all: orders };
 }
 
-function getCandidateOrders(row: Record<string, string>, ctx: CarrierContext | null, index: OrderIndex): OrderSummary[] {
+function getCandidateOrders(row: Record<string, string>, ctx: CarrierContext | null, index: OrderIndex): { candidates: OrderSummary[]; usedFallback: boolean } {
   const candidateIds = new Set<string>();
   const candidates: OrderSummary[] = [];
 
-  const sheetAcct = normalize(extractField(row, "account_number", ctx, getAccountNumber));
-  if (sheetAcct) {
-    const acctMatches = index.byAccount.get(sheetAcct);
-    if (acctMatches) {
-      for (const o of acctMatches) {
-        if (!candidateIds.has(o.id)) {
-          candidateIds.add(o.id);
-          candidates.push(o);
-        }
+  function addCandidates(matches: OrderSummary[] | undefined) {
+    if (!matches) return;
+    for (const o of matches) {
+      if (!candidateIds.has(o.id)) {
+        candidateIds.add(o.id);
+        candidates.push(o);
       }
     }
+  }
+
+  const sheetAcct = normalize(extractField(row, "account_number", ctx, getAccountNumber));
+  if (sheetAcct) {
+    addCandidates(index.byAccount.get(sheetAcct));
+    if (sheetAcct.length >= 4) addCandidates(index.byAccountFragment.get(sheetAcct.slice(-4)));
+    if (sheetAcct.length >= 6) addCandidates(index.byAccountFragment.get(sheetAcct.slice(-6)));
   }
 
   const sheetZip = extractField(row, "zip", ctx, getZip).replace(/\D/g, "").slice(0, 5);
   if (sheetZip) {
-    const zipMatches = index.byZip.get(sheetZip);
-    if (zipMatches) {
-      for (const o of zipMatches) {
-        if (!candidateIds.has(o.id)) {
-          candidateIds.add(o.id);
-          candidates.push(o);
-        }
-      }
-    }
+    addCandidates(index.byZip.get(sheetZip));
   }
 
   const sheetName = extractField(row, "customer_name", ctx, getCustomerName);
   const nameTokens = normalize(sheetName).split(" ").filter(t => t.length >= 3);
   for (const token of nameTokens) {
-    const nameMatches = index.byNameToken.get(token);
-    if (nameMatches) {
-      for (const o of nameMatches) {
-        if (!candidateIds.has(o.id)) {
-          candidateIds.add(o.id);
-          candidates.push(o);
-        }
-      }
-    }
+    addCandidates(index.byNameToken.get(token));
   }
 
   if (candidates.length === 0) {
-    return index.all;
+    return { candidates: index.all, usedFallback: true };
   }
 
-  return candidates;
+  return { candidates, usedFallback: false };
 }
 
 export async function matchInstallationsToOrders(
@@ -845,7 +839,7 @@ export async function matchInstallationsToOrders(
     const woNumber = extractField(row.data, "work_order_number", carrierCtx, getWorkOrderNumber).trim();
     const woType = extractField(row.data, "work_order_type", carrierCtx, getWorkOrderType).trim().toUpperCase();
 
-    const candidateOrders = getCandidateOrders(row.data, carrierCtx, orderIndex);
+    const { candidates: candidateOrders, usedFallback } = getCandidateOrders(row.data, carrierCtx, orderIndex);
 
     let rowBest = 0;
     let rowBestReasons: string[] = [];
@@ -858,6 +852,21 @@ export async function matchInstallationsToOrders(
       }
       if (score.total >= MATCH_THRESHOLD) {
         candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score, serviceLine, woNumber, woType });
+      }
+    }
+
+    if (!usedFallback && rowBest < MATCH_THRESHOLD && orderIndex.all.length > candidateOrders.length) {
+      const candidateIdSet = new Set(candidateOrders.map(o => o.id));
+      for (const order of orderIndex.all) {
+        if (candidateIdSet.has(order.id)) continue;
+        const score = scoreMatch(row.data, order, carrierCtx);
+        if (score.total > rowBest) {
+          rowBest = score.total;
+          rowBestReasons = score.reasons;
+        }
+        if (score.total >= MATCH_THRESHOLD) {
+          candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score, serviceLine, woNumber, woType });
+        }
       }
     }
 
