@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { FileText, Calendar, Eye, Wallet, Receipt, ArrowDownCircle, ArrowUpCircle, MinusCircle, Download, Shield } from "lucide-react";
+import { FileText, Calendar, Eye, Wallet, Receipt, ArrowDownCircle, ArrowUpCircle, MinusCircle, Download, Shield, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -570,6 +570,14 @@ export default function MyPayHistory() {
   const { user } = useAuth();
   const isRep = user?.role === "REP";
   const isMobile = useIsMobile();
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const toggleCard = (id: string) => {
+    setExpandedCards(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
   const { data: statements, isLoading: statementsLoading } = useQuery<PayStatement[]>({
     queryKey: ["/api/payroll/my-statements"],
     queryFn: async () => {
@@ -685,35 +693,59 @@ export default function MyPayHistory() {
           <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
             {isMobile ? (
               <div className="space-y-3">
-                {pendingStatements.map((statement) => (
-                  <div key={statement.id} className="border rounded-lg p-3 space-y-2" data-testid={`card-pending-${statement.id}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {formatDate(statement.periodStart)} - {formatDate(statement.periodEnd)}
-                      </span>
-                      <Badge variant="outline" className="text-[10px]">{statement.status}</Badge>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Net Pay</span>
-                      <span className="text-lg font-bold">{formatCurrency(statement.netPay)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 pt-1 border-t">
-                      <div className="flex items-center gap-1">
-                        <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8"
-                        onClick={() => downloadPdf(statement.id)}
-                        data-testid={`button-download-pdf-${statement.id}`}
+                {pendingStatements.map((statement) => {
+                  const isExpanded = expandedCards.has(`pending-${statement.id}`);
+                  return (
+                    <div key={statement.id} className="border rounded-lg overflow-hidden" data-testid={`card-pending-${statement.id}`}>
+                      <button
+                        className="w-full p-3 text-left flex items-center justify-between gap-2"
+                        onClick={() => toggleCard(`pending-${statement.id}`)}
+                        data-testid={`button-expand-pending-${statement.id}`}
                       >
-                        <Download className="h-3.5 w-3.5 mr-1" />
-                        PDF
-                      </Button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {formatDate(statement.periodStart)} - {formatDate(statement.periodEnd)}
+                            </span>
+                            <Badge variant="outline" className="text-[10px]">{statement.status}</Badge>
+                          </div>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-sm text-muted-foreground">Net Pay</span>
+                            <span className="text-lg font-bold">{formatCurrency(statement.netPay)}</span>
+                          </div>
+                        </div>
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                      </button>
+                      {isExpanded && (
+                        <div className="px-3 pb-3 space-y-2 border-t pt-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Deductions</span>
+                            <span className="text-red-600 dark:text-red-400">-{formatCurrency(statement.deductionsTotal)}</span>
+                          </div>
+                          {!isRep && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Gross</span>
+                              <span className="text-green-600 dark:text-green-400">{formatCurrency(statement.grossCommission)}</span>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between gap-2 pt-1 border-t">
+                            <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9"
+                              onClick={() => downloadPdf(statement.id)}
+                              data-testid={`button-download-pdf-${statement.id}`}
+                            >
+                              <Download className="h-3.5 w-3.5 mr-1" />
+                              PDF
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <Table>
@@ -795,48 +827,69 @@ export default function MyPayHistory() {
             </div>
           ) : isMobile ? (
             <div className="space-y-3">
-              {paidStatements.map((statement) => (
-                <div key={statement.id} className="border rounded-lg p-3 space-y-2" data-testid={`card-paid-${statement.id}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      {formatDate(statement.periodStart)} - {formatDate(statement.periodEnd)}
-                    </span>
-                    {statement.paidAt && (
-                      <span className="text-[10px] text-muted-foreground">
-                        Paid {formatDate(statement.paidAt)}
-                      </span>
+              {paidStatements.map((statement) => {
+                const isExpanded = expandedCards.has(`paid-${statement.id}`);
+                return (
+                  <div key={statement.id} className="border rounded-lg overflow-hidden" data-testid={`card-paid-${statement.id}`}>
+                    <button
+                      className="w-full p-3 text-left flex items-center justify-between gap-2"
+                      onClick={() => toggleCard(`paid-${statement.id}`)}
+                      data-testid={`button-expand-paid-${statement.id}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(statement.periodStart)} - {formatDate(statement.periodEnd)}
+                          </span>
+                          {statement.paidAt && (
+                            <span className="text-[10px] text-muted-foreground">
+                              Paid {formatDate(statement.paidAt)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-sm text-muted-foreground">Net Pay</span>
+                          <span className="text-lg font-bold">{formatCurrency(statement.netPay)}</span>
+                        </div>
+                      </div>
+                      <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                    </button>
+                    {isExpanded && (
+                      <div className="px-3 pb-3 space-y-2 border-t pt-2">
+                        {!isRep && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Gross</span>
+                            <span className="text-green-600 dark:text-green-400">{formatCurrency(statement.grossCommission)}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Deductions</span>
+                          <span className="text-red-600 dark:text-red-400">-{formatCurrency(statement.deductionsTotal)}</span>
+                        </div>
+                        {statement.checkNumber && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Check #</span>
+                            <span className="font-mono">{statement.checkNumber}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t">
+                          <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-9"
+                            onClick={() => downloadPdf(statement.id)}
+                            data-testid={`button-download-pdf-${statement.id}`}
+                          >
+                            <Download className="h-3.5 w-3.5 mr-1" />
+                            PDF
+                          </Button>
+                        </div>
+                      </div>
                     )}
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Net Pay</span>
-                    <span className="text-lg font-bold">{formatCurrency(statement.netPay)}</span>
-                  </div>
-                  {!isRep && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Gross</span>
-                      <span className="text-green-600 dark:text-green-400">{formatCurrency(statement.grossCommission)}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between gap-2 pt-1 border-t">
-                    <div className="flex items-center gap-1">
-                      <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
-                      {statement.checkNumber && (
-                        <span className="text-[10px] font-mono text-muted-foreground">#{statement.checkNumber}</span>
-                      )}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8"
-                      onClick={() => downloadPdf(statement.id)}
-                      data-testid={`button-download-pdf-${statement.id}`}
-                    >
-                      <Download className="h-3.5 w-3.5 mr-1" />
-                      PDF
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <Table>

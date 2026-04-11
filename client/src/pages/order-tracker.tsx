@@ -1156,30 +1156,46 @@ export default function OrderTracker() {
       </div>
 
       <MobileFilterDrawer activeFilterCount={(searchTerm ? 1 : 0) + (activeTab !== "all" ? 1 : 0) + (dateRange !== "all" ? 1 : 0)}>
-        <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-[200px] max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by customer, account, invoice..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
-              data-testid="input-search-orders"
-            />
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by customer, account, invoice..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9"
+                data-testid="input-search-orders"
+              />
+            </div>
+            <div className="md:hidden">
+              <Select value={dateRange} onValueChange={setDateRange}>
+                <SelectTrigger className="w-[130px] h-9" data-testid="select-date-range-mobile">
+                  <CalendarDays className="h-4 w-4 mr-1 text-muted-foreground" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Time</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="this_week">This Week</SelectItem>
+                  <SelectItem value="this_month">This Month</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelectedOrderIds(new Set()); }}>
-            <TabsList>
+            <TabsList className="w-full md:w-auto overflow-x-auto">
               <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
               <TabsTrigger value="pending" data-testid="tab-pending">
                 Pending
                 {stats.pending > 0 && (
-                  <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted">{stats.pending}</span>
+                  <span className="ml-1 md:ml-1.5 px-1 md:px-1.5 py-0.5 text-[10px] md:text-xs rounded-full bg-muted">{stats.pending}</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="completed" data-testid="tab-completed">
-                Completed
+                Done
                 {stats.completed > 0 && (
-                  <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted">{stats.completed}</span>
+                  <span className="ml-1 md:ml-1.5 px-1 md:px-1.5 py-0.5 text-[10px] md:text-xs rounded-full bg-muted">{stats.completed}</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="approved" data-testid="tab-approved">Approved</TabsTrigger>
