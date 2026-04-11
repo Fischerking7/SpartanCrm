@@ -557,7 +557,7 @@ export default function OrderTracker() {
   const isMobile = useIsMobile();
   const canSeeGrossCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR", "ACCOUNTING"].includes(user?.role || "");
   const canSeeCommission = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR", "ACCOUNTING"].includes(user?.role || "");
-  const hasViewModeToggle = ["LEAD", "MANAGER", "EXECUTIVE"].includes(user?.role || "");
+  const hasViewModeToggle = ["REP", "SR_REP", "LEAD", "MANAGER", "DIRECTOR", "EXECUTIVE"].includes(user?.role || "");
   const [viewMode, setViewMode] = useState<"own" | "team" | "global">("own");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
