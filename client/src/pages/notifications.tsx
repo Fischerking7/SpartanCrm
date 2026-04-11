@@ -156,7 +156,7 @@ export default function NotificationsPage() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <Bell className="h-5 w-5 md:h-6 md:w-6" />
-          <h1 className="text-xl md:text-2xl font-semibold">Notifications</h1>
+          <h1 className="text-xl md:text-2xl font-semibold">Alerts</h1>
           {unreadCount > 0 && (
             <Badge variant="default" data-testid="badge-unread-count">{unreadCount} unread</Badge>
           )}

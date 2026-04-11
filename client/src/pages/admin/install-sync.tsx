@@ -943,7 +943,7 @@ export default function InstallSync() {
                   </div>
                   <div className="text-center p-3 rounded-lg border bg-red-50 dark:bg-red-950/30" data-testid="stat-canceled">
                     <div className="text-xl font-bold text-red-700 dark:text-red-400">{ci.carrierStats.canceledCount}</div>
-                    <div className="text-xs text-red-600 dark:text-red-500">Canceled</div>
+                    <div className="text-xs text-red-600 dark:text-red-500">Cancelled</div>
                     <div className="text-xs text-muted-foreground">{ci.carrierStats.cancelRate}%</div>
                   </div>
                   <div className="text-center p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/30" data-testid="stat-open">
@@ -988,7 +988,7 @@ export default function InstallSync() {
                             <TableHead>Rep Name</TableHead>
                             <TableHead className="text-center">Total</TableHead>
                             <TableHead className="text-center">Completed</TableHead>
-                            <TableHead className="text-center">Canceled</TableHead>
+                            <TableHead className="text-center">Cancelled</TableHead>
                             <TableHead className="text-center">Open</TableHead>
                             <TableHead className="text-center">Completion %</TableHead>
                           </TableRow>
@@ -1233,7 +1233,7 @@ export default function InstallSync() {
                 <div>
                   <h4 className="font-medium mb-2 flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-red-600" />
-                    Cancellation Impact ({result.cancellationImpact.ordersCanceled} canceled{result.cancellationImpact.flaggedForReviewCount > 0 ? `, ${result.cancellationImpact.flaggedForReviewCount} flagged for review` : ""})
+                    Cancellation Impact ({result.cancellationImpact.ordersCanceled} cancelled{result.cancellationImpact.flaggedForReviewCount > 0 ? `, ${result.cancellationImpact.flaggedForReviewCount} flagged for review` : ""})
                     {result.isDryRun && <Badge variant="secondary" className="text-xs">DRY RUN</Badge>}
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">

@@ -1743,8 +1743,8 @@ export default function Orders() {
               <SelectContent>
                 <SelectItem value="all">All Job Status</SelectItem>
                 <SelectItem value="PENDING">Pending</SelectItem>
-                <SelectItem value="COMPLETED">Completed</SelectItem>
-                <SelectItem value="CANCELED">Canceled</SelectItem>
+                <SelectItem value="COMPLETED">Connected</SelectItem>
+                <SelectItem value="CANCELED">Cancelled</SelectItem>
               </SelectContent>
             </Select>
             <div className={isMobile ? "space-y-2 w-full" : "flex items-center gap-2"}>
@@ -2223,8 +2223,8 @@ export default function Orders() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="PENDING">Pending</SelectItem>
-                        <SelectItem value="COMPLETED">Completed</SelectItem>
-                        <SelectItem value="CANCELED">Canceled</SelectItem>
+                        <SelectItem value="COMPLETED">Connected</SelectItem>
+                        <SelectItem value="CANCELED">Cancelled</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

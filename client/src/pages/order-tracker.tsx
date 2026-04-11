@@ -1971,7 +1971,7 @@ function OrderDetailPanel({
                 data-testid="button-detail-complete"
               >
                 {statusMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />}
-                Mark as Completed
+                Mark as Connected
               </Button>
               <Button
                 size="sm"

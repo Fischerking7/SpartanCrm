@@ -86,7 +86,7 @@ export function ConnectsTrendChart({ personalData, teamData, period, showTeam }:
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
         <div className="flex items-center gap-2">
           <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          <CardTitle className="text-base font-medium">Connects Trend</CardTitle>
+          <CardTitle className="text-base font-medium">Connected Trend</CardTitle>
         </div>
         <Badge variant="outline" className="text-xs">{period}</Badge>
       </CardHeader>
@@ -133,11 +133,11 @@ export function DailyAverageChart({ personalData, teamData, period, showTeam }: 
   const barData = showTeam && teamData
     ? [
         { name: "Sales/Day", personal: avgSales, team: teamAvgSales },
-        { name: "Connects/Day", personal: avgConnects, team: teamAvgConnects },
+        { name: "Connected/Day", personal: avgConnects, team: teamAvgConnects },
       ]
     : [
         { name: "Sales/Day", value: avgSales },
-        { name: "Connects/Day", value: avgConnects },
+        { name: "Connected/Day", value: avgConnects },
       ];
 
   return (

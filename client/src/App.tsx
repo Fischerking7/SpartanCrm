@@ -137,7 +137,7 @@ const routeTitles: Record<string, string> = {
   "/orders": "Orders",
   "/order-tracker": "Order Tracker",
   "/mobile-entry": "Quick Entry",
-  "/leads": "Leads",
+  "/leads": "My Leads",
   "/commissions": "Commissions",
   "/commission-forecast": "Forecast",
   "/my-pay": "Pay History",
@@ -173,7 +173,7 @@ const routeTitles: Record<string, string> = {
   "/accounting/month-end": "Month-End Checklist",
   "/accounting/cash-flow": "Cash Flow Forecast",
   "/admin/compliance-calendar": "Compliance Calendar",
-  "/admin/disputes": "Commission Disputes",
+  "/admin/disputes": "Disputes",
 };
 
 interface ComplianceStatus {
