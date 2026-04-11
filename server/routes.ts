@@ -2973,9 +2973,6 @@ export async function registerRoutes(
         } else {
           orders = await storage.getOrders({ repId: user.repId, limit });
         }
-      } else if ((user.role === "REP" || user.role === "SR_REP") && viewMode === "team") {
-        const teamRepIds = await storage.getRepIdsForScope(user.id, user.role, "team");
-        orders = await storage.getOrders({ teamRepIds: [...teamRepIds, user.repId], limit });
       } else {
         orders = await storage.getOrders({ repId: user.repId, limit });
       }
