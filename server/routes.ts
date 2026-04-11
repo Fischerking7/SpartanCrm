@@ -5406,6 +5406,106 @@ Rules:
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
+  app.get("/api/admin/payruns/:id/pre-validation", auth, requirePermission("admin:payruns:manage"), async (req: AuthRequest, res) => {
+    try {
+      const payRun = await storage.getPayRunById(req.params.id);
+      if (!payRun) return res.status(404).json({ message: "Pay run not found" });
+
+      const orders = await storage.getOrdersByPayRunId(req.params.id);
+      const statements = await storage.getPayStatements(req.params.id);
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+      type CheckItem = { id: string; label: string; severity: "BLOCKING" | "WARNING"; detail: string; category: string };
+      const checks: CheckItem[] = [];
+
+      if (orders.length === 0) {
+        checks.push({ id: "no-orders", label: "No orders linked", severity: "BLOCKING", detail: "Pay run has no orders. Link orders before finalizing.", category: "Orders" });
+      }
+
+      if (statements.length === 0 && orders.length > 0) {
+        checks.push({ id: "no-statements", label: "No pay statements generated", severity: "BLOCKING", detail: "Generate pay statements before finalizing.", category: "Statements" });
+      }
+
+      const pendingOrders = orders.filter(o => o.paymentStatus === "PENDING" || o.paymentStatus === "INVOICED");
+      if (pendingOrders.length > 0) {
+        checks.push({ id: "pending-orders", label: `${pendingOrders.length} order(s) not yet PAID`, severity: "WARNING", detail: `Orders with pending payment status: ${pendingOrders.slice(0, 5).map(o => o.invoiceNumber || o.id.slice(0, 8)).join(", ")}${pendingOrders.length > 5 ? ` +${pendingOrders.length - 5} more` : ""}`, category: "Orders" });
+      }
+
+      for (const stmt of statements) {
+        const netPay = parseFloat(stmt.netPay || "0");
+        const user = userMap.get(stmt.userId);
+        const repLabel = user ? `${user.name} (${user.repId})` : stmt.userId.slice(0, 8);
+
+        if (netPay < 0) {
+          checks.push({ id: `negative-${stmt.id}`, label: `Negative net pay for ${repLabel}`, severity: "WARNING", detail: `Net pay: $${netPay.toFixed(2)}. This will be floored to $0 with carry-forward.`, category: "Pay Amounts" });
+        }
+
+        const stmtLineItems = await storage.getPayStatementLineItems(stmt.id);
+        const hasCarryForwardCredit = stmtLineItems.some(li => li.category === "CARRY_FORWARD_CREDIT");
+        if (hasCarryForwardCredit) {
+          checks.push({ id: `cf-${stmt.id}`, label: `Carry-forward balance for ${repLabel}`, severity: "WARNING", detail: "Negative balance will be carried to next pay period.", category: "Carry-Forward" });
+        }
+      }
+
+      const chargebacks = await storage.getChargebacksByPayRun(req.params.id);
+      if (chargebacks.length > 0) {
+        const totalCb = chargebacks.reduce((sum, cb) => sum + Math.round(parseFloat(cb.amount || "0") * 100), 0);
+        checks.push({ id: "chargebacks", label: `${chargebacks.length} chargeback(s) totaling $${(totalCb / 100).toFixed(2)}`, severity: "WARNING", detail: `Chargebacks will be deducted from rep pay. Review before finalizing.`, category: "Chargebacks" });
+      }
+
+      const repIds = [...new Set(orders.map(o => o.repId))];
+      for (const repId of repIds) {
+        const user = allUsers.find(u => u.repId === repId);
+        if (!user) continue;
+        const rateCard = user.commissionRate;
+        if (!rateCard || parseFloat(rateCard) === 0) {
+          checks.push({ id: `no-rate-${user.id}`, label: `No commission rate for ${user.name} (${user.repId})`, severity: "WARNING", detail: "Rep has no commission rate configured. Commissions may be $0.", category: "Rate Cards" });
+        }
+      }
+
+      const orderIds = orders.map(o => o.id);
+      const pendingPoolEntries = await storage.getOverrideDeductionPoolByOrderIds(orderIds);
+      const manualDistributions = await storage.getOverrideDistributionsByPayRun(req.params.id);
+      const distributedPoolIds = new Set(manualDistributions.map(d => d.poolEntryId));
+      const undistributed = pendingPoolEntries.filter(e => !distributedPoolIds.has(e.id) && e.status === "PENDING");
+      if (undistributed.length > 0) {
+        const undistTotal = undistributed.reduce((sum, e) => sum + Math.round(parseFloat(e.deductionAmount || "0") * 100), 0);
+        checks.push({ id: "undistributed-overrides", label: `${undistributed.length} undistributed override pool entries ($${(undistTotal / 100).toFixed(2)})`, severity: "WARNING", detail: "Override deductions collected but not yet distributed to managers/leads.", category: "Overrides" });
+      }
+
+      const stmtUserIds = new Set(statements.map(s => s.userId));
+      const repsWithOrders = new Set(orders.map(o => { const u = allUsers.find(u2 => u2.repId === o.repId); return u?.id; }).filter(Boolean));
+      const missingStmts = [...repsWithOrders].filter(uid => uid && !stmtUserIds.has(uid));
+      if (missingStmts.length > 0) {
+        const names = missingStmts.map(uid => { const u = uid ? userMap.get(uid) : null; return u ? `${u.name} (${u.repId})` : "Unknown"; }).slice(0, 5);
+        checks.push({ id: "missing-stmts", label: `${missingStmts.length} rep(s) have orders but no pay statement`, severity: "BLOCKING", detail: `Reps missing statements: ${names.join(", ")}${missingStmts.length > 5 ? ` +${missingStmts.length - 5} more` : ""}. Regenerate statements.`, category: "Statements" });
+      }
+
+      const blockingCount = checks.filter(c => c.severity === "BLOCKING").length;
+      const warningCount = checks.filter(c => c.severity === "WARNING").length;
+
+      res.json({
+        payRunId: payRun.id,
+        status: payRun.status,
+        checks,
+        blockingCount,
+        warningCount,
+        canFinalize: blockingCount === 0 && payRun.status === "APPROVED",
+        summary: {
+          orderCount: orders.length,
+          statementCount: statements.length,
+          repCount: repIds.length,
+          totalGross: statements.reduce((s, st) => s + parseFloat(st.grossCommission || "0") + parseFloat(st.overrideEarningsTotal || "0") + parseFloat(st.incentivesTotal || "0"), 0).toFixed(2),
+          totalNet: statements.reduce((s, st) => s + parseFloat(st.netPay || "0"), 0).toFixed(2),
+        },
+      });
+    } catch (error: any) {
+      console.error("Pre-validation error:", error);
+      res.status(500).json({ message: error.message || "Failed to run pre-validation" });
+    }
+  });
+
   app.post("/api/admin/payruns/:id/finalize", auth, requirePermission("financial:finalize:payruns"), async (req: AuthRequest, res) => {
     try {
       const payRun = await storage.getPayRunById(req.params.id);
