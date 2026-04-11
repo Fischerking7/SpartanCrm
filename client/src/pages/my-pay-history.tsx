@@ -573,7 +573,7 @@ export default function MyPayHistory() {
   const isMobile = useIsMobile();
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [payInquiryOpen, setPayInquiryOpen] = useState(false);
-  const [payInquiryContext, setPayInquiryContext] = useState<{ subject: string; body: string } | null>(null);
+  const [payInquiryContext, setPayInquiryContext] = useState<{ subject: string; body: string; entityType?: string; entityId?: string } | null>(null);
   const toggleCard = (id: string) => {
     setExpandedCards(prev => {
       const next = new Set(prev);
@@ -743,6 +743,8 @@ export default function MyPayHistory() {
                                     setPayInquiryContext({
                                       subject: `Pay statement question - ${formatDate(statement.periodStart)} to ${formatDate(statement.periodEnd)}`,
                                       body: `I have a question about my pay statement for period ${formatDate(statement.periodStart)} - ${formatDate(statement.periodEnd)}. Net pay: ${formatCurrency(statement.netPay)}.`,
+                                      entityType: "PAY_STATEMENT",
+                                      entityId: statement.id,
                                     });
                                     setPayInquiryOpen(true);
                                   }}
@@ -813,6 +815,8 @@ export default function MyPayHistory() {
                                 setPayInquiryContext({
                                   subject: `Pay statement question - ${formatDate(statement.periodStart)} to ${formatDate(statement.periodEnd)}`,
                                   body: `I have a question about my pay statement for period ${formatDate(statement.periodStart)} - ${formatDate(statement.periodEnd)}. Net pay: ${formatCurrency(statement.netPay)}.`,
+                                  entityType: "PAY_STATEMENT",
+                                  entityId: statement.id,
                                 });
                                 setPayInquiryOpen(true);
                               }}
@@ -924,6 +928,8 @@ export default function MyPayHistory() {
                                   setPayInquiryContext({
                                     subject: `Pay statement question - ${formatDate(statement.periodStart)} to ${formatDate(statement.periodEnd)}`,
                                     body: `I have a question about my pay statement for period ${formatDate(statement.periodStart)} - ${formatDate(statement.periodEnd)}. Net pay: ${formatCurrency(statement.netPay)}.`,
+                                    entityType: "PAY_STATEMENT",
+                                    entityId: statement.id,
                                   });
                                   setPayInquiryOpen(true);
                                 }}
@@ -998,6 +1004,8 @@ export default function MyPayHistory() {
                               setPayInquiryContext({
                                 subject: `Pay statement question - ${formatDate(statement.periodStart)} to ${formatDate(statement.periodEnd)}`,
                                 body: `I have a question about my pay statement for period ${formatDate(statement.periodStart)} - ${formatDate(statement.periodEnd)}. Net pay: ${formatCurrency(statement.netPay)}.`,
+                                entityType: "PAY_STATEMENT",
+                                entityId: statement.id,
                               });
                               setPayInquiryOpen(true);
                             }}
@@ -1042,6 +1050,8 @@ export default function MyPayHistory() {
         defaultSubject={payInquiryContext?.subject || "Pay Statement Question"}
         defaultBody={payInquiryContext?.body || ""}
         defaultToUserId={user?.assignedSupervisorId || undefined}
+        relatedEntityType={payInquiryContext?.entityType}
+        relatedEntityId={payInquiryContext?.entityId}
       />
     </div>
   );

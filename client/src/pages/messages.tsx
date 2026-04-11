@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Send, Inbox, Plus, ArrowLeft, Mail, MailOpen } from "lucide-react";
+import { MessageSquare, Send, Inbox, Plus, ArrowLeft, Mail, MailOpen, AlertTriangle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 interface Message {
@@ -52,13 +52,15 @@ const categoryColors: Record<string, string> = {
   COMPLIANCE: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
 };
 
-function ComposeDialog({ open, onOpenChange, defaultCategory, defaultSubject, defaultBody, defaultToUserId }: {
+function ComposeDialog({ open, onOpenChange, defaultCategory, defaultSubject, defaultBody, defaultToUserId, relatedEntityType, relatedEntityId }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultCategory?: string;
   defaultSubject?: string;
   defaultBody?: string;
   defaultToUserId?: string;
+  relatedEntityType?: string;
+  relatedEntityId?: string;
 }) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -90,7 +92,7 @@ function ComposeDialog({ open, onOpenChange, defaultCategory, defaultSubject, de
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ toUserId, subject, body, category }),
+        body: JSON.stringify({ toUserId, subject, body, category, relatedEntityType, relatedEntityId }),
       });
       if (!res.ok) throw new Error("Failed to send message");
       return res.json();
@@ -249,52 +251,93 @@ function ReplyDialog({ open, onOpenChange, parentMessage }: {
   );
 }
 
-function MessageCard({ message, isIncoming, onReply, onMarkRead }: {
+function MessageCard({ message, isIncoming, onReply, onMarkRead, onEscalate, threadMessages }: {
   message: Message;
   isIncoming: boolean;
   onReply: () => void;
   onMarkRead: () => void;
+  onEscalate?: () => void;
+  threadMessages?: Message[];
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const thread = threadMessages || [];
+  const hasThread = thread.length > 0;
+
   return (
     <Card
-      className={`cursor-pointer transition-colors hover:bg-muted/30 ${isIncoming && !message.isRead ? "border-l-4 border-l-[hsl(var(--sidebar-primary))]" : ""}`}
-      onClick={() => {
-        if (isIncoming && !message.isRead) onMarkRead();
-      }}
+      className={`transition-colors hover:bg-muted/30 ${isIncoming && !message.isRead ? "border-l-4 border-l-[hsl(var(--sidebar-primary))]" : ""}`}
       data-testid={`message-card-${message.id}`}
     >
       <CardContent className="p-3 md:p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              {isIncoming && !message.isRead && (
-                <Mail className="h-4 w-4 text-[hsl(var(--sidebar-primary))] flex-shrink-0" />
-              )}
-              {isIncoming && message.isRead && (
-                <MailOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-              )}
-              <span className="font-medium text-sm truncate">
-                {isIncoming ? message.fromUserName : `To: ${message.toUserName}`}
-              </span>
-              <Badge variant="outline" className={`text-[10px] ${categoryColors[message.category] || ""}`}>
-                {categoryLabels[message.category] || message.category}
-              </Badge>
+        <div
+          className="cursor-pointer"
+          onClick={() => {
+            if (isIncoming && !message.isRead) onMarkRead();
+            setExpanded(!expanded);
+          }}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                {isIncoming && !message.isRead && (
+                  <Mail className="h-4 w-4 text-[hsl(var(--sidebar-primary))] flex-shrink-0" />
+                )}
+                {isIncoming && message.isRead && (
+                  <MailOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                )}
+                <span className="font-medium text-sm truncate">
+                  {isIncoming ? message.fromUserName : `To: ${message.toUserName}`}
+                </span>
+                <Badge variant="outline" className={`text-[10px] ${categoryColors[message.category] || ""}`}>
+                  {categoryLabels[message.category] || message.category}
+                </Badge>
+                {hasThread && (
+                  <Badge variant="secondary" className="text-[10px]">{thread.length} repl{thread.length !== 1 ? "ies" : "y"}</Badge>
+                )}
+              </div>
+              <p className="font-medium text-sm mt-1 truncate">{message.subject}</p>
+              {!expanded && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{message.body}</p>}
             </div>
-            <p className="font-medium text-sm mt-1 truncate">{message.subject}</p>
-            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{message.body}</p>
-          </div>
-          <div className="flex flex-col items-end gap-1 flex-shrink-0">
-            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-              {formatDistanceToNow(new Date(message.createdAt), { addSuffix: true })}
-            </span>
-            {isIncoming && (
-              <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onReply(); }} data-testid={`btn-reply-${message.id}`}>
-                <ArrowLeft className="h-3 w-3 mr-1" />
-                Reply
-              </Button>
-            )}
+            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                {formatDistanceToNow(new Date(message.createdAt), { addSuffix: true })}
+              </span>
+            </div>
           </div>
         </div>
+
+        {expanded && (
+          <div className="mt-3 space-y-3">
+            <div className="bg-muted/30 rounded-md p-3">
+              <p className="text-sm whitespace-pre-wrap">{message.body}</p>
+            </div>
+
+            {thread.map(reply => (
+              <div key={reply.id} className="ml-4 border-l-2 border-muted pl-3" data-testid={`thread-reply-${reply.id}`}>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">{reply.fromUserName}</span>
+                  <span>{formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true })}</span>
+                </div>
+                <p className="text-sm mt-1 whitespace-pre-wrap">{reply.body}</p>
+              </div>
+            ))}
+
+            <div className="flex items-center gap-2 pt-1">
+              {isIncoming && (
+                <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); onReply(); }} data-testid={`btn-reply-${message.id}`}>
+                  <ArrowLeft className="h-3 w-3 mr-1" />
+                  Reply
+                </Button>
+              )}
+              {onEscalate && isIncoming && (
+                <Button variant="outline" size="sm" className="text-orange-600 border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20" onClick={(e) => { e.stopPropagation(); onEscalate(); }} data-testid={`btn-escalate-${message.id}`}>
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Escalate to Dispute
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -339,10 +382,62 @@ export default function Messages() {
     },
   });
 
-  const inboxMessages = (messages || []).filter(m => m.toUserId === user?.id);
-  const sentMessages = (messages || []).filter(m => m.fromUserId === user?.id);
-  const unreadCount = inboxMessages.filter(m => !m.isRead).length;
+  const allMessages = messages || [];
+  const threadMap = new Map<string, Message[]>();
+  for (const m of allMessages) {
+    if (m.parentMessageId) {
+      const rootId = m.parentMessageId;
+      if (!threadMap.has(rootId)) threadMap.set(rootId, []);
+      threadMap.get(rootId)!.push(m);
+    }
+  }
+  for (const [, replies] of threadMap) {
+    replies.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+  const rootMessages = allMessages.filter(m => !m.parentMessageId);
+  const inboxMessages = rootMessages.filter(m => m.toUserId === user?.id);
+  const sentMessages = rootMessages.filter(m => m.fromUserId === user?.id);
+  const unreadCount = allMessages.filter(m => m.toUserId === user?.id && !m.isRead).length;
   const teamUnreadCount = (teamMessages || []).filter(m => m.toUserId === user?.id && !m.isRead).length;
+
+  const teamThreadMap = new Map<string, Message[]>();
+  for (const m of (teamMessages || [])) {
+    if (m.parentMessageId) {
+      const rootId = m.parentMessageId;
+      if (!teamThreadMap.has(rootId)) teamThreadMap.set(rootId, []);
+      teamThreadMap.get(rootId)!.push(m);
+    }
+  }
+  for (const [, replies] of teamThreadMap) {
+    replies.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+  const teamRootMessages = (teamMessages || []).filter(m => !m.parentMessageId);
+
+  const { toast } = useToast();
+  const escalateMutation = useMutation({
+    mutationFn: async (msg: Message) => {
+      const disputeType = msg.category === "PAY_QUESTION" ? "PAY_DISPUTE" : "COMMISSION_DISPUTE";
+      const res = await fetch("/api/disputes", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          disputeType,
+          title: `Escalated: ${msg.subject}`,
+          description: `Escalated from message thread:\n\n${msg.body}`,
+          salesOrderId: msg.relatedEntityType === "ORDER" ? msg.relatedEntityId : null,
+          payStatementId: msg.relatedEntityType === "PAY_STATEMENT" ? msg.relatedEntityId : null,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to escalate");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Escalated to formal dispute" });
+    },
+    onError: () => {
+      toast({ title: "Failed to escalate", variant: "destructive" });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -408,6 +503,7 @@ export default function Messages() {
                 isIncoming={true}
                 onReply={() => setReplyingTo(m)}
                 onMarkRead={() => markReadMutation.mutate(m.id)}
+                threadMessages={threadMap.get(m.id)}
               />
             ))
           )}
@@ -430,6 +526,7 @@ export default function Messages() {
                 isIncoming={false}
                 onReply={() => {}}
                 onMarkRead={() => {}}
+                threadMessages={threadMap.get(m.id)}
               />
             ))
           )}
@@ -437,7 +534,7 @@ export default function Messages() {
 
         {isManager && (
           <TabsContent value="team" className="space-y-2 mt-4">
-            {(teamMessages || []).length === 0 ? (
+            {teamRootMessages.length === 0 ? (
               <Card>
                 <CardContent className="p-8 text-center text-muted-foreground">
                   <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
@@ -446,7 +543,7 @@ export default function Messages() {
                 </CardContent>
               </Card>
             ) : (
-              (teamMessages || []).map(m => {
+              teamRootMessages.map(m => {
                 const isIncoming = m.toUserId === user?.id;
                 return (
                   <MessageCard
@@ -455,6 +552,8 @@ export default function Messages() {
                     isIncoming={isIncoming}
                     onReply={() => isIncoming ? setReplyingTo(m) : undefined}
                     onMarkRead={() => isIncoming ? markReadMutation.mutate(m.id) : undefined}
+                    threadMessages={teamThreadMap.get(m.id)}
+                    onEscalate={isIncoming ? () => escalateMutation.mutate(m) : undefined}
                   />
                 );
               })

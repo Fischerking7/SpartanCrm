@@ -26655,6 +26655,27 @@ function registerReportRoutes(app: Express, auth: any) {
       const myRank = repSales.findIndex(r => r.repId === user.repId) + 1;
       ranking = { rank: myRank, total: reps.length };
 
+      const myStatements = await db.query.payStatements.findMany({
+        where: eq(payStatements.userId, user.id),
+        orderBy: [desc(payStatements.periodEnd)],
+        limit: 6,
+      });
+      const payPeriodTrends = myStatements.reverse().map(s => ({
+        periodStart: s.periodStart instanceof Date ? s.periodStart.toISOString().slice(0, 10) : String(s.periodStart).slice(0, 10),
+        periodEnd: s.periodEnd instanceof Date ? s.periodEnd.toISOString().slice(0, 10) : String(s.periodEnd).slice(0, 10),
+        grossCommission: parseFloat(String(s.grossCommission || "0")),
+        netPay: parseFloat(String(s.netPay || "0")),
+        deductions: parseFloat(String(s.deductionsTotal || "0")),
+        status: s.status,
+      }));
+
+      const chargebacks = await db.query.chargebacks.findMany({
+        where: eq(chargebacks.repId, user.repId),
+      });
+      const recentChargebackTotal = chargebacks
+        .filter(cb => new Date(cb.dateApplied) >= monthStart)
+        .reduce((s, cb) => s + parseFloat(String(cb.amount || "0")), 0);
+
       res.json({
         mtd: { sold: mtdSold, connected: mtdConnected, earned: mtdEarned, connectRate, monthOverMonthDelta },
         prevMonth: { connected: prevMonthConnected, earned: prevMonthEarned },
@@ -26666,6 +26687,8 @@ function registerReportRoutes(app: Express, auth: any) {
         dailyChart: last7Days,
         currentStreak,
         ranking,
+        payPeriodTrends,
+        mtdChargebacks: recentChargebackTotal,
       });
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : "Failed to fetch performance";

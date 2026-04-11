@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Download, Upload, TrendingUp, Wallet, ArrowDownCircle, AlertTriangle, Calendar, CheckCircle2, Clock, DollarSign, BarChart2, Phone, PhoneCall, User } from "lucide-react";
+import { Download, Upload, TrendingUp, Wallet, ArrowDownCircle, AlertTriangle, Calendar, CheckCircle2, Clock, DollarSign, BarChart2, Phone, PhoneCall, User, MessageSquare, Target } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { SimplifiedOrderStatus } from "@shared/order-status";
 
@@ -200,6 +200,16 @@ export default function RepDashboard() {
     },
   });
 
+  const { data: unreadCount } = useQuery<{ count: number }>({
+    queryKey: ["/api/messages/unread-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/messages/unread-count", { headers: getAuthHeaders() });
+      if (!res.ok) return { count: 0 };
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+
   const markContactedMutation = useMutation({
     mutationFn: async (leadId: string) => {
       setContactingLeadId(leadId);
@@ -311,6 +321,24 @@ export default function RepDashboard() {
           })}
         </div>
       )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Link href="/messages">
+          <Button variant="outline" size="sm" className="relative" data-testid="btn-dashboard-messages">
+            <MessageSquare className="h-4 w-4 mr-1.5" />
+            Messages
+            {(unreadCount?.count || 0) > 0 && (
+              <Badge className="absolute -top-1.5 -right-1.5 h-5 min-w-[20px] bg-red-500 text-white text-[10px] px-1">{unreadCount!.count}</Badge>
+            )}
+          </Button>
+        </Link>
+        <Link href="/my-performance">
+          <Button variant="outline" size="sm" data-testid="btn-dashboard-performance">
+            <Target className="h-4 w-4 mr-1.5" />
+            My Performance
+          </Button>
+        </Link>
+      </div>
 
       {mySummaryLoading ? (
         <div className="grid gap-4 md:grid-cols-4">

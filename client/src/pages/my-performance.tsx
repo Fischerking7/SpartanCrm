@@ -5,8 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
-import { TrendingUp, TrendingDown, Target, Flame, Trophy, BarChart2, Zap, ArrowUp, ArrowDown } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { TrendingUp, Target, Flame, Trophy, BarChart2, Zap, ArrowUp, ArrowDown, AlertTriangle } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, Legend } from "recharts";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+interface PayPeriodTrend {
+  periodStart: string;
+  periodEnd: string;
+  grossCommission: number;
+  netPay: number;
+  deductions: number;
+  status: string;
+}
 
 interface PerformanceData {
   mtd: { sold: number; connected: number; earned: number; connectRate: number; monthOverMonthDelta: number };
@@ -19,6 +29,8 @@ interface PerformanceData {
   dailyChart: Array<{ date: string; sold: number; connected: number }>;
   currentStreak: number;
   ranking: { rank: number; total: number } | null;
+  payPeriodTrends: PayPeriodTrend[];
+  mtdChargebacks: number;
 }
 
 function MetricCard({ title, value, subtitle, icon: Icon, trend, trendLabel, className }: {
@@ -86,8 +98,6 @@ export default function MyPerformance() {
   }
 
   if (!data) return null;
-
-  const streakEmoji = data.currentStreak >= 7 ? "🔥" : data.currentStreak >= 3 ? "⚡" : "";
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
@@ -168,32 +178,36 @@ export default function MyPerformance() {
           </Card>
         )}
 
-        <Card>
-          <CardHeader className="px-3 pt-3 pb-2 md:px-6 md:pt-6 md:pb-2">
-            <CardTitle className="text-xs md:text-sm flex items-center gap-2">
-              <Flame className="h-4 w-4 text-orange-500" />
-              Streak & Ranking
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-3 pb-3 md:px-6 md:pb-4 space-y-3">
-            <div>
-              <p className="text-sm text-muted-foreground">Daily Selling Streak</p>
-              <p className="text-xl md:text-2xl font-bold">
-                {data.currentStreak} day{data.currentStreak !== 1 ? "s" : ""} {streakEmoji}
-              </p>
-            </div>
-            {data.ranking && (
-              <div>
-                <p className="text-sm text-muted-foreground">MTD Ranking</p>
-                <div className="flex items-center gap-2">
-                  <Trophy className="h-5 w-5 text-[hsl(var(--sidebar-primary))]" />
-                  <span className="text-xl md:text-2xl font-bold">#{data.ranking.rank}</span>
-                  <span className="text-sm text-muted-foreground">of {data.ranking.total} reps</span>
-                </div>
+        {data.ranking && (
+          <Card>
+            <CardHeader className="px-3 pt-3 pb-2 md:px-6 md:pt-6 md:pb-2">
+              <CardTitle className="text-xs md:text-sm flex items-center gap-2">
+                <Trophy className="h-4 w-4 text-[hsl(var(--sidebar-primary))]" />
+                MTD Ranking
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xl md:text-2xl font-bold">#{data.ranking.rank}</span>
+                <span className="text-sm text-muted-foreground">of {data.ranking.total} reps</span>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <MetricCard
+          title="MTD Chargebacks"
+          value={`$${data.mtdChargebacks.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+          icon={AlertTriangle}
+          className={data.mtdChargebacks > 0 ? "border-red-200 dark:border-red-900" : ""}
+        />
+        <MetricCard
+          title="Selling Streak"
+          value={`${data.currentStreak} day${data.currentStreak !== 1 ? "s" : ""}`}
+          icon={Flame}
+        />
       </div>
 
       <Card>
@@ -227,6 +241,73 @@ export default function MyPerformance() {
           </div>
         </CardContent>
       </Card>
+
+      {data.payPeriodTrends.length > 0 && (
+        <Card>
+          <CardHeader className="px-3 pt-3 pb-2 md:px-6 md:pt-6 md:pb-2">
+            <CardTitle className="text-xs md:text-sm flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-[hsl(var(--sidebar-primary))]" />
+              Pay Period Trends (Last {data.payPeriodTrends.length} Periods)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-4">
+            <div className={`${isMobile ? "h-48" : "h-64"} mb-4`}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data.payPeriodTrends}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="periodEnd"
+                    tick={{ fontSize: isMobile ? 9 : 12 }}
+                    tickFormatter={v => {
+                      const d = new Date(v + "T12:00:00");
+                      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                    }}
+                  />
+                  <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={v => `$${v}`} />
+                  <Tooltip
+                    labelFormatter={v => {
+                      const d = new Date(v + "T12:00:00");
+                      return `Period ending ${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+                    }}
+                    formatter={(value: number) => [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, undefined]}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="grossCommission" name="Gross" stroke="hsl(var(--sidebar-primary))" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="netPay" name="Net Pay" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="deductions" name="Deductions" stroke="#ef4444" strokeWidth={1.5} strokeDasharray="4 4" dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {!isMobile && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Period</TableHead>
+                    <TableHead className="text-right">Gross</TableHead>
+                    <TableHead className="text-right">Deductions</TableHead>
+                    <TableHead className="text-right">Net Pay</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.payPeriodTrends.map((p, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="text-sm">
+                        {new Date(p.periodStart + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })} - {new Date(p.periodEnd + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </TableCell>
+                      <TableCell className="text-right text-green-600 dark:text-green-400">${p.grossCommission.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="text-right text-red-600 dark:text-red-400">-${p.deductions.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="text-right font-semibold">${p.netPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell><Badge variant="outline" className="text-[10px]">{p.status}</Badge></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

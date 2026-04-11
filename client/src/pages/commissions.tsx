@@ -64,7 +64,7 @@ export default function Commissions() {
   const { user } = useAuth();
   const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("own");
   const [inquiryOpen, setInquiryOpen] = useState(false);
-  const [inquiryContext, setInquiryContext] = useState<{ subject: string; body: string } | null>(null);
+  const [inquiryContext, setInquiryContext] = useState<{ subject: string; body: string; entityType?: string; entityId?: string } | null>(null);
   const isExecutive = user?.role === "EXECUTIVE";
 
   const { data, isLoading } = useQuery<CommissionsData>({
@@ -411,6 +411,8 @@ export default function Commissions() {
                               setInquiryContext({
                                 subject: `Question about commission - ${comm.customerName}`,
                                 body: `I have a question about my commission for order ${comm.customerName} (${comm.dateSold}, Acct: ${comm.accountNumber}). Commission amount: ${formatCurrency(comm.total)}.`,
+                                entityType: "ORDER",
+                                entityId: String(comm.id),
                               });
                               setInquiryOpen(true);
                             }}
@@ -457,6 +459,8 @@ export default function Commissions() {
                                   setInquiryContext({
                                     subject: `Question about commission - ${comm.customerName}`,
                                     body: `I have a question about my commission for order ${comm.customerName} (${comm.dateSold}, Acct: ${comm.accountNumber}). Commission amount: ${formatCurrency(comm.total)}.`,
+                                    entityType: "ORDER",
+                                    entityId: String(comm.id),
                                   });
                                   setInquiryOpen(true);
                                 }}
@@ -561,6 +565,8 @@ export default function Commissions() {
         defaultSubject={inquiryContext?.subject || "Commission Inquiry"}
         defaultBody={inquiryContext?.body || ""}
         defaultToUserId={user?.assignedSupervisorId || undefined}
+        relatedEntityType={inquiryContext?.entityType}
+        relatedEntityId={inquiryContext?.entityId}
       />
     </div>
   );

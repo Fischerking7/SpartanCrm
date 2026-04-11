@@ -2,7 +2,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, ShoppingCart, Zap, MessageSquare } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, Zap, MessageSquare, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -38,6 +38,7 @@ export function MobileBottomNav() {
     { label: "Dashboard", icon: <LayoutDashboard className="h-5 w-5" />, path: "/" },
     { label: "Orders", icon: <ShoppingCart className="h-5 w-5" />, path: "/orders" },
     { label: "Quick Entry", icon: <Zap className="h-5 w-5" />, path: "/mobile-entry" },
+    { label: "Stats", icon: <Target className="h-5 w-5" />, path: "/my-performance" },
     { label: "Messages", icon: <MessageSquare className="h-5 w-5" />, path: "/messages", badge: unreadCount },
   ];
 
