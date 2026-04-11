@@ -22396,8 +22396,27 @@ function registerReportRoutes(app: Express, auth: any) {
       const repIds = teamReps.map(r => r.repId);
       const repUserIds = teamReps.map(r => r.id);
 
+      const [pYear, pMonth, pDay] = period.start.split("-").map(Number);
+      let prevStart: string;
+      let prevEnd: string;
+      if (pDay <= 1) {
+        const pm = pMonth - 1 <= 0 ? 12 : pMonth - 1;
+        const py = pMonth - 1 <= 0 ? pYear - 1 : pYear;
+        const lastDay = new Date(py, pm, 0).getDate();
+        prevStart = `${py}-${String(pm).padStart(2, "0")}-16`;
+        prevEnd = `${py}-${String(pm).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+      } else {
+        prevStart = `${pYear}-${String(pMonth).padStart(2, "0")}-01`;
+        prevEnd = `${pYear}-${String(pMonth).padStart(2, "0")}-15`;
+      }
+
       if (repIds.length === 0) {
-        return res.json({ reps: [], totals: { grossCommission: "0", chargebacks: "0", deductions: "0", carryForward: "0", estimatedNet: "0" } });
+        return res.json({
+          reps: [],
+          totals: { grossCommission: "0", chargebacks: "0", deductions: "0", carryForward: "0", estimatedNet: "0" },
+          period: { start: period.start, end: period.end },
+          priorPeriod: { start: prevStart, end: prevEnd },
+        });
       }
 
       const periodCommissions = await db.select({
@@ -22436,20 +22455,6 @@ function registerReportRoutes(app: Express, auth: any) {
         inArray(carryForwardBalances.userId, repUserIds),
         eq(carryForwardBalances.status, "PENDING"),
       )).groupBy(carryForwardBalances.userId);
-
-      const [pYear, pMonth, pDay] = period.start.split("-").map(Number);
-      let prevStart: string;
-      let prevEnd: string;
-      if (pDay <= 1) {
-        const pm = pMonth - 1 <= 0 ? 12 : pMonth - 1;
-        const py = pMonth - 1 <= 0 ? pYear - 1 : pYear;
-        const lastDay = new Date(py, pm, 0).getDate();
-        prevStart = `${py}-${String(pm).padStart(2, "0")}-16`;
-        prevEnd = `${py}-${String(pm).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-      } else {
-        prevStart = `${pYear}-${String(pMonth).padStart(2, "0")}-01`;
-        prevEnd = `${pYear}-${String(pMonth).padStart(2, "0")}-15`;
-      }
 
       const priorCommissions = await db.select({
         repId: salesOrders.repId,

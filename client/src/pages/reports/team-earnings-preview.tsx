@@ -118,7 +118,7 @@ export default function TeamEarningsPreview() {
           )}
         </div>
         <p className="text-xs text-muted-foreground mt-1" data-testid="text-period-range">
-          Period: {data.period.start} to {data.period.end}
+          Period: {data.period?.start ?? "—"} to {data.period?.end ?? "—"}
         </p>
       </CardHeader>
       <CardContent className="p-0 overflow-x-auto">
