@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DollarSign, TrendingUp, Users, FileText, Calendar, CalendarDays, Wifi, Smartphone, Tv, Clock, Target } from "lucide-react";
+import { DollarSign, TrendingUp, Users, FileText, Calendar, CalendarDays, Wifi, Smartphone, Tv, Clock, Target, MessageSquare } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { ComposeDialog } from "./messages";
 
 interface ServiceBreakdown {
   internet: number;
@@ -62,6 +63,7 @@ interface CommissionsData {
 export default function Commissions() {
   const { user } = useAuth();
   const [execViewMode, setExecViewMode] = useState<"own" | "team" | "global">("own");
+  const [inquiryOpen, setInquiryOpen] = useState(false);
   const isExecutive = user?.role === "EXECUTIVE";
 
   const { data, isLoading } = useQuery<CommissionsData>({
@@ -510,6 +512,27 @@ export default function Commissions() {
           </CardContent>
         </Card>
       )}
+
+      {isRep && (
+        <div className="fixed bottom-20 md:bottom-6 right-4 z-40">
+          <Button
+            onClick={() => setInquiryOpen(true)}
+            className="rounded-full shadow-lg h-12 px-4 bg-[hsl(var(--sidebar-primary))] hover:bg-[hsl(var(--sidebar-primary))]/90 text-white"
+            data-testid="btn-commission-inquiry"
+          >
+            <MessageSquare className="h-5 w-5 mr-2" />
+            Ask About Commission
+          </Button>
+        </div>
+      )}
+
+      <ComposeDialog
+        open={inquiryOpen}
+        onOpenChange={setInquiryOpen}
+        defaultCategory="COMMISSION_INQUIRY"
+        defaultSubject="Commission Inquiry"
+        defaultToUserId={user?.assignedSupervisorId || undefined}
+      />
     </div>
   );
 }

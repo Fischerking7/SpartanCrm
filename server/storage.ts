@@ -87,6 +87,7 @@ import {
   carrierProfiles, type CarrierProfile, type InsertCarrierProfile,
   carrierRepMappings, type CarrierRepMapping, type InsertCarrierRepMapping,
   carryForwardBalances, type CarryForwardBalance, type InsertCarryForwardBalance,
+  repMessages, type RepMessage, type InsertRepMessage,
 } from "@shared/schema";
 
 export const storage = {
@@ -5486,5 +5487,57 @@ export const storage = {
 
   async deleteSavedReport(id: string): Promise<void> {
     await db.delete(savedReports).where(eq(savedReports.id, id));
+  },
+
+  async getRepMessages(userId: string): Promise<RepMessage[]> {
+    return db.select().from(repMessages)
+      .where(or(eq(repMessages.fromUserId, userId), eq(repMessages.toUserId, userId)))
+      .orderBy(desc(repMessages.createdAt));
+  },
+
+  async getRepMessagesByThread(parentMessageId: string): Promise<RepMessage[]> {
+    return db.select().from(repMessages)
+      .where(or(eq(repMessages.id, parentMessageId), eq(repMessages.parentMessageId, parentMessageId)))
+      .orderBy(asc(repMessages.createdAt));
+  },
+
+  async getUnreadMessageCount(userId: string): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` })
+      .from(repMessages)
+      .where(and(eq(repMessages.toUserId, userId), eq(repMessages.isRead, false)));
+    return Number(result[0]?.count || 0);
+  },
+
+  async getTeamMessages(managerUserId: string): Promise<RepMessage[]> {
+    const teamMembers = await db.query.users.findMany({
+      where: or(
+        eq(users.assignedSupervisorId, managerUserId),
+        eq(users.assignedManagerId, managerUserId)
+      ),
+    });
+    const teamIds = teamMembers.map(m => m.id);
+    if (teamIds.length === 0) return [];
+    return db.select().from(repMessages)
+      .where(and(
+        inArray(repMessages.fromUserId, teamIds),
+        eq(repMessages.toUserId, managerUserId)
+      ))
+      .orderBy(desc(repMessages.createdAt));
+  },
+
+  async createRepMessage(data: InsertRepMessage): Promise<RepMessage> {
+    const [msg] = await db.insert(repMessages).values(data).returning();
+    return msg;
+  },
+
+  async markMessageRead(id: string): Promise<RepMessage> {
+    const [msg] = await db.update(repMessages).set({ isRead: true, readAt: new Date() })
+      .where(eq(repMessages.id, id)).returning();
+    return msg;
+  },
+
+  async markAllMessagesRead(userId: string): Promise<void> {
+    await db.update(repMessages).set({ isRead: true, readAt: new Date() })
+      .where(and(eq(repMessages.toUserId, userId), eq(repMessages.isRead, false)));
   },
 };

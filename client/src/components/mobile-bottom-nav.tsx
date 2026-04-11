@@ -1,13 +1,15 @@
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useAuth } from "@/lib/auth";
+import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { useLocation } from "wouter";
-import { LayoutDashboard, ShoppingCart, Zap, Users } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { LayoutDashboard, ShoppingCart, Zap, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
   label: string;
   icon: React.ReactNode;
   path: string;
+  badge?: number;
 }
 
 export function MobileBottomNav() {
@@ -15,15 +17,28 @@ export function MobileBottomNav() {
   const { user } = useAuth();
   const [location, setLocation] = useLocation();
 
+  const { data: unreadData } = useQuery<{ count: number }>({
+    queryKey: ["/api/messages/unread-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/messages/unread-count", { headers: getAuthHeaders() });
+      if (!res.ok) return { count: 0 };
+      return res.json();
+    },
+    enabled: !!user,
+    refetchInterval: 30000,
+  });
+
   if (!isMobile || !user) {
     return null;
   }
+
+  const unreadCount = unreadData?.count || 0;
 
   const navItems: NavItem[] = [
     { label: "Dashboard", icon: <LayoutDashboard className="h-5 w-5" />, path: "/" },
     { label: "Orders", icon: <ShoppingCart className="h-5 w-5" />, path: "/orders" },
     { label: "Quick Entry", icon: <Zap className="h-5 w-5" />, path: "/mobile-entry" },
-    { label: "Leads", icon: <Users className="h-5 w-5" />, path: "/leads" },
+    { label: "Messages", icon: <MessageSquare className="h-5 w-5" />, path: "/messages", badge: unreadCount },
   ];
 
   return (
@@ -50,10 +65,15 @@ export function MobileBottomNav() {
                 <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-[hsl(var(--sidebar-primary))]" />
               )}
               <span className={cn(
-                "transition-transform",
+                "relative transition-transform",
                 isActive ? "scale-110" : ""
               )}>
                 {item.icon}
+                {item.badge && item.badge > 0 ? (
+                  <span className="absolute -top-1 -right-2 h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold">
+                    {item.badge > 99 ? "99+" : item.badge}
+                  </span>
+                ) : null}
               </span>
               <span className={cn(
                 "text-[10px] truncate",

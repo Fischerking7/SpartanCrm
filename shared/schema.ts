@@ -2978,3 +2978,31 @@ export const insertPostInstallFollowUpSchema = createInsertSchema(postInstallFol
 });
 export type PostInstallFollowUp = typeof postInstallFollowUps.$inferSelect;
 export type InsertPostInstallFollowUp = z.infer<typeof insertPostInstallFollowUpSchema>;
+
+export const repMessageCategoryEnum = pgEnum("rep_message_category", ["COMMISSION_INQUIRY", "PAY_QUESTION", "GENERAL", "SCHEDULE", "COMPLIANCE"]);
+
+export const repMessages = pgTable("rep_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fromUserId: varchar("from_user_id").notNull().references(() => users.id),
+  toUserId: varchar("to_user_id").notNull().references(() => users.id),
+  parentMessageId: varchar("parent_message_id"),
+  category: repMessageCategoryEnum("category").notNull().default("GENERAL"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  relatedEntityType: varchar("related_entity_type", { length: 30 }),
+  relatedEntityId: varchar("related_entity_id"),
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const repMessagesRelations = relations(repMessages, ({ one }) => ({
+  fromUser: one(users, { fields: [repMessages.fromUserId], references: [users.id], relationName: "sentMessages" }),
+  toUser: one(users, { fields: [repMessages.toUserId], references: [users.id], relationName: "receivedMessages" }),
+}));
+
+export const insertRepMessageSchema = createInsertSchema(repMessages).omit({
+  id: true, createdAt: true, isRead: true, readAt: true,
+});
+export type RepMessage = typeof repMessages.$inferSelect;
+export type InsertRepMessage = z.infer<typeof insertRepMessageSchema>;

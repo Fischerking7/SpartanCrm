@@ -85,6 +85,8 @@ import PipelineForecast from "@/pages/pipeline-forecast";
 import CoachingScorecards from "@/pages/coaching-scorecards";
 import EarningsSimulator from "@/pages/earnings-simulator";
 import Referrals from "@/pages/referrals";
+import Messages from "@/pages/messages";
+import MyPerformance from "@/pages/my-performance";
 
 function Dashboard() {
   const { user } = useAuth();
@@ -150,6 +152,8 @@ const routeTitles: Record<string, string> = {
   "/coaching-scorecards": "Coaching Scorecards",
   "/earnings-simulator": "Earnings Simulator",
   "/referrals": "Referrals & Follow-Ups",
+  "/messages": "Messages",
+  "/my-performance": "My Performance",
   "/adjustments": "Adjustments",
   "/change-password": "Settings",
   "/my-credentials": "My Credentials",
@@ -413,6 +417,8 @@ function Router() {
         <Route path="/change-password" component={ChangePassword} />
         <Route path="/mobile-entry" component={MobileOrderEntry} />
         <Route path="/my-disputes" component={MyDisputes} />
+        <Route path="/messages" component={Messages} />
+        <Route path="/my-performance" component={MyPerformance} />
         <Route path="/onboarding" component={Onboarding} />
 
         {["REP", "MDU", "LEAD"].includes(user.role) && (

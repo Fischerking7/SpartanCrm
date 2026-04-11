@@ -26382,4 +26382,240 @@ function registerReportRoutes(app: Express, auth: any) {
 
     }
   });
+
+  // ========== Rep Messages ==========
+  app.get("/api/messages", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const messages = await storage.getRepMessages(user.id);
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, { name: u.name, role: u.role, repId: u.repId }]));
+
+      const enriched = messages.map(m => ({
+        ...m,
+        fromUserName: userMap.get(m.fromUserId)?.name || "Unknown",
+        fromUserRole: userMap.get(m.fromUserId)?.role || "REP",
+        toUserName: userMap.get(m.toUserId)?.name || "Unknown",
+        toUserRole: userMap.get(m.toUserId)?.role || "REP",
+      }));
+      res.json(enriched);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed to fetch messages";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/messages/unread-count", auth, async (req: AuthRequest, res) => {
+    try {
+      const count = await storage.getUnreadMessageCount(req.user!.id);
+      res.json({ count });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed to fetch unread count";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/messages/thread/:parentId", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const thread = await storage.getRepMessagesByThread(req.params.parentId);
+      const filtered = thread.filter(m => m.fromUserId === user.id || m.toUserId === user.id);
+      if (filtered.length === 0) return res.status(404).json({ message: "Thread not found" });
+
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, { name: u.name, role: u.role }]));
+      const enriched = filtered.map(m => ({
+        ...m,
+        fromUserName: userMap.get(m.fromUserId)?.name || "Unknown",
+        toUserName: userMap.get(m.toUserId)?.name || "Unknown",
+      }));
+      res.json(enriched);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed to fetch thread";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/messages", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const { toUserId, subject, body, category, parentMessageId, relatedEntityType, relatedEntityId } = req.body;
+      if (!toUserId || !subject || !body) {
+        return res.status(400).json({ message: "toUserId, subject, and body are required" });
+      }
+      const recipient = await storage.getUserById(toUserId);
+      if (!recipient) return res.status(404).json({ message: "Recipient not found" });
+
+      const msg = await storage.createRepMessage({
+        fromUserId: user.id,
+        toUserId,
+        subject,
+        body,
+        category: category || "GENERAL",
+        parentMessageId: parentMessageId || null,
+        relatedEntityType: relatedEntityType || null,
+        relatedEntityId: relatedEntityId || null,
+      });
+      res.json(msg);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed to send message";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/messages/recipients", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const allUsers = await storage.getActiveUsers();
+      const recipients = allUsers
+        .filter(u => u.id !== user.id)
+        .map(u => ({ id: u.id, name: u.name, role: u.role, repId: u.repId }));
+      res.json(recipients);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed to fetch recipients";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.patch("/api/messages/:id/read", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const allMsgs = await storage.getRepMessages(user.id);
+      const target = allMsgs.find(m => m.id === req.params.id && m.toUserId === user.id);
+      if (!target) return res.status(404).json({ message: "Message not found" });
+      const msg = await storage.markMessageRead(req.params.id);
+      res.json(msg);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed to mark as read";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/messages/mark-all-read", auth, async (req: AuthRequest, res) => {
+    try {
+      await storage.markAllMessagesRead(req.user!.id);
+      res.json({ success: true });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed to mark all as read";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/messages/team-inbox", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (!["LEAD", "MANAGER", "DIRECTOR", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(user.role)) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+      const messages = await storage.getTeamMessages(user.id);
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, { name: u.name, role: u.role, repId: u.repId }]));
+
+      const enriched = messages.map(m => ({
+        ...m,
+        fromUserName: userMap.get(m.fromUserId)?.name || "Unknown",
+        fromUserRole: userMap.get(m.fromUserId)?.role || "REP",
+        fromRepId: userMap.get(m.fromUserId)?.repId || "",
+        toUserName: userMap.get(m.toUserId)?.name || "Unknown",
+      }));
+      res.json(enriched);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed to fetch team inbox";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  // ========== My Performance ==========
+  app.get("/api/my/performance", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const allOrders = await storage.getOrders();
+      const myOrders = allOrders.filter(o => o.repId === user.repId);
+
+      const now = new Date();
+      const nyOffset = -5 * 60;
+      const nyNow = new Date(now.getTime() + (now.getTimezoneOffset() + nyOffset) * 60000);
+      const monthStart = new Date(nyNow.getFullYear(), nyNow.getMonth(), 1);
+      const prevMonthStart = new Date(nyNow.getFullYear(), nyNow.getMonth() - 1, 1);
+      const prevMonthEnd = new Date(nyNow.getFullYear(), nyNow.getMonth(), 0);
+      const dayOfWeek = nyNow.getDay();
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const weekStart = new Date(nyNow);
+      weekStart.setDate(nyNow.getDate() - daysFromMonday);
+      weekStart.setHours(0, 0, 0, 0);
+
+      const thisMonthOrders = myOrders.filter(o => new Date(o.dateSold) >= monthStart);
+      const prevMonthOrders = myOrders.filter(o => {
+        const d = new Date(o.dateSold);
+        return d >= prevMonthStart && d <= prevMonthEnd;
+      });
+      const thisWeekOrders = myOrders.filter(o => new Date(o.dateSold) >= weekStart);
+
+      const completedThisMonth = thisMonthOrders.filter(o => o.jobStatus === "COMPLETED");
+      const completedPrevMonth = prevMonthOrders.filter(o => o.jobStatus === "COMPLETED");
+      const completedThisWeek = thisWeekOrders.filter(o => o.jobStatus === "COMPLETED");
+
+      const mtdEarned = completedThisMonth.reduce((s, o) => s + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const prevMonthEarned = completedPrevMonth.reduce((s, o) => s + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+      const weeklyEarned = completedThisWeek.reduce((s, o) => s + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0);
+
+      const goals = await db.query.salesGoals.findMany({
+        where: and(eq(salesGoals.userId, user.id), eq(salesGoals.active, true)),
+      });
+      const monthlyGoal = goals.find(g => g.periodType === "MONTHLY");
+      const weeklyGoal = goals.find(g => g.periodType === "WEEKLY");
+
+      const mtdSold = thisMonthOrders.length;
+      const mtdConnected = completedThisMonth.length;
+      const connectRate = mtdSold > 0 ? Math.round((mtdConnected / mtdSold) * 100) : 0;
+      const prevMonthConnected = completedPrevMonth.length;
+      const monthOverMonthDelta = prevMonthConnected > 0 ? Math.round(((mtdConnected - prevMonthConnected) / prevMonthConnected) * 100) : 0;
+
+      const last7Days = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(nyNow);
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().slice(0, 10);
+        const daySold = myOrders.filter(o => o.dateSold === dateStr).length;
+        const dayConnected = myOrders.filter(o => o.dateSold === dateStr && o.jobStatus === "COMPLETED").length;
+        last7Days.push({ date: dateStr, sold: daySold, connected: dayConnected });
+      }
+
+      let currentStreak = 0;
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(nyNow);
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().slice(0, 10);
+        const daySold = myOrders.filter(o => o.dateSold === dateStr).length;
+        if (daySold > 0) currentStreak++;
+        else break;
+      }
+
+      let ranking = null;
+      const activeReps = await storage.getActiveUsers();
+      const reps = activeReps.filter(u => u.role === "REP");
+      const repSales = reps.map(r => ({
+        repId: r.repId,
+        count: allOrders.filter(o => o.repId === r.repId && o.jobStatus === "COMPLETED" && new Date(o.dateSold) >= monthStart).length,
+      })).sort((a, b) => b.count - a.count);
+      const myRank = repSales.findIndex(r => r.repId === user.repId) + 1;
+      ranking = { rank: myRank, total: reps.length };
+
+      res.json({
+        mtd: { sold: mtdSold, connected: mtdConnected, earned: mtdEarned, connectRate, monthOverMonthDelta },
+        prevMonth: { connected: prevMonthConnected, earned: prevMonthEarned },
+        weekly: { sold: thisWeekOrders.length, connected: completedThisWeek.length, earned: weeklyEarned },
+        goals: {
+          monthly: monthlyGoal ? { target: monthlyGoal.targetValue, current: mtdConnected, percentage: monthlyGoal.targetValue > 0 ? Math.round((mtdConnected / monthlyGoal.targetValue) * 100) : 0 } : null,
+          weekly: weeklyGoal ? { target: weeklyGoal.targetValue, current: completedThisWeek.length, percentage: weeklyGoal.targetValue > 0 ? Math.round((completedThisWeek.length / weeklyGoal.targetValue) * 100) : 0 } : null,
+        },
+        dailyChart: last7Days,
+        currentStreak,
+        ranking,
+      });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed to fetch performance";
+      res.status(500).json({ message: errMsg });
+    }
+  });
 }

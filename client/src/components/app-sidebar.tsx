@@ -64,6 +64,8 @@ import {
   GitBranch,
   Award,
   Phone,
+  MessageSquare,
+  BarChart2,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -149,6 +151,8 @@ const MENU = {
   coachingScorecards: { title: "Coaching Scorecards", url: "/coaching-scorecards", icon: Award },
   earningsSimulator: { title: "Earnings Simulator", url: "/earnings-simulator", icon: Calculator },
   referrals: { title: "Referrals & Follow-Ups", url: "/referrals", icon: Phone },
+  messages: { title: "Messages", url: "/messages", icon: MessageSquare },
+  myPerformance: { title: "My Performance", url: "/my-performance", icon: BarChart2 },
 } as const;
 
 // ============ COMPOSED MENU GROUPS ============
@@ -159,6 +163,7 @@ const personalItems: MenuItem[] = [
   MENU.forecast,
   MENU.myPay,
   MENU.myDisputes,
+  MENU.messages,
   MENU.credentials,
   MENU.onboarding,
 ];
@@ -167,8 +172,10 @@ const repPersonalItems: MenuItem[] = [
   MENU.commissions,
   MENU.forecast,
   MENU.earningsSimulator,
+  MENU.myPerformance,
   MENU.myPay,
   MENU.myDisputes,
+  MENU.messages,
   MENU.credentials,
   MENU.onboarding,
 ];

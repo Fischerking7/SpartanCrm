@@ -33,6 +33,7 @@ Preferred communication style: Simple, everyday language.
 - **AI Screenshot-to-Order Capture**: Mobile-first feature using Claude AI vision to extract order details from screenshots and pre-populate forms, with images stored securely.
 - **Negative Balance Carry-Forward**: Floors negative net pay to $0 and carries forward the outstanding balance to future pay periods.
 - **Rolling Reserve System**: Implements a comprehensive chargeback and rolling reserve policy with withholding, chargeback deductions, equipment recovery, separation handling, and maturity-based release.
+- **Rep Self-Service Portal**: In-app messaging system (`rep_messages` table) for reps to communicate with supervisors/managers, commission inquiry button on commissions page, My Performance page with MTD/weekly metrics, goals progress, daily chart, streak tracking, and rankings. Mobile bottom nav with unread message badge. Manager team inbox for viewing messages from direct reports.
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
