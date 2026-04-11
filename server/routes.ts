@@ -17351,8 +17351,6 @@ Rules:
         let approvedCount = 0;
         const approvedOrders: any[] = [];
         const statusUpdatedOrders: any[] = [];
-        const pendingWoRecords: Array<{ workOrderNumber: string; carrierProfileId: string; syncRunId: string; matchedOrderId: string; serviceLineType?: string; woStatus?: string; rowHash?: string }> = [];
-        const changedWoUpdates: Array<{ processedWoId: string; syncRunId: string; matchedOrderId: string; woStatus: string; rowHash: string }> = [];
 
         const speedTierMap: Record<string, string> = carrierCtx
           ? carrierCtx.speedTierMap
@@ -17420,9 +17418,13 @@ Rules:
           carrierInsights.carrierStats.cancelRate = Math.round((carrierInsights.carrierStats.canceledCount / totalWithStatus) * 100);
         }
 
+        const MATCH_CHUNK_SIZE = 50;
+        let matchesProcessedCount = 0;
+
         if (matchResult.matches.length > 0) {
           const now = new Date();
           for (const match of matchResult.matches) {
+            matchesProcessedCount++;
             const woStatus = normalizeWoStatus(match.sheetData || {}, carrierCtx);
 
             const order = await storage.getOrderById(match.orderId);
@@ -17606,20 +17608,19 @@ Rules:
               }
             }
 
-            if (woNumber) {
+            if (woNumber && !isDryRun) {
               const currentWoStatus = normalizeWoStatus(match.sheetData || {}, carrierCtx);
               const currentRowHash = computeRowHash(match.sheetData || {}, carrierCtx);
               const prevEntry = processedWoMap.get(woNumber.toUpperCase());
               if (prevEntry?.processedWoId) {
-                changedWoUpdates.push({
-                  processedWoId: prevEntry.processedWoId,
+                await storage.updateProcessedWorkOrder(prevEntry.processedWoId, {
                   syncRunId,
                   matchedOrderId: match.orderId,
                   woStatus: currentWoStatus,
                   rowHash: currentRowHash,
                 });
               } else {
-                pendingWoRecords.push({
+                await storage.createProcessedWorkOrder({
                   workOrderNumber: woNumber,
                   carrierProfileId: effectiveProfileId,
                   syncRunId: syncRunId,
@@ -17697,22 +17698,17 @@ Rules:
               afterJson: JSON.stringify(updatedOrder),
               userId: user.id,
             });
+
+            if (!isDryRun && matchesProcessedCount % MATCH_CHUNK_SIZE === 0) {
+              await storage.updateInstallSyncRun(syncRunId, {
+                matchedCount: matchesProcessedCount,
+                approvedCount,
+              });
+            }
           }
         }
 
-        if (!isDryRun) {
-          for (const woRec of pendingWoRecords) {
-            await storage.createProcessedWorkOrder(woRec);
-          }
-          for (const woUpd of changedWoUpdates) {
-            await storage.updateProcessedWorkOrder(woUpd.processedWoId, {
-              syncRunId: woUpd.syncRunId,
-              matchedOrderId: woUpd.matchedOrderId,
-              woStatus: woUpd.woStatus,
-              rowHash: woUpd.rowHash,
-            });
-          }
-        }
+        
 
         let emailSent = false;
         if (!isDryRun && emailTo && approvedOrders.length > 0) {

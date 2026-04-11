@@ -1,0 +1,1 @@
+ALTER TABLE install_sync_runs ADD COLUMN IF NOT EXISTS processed_rows INTEGER NOT NULL DEFAULT 0;
