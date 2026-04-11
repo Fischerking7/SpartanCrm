@@ -5437,21 +5437,43 @@ Rules:
         const user = userMap.get(stmt.userId);
         const repLabel = user ? `${user.name} (${user.repId})` : stmt.userId.slice(0, 8);
 
+        const NEGATIVE_THRESHOLD_CENTS = -10000;
         if (netPay < 0) {
-          checks.push({ id: `negative-${stmt.id}`, label: `Negative net pay for ${repLabel}`, severity: "WARNING", detail: `Net pay: $${netPay.toFixed(2)}. This will be floored to $0 with carry-forward.`, category: "Pay Amounts" });
+          const severity = Math.round(netPay * 100) < NEGATIVE_THRESHOLD_CENTS ? "BLOCKING" : "WARNING";
+          checks.push({ id: `negative-${stmt.id}`, label: `Negative net pay for ${repLabel}`, severity, detail: `Net pay: $${netPay.toFixed(2)}${severity === "BLOCKING" ? ". Exceeds -$100.00 threshold — review before proceeding." : ". This will be floored to $0 with carry-forward."}`, category: "Pay Amounts" });
         }
 
         const stmtLineItems = await storage.getPayStatementLineItems(stmt.id);
         const hasCarryForwardCredit = stmtLineItems.some(li => li.category === "CARRY_FORWARD_CREDIT");
         if (hasCarryForwardCredit) {
-          checks.push({ id: `cf-${stmt.id}`, label: `Carry-forward balance for ${repLabel}`, severity: "WARNING", detail: "Negative balance will be carried to next pay period.", category: "Carry-Forward" });
+          checks.push({ id: `cf-credit-${stmt.id}`, label: `Carry-forward balance created for ${repLabel}`, severity: "WARNING", detail: "Negative balance will be carried to next pay period.", category: "Carry-Forward" });
+        }
+        const hasCarryForwardDeduction = stmtLineItems.some(li => li.category === "CARRY_FORWARD_DEDUCTION");
+        if (hasCarryForwardDeduction) {
+          checks.push({ id: `cf-recovery-${stmt.id}`, label: `Prior carry-forward being recovered from ${repLabel}`, severity: "WARNING", detail: "Outstanding balance from a prior period is being deducted this cycle.", category: "Carry-Forward" });
         }
       }
 
       const chargebacks = await storage.getChargebacksByPayRun(req.params.id);
-      if (chargebacks.length > 0) {
-        const totalCb = chargebacks.reduce((sum, cb) => sum + Math.round(parseFloat(cb.amount || "0") * 100), 0);
-        checks.push({ id: "chargebacks", label: `${chargebacks.length} chargeback(s) totaling $${(totalCb / 100).toFixed(2)}`, severity: "WARNING", detail: `Chargebacks will be deducted from rep pay. Review before finalizing.`, category: "Chargebacks" });
+      const periodEnd = payRun.weekEndingDate;
+      const periodEndDate = new Date(periodEnd + "T23:59:59Z");
+      const inPeriodCbs: typeof chargebacks = [];
+      const lateCbs: typeof chargebacks = [];
+      for (const cb of chargebacks) {
+        const cbDate = cb.createdAt ? new Date(cb.createdAt) : null;
+        if (cbDate && cbDate > periodEndDate) {
+          lateCbs.push(cb);
+        } else {
+          inPeriodCbs.push(cb);
+        }
+      }
+      if (inPeriodCbs.length > 0) {
+        const totalCb = inPeriodCbs.reduce((sum, cb) => sum + Math.round(parseFloat(cb.amount || "0") * 100), 0);
+        checks.push({ id: "chargebacks", label: `${inPeriodCbs.length} chargeback(s) totaling $${(totalCb / 100).toFixed(2)}`, severity: "WARNING", detail: `Chargebacks within the pay period will be deducted from rep pay.`, category: "Chargebacks" });
+      }
+      if (lateCbs.length > 0) {
+        const totalLateCb = lateCbs.reduce((sum, cb) => sum + Math.round(parseFloat(cb.amount || "0") * 100), 0);
+        checks.push({ id: "late-chargebacks", label: `${lateCbs.length} chargeback(s) recorded after period cutoff ($${(totalLateCb / 100).toFixed(2)})`, severity: "WARNING", detail: `These chargebacks were recorded after ${periodEnd}. Verify they should be included in this pay run.`, category: "Chargebacks" });
       }
 
       const repIds = [...new Set(orders.map(o => o.repId))];
@@ -5471,7 +5493,7 @@ Rules:
       const undistributed = pendingPoolEntries.filter(e => !distributedPoolIds.has(e.id) && e.status === "PENDING");
       if (undistributed.length > 0) {
         const undistTotal = undistributed.reduce((sum, e) => sum + Math.round(parseFloat(e.deductionAmount || "0") * 100), 0);
-        checks.push({ id: "undistributed-overrides", label: `${undistributed.length} undistributed override pool entries ($${(undistTotal / 100).toFixed(2)})`, severity: "WARNING", detail: "Override deductions collected but not yet distributed to managers/leads.", category: "Overrides" });
+        checks.push({ id: "undistributed-overrides", label: `${undistributed.length} undistributed override pool entries ($${(undistTotal / 100).toFixed(2)})`, severity: "BLOCKING", detail: "Override deductions collected but not yet distributed to managers/leads. Distribute overrides before finalizing.", category: "Overrides" });
       }
 
       const stmtUserIds = new Set(statements.map(s => s.userId));

@@ -1080,7 +1080,7 @@ export default function PayRuns() {
                 data-testid={`button-finalize-${row.id}`}
               >
                 <ClipboardCheck className="h-4 w-4 mr-1" />
-                {preValidationLoading && preValidationPayRunId === row.id ? "Checking..." : "Finalize"}
+                {preValidationLoading && preValidationPayRunId === row.id ? "Checking..." : "Pre-Run Validation"}
               </Button>
               <Button
                 size="sm"
