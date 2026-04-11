@@ -899,7 +899,7 @@ export default function Reports() {
                         <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Connected Dollars</p>
                         <p className="text-3xl font-bold font-mono mt-2">${summary?.connectedDollars || "0.00"}</p>
                         <span className="text-xs text-muted-foreground">
-                          Commission from completed orders
+                          Commission from connected orders
                         </span>
                       </div>
                       <div className="p-2 rounded-md bg-green-500/10">
@@ -919,7 +919,7 @@ export default function Reports() {
                   isCurrency={false}
                 />
                 <StatsCard
-                  title="Completed Orders"
+                  title="Connected Orders"
                   value={summary?.completedOrders || 0}
                   icon={CheckCircle}
                   testId="stat-completed-orders"
@@ -2146,7 +2146,7 @@ function EmailReportsPanel() {
             Daily Install Report
           </CardTitle>
           <CardDescription>
-            Sends the current month's installation summary grouped by status (Completed, Cancelled, Pending) with rep details, provider, service, and order type.
+            Sends the current month's installation summary grouped by status (Connected, Cancelled, Pending) with rep details, provider, service, and order type.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -627,7 +627,7 @@ export default function MyPayHistory() {
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-xl md:text-2xl font-semibold" data-testid="text-page-title">My Pay History</h1>
+        <h1 className="text-xl md:text-2xl font-semibold" data-testid="text-page-title">Pay History</h1>
         <p className="text-muted-foreground">View your pay statements and year-to-date earnings</p>
       </div>
 

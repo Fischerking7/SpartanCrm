@@ -140,7 +140,7 @@ export function QuotaProgress() {
               </div>
               <div>
                 <div className="font-semibold">{data?.actual.connectsCount || 0}</div>
-                <div className="text-xs text-muted-foreground">Connects</div>
+                <div className="text-xs text-muted-foreground">Connected</div>
               </div>
               <div>
                 <div className="font-semibold">${(data?.actual.earnedDollars || 0).toFixed(0)}</div>
