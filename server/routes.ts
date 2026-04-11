@@ -22499,6 +22499,7 @@ function registerReportRoutes(app: Express, auth: any) {
         installDate: salesOrders.installDate,
         isDuplicateFlag: salesOrders.isDuplicateFlag,
         chargebackRiskScore: salesOrders.chargebackRiskScore,
+        chargebackRiskFactors: salesOrders.chargebackRiskFactors,
         dateSold: salesOrders.dateSold,
         invoiceNumber: salesOrders.invoiceNumber,
       }).from(salesOrders)
@@ -22558,9 +22559,7 @@ function registerReportRoutes(app: Express, auth: any) {
 
       for (const order of orders) {
         const repId = order.repId!;
-        if (!repMap.has(repId)) {
-          repMap.set(repId, { total: 0, clean: 0, issueCounts: {}, orderIssues: [] });
-        }
+        if (!repMap.has(repId)) continue;
         const rep = repMap.get(repId)!;
         rep.total++;
 
@@ -22572,7 +22571,20 @@ function registerReportRoutes(app: Express, auth: any) {
         if (!order.customerAddress || order.customerAddress.trim() === "") foundIssues.push("Missing address");
         if (!order.installDate) foundIssues.push("Missing install date");
         if (order.isDuplicateFlag) foundIssues.push("Flagged duplicate");
-        if (order.chargebackRiskScore != null && order.chargebackRiskScore >= 70) foundIssues.push("High chargeback risk");
+        if (order.chargebackRiskScore != null && order.chargebackRiskScore >= 70) {
+          foundIssues.push("High chargeback risk");
+          if (order.chargebackRiskFactors) {
+            try {
+              const factors = JSON.parse(order.chargebackRiskFactors);
+              if (Array.isArray(factors)) {
+                for (const f of factors) {
+                  const label = typeof f === "string" ? f : (f.factor || f.name || f.label || "");
+                  if (label) foundIssues.push(`Risk: ${label}`);
+                }
+              }
+            } catch {}
+          }
+        }
 
         const orderExcs = exceptionsByOrder.get(order.id);
         if (orderExcs && orderExcs.length > 0) {
