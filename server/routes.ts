@@ -22483,6 +22483,143 @@ function registerReportRoutes(app: Express, auth: any) {
     }
   });
 
+  app.get("/api/admin/order-quality-scorecard", auth, requireRoles("OPERATIONS", "ADMIN", "EXECUTIVE", "DIRECTOR"), async (req: AuthRequest, res) => {
+    try {
+      const startDate = (req.query.startDate as string) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
+      const endDate = (req.query.endDate as string) || new Date().toISOString().split("T")[0];
+
+      const orders = await db.select({
+        id: salesOrders.id,
+        repId: salesOrders.repId,
+        customerName: salesOrders.customerName,
+        customerPhone: salesOrders.customerPhone,
+        customerEmail: salesOrders.customerEmail,
+        customerAddress: salesOrders.customerAddress,
+        accountNumber: salesOrders.accountNumber,
+        installDate: salesOrders.installDate,
+        isDuplicateFlag: salesOrders.isDuplicateFlag,
+        chargebackRiskScore: salesOrders.chargebackRiskScore,
+        dateSold: salesOrders.dateSold,
+        invoiceNumber: salesOrders.invoiceNumber,
+      }).from(salesOrders)
+        .where(and(
+          gte(salesOrders.dateSold, startDate),
+          lte(salesOrders.dateSold, endDate),
+          isNull(salesOrders.deletedAt),
+          isNotNull(salesOrders.repId),
+        ))
+        .orderBy(salesOrders.repId);
+
+      const exceptionRows = await db.select({
+        salesOrderId: orderExceptions.salesOrderId,
+        reason: orderExceptions.reason,
+      }).from(orderExceptions)
+        .innerJoin(salesOrders, eq(orderExceptions.salesOrderId, salesOrders.id))
+        .where(and(
+          gte(salesOrders.dateSold, startDate),
+          lte(salesOrders.dateSold, endDate),
+          isNull(salesOrders.deletedAt),
+        ));
+
+      const exceptionsByOrder = new Map<string, string[]>();
+      for (const ex of exceptionRows) {
+        const arr = exceptionsByOrder.get(ex.salesOrderId) || [];
+        arr.push(ex.reason);
+        exceptionsByOrder.set(ex.salesOrderId, arr);
+      }
+
+      const activeUsers = await db.select({
+        repId: users.repId,
+        name: users.name,
+      }).from(users).where(and(eq(users.status, "active"), isNotNull(users.repId)));
+
+      const userNameMap = new Map<string, string>();
+      for (const u of activeUsers) {
+        if (u.repId) userNameMap.set(u.repId, u.name);
+      }
+
+      interface RepIssue { orderId: string; invoiceNumber: string | null; customerName: string; issue: string; }
+      interface RepScore {
+        repId: string;
+        repName: string;
+        totalOrders: number;
+        cleanOrders: number;
+        issues: { category: string; count: number }[];
+        orderIssues: RepIssue[];
+      }
+
+      const repMap = new Map<string, { total: number; clean: number; issueCounts: Record<string, number>; orderIssues: RepIssue[] }>();
+
+      for (const order of orders) {
+        const repId = order.repId!;
+        if (!repMap.has(repId)) {
+          repMap.set(repId, { total: 0, clean: 0, issueCounts: {}, orderIssues: [] });
+        }
+        const rep = repMap.get(repId)!;
+        rep.total++;
+
+        const foundIssues: string[] = [];
+
+        if (!order.accountNumber || order.accountNumber.trim() === "") foundIssues.push("Missing account #");
+        if (!order.customerPhone || order.customerPhone.trim() === "") foundIssues.push("Missing phone");
+        if (!order.customerEmail || order.customerEmail.trim() === "") foundIssues.push("Missing email");
+        if (!order.customerAddress || order.customerAddress.trim() === "") foundIssues.push("Missing address");
+        if (!order.installDate) foundIssues.push("Missing install date");
+        if (order.isDuplicateFlag) foundIssues.push("Flagged duplicate");
+        if (order.chargebackRiskScore != null && order.chargebackRiskScore >= 70) foundIssues.push("High chargeback risk");
+
+        const orderExcs = exceptionsByOrder.get(order.id);
+        if (orderExcs && orderExcs.length > 0) {
+          for (const reason of orderExcs) {
+            foundIssues.push(`Exception: ${reason}`);
+          }
+        }
+
+        if (foundIssues.length === 0) {
+          rep.clean++;
+        } else {
+          for (const issue of foundIssues) {
+            rep.issueCounts[issue] = (rep.issueCounts[issue] || 0) + 1;
+            rep.orderIssues.push({
+              orderId: order.id,
+              invoiceNumber: order.invoiceNumber,
+              customerName: order.customerName,
+              issue,
+            });
+          }
+        }
+      }
+
+      const scorecard: RepScore[] = [];
+      for (const [repId, data] of repMap) {
+        const sortedIssues = Object.entries(data.issueCounts)
+          .map(([category, count]) => ({ category, count }))
+          .sort((a, b) => b.count - a.count);
+
+        scorecard.push({
+          repId,
+          repName: userNameMap.get(repId) || repId,
+          totalOrders: data.total,
+          cleanOrders: data.clean,
+          issues: sortedIssues,
+          orderIssues: data.orderIssues,
+        });
+      }
+
+      scorecard.sort((a, b) => {
+        const rateA = a.totalOrders > 0 ? a.cleanOrders / a.totalOrders : 1;
+        const rateB = b.totalOrders > 0 ? b.cleanOrders / b.totalOrders : 1;
+        return rateA - rateB;
+      });
+
+      res.json({ scorecard, startDate, endDate });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error("Order quality scorecard error:", message);
+      res.status(500).json({ message });
+    }
+  });
+
   app.get("/api/comp-plan/rates", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "ACCOUNTING"), async (_req: AuthRequest, res) => {
     try {
       const rates = await storage.getCompPlanRates();
