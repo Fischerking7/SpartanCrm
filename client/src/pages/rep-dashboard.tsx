@@ -482,9 +482,15 @@ export default function RepDashboard() {
                       <span className="font-medium text-sm truncate">{lead.customerName || "Unknown"}</span>
                       <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4" data-testid={`badge-overdue-${lead.id}`}>Overdue</Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {lead.followUpNotes || `Disposition: ${lead.disposition}`}
+                    <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-disposition-${lead.id}`}>
+                      {lead.disposition && lead.disposition !== "NONE" ? lead.disposition.replace(/_/g, " ") : "No disposition"}
+                      {lead.contactAttempts > 0 && ` · ${lead.contactAttempts} attempt${lead.contactAttempts !== 1 ? "s" : ""}`}
                     </p>
+                    {lead.followUpNotes && (
+                      <p className="text-xs text-muted-foreground/80 truncate mt-0.5 italic" data-testid={`text-notes-${lead.id}`}>
+                        {lead.followUpNotes}
+                      </p>
+                    )}
                     {lead.customerPhone && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                         <Phone className="h-3 w-3" />{lead.customerPhone}
@@ -520,9 +526,15 @@ export default function RepDashboard() {
                       <span className="font-medium text-sm truncate">{lead.customerName || "Unknown"}</span>
                       <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300" data-testid={`badge-today-${lead.id}`}>Today</Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {lead.followUpNotes || `Disposition: ${lead.disposition}`}
+                    <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-disposition-${lead.id}`}>
+                      {lead.disposition && lead.disposition !== "NONE" ? lead.disposition.replace(/_/g, " ") : "No disposition"}
+                      {lead.contactAttempts > 0 && ` · ${lead.contactAttempts} attempt${lead.contactAttempts !== 1 ? "s" : ""}`}
                     </p>
+                    {lead.followUpNotes && (
+                      <p className="text-xs text-muted-foreground/80 truncate mt-0.5 italic" data-testid={`text-notes-${lead.id}`}>
+                        {lead.followUpNotes}
+                      </p>
+                    )}
                     {lead.customerPhone && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                         <Phone className="h-3 w-3" />{lead.customerPhone}

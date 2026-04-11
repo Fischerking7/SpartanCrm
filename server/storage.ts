@@ -2779,6 +2779,7 @@ export const storage = {
     const updates: any = {
       lastContactedAt: new Date(),
       contactAttempts: (existingLead.contactAttempts || 0) + 1,
+      scheduledFollowUp: null,
       updatedAt: new Date(),
     };
     
