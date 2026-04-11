@@ -1979,9 +1979,9 @@ export default function PayRuns() {
               {preValidationData.checks.length > 0 && preValidationData.blockingCount === 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Acknowledgment Progress</span>
+                    <span className="text-muted-foreground">Required Acknowledgments</span>
                     <span className="font-medium" data-testid="text-prevalidation-progress">
-                      {acknowledgedChecks.size} / {preValidationData.warningCount} warnings acknowledged
+                      {acknowledgedChecks.size} of {preValidationData.warningCount} checks acknowledged
                     </span>
                   </div>
                   <div className="w-full bg-muted rounded-full h-2">
