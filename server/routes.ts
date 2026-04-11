@@ -22488,6 +22488,14 @@ function registerReportRoutes(app: Express, auth: any) {
       const startDate = (req.query.startDate as string) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
       const endDate = (req.query.endDate as string) || new Date().toISOString().split("T")[0];
 
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+        return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
+      }
+      if (startDate > endDate) {
+        return res.status(400).json({ message: "startDate must not be after endDate." });
+      }
+
       const orders = await db.select({
         id: salesOrders.id,
         repId: salesOrders.repId,

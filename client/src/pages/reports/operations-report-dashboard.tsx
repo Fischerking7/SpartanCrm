@@ -134,7 +134,7 @@ function OrderQualityScorecard() {
           </div>
         ) : filteredScorecard.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-scorecard-empty">
-            No orders found for this period
+            {searchTerm ? `No reps matching "${searchTerm}"` : "No active reps found for this period"}
           </p>
         ) : (
           <div className="border rounded-md overflow-hidden">
