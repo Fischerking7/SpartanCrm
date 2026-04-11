@@ -466,11 +466,11 @@ export default function Reports() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-semibold">Production Results</h1>
+            <h1 className="text-xl md:text-2xl font-semibold">Production Results</h1>
             {production?.scopeInfo && (
               <Badge variant="secondary" className="flex items-center gap-1" data-testid="badge-scope">
                 <Users className="h-3 w-3" />
@@ -511,7 +511,7 @@ export default function Reports() {
               </Button>
             </div>
           )}
-          <Button variant="outline" onClick={handleExport} data-testid="button-export-report">
+          <Button variant="outline" onClick={handleExport} className="hidden md:flex" data-testid="button-export-report">
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>

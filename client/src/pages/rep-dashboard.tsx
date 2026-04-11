@@ -212,15 +212,15 @@ export default function RepDashboard() {
   const alerts = mySummary?.alerts || [];
 
   return (
-    <div className="p-6 space-y-8">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-8">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-xl md:text-2xl font-semibold">Dashboard</h1>
+          <p className="text-sm md:text-base text-muted-foreground">
             {mySummary?.greeting ? `${mySummary.greeting}, ${user?.name}` : `Welcome back, ${user?.name}`}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="hidden md:flex items-center gap-2 flex-wrap">
           <Button variant="outline" data-testid="button-export-orders">
             <Download className="h-4 w-4 mr-2" />
             Export Orders
@@ -268,81 +268,81 @@ export default function RepDashboard() {
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 md:gap-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-              <CardTitle className="text-sm font-medium">MTD Earned</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-500" />
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+              <CardTitle className="text-xs md:text-sm font-medium">MTD Earned</CardTitle>
+              <TrendingUp className="h-4 w-4 text-green-500 shrink-0" />
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-dashboard-mtd-earned">
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+              <p className="text-lg md:text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-dashboard-mtd-earned">
                 {formatCurrency(currentPeriod?.earnedAmount || 0)}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">
                 {currentPeriod?.soldCount ?? 0} sold · {currentPeriod?.connectedCount ?? 0} connected
               </p>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Approval</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-500" />
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+              <CardTitle className="text-xs md:text-sm font-medium">Pending</CardTitle>
+              <Clock className="h-4 w-4 text-yellow-500 shrink-0" />
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400" data-testid="text-dashboard-pending-amount">
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+              <p className="text-lg md:text-2xl font-bold text-yellow-600 dark:text-yellow-400" data-testid="text-dashboard-pending-amount">
                 {formatCurrency(currentPeriod?.pendingAmount || 0)}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">
                 {currentPeriod?.pendingCount ?? 0} orders pending
               </p>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-              <CardTitle className="text-sm font-medium">Next Payment</CardTitle>
-              <Calendar className="h-4 w-4 text-primary" />
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+              <CardTitle className="text-xs md:text-sm font-medium">Next Payment</CardTitle>
+              <Calendar className="h-4 w-4 text-primary shrink-0" />
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               {nextPayment ? (
                 <>
-                  <p className="text-2xl font-bold" data-testid="text-dashboard-next-payment-amount">
+                  <p className="text-lg md:text-2xl font-bold" data-testid="text-dashboard-next-payment-amount">
                     {formatCurrency(nextPayment.estimatedAmount)}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">
                     Est. {new Date(nextPayment.estimatedDate).toLocaleDateString()} · {nextPayment.ordersIncluded} orders
                   </p>
                 </>
               ) : (
                 <>
-                  <p className="text-2xl font-bold text-muted-foreground" data-testid="text-dashboard-next-payment-amount">—</p>
-                  <p className="text-xs text-muted-foreground mt-1">No upcoming pay run</p>
+                  <p className="text-lg md:text-2xl font-bold text-muted-foreground" data-testid="text-dashboard-next-payment-amount">—</p>
+                  <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">No upcoming pay run</p>
                 </>
               )}
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-              <CardTitle className="text-sm font-medium">Last Payment</CardTitle>
-              <DollarSign className="h-4 w-4 text-blue-500" />
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+              <CardTitle className="text-xs md:text-sm font-medium">Last Payment</CardTitle>
+              <DollarSign className="h-4 w-4 text-blue-500 shrink-0" />
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               {lastPayment ? (
                 <>
-                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400" data-testid="text-dashboard-last-payment-amount">
+                  <p className="text-lg md:text-2xl font-bold text-blue-600 dark:text-blue-400" data-testid="text-dashboard-last-payment-amount">
                     {formatCurrency(lastPayment.amount)}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">
                     {new Date(lastPayment.date).toLocaleDateString()}
                     {lastPayment.stubNumber ? ` · ${lastPayment.stubNumber}` : ""}
                   </p>
                 </>
               ) : (
                 <>
-                  <p className="text-2xl font-bold text-muted-foreground" data-testid="text-dashboard-last-payment-amount">—</p>
-                  <p className="text-xs text-muted-foreground mt-1">No payments yet</p>
+                  <p className="text-lg md:text-2xl font-bold text-muted-foreground" data-testid="text-dashboard-last-payment-amount">—</p>
+                  <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">No payments yet</p>
                 </>
               )}
             </CardContent>
@@ -351,61 +351,62 @@ export default function RepDashboard() {
       )}
 
       {ytd && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-3 md:gap-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-              <CardTitle className="text-sm font-medium">YTD Gross Earned</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-500" />
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+              <CardTitle className="text-xs md:text-sm font-medium">YTD Earned</CardTitle>
+              <TrendingUp className="h-4 w-4 text-green-500 shrink-0 hidden md:block" />
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-dashboard-ytd-gross">
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+              <p className="text-base md:text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-dashboard-ytd-gross">
                 {formatCurrency(ytd.totalEarned || 0)}
               </p>
-              <p className="text-xs text-muted-foreground">{ytd.totalOrders} orders · {ytd.totalConnects} connects</p>
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">{ytd.totalOrders} orders</p>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-              <CardTitle className="text-sm font-medium">YTD Net Paid</CardTitle>
-              <Wallet className="h-4 w-4 text-primary" />
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+              <CardTitle className="text-xs md:text-sm font-medium">YTD Paid</CardTitle>
+              <Wallet className="h-4 w-4 text-primary shrink-0 hidden md:block" />
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold" data-testid="text-dashboard-ytd-net">
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+              <p className="text-base md:text-2xl font-bold" data-testid="text-dashboard-ytd-net">
                 {formatCurrency(ytd.totalPaid || 0)}
               </p>
-              <p className="text-xs text-muted-foreground">From pay statements</p>
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Net paid</p>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-              <CardTitle className="text-sm font-medium">YTD Deductions</CardTitle>
-              <ArrowDownCircle className="h-4 w-4 text-red-500" />
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+              <CardTitle className="text-xs md:text-sm font-medium">Deductions</CardTitle>
+              <ArrowDownCircle className="h-4 w-4 text-red-500 shrink-0 hidden md:block" />
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-red-600 dark:text-red-400" data-testid="text-dashboard-ytd-deductions">
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+              <p className="text-base md:text-2xl font-bold text-red-600 dark:text-red-400" data-testid="text-dashboard-ytd-deductions">
                 {formatCurrency(Math.max(0, (ytd.totalEarned || 0) - (ytd.totalPaid || 0)))}
               </p>
-              <p className="text-xs text-muted-foreground">Chargebacks, adjustments</p>
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Chargebacks</p>
             </CardContent>
           </Card>
         </div>
       )}
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2 flex-wrap">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2 flex-wrap px-3 pt-3 md:px-6 md:pt-6">
           <div>
-            <CardTitle className="text-lg font-medium flex items-center gap-2">
-              <BarChart2 className="h-5 w-5 text-primary" />
+            <CardTitle className="text-base md:text-lg font-medium flex items-center gap-2">
+              <BarChart2 className="h-4 w-4 md:h-5 md:w-5 text-primary" />
               Earnings Timeline
             </CardTitle>
-            <CardDescription>Month-by-month earnings breakdown</CardDescription>
+            <CardDescription className="text-xs md:text-sm">Month-by-month breakdown</CardDescription>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-1.5 md:gap-2">
             {[3, 6, 12, 24].map((m) => (
               <Button
                 key={m}
                 variant={timelineMonths === m ? "default" : "outline"}
                 size="sm"
+                className="h-7 px-2 text-xs md:h-9 md:px-3 md:text-sm"
                 onClick={() => setTimelineMonths(m)}
                 data-testid={`button-timeline-${m}m`}
               >

@@ -51,27 +51,27 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <header className="flex items-center justify-end p-4 border-b">
+      <header className="flex items-center justify-end p-3 md:p-4 border-b">
         <ThemeToggle />
       </header>
       
-      <main className="flex-1 flex items-center justify-center p-4">
+      <main className="flex-1 flex items-center justify-center px-4 py-8 md:p-4">
         <Card className="w-full max-w-md">
-          <CardHeader className="text-center space-y-4">
+          <CardHeader className="text-center space-y-4 px-4 pt-6 md:px-6">
             <div className="flex justify-center">
               <img 
                 src={logoImage} 
                 alt="Iron Crest Solutions" 
-                className="w-48 h-auto object-contain"
+                className="w-36 md:w-48 h-auto object-contain"
                 data-testid="img-logo"
               />
             </div>
             <div>
-              <CardTitle className="text-2xl font-semibold">Iron Crest CRM</CardTitle>
-              <CardDescription className="mt-2">Sign in to access your dashboard</CardDescription>
+              <CardTitle className="text-xl md:text-2xl font-semibold">Iron Crest CRM</CardTitle>
+              <CardDescription className="mt-1.5 text-sm">Sign in to access your dashboard</CardDescription>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-6 md:px-6">
             {sessionExpiredMsg && (
               <div className="mb-4 p-3 rounded-md bg-destructive/10 border border-destructive/20 flex items-center gap-2" data-testid="text-session-expired">
                 <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
@@ -79,20 +79,20 @@ export default function Login() {
               </div>
             )}
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
                 <FormField
                   control={form.control}
                   name="repId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Rep ID</FormLabel>
+                      <FormLabel className="text-sm font-medium">Rep ID</FormLabel>
                       <FormControl>
                         <div className="relative">
                           <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                           <Input
                             {...field}
                             placeholder="Enter your Rep ID"
-                            className="pl-10"
+                            className="pl-10 h-11 md:h-10 text-base md:text-sm"
                             data-testid="input-rep-id"
                           />
                         </div>
@@ -106,7 +106,7 @@ export default function Login() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password</FormLabel>
+                      <FormLabel className="text-sm font-medium">Password</FormLabel>
                       <FormControl>
                         <div className="relative">
                           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -114,7 +114,7 @@ export default function Login() {
                             {...field}
                             type="password"
                             placeholder="Enter your password"
-                            className="pl-10"
+                            className="pl-10 h-11 md:h-10 text-base md:text-sm"
                             data-testid="input-password"
                           />
                         </div>
@@ -125,7 +125,7 @@ export default function Login() {
                 />
                 <Button
                   type="submit"
-                  className="w-full"
+                  className="w-full h-11 md:h-10 text-base md:text-sm font-medium"
                   disabled={isLoading}
                   data-testid="button-login"
                 >

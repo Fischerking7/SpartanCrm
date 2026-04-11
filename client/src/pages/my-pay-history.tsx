@@ -595,13 +595,13 @@ export default function MyPayHistory() {
 
   if (statementsLoading || ytdLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
         <Skeleton className="h-8 w-64" />
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          <Skeleton className="h-24 md:h-32" />
+          <Skeleton className="h-24 md:h-32" />
+          <Skeleton className="h-24 md:h-32" />
+          <Skeleton className="h-24 md:h-32" />
         </div>
         <Skeleton className="h-96" />
       </div>
@@ -613,62 +613,62 @@ export default function MyPayHistory() {
   const pendingStatements = recentStatements.filter(s => s.status !== "PAID");
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold" data-testid="text-page-title">My Pay History</h1>
+        <h1 className="text-xl md:text-2xl font-semibold" data-testid="text-page-title">My Pay History</h1>
         <p className="text-muted-foreground">View your pay statements and year-to-date earnings</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-            <CardTitle className="text-sm font-medium">{isRep ? "YTD Net Earnings" : "YTD Gross Earnings"}</CardTitle>
-            <ArrowUpCircle className="h-4 w-4 text-green-500" />
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <CardTitle className="text-xs md:text-sm font-medium">{isRep ? "YTD Net" : "YTD Gross"}</CardTitle>
+            <ArrowUpCircle className="h-4 w-4 text-green-500 shrink-0 hidden md:block" />
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-ytd-gross">
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <p className="text-base md:text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-ytd-gross">
               {formatCurrency(isRep ? (ytdData?.ytdNet || 0) : (ytdData?.ytdGross || 0))}
             </p>
-            <p className="text-xs text-muted-foreground">{isRep ? "After overrides" : "Before deductions"}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">{isRep ? "After overrides" : "Before deductions"}</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-            <CardTitle className="text-sm font-medium">YTD Deductions</CardTitle>
-            <ArrowDownCircle className="h-4 w-4 text-red-500" />
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <CardTitle className="text-xs md:text-sm font-medium">Deductions</CardTitle>
+            <ArrowDownCircle className="h-4 w-4 text-red-500 shrink-0 hidden md:block" />
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400" data-testid="text-ytd-deductions">
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <p className="text-base md:text-2xl font-bold text-red-600 dark:text-red-400" data-testid="text-ytd-deductions">
               -{formatCurrency(ytdData?.ytdDeductions || 0)}
             </p>
-            <p className="text-xs text-muted-foreground">Total withheld</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total withheld</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-            <CardTitle className="text-sm font-medium">YTD Net Pay</CardTitle>
-            <Wallet className="h-4 w-4 text-primary" />
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <CardTitle className="text-xs md:text-sm font-medium">Net Pay</CardTitle>
+            <Wallet className="h-4 w-4 text-primary shrink-0 hidden md:block" />
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold" data-testid="text-ytd-net">
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <p className="text-base md:text-2xl font-bold" data-testid="text-ytd-net">
               {formatCurrency(ytdData?.ytdNet || 0)}
             </p>
-            <p className="text-xs text-muted-foreground">Take-home pay</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Take-home</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-            <CardTitle className="text-sm font-medium">Pay Periods</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <CardTitle className="text-xs md:text-sm font-medium">Pay Periods</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground shrink-0 hidden md:block" />
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold" data-testid="text-statements-count">
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <p className="text-base md:text-2xl font-bold" data-testid="text-statements-count">
               {ytdData?.statementsCount || 0}
             </p>
-            <p className="text-xs text-muted-foreground">Statements this year</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">This year</p>
           </CardContent>
         </Card>
       </div>

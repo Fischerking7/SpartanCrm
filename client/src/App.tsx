@@ -167,12 +167,17 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
-          <header className="flex items-center justify-between gap-4 p-2 border-b bg-background sticky top-0 z-50">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
-            <span className="text-sm font-medium md:hidden truncate flex-1" data-testid="text-page-title">{pageTitle}</span>
+          <header className="flex items-center justify-between gap-3 px-3 py-2 md:p-2 border-b bg-background/95 backdrop-blur-md sticky top-0 z-50 safe-area-top">
+            <div className="flex items-center gap-2 min-w-0">
+              <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <div className="md:hidden flex items-center gap-2 min-w-0">
+                <div className="w-px h-5 bg-border shrink-0" />
+                <span className="text-sm font-semibold truncate" data-testid="text-page-title">{pageTitle}</span>
+              </div>
+            </div>
             <ThemeToggle />
           </header>
-          <main className={`flex-1 overflow-auto ${showBottomNav ? "pb-16 md:pb-0" : ""}`}>
+          <main className={`flex-1 overflow-auto ${showBottomNav ? "pb-20 md:pb-0" : ""}`}>
             {children}
           </main>
           <MobileBottomNav />
