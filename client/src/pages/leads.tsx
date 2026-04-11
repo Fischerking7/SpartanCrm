@@ -12,16 +12,19 @@ import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench, Plus, TrendingUp, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, UserPlus, MapPin, Phone, Mail, Calendar, StickyNote, X, Upload, FileSpreadsheet, CheckCircle, XCircle, ShoppingCart, UserCog, RotateCcw, ExternalLink, Trash2, Users, Wrench, Plus, TrendingUp, ChevronLeft, ChevronRight, PhoneCall } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
 import { dispositionMetadata, terminalDispositions, type Lead, type LeadDisposition } from "@shared/schema";
 
 export default function Leads() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const isMobile = useIsMobile();
   
   const [filters, setFiltersRaw] = useState({
     houseNumber: "",
@@ -695,23 +698,25 @@ export default function Leads() {
       ? assignableUsers.find(u => u.repId === viewingRepId)?.name || viewingRepId
       : null;
 
+  const activeFilterCount = [filters.houseNumber, filters.streetName, filters.city, filters.zipCode, filters.dateFrom, filters.dateTo, filters.customerName, filters.disposition].filter(Boolean).length;
+
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-center justify-between gap-3 md:gap-4 flex-wrap">
         <div>
           <h1 className="text-xl md:text-2xl font-semibold" data-testid="text-page-title">
             {activeTab === "pipeline" ? "Sales Pipeline" : viewingRepName ? `${viewingRepName}'s Leads` : "My Leads"}
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-xs md:text-base text-muted-foreground">
             {activeTab === "pipeline" ? "Disposition flow and conversion metrics" : viewingRepName ? `Viewing leads for ${viewingRepName}` : "View and manage your imported leads"}
           </p>
         </div>
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2 md:gap-4 flex-wrap">
           {canAssignToOthers && (
             <div className="flex items-center gap-2">
-              <Label className="text-sm whitespace-nowrap">View leads for:</Label>
+              <Label className="text-xs md:text-sm whitespace-nowrap hidden md:inline">View leads for:</Label>
               <Select value={viewingRepId || "__my__"} onValueChange={(v) => { setCurrentPage(1); setViewingRepId(v === "__my__" ? "" : v); }}>
-                <SelectTrigger className="w-[200px]" data-testid="select-view-rep">
+                <SelectTrigger className="w-[140px] md:w-[200px] h-9" data-testid="select-view-rep">
                   <SelectValue placeholder="My Leads" />
                 </SelectTrigger>
                 <SelectContent>
@@ -729,26 +734,29 @@ export default function Leads() {
             </div>
           )}
           {canCreateLead && (
-            <Button onClick={() => setShowCreateDialog(true)} data-testid="button-create-lead">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Lead
+            <Button size="sm" className="h-9" onClick={() => setShowCreateDialog(true)} data-testid="button-create-lead">
+              <Plus className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">Add Lead</span>
+              <span className="sm:hidden">Add</span>
             </Button>
           )}
           {canImport && (
-            <Button variant="outline" onClick={() => setShowImportDialog(true)} data-testid="button-import-leads">
+            <Button variant="outline" size="sm" className="h-9 hidden md:inline-flex" onClick={() => setShowImportDialog(true)} data-testid="button-import-leads">
               <Upload className="h-4 w-4 mr-2" />
               Import Leads
             </Button>
           )}
           {canAssignToOthers && (
-            <Button variant="outline" onClick={() => setShowManageSortsDialog(true)} data-testid="button-manage-sorts">
+            <Button variant="outline" size="sm" className="h-9 hidden md:inline-flex" onClick={() => setShowManageSortsDialog(true)} data-testid="button-manage-sorts">
               <Trash2 className="h-4 w-4 mr-2" />
               Delete Sort
             </Button>
           )}
           {isAdmin && (
             <Button 
-              variant="outline" 
+              variant="outline"
+              size="sm"
+              className="h-9 hidden md:inline-flex"
               onClick={() => fixAddressesMutation.mutate()} 
               disabled={fixAddressesMutation.isPending}
               data-testid="button-fix-addresses"
@@ -757,9 +765,9 @@ export default function Leads() {
               {fixAddressesMutation.isPending ? "Fixing..." : "Fix Addresses"}
             </Button>
           )}
-          <div className="flex items-center gap-2">
-            <UserPlus className="h-5 w-5 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground" data-testid="text-lead-count">
+          <div className="flex items-center gap-1.5">
+            <UserPlus className="h-4 w-4 md:h-5 md:w-5 text-muted-foreground" />
+            <span className="text-xs md:text-sm text-muted-foreground" data-testid="text-lead-count">
               {leads?.length || 0} leads
             </span>
           </div>
@@ -888,16 +896,10 @@ export default function Leads() {
       )}
 
       {(!canViewPipeline || activeTab === "leads") && (
-      <div className="space-y-6">
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Search className="h-4 w-4" />
-            Filters & Sort
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+      <div className="space-y-4 md:space-y-6">
+      <MobileFilterDrawer activeFilterCount={activeFilterCount}>
+        <div className="md:border md:rounded-lg md:p-4 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4">
             <div className="space-y-1 md:col-span-2">
               <Label className="text-xs">Customer Name</Label>
               <Input
@@ -942,7 +944,7 @@ export default function Leads() {
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 md:gap-4">
             <div className="space-y-1">
               <Label className="text-xs">House #</Label>
               <Input
@@ -1002,7 +1004,7 @@ export default function Leads() {
             <Button
               variant="ghost"
               size="sm"
-              className="mt-3"
+              className="mt-1"
               onClick={clearFilters}
               data-testid="button-clear-filters"
             >
@@ -1010,8 +1012,8 @@ export default function Leads() {
               Clear Filters
             </Button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </MobileFilterDrawer>
 
       {/* Bulk Actions Toolbar - LEAD+ only */}
       {canBulkManage && leads && leads.length > 0 && (
@@ -1167,7 +1169,22 @@ export default function Leads() {
                     {lead.customerPhone && (
                       <div className="flex items-center gap-2 text-sm">
                         <Phone className="h-4 w-4 text-muted-foreground" />
-                        <span data-testid={`text-lead-phone-${lead.id}`}>{lead.customerPhone}</span>
+                        <a
+                          href={`tel:${lead.customerPhone}`}
+                          className="text-primary underline-offset-2 hover:underline md:text-foreground md:no-underline md:pointer-events-none"
+                          data-testid={`text-lead-phone-${lead.id}`}
+                        >
+                          {lead.customerPhone}
+                        </a>
+                        {isMobile && (
+                          <a
+                            href={`tel:${lead.customerPhone}`}
+                            className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 active:bg-green-200"
+                            data-testid={`button-call-${lead.id}`}
+                          >
+                            <PhoneCall className="h-4 w-4" />
+                          </a>
+                        )}
                       </div>
                     )}
                     {lead.customerEmail && (

@@ -2,13 +2,13 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, NativeSelect, useIsTouchDevice } from "@/components/ui/select";
 import {
   Clock,
@@ -20,7 +20,6 @@ import {
   CalendarDays,
   Package,
   XCircle,
-  ChevronRight,
   Filter,
   Pencil,
   Save,
@@ -948,26 +947,26 @@ export default function OrderTracker() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+        <Skeleton className="h-7 w-40 md:h-8 md:w-48" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
           {[1, 2, 3, 4].map(i => (
-            <Skeleton key={i} className="h-24" />
+            <Skeleton key={i} className="h-20 md:h-24" />
           ))}
         </div>
-        <Skeleton className="h-96" />
+        <Skeleton className="h-64 md:h-96" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 md:gap-4">
         <div>
-          <h1 className="text-2xl font-semibold" data-testid="text-order-tracker-title">
+          <h1 className="text-xl md:text-2xl font-semibold" data-testid="text-order-tracker-title">
             Order Tracker
           </h1>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-muted-foreground text-xs md:text-sm">
             {hasViewModeToggle && viewMode === "team" ? "Viewing your team's orders" :
              hasViewModeToggle && viewMode === "global" ? "Viewing all orders globally" :
              "Track your orders from sale to payment"}
@@ -1008,8 +1007,8 @@ export default function OrderTracker() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Select value={dateRange} onValueChange={setDateRange}>
-            <SelectTrigger className="w-[140px]" data-testid="select-date-range">
-              <CalendarDays className="h-4 w-4 mr-1.5 text-muted-foreground" />
+            <SelectTrigger className="w-[120px] md:w-[140px] h-9" data-testid="select-date-range">
+              <CalendarDays className="h-4 w-4 mr-1 md:mr-1.5 text-muted-foreground" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1019,11 +1018,12 @@ export default function OrderTracker() {
               <SelectItem value="this_month">This Month</SelectItem>
             </SelectContent>
           </Select>
-          <Button onClick={() => setShowNewOrderDialog(true)} data-testid="button-new-order-tracker">
-            <Plus className="h-4 w-4 mr-1.5" />
-            New Order
+          <Button size="sm" className="h-9" onClick={() => setShowNewOrderDialog(true)} data-testid="button-new-order-tracker">
+            <Plus className="h-4 w-4 mr-1" />
+            <span className="hidden sm:inline">New Order</span>
+            <span className="sm:hidden">New</span>
           </Button>
-          <Button variant="outline" onClick={() => {
+          <Button variant="outline" size="sm" className="h-9 hidden md:inline-flex" onClick={() => {
             if (selectedOrder) {
               setMobileOrderForm({
                 providerId: selectedOrder.providerId || "",
@@ -1043,8 +1043,8 @@ export default function OrderTracker() {
             <Smartphone className="h-4 w-4 mr-1.5" />
             Mobile Entry
           </Button>
-          <Link href="/orders">
-            <Button variant="outline" data-testid="link-full-orders">
+          <Link href="/orders" className="hidden md:inline-flex">
+            <Button variant="outline" size="sm" className="h-9" data-testid="link-full-orders">
               <ArrowUpRight className="h-4 w-4 mr-1.5" />
               Full Orders
             </Button>
@@ -1065,19 +1065,19 @@ export default function OrderTracker() {
         </TabsList>
       </Tabs>
 
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 md:gap-4">
         <Card
           className={`cursor-pointer transition-colors ${activeTab === "pending" ? "ring-2 ring-primary" : ""}`}
           onClick={() => setActiveTab("pending")}
           data-testid="card-stat-pending"
         >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-sm text-muted-foreground">Pending</span>
-              <Clock className="h-4 w-4 text-yellow-500" />
+          <CardContent className="p-2.5 md:p-4">
+            <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
+              <span className="text-[10px] md:text-sm text-muted-foreground">Pending</span>
+              <Clock className="h-3.5 w-3.5 md:h-4 md:w-4 text-yellow-500 shrink-0" />
             </div>
-            <p className="text-2xl font-bold">{stats.pending}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Awaiting completion</p>
+            <p className="text-lg md:text-2xl font-bold">{stats.pending}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">Awaiting completion</p>
           </CardContent>
         </Card>
         <Card
@@ -1085,13 +1085,13 @@ export default function OrderTracker() {
           onClick={() => setActiveTab("completed")}
           data-testid="card-stat-completed"
         >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-sm text-muted-foreground">Completed</span>
-              <CheckCircle2 className="h-4 w-4 text-blue-500" />
+          <CardContent className="p-2.5 md:p-4">
+            <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
+              <span className="text-[10px] md:text-sm text-muted-foreground">Done</span>
+              <CheckCircle2 className="h-3.5 w-3.5 md:h-4 md:w-4 text-blue-500 shrink-0" />
             </div>
-            <p className="text-2xl font-bold">{stats.completed}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Awaiting approval</p>
+            <p className="text-lg md:text-2xl font-bold">{stats.completed}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">Awaiting approval</p>
           </CardContent>
         </Card>
         <Card
@@ -1099,13 +1099,13 @@ export default function OrderTracker() {
           onClick={() => setActiveTab("approved")}
           data-testid="card-stat-approved"
         >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-sm text-muted-foreground">Approved</span>
-              <ThumbsUp className="h-4 w-4 text-green-500" />
+          <CardContent className="p-2.5 md:p-4">
+            <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
+              <span className="text-[10px] md:text-sm text-muted-foreground">Approved</span>
+              <ThumbsUp className="h-3.5 w-3.5 md:h-4 md:w-4 text-green-500 shrink-0" />
             </div>
-            <p className="text-2xl font-bold">{stats.approved}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Awaiting payment</p>
+            <p className="text-lg md:text-2xl font-bold">{stats.approved}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">Awaiting payment</p>
           </CardContent>
         </Card>
         <Card
@@ -1113,13 +1113,13 @@ export default function OrderTracker() {
           onClick={() => setActiveTab("paid")}
           data-testid="card-stat-paid"
         >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-sm text-muted-foreground">Paid</span>
-              <DollarSign className="h-4 w-4 text-emerald-500" />
+          <CardContent className="p-2.5 md:p-4">
+            <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
+              <span className="text-[10px] md:text-sm text-muted-foreground">Paid</span>
+              <DollarSign className="h-3.5 w-3.5 md:h-4 md:w-4 text-emerald-500 shrink-0" />
             </div>
-            <p className="text-2xl font-bold">{stats.paid}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Commission received</p>
+            <p className="text-lg md:text-2xl font-bold">{stats.paid}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">Commission received</p>
           </CardContent>
         </Card>
         <Card
@@ -1127,32 +1127,32 @@ export default function OrderTracker() {
           onClick={() => setActiveTab("all")}
           data-testid="card-stat-total"
         >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-sm text-muted-foreground">Total Orders</span>
-              <Filter className="h-4 w-4 text-muted-foreground" />
+          <CardContent className="p-2.5 md:p-4">
+            <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
+              <span className="text-[10px] md:text-sm text-muted-foreground">Total</span>
+              <Filter className="h-3.5 w-3.5 md:h-4 md:w-4 text-muted-foreground shrink-0" />
             </div>
-            <p className="text-2xl font-bold">{stats.total}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">All orders</p>
+            <p className="text-lg md:text-2xl font-bold">{stats.total}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">All orders</p>
           </CardContent>
         </Card>
         {canSeeCommission && (
           <Card data-testid="card-stat-earned">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="text-sm text-muted-foreground">{canSeeGrossCommissions ? "Gross Earned" : "Net Earned"}</span>
-                <DollarSign className="h-4 w-4 text-primary" />
+            <CardContent className="p-2.5 md:p-4">
+              <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
+                <span className="text-[10px] md:text-sm text-muted-foreground">{canSeeGrossCommissions ? "Gross" : "Net"}</span>
+                <DollarSign className="h-3.5 w-3.5 md:h-4 md:w-4 text-primary shrink-0" />
               </div>
-              <p className="text-2xl font-bold font-mono">
+              <p className="text-sm md:text-2xl font-bold font-mono truncate">
                 ${stats.totalEarned.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Approved + paid</p>
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">Approved + paid</p>
             </CardContent>
           </Card>
         )}
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2 md:gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input

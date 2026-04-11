@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
-import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { DollarSign, FileText, TrendingUp, Calendar, Eye, Wallet, Receipt, ArrowDownCircle, ArrowUpCircle, MinusCircle, Download, Shield } from "lucide-react";
+import { FileText, Calendar, Eye, Wallet, Receipt, ArrowDownCircle, ArrowUpCircle, MinusCircle, Download, Shield } from "lucide-react";
 import { useState } from "react";
 import { format } from "date-fns";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface PayStatement {
   id: string;
@@ -569,6 +569,7 @@ function StatementDetailsDialog({ statementId, isRep = false }: { statementId: s
 export default function MyPayHistory() {
   const { user } = useAuth();
   const isRep = user?.role === "REP";
+  const isMobile = useIsMobile();
   const { data: statements, isLoading: statementsLoading } = useQuery<PayStatement[]>({
     queryKey: ["/api/payroll/my-statements"],
     queryFn: async () => {
@@ -675,88 +676,167 @@ export default function MyPayHistory() {
 
       {pendingStatements.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MinusCircle className="h-5 w-5 text-amber-500" />
+          <CardHeader className="px-3 pt-3 md:px-6 md:pt-6 pb-2">
+            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+              <MinusCircle className="h-4 w-4 md:h-5 md:w-5 text-amber-500" />
               Pending Payments
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Pay Period</TableHead>
-                  {!isRep && <TableHead>Gross</TableHead>}
-                  <TableHead>Deductions</TableHead>
-                  <TableHead>Net Pay</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            {isMobile ? (
+              <div className="space-y-3">
                 {pendingStatements.map((statement) => (
-                  <TableRow key={statement.id}>
-                    <TableCell className="font-medium">
-                      {formatDate(statement.periodStart)} - {formatDate(statement.periodEnd)}
-                    </TableCell>
-                    {!isRep && (
-                      <TableCell className="text-green-600 dark:text-green-400">
-                        {formatCurrency(statement.grossCommission)}
-                      </TableCell>
-                    )}
-                    <TableCell className="text-red-600 dark:text-red-400">
-                      -{formatCurrency(statement.deductionsTotal)}
-                    </TableCell>
-                    <TableCell className="font-semibold">
-                      {formatCurrency(statement.netPay)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{statement.status}</Badge>
-                    </TableCell>
-                    <TableCell>
+                  <div key={statement.id} className="border rounded-lg p-3 space-y-2" data-testid={`card-pending-${statement.id}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(statement.periodStart)} - {formatDate(statement.periodEnd)}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">{statement.status}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Net Pay</span>
+                      <span className="text-lg font-bold">{formatCurrency(statement.netPay)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t">
                       <div className="flex items-center gap-1">
                         <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
-                        <Button 
-                          size="sm" 
-                          variant="ghost" 
-                          onClick={() => downloadPdf(statement.id)}
-                          data-testid={`button-download-pdf-${statement.id}`}
-                          title="Download PDF"
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          variant="ghost" 
-                          onClick={() => downloadExcel(statement.id)}
-                          data-testid={`button-download-excel-${statement.id}`}
-                          title="Download Excel"
-                        >
-                          <FileText className="h-4 w-4" />
-                        </Button>
                       </div>
-                    </TableCell>
-                  </TableRow>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8"
+                        onClick={() => downloadPdf(statement.id)}
+                        data-testid={`button-download-pdf-${statement.id}`}
+                      >
+                        <Download className="h-3.5 w-3.5 mr-1" />
+                        PDF
+                      </Button>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Pay Period</TableHead>
+                    {!isRep && <TableHead>Gross</TableHead>}
+                    <TableHead>Deductions</TableHead>
+                    <TableHead>Net Pay</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pendingStatements.map((statement) => (
+                    <TableRow key={statement.id}>
+                      <TableCell className="font-medium">
+                        {formatDate(statement.periodStart)} - {formatDate(statement.periodEnd)}
+                      </TableCell>
+                      {!isRep && (
+                        <TableCell className="text-green-600 dark:text-green-400">
+                          {formatCurrency(statement.grossCommission)}
+                        </TableCell>
+                      )}
+                      <TableCell className="text-red-600 dark:text-red-400">
+                        -{formatCurrency(statement.deductionsTotal)}
+                      </TableCell>
+                      <TableCell className="font-semibold">
+                        {formatCurrency(statement.netPay)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{statement.status}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => downloadPdf(statement.id)}
+                            data-testid={`button-download-pdf-${statement.id}`}
+                            title="Download PDF"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => downloadExcel(statement.id)}
+                            data-testid={`button-download-excel-${statement.id}`}
+                            title="Download Excel"
+                          >
+                            <FileText className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       )}
 
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
+        <CardHeader className="px-3 pt-3 md:px-6 md:pt-6 pb-2">
+          <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+            <FileText className="h-4 w-4 md:h-5 md:w-5" />
             Payment History
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
           {paidStatements.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No paid statements yet</p>
               <p className="text-sm">Your payment history will appear here once you receive payments</p>
+            </div>
+          ) : isMobile ? (
+            <div className="space-y-3">
+              {paidStatements.map((statement) => (
+                <div key={statement.id} className="border rounded-lg p-3 space-y-2" data-testid={`card-paid-${statement.id}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {formatDate(statement.periodStart)} - {formatDate(statement.periodEnd)}
+                    </span>
+                    {statement.paidAt && (
+                      <span className="text-[10px] text-muted-foreground">
+                        Paid {formatDate(statement.paidAt)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Net Pay</span>
+                    <span className="text-lg font-bold">{formatCurrency(statement.netPay)}</span>
+                  </div>
+                  {!isRep && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Gross</span>
+                      <span className="text-green-600 dark:text-green-400">{formatCurrency(statement.grossCommission)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t">
+                    <div className="flex items-center gap-1">
+                      <StatementDetailsDialog statementId={statement.id} isRep={isRep} />
+                      {statement.checkNumber && (
+                        <span className="text-[10px] font-mono text-muted-foreground">#{statement.checkNumber}</span>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      onClick={() => downloadPdf(statement.id)}
+                      data-testid={`button-download-pdf-${statement.id}`}
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1" />
+                      PDF
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
             <Table>

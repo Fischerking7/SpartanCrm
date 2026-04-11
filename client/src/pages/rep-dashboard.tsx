@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { ProductionMetricsModule } from "@/components/production-metrics-card";
 import { DashboardChartsModule } from "@/components/dashboard-charts";
 import { NextDayInstallsCard } from "@/components/next-day-installs";
@@ -159,6 +160,7 @@ const alertSeverityConfig: Record<string, { colorClass: string; icon: typeof Ale
 export default function RepDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [timelineMonths, setTimelineMonths] = useState(6);
   const [contactingLeadId, setContactingLeadId] = useState<string | null>(null);
 
@@ -498,21 +500,33 @@ export default function RepDashboard() {
                     )}
                     {lead.customerPhone && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                        <Phone className="h-3 w-3" />{lead.customerPhone}
+                        <Phone className="h-3 w-3" />
+                        <a href={`tel:${lead.customerPhone}`} className="hover:underline">{lead.customerPhone}</a>
                       </p>
                     )}
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 h-8 text-xs"
-                    onClick={() => markContactedMutation.mutate(lead.id)}
-                    disabled={contactingLeadId === lead.id}
-                    data-testid={`button-mark-contacted-${lead.id}`}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                    <span className="hidden sm:inline">Contacted</span>
-                  </Button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {isMobile && lead.customerPhone && (
+                      <a
+                        href={`tel:${lead.customerPhone}`}
+                        className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 active:bg-green-200"
+                        data-testid={`button-call-overdue-${lead.id}`}
+                      >
+                        <PhoneCall className="h-4 w-4" />
+                      </a>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 h-10 md:h-8 text-xs min-w-[44px]"
+                      onClick={() => markContactedMutation.mutate(lead.id)}
+                      disabled={contactingLeadId === lead.id}
+                      data-testid={`button-mark-contacted-${lead.id}`}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                      <span className="hidden sm:inline">Contacted</span>
+                    </Button>
+                  </div>
                 </div>
               ))}
               {followUps.today.map((lead) => (
@@ -542,21 +556,33 @@ export default function RepDashboard() {
                     )}
                     {lead.customerPhone && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                        <Phone className="h-3 w-3" />{lead.customerPhone}
+                        <Phone className="h-3 w-3" />
+                        <a href={`tel:${lead.customerPhone}`} className="hover:underline">{lead.customerPhone}</a>
                       </p>
                     )}
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 h-8 text-xs"
-                    onClick={() => markContactedMutation.mutate(lead.id)}
-                    disabled={contactingLeadId === lead.id}
-                    data-testid={`button-mark-contacted-${lead.id}`}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                    <span className="hidden sm:inline">Contacted</span>
-                  </Button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {isMobile && lead.customerPhone && (
+                      <a
+                        href={`tel:${lead.customerPhone}`}
+                        className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 active:bg-green-200"
+                        data-testid={`button-call-today-${lead.id}`}
+                      >
+                        <PhoneCall className="h-4 w-4" />
+                      </a>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 h-10 md:h-8 text-xs min-w-[44px]"
+                      onClick={() => markContactedMutation.mutate(lead.id)}
+                      disabled={contactingLeadId === lead.id}
+                      data-testid={`button-mark-contacted-${lead.id}`}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                      <span className="hidden sm:inline">Contacted</span>
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -588,11 +614,11 @@ export default function RepDashboard() {
             ))}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-2 pb-3 md:px-6 md:pb-6">
           {timelineLoading ? (
-            <Skeleton className="h-64 w-full" />
+            <Skeleton className="h-48 md:h-64 w-full" />
           ) : earningsTimeline && earningsTimeline.timeline.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={isMobile ? 200 : 280}>
               <AreaChart data={earningsTimeline.timeline} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorGross" x1="0" y1="0" x2="0" y2="1">
@@ -672,16 +698,16 @@ export default function RepDashboard() {
       ) : null}
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2 px-3 pt-3 md:px-6 md:pt-6">
           <div>
-            <CardTitle className="text-lg font-medium">Recent Orders</CardTitle>
-            <CardDescription>Your last 10 orders</CardDescription>
+            <CardTitle className="text-base md:text-lg font-medium">Recent Orders</CardTitle>
+            <CardDescription className="text-xs md:text-sm">Your last 10 orders</CardDescription>
           </div>
           <Button variant="outline" size="sm" asChild>
             <a href="/orders" data-testid="link-view-all-orders">View All</a>
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
           <DataTable
             columns={orderColumns}
             data={mySummary?.recentOrders || []}

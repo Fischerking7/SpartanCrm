@@ -82,30 +82,30 @@ export default function Commissions() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6">
-        <Skeleton className="h-8 w-64" />
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
+      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+        <Skeleton className="h-7 w-48 md:h-8 md:w-64" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          <Skeleton className="h-24 md:h-32" />
+          <Skeleton className="h-24 md:h-32" />
+          <Skeleton className="h-24 md:h-32" />
+          <Skeleton className="h-24 md:h-32" />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Skeleton className="h-64" />
-          <Skeleton className="h-64" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+          <Skeleton className="h-48 md:h-64" />
+          <Skeleton className="h-48 md:h-64" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex items-center gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold" data-testid="text-page-title">
+          <h1 className="text-xl md:text-2xl font-semibold" data-testid="text-page-title">
             {isRep ? "My Commissions" : isExecutive ? (execViewMode === "own" ? "My Commissions" : execViewMode === "team" ? "Team Commissions" : "Global Commissions") : "Commissions Overview"}
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-sm md:text-base text-muted-foreground">
             Track your commission earnings and performance
           </p>
         </div>
@@ -140,25 +140,25 @@ export default function Commissions() {
       </div>
 
       {isRep && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium flex items-center gap-2">
+            <CardHeader className="pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+              <CardTitle className="text-xs md:text-base font-medium flex items-center gap-2">
                 <Clock className="h-4 w-4 text-amber-500" />
                 Pending Orders
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs text-muted-foreground">This Week</p>
-                  <p className="text-xl font-bold text-amber-600 dark:text-amber-400" data-testid="text-pending-weekly">
+                  <p className="text-[10px] md:text-xs text-muted-foreground">This Week</p>
+                  <p className="text-lg md:text-xl font-bold text-amber-600 dark:text-amber-400" data-testid="text-pending-weekly">
                     {formatCurrency(data?.pendingWeekly || 0)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Month to Date</p>
-                  <p className="text-xl font-bold text-amber-600 dark:text-amber-400" data-testid="text-pending-mtd">
+                  <p className="text-[10px] md:text-xs text-muted-foreground">Month to Date</p>
+                  <p className="text-lg md:text-xl font-bold text-amber-600 dark:text-amber-400" data-testid="text-pending-mtd">
                     {formatCurrency(data?.pendingMtd || 0)}
                   </p>
                 </div>
@@ -167,23 +167,23 @@ export default function Commissions() {
           </Card>
 
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium flex items-center gap-2">
+            <CardHeader className="pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+              <CardTitle className="text-xs md:text-base font-medium flex items-center gap-2">
                 <DollarSign className="h-4 w-4 text-green-500" />
                 Connected Orders
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs text-muted-foreground">This Week</p>
-                  <p className="text-xl font-bold text-green-600 dark:text-green-400" data-testid="text-connected-weekly">
+                  <p className="text-[10px] md:text-xs text-muted-foreground">This Week</p>
+                  <p className="text-lg md:text-xl font-bold text-green-600 dark:text-green-400" data-testid="text-connected-weekly">
                     {formatCurrency(data?.weeklyEarned || 0)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Month to Date</p>
-                  <p className="text-xl font-bold text-green-600 dark:text-green-400" data-testid="text-connected-mtd">
+                  <p className="text-[10px] md:text-xs text-muted-foreground">Month to Date</p>
+                  <p className="text-lg md:text-xl font-bold text-green-600 dark:text-green-400" data-testid="text-connected-mtd">
                     {formatCurrency(data?.mtdEarned || 0)}
                   </p>
                 </div>
@@ -195,84 +195,84 @@ export default function Commissions() {
 
       {isRep && (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <CardTitle className="text-xs md:text-sm font-medium flex items-center gap-2">
               <Target className="h-4 w-4 text-blue-500" />
               30-Day Average
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400" data-testid="text-30-day-avg">
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <div className="text-lg md:text-2xl font-bold text-blue-600 dark:text-blue-400" data-testid="text-30-day-avg">
               {formatCurrency(data?.rollingAverage30Days || 0)}
             </div>
-            <p className="text-xs text-muted-foreground">Daily average over last 30 days</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground">Daily average over last 30 days</p>
           </CardContent>
         </Card>
       )}
 
-      <div className={`grid grid-cols-2 gap-4 ${isRep ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
+      <div className={`grid grid-cols-2 gap-3 md:gap-4 ${isRep ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Connected</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground">Total Connected</CardTitle>
+            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-total-connected">
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <div className="text-lg md:text-2xl font-bold" data-testid="text-total-connected">
               {data?.ownTotalConnected || 0}
             </div>
-            <p className="text-xs text-muted-foreground">Approved orders</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground">Approved orders</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Commission Dollars Earned</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground">Earned</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground shrink-0" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-own-earned">
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <div className="text-lg md:text-2xl font-bold" data-testid="text-own-earned">
               {formatCurrency(data?.ownTotalEarned || 0)}
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Weekly Earned</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground">Weekly</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-weekly-earned">
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <div className="text-lg md:text-2xl font-bold" data-testid="text-weekly-earned">
               {formatCurrency(data?.weeklyEarned || 0)}
             </div>
-            <p className="text-xs text-muted-foreground">This week</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground">This week</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">MTD Earned</CardTitle>
-            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground">MTD</CardTitle>
+            <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-mtd-earned">
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <div className="text-lg md:text-2xl font-bold" data-testid="text-mtd-earned">
               {formatCurrency(data?.mtdEarned || 0)}
             </div>
-            <p className="text-xs text-muted-foreground">Month to date</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground">Month to date</p>
           </CardContent>
         </Card>
 
         {canSeeOverrides && (
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Override Earnings</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+              <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground">Overrides</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground shrink-0" />
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-override-earned">
+            <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+              <div className="text-lg md:text-2xl font-bold" data-testid="text-override-earned">
                 {formatCurrency(data?.overrideTotalEarned || 0)}
               </div>
-              <p className="text-xs text-muted-foreground">From team sales</p>
+              <p className="text-[10px] md:text-xs text-muted-foreground">From team sales</p>
             </CardContent>
           </Card>
         )}
@@ -280,54 +280,54 @@ export default function Commissions() {
 
       {canSeeOverrides && (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Grand Total</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
+            <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground">Grand Total</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground shrink-0" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary" data-testid="text-grand-total">
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+            <div className="text-lg md:text-2xl font-bold text-primary" data-testid="text-grand-total">
               {formatCurrency(data?.grandTotal || 0)}
             </div>
-            <p className="text-xs text-muted-foreground">All earnings combined</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground">All earnings combined</p>
           </CardContent>
         </Card>
       )}
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Earnings by Service Type</CardTitle>
+        <CardHeader className="px-3 pt-3 md:px-6 md:pt-6 pb-2">
+          <CardTitle className="text-base md:text-lg">Earnings by Service Type</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex items-center gap-3 p-4 rounded-md bg-muted/50">
-              <div className="p-2 rounded-md bg-blue-500/10">
-                <Wifi className="h-5 w-5 text-blue-500" />
+        <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+          <div className="grid grid-cols-3 gap-2 md:gap-4">
+            <div className="flex items-center gap-2 md:gap-3 p-2 md:p-4 rounded-md bg-muted/50">
+              <div className="p-1.5 md:p-2 rounded-md bg-blue-500/10">
+                <Wifi className="h-4 w-4 md:h-5 md:w-5 text-blue-500" />
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Internet</p>
-                <p className="text-xl font-bold" data-testid="text-service-internet">
+              <div className="min-w-0">
+                <p className="text-xs md:text-sm text-muted-foreground">Internet</p>
+                <p className="text-sm md:text-xl font-bold truncate" data-testid="text-service-internet">
                   {formatCurrency(data?.serviceTotals?.internet || 0)}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3 p-4 rounded-md bg-muted/50">
-              <div className="p-2 rounded-md bg-green-500/10">
-                <Smartphone className="h-5 w-5 text-green-500" />
+            <div className="flex items-center gap-2 md:gap-3 p-2 md:p-4 rounded-md bg-muted/50">
+              <div className="p-1.5 md:p-2 rounded-md bg-green-500/10">
+                <Smartphone className="h-4 w-4 md:h-5 md:w-5 text-green-500" />
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Mobile</p>
-                <p className="text-xl font-bold" data-testid="text-service-mobile">
+              <div className="min-w-0">
+                <p className="text-xs md:text-sm text-muted-foreground">Mobile</p>
+                <p className="text-sm md:text-xl font-bold truncate" data-testid="text-service-mobile">
                   {formatCurrency(data?.serviceTotals?.mobile || 0)}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3 p-4 rounded-md bg-muted/50">
-              <div className="p-2 rounded-md bg-purple-500/10">
-                <Tv className="h-5 w-5 text-purple-500" />
+            <div className="flex items-center gap-2 md:gap-3 p-2 md:p-4 rounded-md bg-muted/50">
+              <div className="p-1.5 md:p-2 rounded-md bg-purple-500/10">
+                <Tv className="h-4 w-4 md:h-5 md:w-5 text-purple-500" />
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Video</p>
-                <p className="text-xl font-bold" data-testid="text-service-video">
+              <div className="min-w-0">
+                <p className="text-xs md:text-sm text-muted-foreground">Video</p>
+                <p className="text-sm md:text-xl font-bold truncate" data-testid="text-service-video">
                   {formatCurrency(data?.serviceTotals?.video || 0)}
                 </p>
               </div>
@@ -336,23 +336,23 @@ export default function Commissions() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Weekly Earnings</CardTitle>
+          <CardHeader className="px-3 pt-3 md:px-6 md:pt-6 pb-2">
+            <CardTitle className="text-base md:text-lg">Weekly Earnings</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
             {data?.weeklyChartData && data.weeklyChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={data.weeklyChartData}>
-                  <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(val) => `$${val}`} />
+              <ResponsiveContainer width="100%" height={isMobile ? 160 : 200}>
+                <BarChart data={data.weeklyChartData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                  <XAxis dataKey="day" tick={{ fontSize: isMobile ? 10 : 12 }} />
+                  <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(val) => `$${val}`} width={isMobile ? 40 : 60} />
                   <Tooltip formatter={(value: number) => formatCurrency(value)} />
                   <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+              <div className="h-[160px] md:h-[200px] flex items-center justify-center text-muted-foreground text-sm">
                 No data available
               </div>
             )}
@@ -360,21 +360,21 @@ export default function Commissions() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Month-to-Date Earnings</CardTitle>
+          <CardHeader className="px-3 pt-3 md:px-6 md:pt-6 pb-2">
+            <CardTitle className="text-base md:text-lg">MTD Earnings</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
             {data?.mtdChartData && data.mtdChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={data.mtdChartData}>
-                  <XAxis dataKey="day" tick={{ fontSize: 10 }} interval={data.mtdChartData.length > 15 ? 2 : 0} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(val) => `$${val}`} />
+              <ResponsiveContainer width="100%" height={isMobile ? 160 : 200}>
+                <BarChart data={data.mtdChartData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                  <XAxis dataKey="day" tick={{ fontSize: isMobile ? 8 : 10 }} interval={data.mtdChartData.length > 15 ? 2 : 0} />
+                  <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(val) => `$${val}`} width={isMobile ? 40 : 60} />
                   <Tooltip formatter={(value: number) => formatCurrency(value)} />
                   <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+              <div className="h-[160px] md:h-[200px] flex items-center justify-center text-muted-foreground text-sm">
                 No data available
               </div>
             )}
