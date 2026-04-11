@@ -45,7 +45,7 @@ type Notification = {
   sentAt: string | null;
 };
 
-const HIGH_PRIORITY_TYPES = ["CHARGEBACK_APPLIED", "CHARGEBACK_ALERT", "PAY_RUN_FINALIZED", "COMPLIANCE_EXPIRING", "DISPUTE_RESOLVED"];
+const HIGH_PRIORITY_TYPES = ["PAY_RUN_FINALIZED", "COMPLIANCE_EXPIRING", "DISPUTE_RESOLVED"];
 
 const NOTIFICATION_NAV_MAP: Record<string, string> = {
   ORDER_APPROVED: "/order-tracker",
@@ -140,9 +140,12 @@ function NotificationItem({
   onClick: (n: Notification) => void;
 }) {
   return (
-    <button
-      className={`w-full text-left px-4 py-2.5 hover:bg-accent/50 transition-colors flex gap-3 ${!notification.isRead ? "bg-accent/20" : ""}`}
+    <div
+      role="button"
+      tabIndex={0}
+      className={`w-full text-left px-4 py-2.5 hover:bg-accent/50 transition-colors flex gap-3 cursor-pointer ${!notification.isRead ? "bg-accent/20" : ""}`}
       onClick={() => onClick(notification)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(notification); } }}
       data-testid={`popover-notification-${notification.id}`}
     >
       <div className="mt-0.5">{getNotificationIcon(notification.type)}</div>
@@ -168,7 +171,7 @@ function NotificationItem({
           <MailOpen className="h-3 w-3" />
         </Button>
       )}
-    </button>
+    </div>
   );
 }
 
