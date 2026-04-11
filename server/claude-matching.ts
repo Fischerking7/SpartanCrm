@@ -706,6 +706,10 @@ function getCandidateOrders(row: Record<string, string>, ctx: CarrierContext | n
     }
   }
 
+  if (candidates.length === 0) {
+    return index.all;
+  }
+
   return candidates;
 }
 
@@ -825,137 +829,99 @@ export async function matchInstallationsToOrders(
   const orderIndex = buildOrderIndex(orders);
   const orderMap = new Map(orders.map(o => [o.id, o]));
 
-  const usedRowIndices = new Set<number>();
-  const orderServiceLineUsed = new Map<string, Set<string>>();
-  const allMatches: MatchResult[] = [];
+  const candidates: { rowIndex: number; data: Record<string, string>; orderId: string; score: ScoreBreakdown; serviceLine: string; woNumber: string; woType: string }[] = [];
   const rowBestScores = new Map<number, { score: number; reasons: string[] }>();
   let processedCount = 0;
   let timedOut = false;
-  let chunkIndex = 0;
 
-  for (let chunkStart = 0; chunkStart < matchableRows.length; chunkStart += chunkSize) {
+  for (const row of matchableRows) {
     if (Date.now() - startTime > timeoutMs) {
       timedOut = true;
       console.warn(`[Install Sync] Timeout after ${Math.round((Date.now() - startTime) / 1000)}s at row ${processedCount}/${matchableRows.length}`);
       break;
     }
 
-    const chunkEnd = Math.min(chunkStart + chunkSize, matchableRows.length);
-    const chunkRows = matchableRows.slice(chunkStart, chunkEnd);
+    const serviceLine = determineServiceLine(row.data, carrierCtx);
+    const woNumber = extractField(row.data, "work_order_number", carrierCtx, getWorkOrderNumber).trim();
+    const woType = extractField(row.data, "work_order_type", carrierCtx, getWorkOrderType).trim().toUpperCase();
 
-    const chunkCandidates: { rowIndex: number; data: Record<string, string>; orderId: string; score: ScoreBreakdown; serviceLine: string; woNumber: string; woType: string }[] = [];
+    const candidateOrders = getCandidateOrders(row.data, carrierCtx, orderIndex);
 
-    for (const row of chunkRows) {
-      if (Date.now() - startTime > timeoutMs) {
-        timedOut = true;
-        console.warn(`[Install Sync] Timeout after ${Math.round((Date.now() - startTime) / 1000)}s at row ${processedCount}/${matchableRows.length}`);
-        break;
+    let rowBest = 0;
+    let rowBestReasons: string[] = [];
+
+    for (const order of candidateOrders) {
+      const score = scoreMatch(row.data, order, carrierCtx);
+      if (score.total > rowBest) {
+        rowBest = score.total;
+        rowBestReasons = score.reasons;
       }
-
-      const serviceLine = determineServiceLine(row.data, carrierCtx);
-      const woNumber = extractField(row.data, "work_order_number", carrierCtx, getWorkOrderNumber).trim();
-      const woType = extractField(row.data, "work_order_type", carrierCtx, getWorkOrderType).trim().toUpperCase();
-
-      const candidateOrders = getCandidateOrders(row.data, carrierCtx, orderIndex);
-
-      let rowBest = 0;
-      let rowBestReasons: string[] = [];
-
-      for (const order of candidateOrders) {
-        const score = scoreMatch(row.data, order, carrierCtx);
-        if (score.total > rowBest) {
-          rowBest = score.total;
-          rowBestReasons = score.reasons;
-        }
-        if (score.total >= MATCH_THRESHOLD) {
-          chunkCandidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score, serviceLine, woNumber, woType });
-        }
-      }
-
-      rowBestScores.set(row.rowIndex, { score: rowBest, reasons: rowBestReasons });
-
-      processedCount++;
-      if (options?.onProgress && processedCount % progressInterval === 0) {
-        await options.onProgress(processedCount, matchableRows.length);
+      if (score.total >= MATCH_THRESHOLD) {
+        candidates.push({ rowIndex: row.rowIndex, data: row.data, orderId: order.id, score, serviceLine, woNumber, woType });
       }
     }
 
-    if (timedOut) break;
+    rowBestScores.set(row.rowIndex, { score: rowBest, reasons: rowBestReasons });
 
-    chunkCandidates.sort((a, b) => b.score.total - a.score.total);
-
-    const chunkMatches: MatchResult[] = [];
-    const chunkUnmatched: { rowIndex: number; data: Record<string, string>; reason: string }[] = [];
-    const chunkMatchedRowIndices = new Set<number>();
-
-    for (const c of chunkCandidates) {
-      if (usedRowIndices.has(c.rowIndex) || chunkMatchedRowIndices.has(c.rowIndex)) continue;
-      const order = orderMap.get(c.orderId);
-      if (!order) continue;
-
-      const orderServiceLines = orderServiceLineUsed.get(c.orderId) || new Set();
-      if (orderServiceLines.has(c.serviceLine)) continue;
-
-      chunkMatchedRowIndices.add(c.rowIndex);
-      usedRowIndices.add(c.rowIndex);
-      orderServiceLines.add(c.serviceLine);
-      orderServiceLineUsed.set(c.orderId, orderServiceLines);
-
-      const isUpgrade = c.woType === "UP";
-
-      const matchResult: MatchResult = {
-        sheetRowIndex: c.rowIndex,
-        sheetData: c.data,
-        orderId: order.id,
-        orderInvoice: order.invoiceNumber,
-        orderCustomerName: order.customerName,
-        confidence: Math.min(100, c.score.total),
-        reasoning: c.score.reasons.join("; ") || "Matched by deterministic scoring",
-        scoreBreakdown: {
-          nameScore: Math.round(c.score.nameScore * 100),
-          addressScore: Math.round(c.score.addressScore * 100),
-          cityScore: Math.round(c.score.cityScore * 100),
-          zipScore: Math.round(c.score.zipScore * 100),
-          repScore: Math.round(c.score.repScore * 100),
-          acctScore: Math.round(c.score.acctScore * 100),
-          confidenceTier: c.score.confidenceTier,
-        },
-        serviceLineType: c.serviceLine,
-        workOrderNumber: c.woNumber || undefined,
-        isUpgrade,
-      };
-
-      chunkMatches.push(matchResult);
-      allMatches.push(matchResult);
+    processedCount++;
+    if (options?.onProgress && processedCount % progressInterval === 0) {
+      await options.onProgress(processedCount, matchableRows.length);
     }
-
-    for (const row of chunkRows) {
-      if (!usedRowIndices.has(row.rowIndex)) {
-        const cached = rowBestScores.get(row.rowIndex);
-        const bestScore = cached?.score ?? 0;
-        const bestReasons = cached?.reasons ?? [];
-        const customerName = extractField(row.data, "customer_name", carrierCtx, getCustomerName);
-        const addr = extractField(row.data, "address", carrierCtx, getAddress);
-        const detail = customerName ? ` (customer: ${customerName})` : addr ? ` (address: ${addr.slice(0, 40)})` : "";
-        chunkUnmatched.push({
-          rowIndex: row.rowIndex,
-          data: row.data,
-          reason: bestScore > 0
-            ? `Best score ${bestScore}% (below ${MATCH_THRESHOLD}% threshold)${detail}. Partial: ${bestReasons.join(", ") || "none"}`
-            : `No matching order found${detail}`,
-        });
-      }
-    }
-
-    if (options?.onChunk) {
-      await options.onChunk({ matches: chunkMatches, unmatched: chunkUnmatched, chunkIndex });
-    }
-
-    chunkIndex++;
   }
 
   if (options?.onProgress) {
     await options.onProgress(processedCount, matchableRows.length);
+  }
+
+  candidates.sort((a, b) => b.score.total - a.score.total);
+
+  const usedRowIndices = new Set<number>();
+  const orderServiceLineUsed = new Map<string, Set<string>>();
+  const validMatches: MatchResult[] = [];
+
+  for (const c of candidates) {
+    if (usedRowIndices.has(c.rowIndex)) continue;
+    const order = orderMap.get(c.orderId);
+    if (!order) continue;
+
+    const orderServiceLines = orderServiceLineUsed.get(c.orderId) || new Set();
+    if (orderServiceLines.has(c.serviceLine)) continue;
+
+    usedRowIndices.add(c.rowIndex);
+    orderServiceLines.add(c.serviceLine);
+    orderServiceLineUsed.set(c.orderId, orderServiceLines);
+
+    const isUpgrade = c.woType === "UP";
+
+    validMatches.push({
+      sheetRowIndex: c.rowIndex,
+      sheetData: c.data,
+      orderId: order.id,
+      orderInvoice: order.invoiceNumber,
+      orderCustomerName: order.customerName,
+      confidence: Math.min(100, c.score.total),
+      reasoning: c.score.reasons.join("; ") || "Matched by deterministic scoring",
+      scoreBreakdown: {
+        nameScore: Math.round(c.score.nameScore * 100),
+        addressScore: Math.round(c.score.addressScore * 100),
+        cityScore: Math.round(c.score.cityScore * 100),
+        zipScore: Math.round(c.score.zipScore * 100),
+        repScore: Math.round(c.score.repScore * 100),
+        acctScore: Math.round(c.score.acctScore * 100),
+        confidenceTier: c.score.confidenceTier,
+      },
+      serviceLineType: c.serviceLine,
+      workOrderNumber: c.woNumber || undefined,
+      isUpgrade,
+    });
+  }
+
+  if (options?.onChunk) {
+    for (let i = 0; i < validMatches.length; i += chunkSize) {
+      const chunkMatches = validMatches.slice(i, i + chunkSize);
+      const chunkIdx = Math.floor(i / chunkSize);
+      await options.onChunk({ matches: chunkMatches, unmatched: [], chunkIndex: chunkIdx });
+    }
   }
 
   const unmatchedRows = matchableRows
@@ -979,15 +945,15 @@ export async function matchInstallationsToOrders(
   const allUnmatched = [...unmatchedRows, ...skippedRows];
   const elapsedSec = Math.round((Date.now() - startTime) / 1000);
 
-  console.log(`[Install Sync] Done in ${elapsedSec}s: ${allMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped (new:${rowClassifications.new} changed:${rowClassifications.changed} unchanged:${rowClassifications.unchanged})${timedOut ? " [TIMED OUT]" : ""}`);
+  console.log(`[Install Sync] Done in ${elapsedSec}s: ${validMatches.length} matched, ${unmatchedRows.length} unmatched, ${skippedRows.length} skipped, ${dedupSkipped.length} dedup-skipped (new:${rowClassifications.new} changed:${rowClassifications.changed} unchanged:${rowClassifications.unchanged})${timedOut ? " [TIMED OUT]" : ""}`);
 
   const timeoutNote = timedOut ? ` (timed out after ${elapsedSec}s, processed ${processedCount}/${matchableRows.length} rows)` : "";
 
   return {
-    matches: allMatches,
+    matches: validMatches,
     unmatched: allUnmatched,
     dedupSkipped,
-    summary: `Matched ${allMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced (dedup).${timeoutNote}`,
+    summary: `Matched ${validMatches.length} of ${matchableRows.length} records. ${skippedRows.length} rows skipped. ${dedupSkipped.length} previously synced (dedup).${timeoutNote}`,
     rowClassifications,
   };
 }
