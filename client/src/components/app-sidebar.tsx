@@ -60,6 +60,7 @@ import {
   BadgeAlert,
   CalendarCheck,
   TrendingDown,
+  Shield,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -118,6 +119,7 @@ const MENU = {
   overrideApprovals: { title: "Override Approvals", url: "/admin/override-approvals", icon: CheckSquare },
   empCredentials: { title: "Employee Credentials", url: "/admin/employee-credentials", icon: Key },
   adminDisputes: { title: "Disputes", url: "/admin/disputes", icon: MessageSquareWarning },
+  complianceCalendar: { title: "Compliance Calendar", url: "/admin/compliance-calendar", icon: Shield },
   userActivity: { title: "User Activity", url: "/admin/user-activity", icon: Activity },
   onboarding: { title: "Onboarding", url: "/onboarding", icon: ClipboardList },
   onboardingReview: { title: "Onboarding Review", url: "/admin/onboarding-review", icon: CheckSquare },
@@ -218,6 +220,7 @@ const adminSettingsItems: MenuItem[] = [
   MENU.overrideApprovals,
   MENU.empCredentials,
   MENU.adminDisputes,
+  MENU.complianceCalendar,
   MENU.quickbooks,
   MENU.userActivity,
   MENU.installSync,

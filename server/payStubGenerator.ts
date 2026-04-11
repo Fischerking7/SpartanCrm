@@ -662,6 +662,22 @@ async function generatePayStubFromPayRun(
   const user = await storage.getUserById(userId);
   if (!user) throw new Error(`User ${userId} not found`);
 
+  // Legal & Compliance block: check for commission block due to expiry or active legal hold
+  if (user.commissionBlockedDueToExpiry) {
+    throw new Error(
+      `Commission payout blocked for ${user.name} (${user.repId}): ${user.commissionBlockedReason || "Expired compliance documents"}`
+    );
+  }
+
+  // Check for any active LEGAL_HOLD disputes — freeze payout if found
+  const userDisputes = await storage.getCommissionDisputesByUser(userId);
+  const hasLegalHold = userDisputes.some((d) => d.status === "LEGAL_HOLD" && d.commissionFrozen);
+  if (hasLegalHold) {
+    throw new Error(
+      `Commission payout frozen for ${user.name} (${user.repId}): one or more commission disputes are under legal hold`
+    );
+  }
+
   const isOwner = user.compPlanType === "OWNER" || isOwnerRole(user.role);
 
   const stubSeq = await storage.getNextStubSequence(payRunId, txDb);

@@ -88,6 +88,12 @@ export const users = pgTable("users", {
   ipadSerialNumber: varchar("ipad_serial_number"),
   ipadIssuedAt: timestamp("ipad_issued_at"),
   ipadReturnedAt: timestamp("ipad_returned_at"),
+  contractorAgreementExpiresAt: timestamp("contractor_agreement_expires_at"),
+  ndaExpiresAt: timestamp("nda_expires_at"),
+  backgroundCheckExpiresAt: timestamp("background_check_expires_at"),
+  drugTestExpiresAt: timestamp("drug_test_expires_at"),
+  commissionBlockedDueToExpiry: boolean("commission_blocked_due_to_expiry").notNull().default(false),
+  commissionBlockedReason: text("commission_blocked_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1881,7 +1887,7 @@ export const loginSchema = z.object({
 export type LoginInput = z.infer<typeof loginSchema>;
 
 // Commission Disputes
-export const commissionDisputeStatusEnum = pgEnum("commission_dispute_status", ["PENDING", "UNDER_REVIEW", "APPROVED", "REJECTED", "CLOSED"]);
+export const commissionDisputeStatusEnum = pgEnum("commission_dispute_status", ["PENDING", "UNDER_REVIEW", "ESCALATED", "LEGAL_HOLD", "APPROVED", "REJECTED", "CLOSED"]);
 export const commissionDisputeTypeEnum = pgEnum("commission_dispute_type", ["MISSING_COMMISSION", "INCORRECT_AMOUNT", "INCORRECT_SERVICE", "CHARGEBACK_DISPUTE", "OTHER"]);
 
 export const commissionDisputes = pgTable("commission_disputes", {
@@ -1900,15 +1906,27 @@ export const commissionDisputes = pgTable("commission_disputes", {
   resolvedAmount: decimal("resolved_amount", { precision: 10, scale: 2 }),
   resolvedByUserId: varchar("resolved_by_user_id").references(() => users.id),
   resolvedAt: timestamp("resolved_at"),
+  escalationThresholdAmount: decimal("escalation_threshold_amount", { precision: 10, scale: 2 }),
+  escalatedAt: timestamp("escalated_at"),
+  escalatedByUserId: varchar("escalated_by_user_id").references(() => users.id),
+  legalHoldAt: timestamp("legal_hold_at"),
+  legalHoldByUserId: varchar("legal_hold_by_user_id").references(() => users.id),
+  legalHoldReason: text("legal_hold_reason"),
+  legalHoldReleasedAt: timestamp("legal_hold_released_at"),
+  legalHoldReleasedByUserId: varchar("legal_hold_released_by_user_id").references(() => users.id),
+  commissionFrozen: boolean("commission_frozen").notNull().default(false),
+  autoEscalated: boolean("auto_escalated").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const commissionDisputesRelations = relations(commissionDisputes, ({ one }) => ({
+export const commissionDisputesRelations = relations(commissionDisputes, ({ one, many }) => ({
   user: one(users, { fields: [commissionDisputes.userId], references: [users.id] }),
   salesOrder: one(salesOrders, { fields: [commissionDisputes.salesOrderId], references: [salesOrders.id] }),
   payStatement: one(payStatements, { fields: [commissionDisputes.payStatementId], references: [payStatements.id] }),
   resolvedBy: one(users, { fields: [commissionDisputes.resolvedByUserId], references: [users.id], relationName: "disputeResolver" }),
+  escalationEvents: many(disputeEscalationEvents),
+  evidenceAttachments: many(disputeEvidenceAttachments),
 }));
 
 export const insertCommissionDisputeSchema = createInsertSchema(commissionDisputes).omit({ 
@@ -1919,10 +1937,116 @@ export const insertCommissionDisputeSchema = createInsertSchema(commissionDisput
   resolvedByUserId: true,
   resolution: true,
   resolvedAmount: true,
+  escalatedAt: true,
+  escalatedByUserId: true,
+  legalHoldAt: true,
+  legalHoldByUserId: true,
+  legalHoldReleasedAt: true,
+  legalHoldReleasedByUserId: true,
+  commissionFrozen: true,
+  autoEscalated: true,
 });
 
 export type CommissionDispute = typeof commissionDisputes.$inferSelect;
 export type InsertCommissionDispute = z.infer<typeof insertCommissionDisputeSchema>;
+
+// Dispute Escalation Events (timeline)
+export const disputeEscalationEvents = pgTable("dispute_escalation_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  disputeId: varchar("dispute_id").notNull().references(() => commissionDisputes.id, { onDelete: "cascade" }),
+  actorUserId: varchar("actor_user_id").references(() => users.id),
+  eventType: varchar("event_type", { length: 50 }).notNull(),
+  fromStatus: varchar("from_status", { length: 30 }),
+  toStatus: varchar("to_status", { length: 30 }),
+  note: text("note"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const disputeEscalationEventsRelations = relations(disputeEscalationEvents, ({ one }) => ({
+  dispute: one(commissionDisputes, { fields: [disputeEscalationEvents.disputeId], references: [commissionDisputes.id] }),
+  actor: one(users, { fields: [disputeEscalationEvents.actorUserId], references: [users.id] }),
+}));
+
+export const insertDisputeEscalationEventSchema = createInsertSchema(disputeEscalationEvents).omit({
+  id: true, createdAt: true,
+});
+export type DisputeEscalationEvent = typeof disputeEscalationEvents.$inferSelect;
+export type InsertDisputeEscalationEvent = z.infer<typeof insertDisputeEscalationEventSchema>;
+
+// Dispute Evidence Attachments
+export const disputeEvidenceAttachments = pgTable("dispute_evidence_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  disputeId: varchar("dispute_id").notNull().references(() => commissionDisputes.id, { onDelete: "cascade" }),
+  uploadedByUserId: varchar("uploaded_by_user_id").notNull().references(() => users.id),
+  fileName: text("file_name").notNull(),
+  fileSize: integer("file_size"),
+  mimeType: varchar("mime_type", { length: 100 }),
+  storageKey: text("storage_key").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const disputeEvidenceAttachmentsRelations = relations(disputeEvidenceAttachments, ({ one }) => ({
+  dispute: one(commissionDisputes, { fields: [disputeEvidenceAttachments.disputeId], references: [commissionDisputes.id] }),
+  uploadedBy: one(users, { fields: [disputeEvidenceAttachments.uploadedByUserId], references: [users.id] }),
+}));
+
+export const insertDisputeEvidenceAttachmentSchema = createInsertSchema(disputeEvidenceAttachments).omit({
+  id: true, createdAt: true,
+});
+export type DisputeEvidenceAttachment = typeof disputeEvidenceAttachments.$inferSelect;
+export type InsertDisputeEvidenceAttachment = z.infer<typeof insertDisputeEvidenceAttachmentSchema>;
+
+// Contractor Document Version History — immutable audit trail for re-signs
+export const contractorDocumentVersions = pgTable("contractor_document_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  documentType: varchar("document_type", { length: 50 }).notNull(), // CONTRACTOR_AGREEMENT, NDA, BACKGROUND_CHECK, DRUG_TEST
+  eventType: varchar("event_type", { length: 30 }).notNull(), // SIGNED, EXPIRED, RE_CERTIFIED, MANUALLY_UPDATED
+  expiresAt: timestamp("expires_at"),
+  signedAt: timestamp("signed_at"),
+  performedByUserId: varchar("performed_by_user_id").references(() => users.id),
+  note: text("note"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const contractorDocumentVersionsRelations = relations(contractorDocumentVersions, ({ one }) => ({
+  user: one(users, { fields: [contractorDocumentVersions.userId], references: [users.id] }),
+  performedBy: one(users, { fields: [contractorDocumentVersions.performedByUserId], references: [users.id] }),
+}));
+
+export const insertContractorDocumentVersionSchema = createInsertSchema(contractorDocumentVersions).omit({
+  id: true, createdAt: true,
+});
+export type ContractorDocumentVersion = typeof contractorDocumentVersions.$inferSelect;
+export type InsertContractorDocumentVersion = z.infer<typeof insertContractorDocumentVersionSchema>;
+
+// Re-certification requests — tracks when a rep is asked to re-sign expired documents
+export const recertificationRequests = pgTable("recertification_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  documentTypes: text("document_types").array().notNull(), // which documents need re-sign
+  status: varchar("status", { length: 20 }).notNull().default("PENDING"), // PENDING, COMPLETED, EXPIRED
+  requestedByUserId: varchar("requested_by_user_id").references(() => users.id),
+  requestNote: text("request_note"),
+  completedAt: timestamp("completed_at"),
+  expiresAt: timestamp("expires_at"), // when this re-cert request expires if not acted on
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const recertificationRequestsRelations = relations(recertificationRequests, ({ one }) => ({
+  user: one(users, { fields: [recertificationRequests.userId], references: [users.id] }),
+  requestedBy: one(users, { fields: [recertificationRequests.requestedByUserId], references: [users.id] }),
+}));
+
+export const insertRecertificationRequestSchema = createInsertSchema(recertificationRequests).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type RecertificationRequest = typeof recertificationRequests.$inferSelect;
+export type InsertRecertificationRequest = z.infer<typeof insertRecertificationRequestSchema>;
 
 // Finance Import table - tracks file imports
 export const financeImports = pgTable("finance_imports", {

@@ -11,6 +11,10 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActivityTracker } from "@/hooks/use-activity-tracker";
+import { useQuery } from "@tanstack/react-query";
+import { getAuthHeaders } from "@/lib/auth";
+import { differenceInDays, isBefore } from "date-fns";
+import { AlertTriangle, XCircle, Shield } from "lucide-react";
 
 import Login from "@/pages/login";
 import ChangePassword from "@/pages/change-password";
@@ -60,6 +64,7 @@ import Notifications from "@/pages/notifications";
 import MobileOrderEntry from "@/pages/mobile-order-entry";
 import MyDisputes from "@/pages/my-disputes";
 import AdminDisputes from "@/pages/admin-disputes";
+import ComplianceCalendar from "@/pages/admin/compliance-calendar";
 import OrderTracker from "@/pages/order-tracker";
 import UserActivityPage from "@/pages/admin/user-activity";
 import InstallSync from "@/pages/admin/install-sync";
@@ -154,7 +159,144 @@ const routeTitles: Record<string, string> = {
   "/accounting/payment-variances": "Payment Variances",
   "/accounting/month-end": "Month-End Checklist",
   "/accounting/cash-flow": "Cash Flow Forecast",
+  "/admin/compliance-calendar": "Compliance Calendar",
+  "/admin/disputes": "Commission Disputes",
 };
+
+interface ComplianceStatus {
+  contractorAgreementExpiresAt: string | null;
+  ndaExpiresAt: string | null;
+  backgroundCheckExpiresAt: string | null;
+  drugTestExpiresAt: string | null;
+  commissionBlockedDueToExpiry: boolean;
+  commissionBlockedReason: string | null;
+}
+
+function ComplianceAlertBanner() {
+  const { user } = useAuth();
+  const repRoles = ["REP", "MDU", "LEAD"];
+  const isRep = user && repRoles.includes(user.role);
+
+  const { data: status } = useQuery<ComplianceStatus>({
+    queryKey: ["/api/compliance/my-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/compliance/my-status", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Not found");
+      return res.json();
+    },
+    enabled: !!isRep,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: recertRequests } = useQuery<Array<{ id: string; documentTypes: string[]; status: string; requestNote: string | null }>>({
+    queryKey: ["/api/compliance/my-recertification"],
+    queryFn: async () => {
+      const res = await fetch("/api/compliance/my-recertification", { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!isRep,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (!isRep) return null;
+
+  const pendingRecert = (recertRequests || []).filter(r => r.status === "PENDING");
+
+  if (pendingRecert.length > 0 && status) {
+    const docLabels: Record<string, string> = {
+      CONTRACTOR_AGREEMENT: "Contractor Agreement",
+      NDA: "NDA",
+      BACKGROUND_CHECK: "Background Check",
+      DRUG_TEST: "Drug Test",
+    };
+    const allDocs = [...new Set(pendingRecert.flatMap(r => r.documentTypes))].map(d => docLabels[d] || d);
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-900/20 border-b border-purple-200 dark:border-purple-800 text-sm" data-testid="banner-recertification-required">
+        <Shield className="h-4 w-4 text-purple-600 flex-shrink-0" />
+        <span className="text-purple-700 dark:text-purple-400"><strong>Re-certification required:</strong> {allDocs.join(", ")}. Please contact your manager to complete re-signing.</span>
+      </div>
+    );
+  }
+
+  if (!status) return null;
+
+  const now = new Date();
+  const checkExpiry = (dateStr: string | null): "expired" | "critical" | "warning" | "notice" | null => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isBefore(d, now)) return "expired";
+    const days = differenceInDays(d, now);
+    if (days <= 30) return "critical";
+    if (days <= 60) return "warning";
+    if (days <= 90) return "notice";
+    return null;
+  };
+
+  const expiries = [
+    { name: "Contractor Agreement", status: checkExpiry(status.contractorAgreementExpiresAt) },
+    { name: "NDA", status: checkExpiry(status.ndaExpiresAt) },
+    { name: "Background Check", status: checkExpiry(status.backgroundCheckExpiresAt) },
+    { name: "Drug Test", status: checkExpiry(status.drugTestExpiresAt) },
+  ].filter(e => e.status !== null);
+
+  const hasExpired = expiries.some(e => e.status === "expired");
+  const hasCritical = expiries.some(e => e.status === "critical");
+  const hasWarning = expiries.some(e => e.status === "warning");
+  const hasNotice = expiries.some(e => e.status === "notice");
+
+  if (status.commissionBlockedDueToExpiry) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 text-sm" data-testid="banner-commission-blocked">
+        <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
+        <span className="text-red-700 dark:text-red-400 font-medium">Commission payouts blocked:</span>
+        <span className="text-red-600 dark:text-red-300">{status.commissionBlockedReason || "Expired documents. Contact your manager."}</span>
+      </div>
+    );
+  }
+
+  if (hasExpired) {
+    const expiredNames = expiries.filter(e => e.status === "expired").map(e => e.name).join(", ");
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 text-sm" data-testid="banner-expired-docs">
+        <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
+        <span className="text-red-700 dark:text-red-400"><strong>Expired documents:</strong> {expiredNames}. Re-certification required — contact your manager immediately.</span>
+      </div>
+    );
+  }
+
+  if (hasCritical) {
+    const criticalNames = expiries.filter(e => e.status === "critical").map(e => e.name).join(", ");
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 text-sm" data-testid="banner-expiring-docs-30">
+        <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />
+        <span className="text-red-700 dark:text-red-400"><strong>Documents expiring within 30 days:</strong> {criticalNames}. Contact your manager to schedule renewal.</span>
+      </div>
+    );
+  }
+
+  if (hasWarning) {
+    const warningNames = expiries.filter(e => e.status === "warning").map(e => e.name).join(", ");
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 text-sm" data-testid="banner-expiring-docs-60">
+        <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
+        <span className="text-amber-700 dark:text-amber-400"><strong>Documents expiring within 60 days:</strong> {warningNames}. Please plan to renew these soon.</span>
+      </div>
+    );
+  }
+
+  if (hasNotice) {
+    const noticeNames = expiries.filter(e => e.status === "notice").map(e => e.name).join(", ");
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 text-sm" data-testid="banner-expiring-docs-90">
+        <Shield className="h-4 w-4 text-blue-500 flex-shrink-0" />
+        <span className="text-blue-700 dark:text-blue-400"><strong>90-day renewal reminder:</strong> {noticeNames} will expire within 90 days.</span>
+      </div>
+    );
+  }
+
+  return null;
+}
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -188,6 +330,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
             <ThemeToggle />
           </header>
           <main className={`flex-1 overflow-auto ${showBottomNav ? "pb-20 md:pb-0" : ""}`}>
+            <ComplianceAlertBanner />
             {children}
           </main>
           <MobileBottomNav />
@@ -294,6 +437,7 @@ function Router() {
             <Route path="/admin/quickbooks" component={AdminQuickBooks} />
             <Route path="/admin/employee-credentials" component={AdminEmployeeCredentials} />
             <Route path="/admin/disputes" component={AdminDisputes} />
+            <Route path="/admin/compliance-calendar" component={ComplianceCalendar} />
             <Route path="/admin/install-sync" component={InstallSync} />
             <Route path="/admin/carrier-profiles" component={CarrierProfiles} />
             <Route path="/admin/carrier-rep-mappings" component={CarrierRepMappings} />

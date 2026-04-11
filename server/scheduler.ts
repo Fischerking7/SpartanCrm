@@ -95,6 +95,8 @@ export const scheduler = {
     this.scheduleCommissionIntegrityCheck();
     this.scheduleOrphanedRecordCheck();
     this.scheduleFinanceImportOverdueCheck();
+    this.scheduleAutoEscalation();
+    this.scheduleComplianceBlockEnforcement();
 
     setTimeout(() => {
       runJobWithLock('checkScheduledPayRuns', () => this.checkScheduledPayRuns());
@@ -1965,6 +1967,134 @@ export const scheduler = {
     setTimeout(() => {
       runJobWithLock("financeImportOverdueCheck", overdueJob);
       setInterval(() => runJobWithLock("financeImportOverdueCheck", overdueJob), 24 * 60 * 60 * 1000);
+    }, ms);
+  },
+
+  // ===================== AUTO-ESCALATION ENGINE =====================
+  // Runs every 6 hours to auto-escalate disputes that exceed amount or age thresholds
+  scheduleAutoEscalation() {
+    const autoEscalateJob = async () => {
+      try {
+        // Load configurable thresholds from system_settings (with hardcoded fallbacks)
+        const settingsMap = await storage.getSystemSettingsMap([
+          "dispute_escalation_amount_threshold",
+          "dispute_escalation_age_pending_days",
+          "dispute_escalation_age_review_days",
+        ]);
+        const ESCALATION_AMOUNT_THRESHOLD = parseFloat(settingsMap["dispute_escalation_amount_threshold"] || "500");
+        const ESCALATION_AGE_DAYS_CRITICAL = parseInt(settingsMap["dispute_escalation_age_pending_days"] || "14", 10);
+        const ESCALATION_AGE_DAYS_REVIEW = parseInt(settingsMap["dispute_escalation_age_review_days"] || "7", 10);
+
+        const { commissionDisputes } = await import("@shared/schema");
+        const { asc } = await import("drizzle-orm");
+
+        // Get all open non-escalated, non-hold disputes
+        const openDisputes = await db
+          .select()
+          .from(commissionDisputes)
+          .where(
+            and(
+              inArray(commissionDisputes.status, ["PENDING", "UNDER_REVIEW"]),
+            )
+          )
+          .orderBy(asc(commissionDisputes.createdAt));
+
+        let escalated = 0;
+        const now = new Date();
+
+        for (const dispute of openDisputes) {
+          const ageDays = Math.floor((now.getTime() - new Date(dispute.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+          const differenceAmount = parseFloat(dispute.differenceAmount || "0");
+          const expectedAmount = parseFloat(dispute.expectedAmount || "0");
+          const amountToCheck = differenceAmount || expectedAmount;
+
+          const shouldEscalateByAmount = amountToCheck > ESCALATION_AMOUNT_THRESHOLD;
+          const shouldEscalateByAge = (dispute.status === "PENDING" && ageDays >= ESCALATION_AGE_DAYS_CRITICAL) ||
+                                      (dispute.status === "UNDER_REVIEW" && ageDays >= ESCALATION_AGE_DAYS_REVIEW);
+
+          if (!shouldEscalateByAmount && !shouldEscalateByAge) continue;
+
+          const reasons: string[] = [];
+          if (shouldEscalateByAmount) reasons.push(`amount $${amountToCheck.toFixed(2)} exceeds $${ESCALATION_AMOUNT_THRESHOLD} threshold`);
+          if (shouldEscalateByAge) reasons.push(`open for ${ageDays} days without resolution`);
+          const autoNote = `Auto-escalated by system: ${reasons.join("; ")}`;
+
+          try {
+            await storage.updateCommissionDispute(dispute.id, {
+              status: "ESCALATED",
+              escalatedAt: now,
+              autoEscalated: true,
+            });
+            await storage.createDisputeEscalationEvent({
+              disputeId: dispute.id,
+              actorUserId: null,
+              eventType: "ESCALATED",
+              fromStatus: dispute.status,
+              toStatus: "ESCALATED",
+              note: autoNote,
+              metadata: { autoEscalated: true, amountToCheck, ageDays },
+            });
+            escalated++;
+            console.log(`[AutoEscalation] Escalated dispute ${dispute.id.slice(0, 8)}: ${autoNote}`);
+          } catch (err: any) {
+            console.error(`[AutoEscalation] Failed to escalate ${dispute.id}:`, err.message);
+          }
+        }
+
+        if (escalated > 0) {
+          console.log(`[AutoEscalation] Auto-escalation sweep: ${openDisputes.length} open disputes checked, ${escalated} escalated`);
+          // Notify admin users
+          try {
+            const allUsers = await storage.getUsers();
+            const adminUsers = allUsers.filter(u => ["ADMIN", "OPERATIONS", "DIRECTOR"].includes(u.role) && u.status === "ACTIVE" && !u.deletedAt);
+            for (const admin of adminUsers) {
+              await emailService.queueNotification({
+                userId: admin.id,
+                notificationType: "GENERAL",
+                subject: `${escalated} Commission Dispute${escalated === 1 ? "" : "s"} Auto-Escalated`,
+                body: `${escalated} commission dispute${escalated === 1 ? "" : "s"} were automatically escalated by the system due to amount or age thresholds exceeding configured limits.\n\nThresholds:\n- Amount: disputes over $${ESCALATION_AMOUNT_THRESHOLD}\n- Age: ${ESCALATION_AGE_DAYS_CRITICAL} days (Pending), ${ESCALATION_AGE_DAYS_REVIEW} days (Under Review)\n\nPlease review the escalated disputes in the admin disputes page.`,
+                recipientEmail: admin.email || "",
+                relatedEntityType: "DISPUTE",
+                relatedEntityId: undefined,
+              });
+            }
+          } catch (notifyErr: any) {
+            console.error("[AutoEscalation] Failed to notify admins:", notifyErr.message);
+          }
+        }
+      } catch (error: any) {
+        console.error("[Scheduler] Auto-escalation sweep failed:", error.message);
+      }
+    };
+
+    const ms = 6 * 60 * 60 * 1000; // 6 hours
+    console.log(`[Scheduler] Auto-escalation sweep scheduled every 6 hours`);
+    // Run once at startup after 10 seconds, then every 6 hours
+    setTimeout(() => {
+      runJobWithLock("autoEscalationSweep", autoEscalateJob);
+      setInterval(() => runJobWithLock("autoEscalationSweep", autoEscalateJob), ms);
+    }, 10000);
+  },
+
+  // ===================== COMPLIANCE BLOCK ENFORCEMENT =====================
+  // Runs daily to policy-enforce commission blocking based on expired critical documents
+  scheduleComplianceBlockEnforcement() {
+    const complianceBlockJob = async () => {
+      try {
+        const result = await storage.enforceComplianceBlockPolicy();
+        if (result.blocked > 0 || result.unblocked > 0) {
+          console.log(`[ComplianceBlock] Policy enforcement: ${result.blocked} newly blocked, ${result.unblocked} unblocked`);
+        }
+      } catch (error: any) {
+        console.error("[Scheduler] Compliance block enforcement failed:", error.message);
+      }
+    };
+
+    const ms = msUntilEasternTime(2, 0); // 2 AM ET daily
+    console.log(`[Scheduler] Compliance block enforcement scheduled in ${Math.round(ms / 60000)} minutes (2:00 AM ET, daily)`);
+    setTimeout(() => {
+      runJobWithLock("complianceBlockEnforcement", complianceBlockJob);
+      setInterval(() => runJobWithLock("complianceBlockEnforcement", complianceBlockJob), 24 * 60 * 60 * 1000);
     }, ms);
   },
 };

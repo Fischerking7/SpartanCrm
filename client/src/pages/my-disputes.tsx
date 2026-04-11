@@ -8,12 +8,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { AlertCircle, Plus, FileText, Clock, CheckCircle, XCircle, Eye } from "lucide-react";
-import { useState } from "react";
+import { AlertCircle, FileText, Clock, CheckCircle, XCircle, Eye, Plus, ChevronUp, Shield, Upload, Paperclip, History } from "lucide-react";
+import { useState, useRef } from "react";
 import { format } from "date-fns";
 
 interface CommissionDispute {
@@ -32,6 +31,31 @@ interface CommissionDispute {
   resolvedAmount: string | null;
   resolvedAt: string | null;
   createdAt: string;
+  escalatedAt: string | null;
+  legalHoldAt: string | null;
+  legalHoldReason: string | null;
+  commissionFrozen: boolean;
+  autoEscalated: boolean;
+}
+
+interface EscalationEvent {
+  id: string;
+  eventType: string;
+  fromStatus: string | null;
+  toStatus: string | null;
+  note: string | null;
+  createdAt: string;
+  actor: { id: string; name: string; role: string } | null;
+}
+
+interface EvidenceAttachment {
+  id: string;
+  fileName: string;
+  fileSize: number | null;
+  mimeType: string | null;
+  description: string | null;
+  createdAt: string;
+  uploadedBy: { id: string; name: string; role: string } | null;
 }
 
 function formatCurrency(amount: string | number | null) {
@@ -44,162 +68,366 @@ function formatDate(date: string) {
   return format(new Date(date), "MMM dd, yyyy");
 }
 
+function formatDateTime(date: string) {
+  return format(new Date(date), "MMM dd, yyyy h:mm a");
+}
+
 function DisputeStatusBadge({ status }: { status: string }) {
-  const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: typeof Clock }> = {
-    PENDING: { variant: "outline", icon: Clock },
-    UNDER_REVIEW: { variant: "secondary", icon: Eye },
-    APPROVED: { variant: "default", icon: CheckCircle },
-    REJECTED: { variant: "destructive", icon: XCircle },
-    CLOSED: { variant: "outline", icon: CheckCircle },
+  const variants: Record<string, { className: string; icon: React.ComponentType<{ className?: string }>; label: string }> = {
+    PENDING: { className: "border text-muted-foreground", icon: Clock, label: "Pending Review" },
+    UNDER_REVIEW: { className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-0", icon: Eye, label: "Under Review" },
+    ESCALATED: { className: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border-0", icon: ChevronUp, label: "Escalated" },
+    LEGAL_HOLD: { className: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-0", icon: Shield, label: "Legal Hold" },
+    APPROVED: { className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0", icon: CheckCircle, label: "Approved" },
+    REJECTED: { className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0", icon: XCircle, label: "Rejected" },
+    CLOSED: { className: "border text-muted-foreground", icon: CheckCircle, label: "Closed" },
   };
-  const config = variants[status] || { variant: "outline" as const, icon: AlertCircle };
+  const config = variants[status] || { className: "border", icon: AlertCircle, label: status };
   const Icon = config.icon;
   return (
-    <Badge variant={config.variant} className="gap-1">
+    <Badge className={`gap-1 ${config.className}`}>
       <Icon className="h-3 w-3" />
-      {status.replace("_", " ")}
+      {config.label}
     </Badge>
   );
 }
 
-function DisputeTypeBadge({ type }: { type: string }) {
-  const labels: Record<string, string> = {
-    MISSING_COMMISSION: "Missing Commission",
-    INCORRECT_AMOUNT: "Incorrect Amount",
-    INCORRECT_SERVICE: "Incorrect Service",
-    CHARGEBACK_DISPUTE: "Chargeback Dispute",
-    OTHER: "Other",
+function EscalationTimeline({ disputeId }: { disputeId: string }) {
+  const { data: events, isLoading } = useQuery<EscalationEvent[]>({
+    queryKey: ["/api/disputes", disputeId, "timeline"],
+    queryFn: async () => {
+      const res = await fetch(`/api/disputes/${disputeId}/timeline`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to load timeline");
+      return res.json();
+    },
+  });
+
+  const eventTypeLabel: Record<string, string> = {
+    STATUS_CHANGED: "Status Updated",
+    ESCALATED: "Escalated to Senior Reviewer",
+    LEGAL_HOLD_PLACED: "Legal Hold Placed",
+    LEGAL_HOLD_RELEASED: "Legal Hold Released",
+    RESOLVED: "Dispute Resolved",
+    EVIDENCE_UPLOADED: "Evidence Submitted",
+    CREATED: "Dispute Created",
   };
-  return <Badge variant="outline">{labels[type] || type}</Badge>;
+
+  const eventTypeColor: Record<string, string> = {
+    ESCALATED: "text-orange-600",
+    LEGAL_HOLD_PLACED: "text-purple-600",
+    LEGAL_HOLD_RELEASED: "text-blue-600",
+    RESOLVED: "text-green-600",
+    EVIDENCE_UPLOADED: "text-blue-500",
+  };
+
+  if (isLoading) return <Skeleton className="h-24 w-full" />;
+  if (!events || events.length === 0) {
+    return <p className="text-sm text-muted-foreground py-2">No updates yet. Your dispute will be reviewed shortly.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {events.map(event => (
+        <div key={event.id} className="flex gap-3 text-sm" data-testid={`timeline-event-${event.id}`}>
+          <div className="flex flex-col items-center">
+            <div className="h-2 w-2 rounded-full bg-border mt-1.5 flex-shrink-0" />
+            <div className="w-px bg-border flex-1 mt-1" />
+          </div>
+          <div className="pb-3 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`font-medium ${eventTypeColor[event.eventType] || ""}`}>{eventTypeLabel[event.eventType] || event.eventType}</span>
+              <span className="text-xs text-muted-foreground ml-auto">{formatDateTime(event.createdAt)}</span>
+            </div>
+            {event.note && <p className="text-sm mt-0.5 text-muted-foreground">{event.note}</p>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function CreateDisputeDialog() {
+function EvidencePanel({ disputeId, status }: { disputeId: string; status: string }) {
+  const { data: attachments, isLoading } = useQuery<EvidenceAttachment[]>({
+    queryKey: ["/api/disputes", disputeId, "evidence"],
+    queryFn: async () => {
+      const res = await fetch(`/api/disputes/${disputeId}/evidence`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to load evidence");
+      return res.json();
+    },
+  });
+
+  const { toast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [description, setDescription] = useState("");
+  const canUpload = !["APPROVED", "REJECTED", "CLOSED"].includes(status);
+
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("description", description);
+      const res = await fetch(`/api/disputes/${disputeId}/evidence`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: fd,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Upload failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/disputes", disputeId, "evidence"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/disputes", disputeId, "timeline"] });
+      toast({ title: "Evidence uploaded" });
+      setDescription("");
+      if (fileRef.current) fileRef.current.value = "";
+    },
+    onError: (e: Error) => toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadMutation.mutate(file);
+  };
+
+  function formatFileSize(bytes: number | null) {
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return (
+    <div className="space-y-3">
+      {canUpload && (
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Description (optional)"
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            className="flex-1"
+            data-testid="input-evidence-description"
+          />
+          <input type="file" ref={fileRef} onChange={handleFileChange} className="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.txt" />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploadMutation.isPending}
+            data-testid="button-upload-evidence"
+          >
+            <Upload className="h-4 w-4 mr-1" />
+            {uploadMutation.isPending ? "Uploading..." : "Upload"}
+          </Button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <Skeleton className="h-16 w-full" />
+      ) : !attachments || attachments.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-2">{canUpload ? "No evidence attached yet. Upload supporting documents to strengthen your case." : "No evidence was attached."}</p>
+      ) : (
+        <div className="space-y-2">
+          {attachments.map(att => (
+            <div key={att.id} className="flex items-center gap-2 p-2 border rounded-lg text-sm" data-testid={`evidence-${att.id}`}>
+              <Paperclip className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{att.fileName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {formatFileSize(att.fileSize)} · {formatDate(att.createdAt)}
+                  {att.description && ` · ${att.description}`}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ViewDisputeDialog({ dispute }: { dispute: CommissionDispute }) {
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"details" | "evidence" | "timeline">("details");
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="ghost" data-testid={`button-view-dispute-${dispute.id}`}>
+          <Eye className="h-4 w-4 mr-1" />
+          View
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            Dispute Details
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <DisputeStatusBadge status={dispute.status} />
+            {dispute.commissionFrozen && (
+              <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 gap-1 text-xs">
+                <Shield className="h-3 w-3" />
+                Commission Frozen
+              </Badge>
+            )}
+          </div>
+
+          {dispute.status === "LEGAL_HOLD" && (
+            <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+              <p className="text-xs font-medium text-purple-700 dark:text-purple-400">Legal Hold Active</p>
+              <p className="text-xs text-muted-foreground mt-1">Your commission related to this dispute is frozen pending legal review.</p>
+              {dispute.legalHoldReason && <p className="text-sm mt-1">{dispute.legalHoldReason}</p>}
+            </div>
+          )}
+
+          <div>
+            <p className="text-xs text-muted-foreground">Title</p>
+            <p className="font-medium">{dispute.title}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Description</p>
+            <p className="text-sm">{dispute.description}</p>
+          </div>
+
+          {(dispute.expectedAmount || dispute.actualAmount) && (
+            <div className="grid grid-cols-3 gap-4 pt-2 border-t">
+              <div><p className="text-xs text-muted-foreground">Expected</p><p className="font-medium">{formatCurrency(dispute.expectedAmount)}</p></div>
+              <div><p className="text-xs text-muted-foreground">Actual</p><p className="font-medium">{formatCurrency(dispute.actualAmount)}</p></div>
+              <div><p className="text-xs text-muted-foreground">Difference</p><p className="font-medium text-red-600">{formatCurrency(dispute.differenceAmount)}</p></div>
+            </div>
+          )}
+
+          {dispute.resolution && (
+            <div className="p-3 bg-muted rounded-lg">
+              <p className="text-xs text-muted-foreground">Admin Resolution</p>
+              <p className="text-sm mt-1">{dispute.resolution}</p>
+              {dispute.resolvedAmount && <p className="text-sm font-medium mt-1">Adjustment: {formatCurrency(dispute.resolvedAmount)}</p>}
+              {dispute.resolvedAt && <p className="text-xs text-muted-foreground mt-1">On {formatDate(dispute.resolvedAt)}</p>}
+            </div>
+          )}
+
+          <div className="border-t pt-2">
+            <div className="flex gap-2 border-b mb-3">
+              {(["details", "evidence", "timeline"] as const).map(tab => (
+                <button key={tab} onClick={() => setActiveTab(tab)} className={`pb-2 text-sm font-medium border-b-2 capitalize transition-colors ${activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`} data-testid={`tab-${tab}`}>
+                  {tab === "evidence" ? <><Paperclip className="inline h-3.5 w-3.5 mr-1" />Evidence</> : tab === "timeline" ? <><History className="inline h-3.5 w-3.5 mr-1" />Status Updates</> : "Details"}
+                </button>
+              ))}
+            </div>
+
+            {activeTab === "details" && (
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>Submitted {formatDate(dispute.createdAt)}</p>
+                {dispute.escalatedAt && <p className="text-orange-600">Escalated on {formatDate(dispute.escalatedAt)}</p>}
+                {dispute.autoEscalated && <Badge className="bg-orange-100 text-orange-700 text-xs">Auto-escalated</Badge>}
+              </div>
+            )}
+            {activeTab === "evidence" && <EvidencePanel disputeId={dispute.id} status={dispute.status} />}
+            {activeTab === "timeline" && <EscalationTimeline disputeId={dispute.id} />}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NewDisputeDialog({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const { toast } = useToast();
   const [form, setForm] = useState({
     disputeType: "",
     title: "",
     description: "",
     expectedAmount: "",
     actualAmount: "",
+    salesOrderId: "",
   });
-  const { toast } = useToast();
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof form) => {
+      const body: { disputeType: string; title: string; description: string; expectedAmount?: number; actualAmount?: number; salesOrderId?: string } = {
+        disputeType: data.disputeType,
+        title: data.title,
+        description: data.description,
+      };
+      if (data.expectedAmount) body.expectedAmount = parseFloat(data.expectedAmount);
+      if (data.actualAmount) body.actualAmount = parseFloat(data.actualAmount);
+      if (data.salesOrderId) body.salesOrderId = data.salesOrderId;
+
       const res = await fetch("/api/disputes", {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.message || "Failed to create dispute");
+        throw new Error(err.message || "Failed to submit dispute");
       }
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/disputes/my"] });
-      toast({ title: "Dispute submitted", description: "Your dispute has been submitted for review" });
+      toast({ title: "Dispute submitted", description: "We'll review your dispute and respond soon." });
       setOpen(false);
-      setForm({ disputeType: "", title: "", description: "", expectedAmount: "", actualAmount: "" });
+      setForm({ disputeType: "", title: "", description: "", expectedAmount: "", actualAmount: "", salesOrderId: "" });
+      onCreated();
     },
-    onError: (error: Error) => {
-      toast({ title: "Failed to create dispute", description: error.message, variant: "destructive" });
-    },
+    onError: (error: Error) => toast({ title: "Failed to submit", description: error.message, variant: "destructive" }),
   });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.disputeType || !form.title || !form.description) {
-      toast({ title: "Missing fields", description: "Please fill in all required fields", variant: "destructive" });
-      return;
-    }
-    createMutation.mutate(form);
-  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button data-testid="button-create-dispute">
+        <Button data-testid="button-new-dispute">
           <Plus className="h-4 w-4 mr-2" />
           Submit Dispute
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Submit Commission Dispute</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="disputeType">Dispute Type *</Label>
-            <Select value={form.disputeType} onValueChange={(v) => setForm({ ...form, disputeType: v })}>
-              <SelectTrigger id="disputeType" data-testid="select-dispute-type">
-                <SelectValue placeholder="Select dispute type" />
-              </SelectTrigger>
+        <DialogHeader><DialogTitle>Submit a Commission Dispute</DialogTitle></DialogHeader>
+        <form onSubmit={e => { e.preventDefault(); if (!form.disputeType || !form.title || !form.description) return; createMutation.mutate(form); }} className="space-y-4">
+          <div>
+            <Label>Dispute Type *</Label>
+            <Select value={form.disputeType} onValueChange={v => setForm({ ...form, disputeType: v })}>
+              <SelectTrigger data-testid="select-dispute-type"><SelectValue placeholder="Select type" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="MISSING_COMMISSION">Missing Commission</SelectItem>
                 <SelectItem value="INCORRECT_AMOUNT">Incorrect Amount</SelectItem>
-                <SelectItem value="INCORRECT_SERVICE">Incorrect Service Type</SelectItem>
+                <SelectItem value="INCORRECT_SERVICE">Incorrect Service</SelectItem>
                 <SelectItem value="CHARGEBACK_DISPUTE">Chargeback Dispute</SelectItem>
                 <SelectItem value="OTHER">Other</SelectItem>
               </SelectContent>
             </Select>
           </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="title">Title *</Label>
-            <Input
-              id="title"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="Brief summary of the issue"
-              data-testid="input-dispute-title"
-            />
+          <div>
+            <Label>Title *</Label>
+            <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Brief description of the issue" data-testid="input-dispute-title" />
           </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="description">Description *</Label>
-            <Textarea
-              id="description"
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Provide details about your dispute..."
-              rows={4}
-              data-testid="input-dispute-description"
-            />
+          <div>
+            <Label>Description *</Label>
+            <Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Explain the issue in detail..." rows={3} data-testid="input-dispute-description" />
           </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="expectedAmount">Expected Amount</Label>
-              <Input
-                id="expectedAmount"
-                type="number"
-                step="0.01"
-                value={form.expectedAmount}
-                onChange={(e) => setForm({ ...form, expectedAmount: e.target.value })}
-                placeholder="$0.00"
-                data-testid="input-expected-amount"
-              />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Expected Amount</Label>
+              <Input type="number" step="0.01" value={form.expectedAmount} onChange={e => setForm({ ...form, expectedAmount: e.target.value })} placeholder="$0.00" data-testid="input-expected-amount" />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="actualAmount">Actual Amount</Label>
-              <Input
-                id="actualAmount"
-                type="number"
-                step="0.01"
-                value={form.actualAmount}
-                onChange={(e) => setForm({ ...form, actualAmount: e.target.value })}
-                placeholder="$0.00"
-                data-testid="input-actual-amount"
-              />
+            <div>
+              <Label>Actual Amount</Label>
+              <Input type="number" step="0.01" value={form.actualAmount} onChange={e => setForm({ ...form, actualAmount: e.target.value })} placeholder="$0.00" data-testid="input-actual-amount" />
             </div>
           </div>
-
+          <div>
+            <Label>Related Order ID (optional)</Label>
+            <Input value={form.salesOrderId} onChange={e => setForm({ ...form, salesOrderId: e.target.value })} placeholder="Order ID if applicable" data-testid="input-sales-order-id" />
+          </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
             <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-dispute">
               {createMutation.isPending ? "Submitting..." : "Submit Dispute"}
             </Button>
@@ -210,84 +438,8 @@ function CreateDisputeDialog() {
   );
 }
 
-function DisputeDetailsDialog({ dispute }: { dispute: CommissionDispute }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="ghost" data-testid={`button-view-dispute-${dispute.id}`}>
-          <Eye className="h-4 w-4" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Dispute Details
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <DisputeTypeBadge type={dispute.disputeType} />
-            <DisputeStatusBadge status={dispute.status} />
-          </div>
-
-          <div>
-            <p className="text-sm text-muted-foreground">Title</p>
-            <p className="font-medium">{dispute.title}</p>
-          </div>
-
-          <div>
-            <p className="text-sm text-muted-foreground">Description</p>
-            <p className="text-sm">{dispute.description}</p>
-          </div>
-
-          {(dispute.expectedAmount || dispute.actualAmount) && (
-            <div className="grid grid-cols-3 gap-4 pt-2 border-t">
-              <div>
-                <p className="text-sm text-muted-foreground">Expected</p>
-                <p className="font-medium">{formatCurrency(dispute.expectedAmount)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Actual</p>
-                <p className="font-medium">{formatCurrency(dispute.actualAmount)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Difference</p>
-                <p className="font-medium text-red-600 dark:text-red-400">{formatCurrency(dispute.differenceAmount)}</p>
-              </div>
-            </div>
-          )}
-
-          {dispute.resolution && (
-            <div className="pt-2 border-t">
-              <p className="text-sm text-muted-foreground">Resolution</p>
-              <p className="text-sm">{dispute.resolution}</p>
-              {dispute.resolvedAmount && (
-                <p className="text-sm font-medium mt-1">
-                  Resolved Amount: {formatCurrency(dispute.resolvedAmount)}
-                </p>
-              )}
-              {dispute.resolvedAt && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Resolved on {formatDate(dispute.resolvedAt)}
-                </p>
-              )}
-            </div>
-          )}
-
-          <div className="text-xs text-muted-foreground">
-            Submitted on {formatDate(dispute.createdAt)}
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export default function MyDisputes() {
-  const { data: disputes, isLoading } = useQuery<CommissionDispute[]>({
+  const { data: disputes, isLoading, refetch } = useQuery<CommissionDispute[]>({
     queryKey: ["/api/disputes/my"],
     queryFn: async () => {
       const res = await fetch("/api/disputes/my", { headers: getAuthHeaders() });
@@ -299,132 +451,91 @@ export default function MyDisputes() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-96" />
+        <Skeleton className="h-8 w-48" />
+        <div className="space-y-4">
+          {[1, 2].map(i => <Skeleton key={i} className="h-24" />)}
+        </div>
       </div>
     );
   }
 
-  const pendingDisputes = disputes?.filter(d => ["PENDING", "UNDER_REVIEW"].includes(d.status)) || [];
-  const resolvedDisputes = disputes?.filter(d => ["APPROVED", "REJECTED", "CLOSED"].includes(d.status)) || [];
+  const legalHoldCount = disputes?.filter(d => d.status === "LEGAL_HOLD").length || 0;
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold" data-testid="text-page-title">Commission Disputes</h1>
-          <p className="text-muted-foreground">Submit and track disputes about your commissions</p>
+          <h1 className="text-2xl font-semibold" data-testid="text-page-title">My Commission Disputes</h1>
+          <p className="text-muted-foreground">Track and manage your submitted commission disputes</p>
         </div>
-        <CreateDisputeDialog />
+        <NewDisputeDialog onCreated={() => refetch()} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Disputes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{disputes?.length || 0}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Pending Review</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-amber-600">{pendingDisputes.length}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Resolved</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-green-600">{resolvedDisputes.length}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {pendingDisputes.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-amber-500" />
-              Pending Disputes
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Submitted</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pendingDisputes.map((dispute) => (
-                  <TableRow key={dispute.id}>
-                    <TableCell className="font-medium">{dispute.title}</TableCell>
-                    <TableCell><DisputeTypeBadge type={dispute.disputeType} /></TableCell>
-                    <TableCell>{formatDate(dispute.createdAt)}</TableCell>
-                    <TableCell><DisputeStatusBadge status={dispute.status} /></TableCell>
-                    <TableCell><DisputeDetailsDialog dispute={dispute} /></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+      {legalHoldCount > 0 && (
+        <div className="p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg flex items-start gap-3">
+          <Shield className="h-5 w-5 text-purple-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-medium text-purple-700 dark:text-purple-400">Legal Hold Active</p>
+            <p className="text-sm text-muted-foreground">
+              You have {legalHoldCount} dispute{legalHoldCount > 1 ? "s" : ""} under legal hold. Commission associated with {legalHoldCount > 1 ? "these disputes" : "this dispute"} is frozen until the hold is released.
+            </p>
+          </div>
+        </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            All Disputes
-          </CardTitle>
-          <CardDescription>History of all your submitted disputes</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {disputes?.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No disputes submitted</p>
-              <p className="text-sm">Submit a dispute if you have questions about your commissions</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Expected</TableHead>
-                  <TableHead>Actual</TableHead>
-                  <TableHead>Submitted</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {disputes?.map((dispute) => (
-                  <TableRow key={dispute.id}>
-                    <TableCell className="font-medium">{dispute.title}</TableCell>
-                    <TableCell><DisputeTypeBadge type={dispute.disputeType} /></TableCell>
-                    <TableCell>{formatCurrency(dispute.expectedAmount)}</TableCell>
-                    <TableCell>{formatCurrency(dispute.actualAmount)}</TableCell>
-                    <TableCell>{formatDate(dispute.createdAt)}</TableCell>
-                    <TableCell><DisputeStatusBadge status={dispute.status} /></TableCell>
-                    <TableCell><DisputeDetailsDialog dispute={dispute} /></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      {!disputes || disputes.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+          <p className="text-lg font-medium">No disputes submitted</p>
+          <p className="text-sm mt-1">If you believe there's an error in your commission, submit a dispute above.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {disputes.map(dispute => (
+            <Card key={dispute.id} data-testid={`card-dispute-${dispute.id}`} className={dispute.status === "LEGAL_HOLD" ? "border-purple-200 dark:border-purple-800" : ""}>
+              <CardContent className="pt-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <DisputeStatusBadge status={dispute.status} />
+                      {dispute.autoEscalated && (
+                        <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 text-xs">Auto-escalated</Badge>
+                      )}
+                      {dispute.commissionFrozen && (
+                        <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 text-xs gap-1">
+                          <Shield className="h-3 w-3" />
+                          Commission Frozen
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="font-medium truncate">{dispute.title}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Submitted {formatDate(dispute.createdAt)}
+                      {dispute.differenceAmount && ` · Disputed: ${formatCurrency(dispute.differenceAmount)}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <ViewDisputeDialog dispute={dispute} />
+                  </div>
+                </div>
+
+                {dispute.status === "LEGAL_HOLD" && dispute.legalHoldReason && (
+                  <div className="mt-3 p-2 bg-purple-50 dark:bg-purple-900/20 rounded text-xs text-muted-foreground">
+                    <strong className="text-purple-700 dark:text-purple-400">Legal Hold Reason:</strong> {dispute.legalHoldReason}
+                  </div>
+                )}
+
+                {dispute.resolution && (
+                  <div className="mt-3 p-2 bg-muted rounded text-xs">
+                    <strong>Resolution:</strong> {dispute.resolution}
+                    {dispute.resolvedAmount && <span className="ml-2 text-green-600">Adjustment: {formatCurrency(dispute.resolvedAmount)}</span>}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

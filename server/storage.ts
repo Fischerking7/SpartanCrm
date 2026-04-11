@@ -17,7 +17,7 @@ import {
   commissionTiers, commissionTierLevels, repTierAssignments, repVolumeTracking,
   scheduledPayRuns, commissionForecasts,
   emailNotifications, notificationPreferences, backgroundJobs, employeeCredentials, salesGoals,
-  mduStagingOrders, scheduledReports, commissionDisputes,
+  mduStagingOrders, scheduledReports, commissionDisputes, disputeEscalationEvents, disputeEvidenceAttachments,
   financeImports, financeImportRowsRaw, financeImportRows, arExpectations, clientColumnMappings,
   compPlanRates, commissionOverrideRules,
   systemSettings, automationRules, savedReports, matchCorrections, financeImportSchedules,
@@ -68,6 +68,8 @@ import {
   type MduStagingOrder, type InsertMduStagingOrder,
   type ScheduledReport, type InsertScheduledReport,
   type CommissionDispute, type InsertCommissionDispute,
+  type DisputeEscalationEvent, type InsertDisputeEscalationEvent,
+  type DisputeEvidenceAttachment, type InsertDisputeEvidenceAttachment,
   type LeadDispositionHistory, type InsertLeadDispositionHistory,
   type OrderException, type InsertOrderException,
   type FinanceImport, type InsertFinanceImport,
@@ -4217,32 +4219,6 @@ export const storage = {
   },
 
   // Commission Disputes
-  async getCommissionDisputes(filters?: { userId?: string; status?: string }) {
-    const conditions = [];
-    if (filters?.userId) conditions.push(eq(commissionDisputes.userId, filters.userId));
-    if (filters?.status) conditions.push(eq(commissionDisputes.status, filters.status as any));
-    
-    return db.select({
-      dispute: commissionDisputes,
-      user: { id: users.id, name: users.name, repId: users.repId },
-    })
-    .from(commissionDisputes)
-    .leftJoin(users, eq(commissionDisputes.userId, users.id))
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(commissionDisputes.createdAt));
-  },
-
-  async getCommissionDisputeById(id: string) {
-    const [result] = await db.select({
-      dispute: commissionDisputes,
-      user: { id: users.id, name: users.name, repId: users.repId },
-    })
-    .from(commissionDisputes)
-    .leftJoin(users, eq(commissionDisputes.userId, users.id))
-    .where(eq(commissionDisputes.id, id));
-    return result;
-  },
-
   async getCommissionDisputesByUser(userId: string) {
     return db.select()
       .from(commissionDisputes)
@@ -4281,8 +4257,223 @@ export const storage = {
   async getPendingDisputesCount() {
     const [result] = await db.select({ count: sql<number>`COUNT(*)::int` })
       .from(commissionDisputes)
-      .where(inArray(commissionDisputes.status, ["PENDING", "UNDER_REVIEW"]));
+      .where(inArray(commissionDisputes.status, ["PENDING", "UNDER_REVIEW", "ESCALATED", "LEGAL_HOLD"]));
     return result?.count || 0;
+  },
+
+  async getCommissionDisputeById(id: string) {
+    const [dispute] = await db.select().from(commissionDisputes).where(eq(commissionDisputes.id, id));
+    if (!dispute) return null;
+    const [userRow] = await db.select({ id: users.id, name: users.name, repId: users.repId }).from(users).where(eq(users.id, dispute.userId));
+    return { dispute, user: userRow || null };
+  },
+
+  async getCommissionDisputes(params: { status?: string; userId?: string }) {
+    const conditions: any[] = [];
+    if (params.status) conditions.push(eq(commissionDisputes.status, params.status as any));
+    if (params.userId) conditions.push(eq(commissionDisputes.userId, params.userId));
+    const rows = await db.select().from(commissionDisputes)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(commissionDisputes.createdAt));
+    const userIds = [...new Set(rows.map(r => r.userId))];
+    const userRows = userIds.length ? await db.select({ id: users.id, name: users.name, repId: users.repId }).from(users).where(inArray(users.id, userIds)) : [];
+    const userMap = Object.fromEntries(userRows.map(u => [u.id, u]));
+    return rows.map(dispute => ({ dispute, user: userMap[dispute.userId] || null }));
+  },
+
+  // Dispute escalation events
+  async createDisputeEscalationEvent(data: InsertDisputeEscalationEvent) {
+    const [event] = await db.insert(disputeEscalationEvents).values(data).returning();
+    return event;
+  },
+
+  async getDisputeEscalationEvents(disputeId: string) {
+    const events = await db.select().from(disputeEscalationEvents)
+      .where(eq(disputeEscalationEvents.disputeId, disputeId))
+      .orderBy(asc(disputeEscalationEvents.createdAt));
+    const actorIds = [...new Set(events.filter(e => e.actorUserId).map(e => e.actorUserId!))];
+    const actorRows = actorIds.length ? await db.select({ id: users.id, name: users.name, role: users.role }).from(users).where(inArray(users.id, actorIds)) : [];
+    const actorMap = Object.fromEntries(actorRows.map(u => [u.id, u]));
+    return events.map(e => ({ ...e, actor: e.actorUserId ? actorMap[e.actorUserId] || null : null }));
+  },
+
+  // Dispute evidence attachments
+  async createDisputeEvidenceAttachment(data: InsertDisputeEvidenceAttachment) {
+    const [attachment] = await db.insert(disputeEvidenceAttachments).values(data).returning();
+    return attachment;
+  },
+
+  async getDisputeEvidenceAttachments(disputeId: string) {
+    const attachments = await db.select().from(disputeEvidenceAttachments)
+      .where(eq(disputeEvidenceAttachments.disputeId, disputeId))
+      .orderBy(asc(disputeEvidenceAttachments.createdAt));
+    const uploaderIds = [...new Set(attachments.map(a => a.uploadedByUserId))];
+    const uploaderRows = uploaderIds.length ? await db.select({ id: users.id, name: users.name, role: users.role }).from(users).where(inArray(users.id, uploaderIds)) : [];
+    const uploaderMap = Object.fromEntries(uploaderRows.map(u => [u.id, u]));
+    return attachments.map(a => ({ ...a, uploadedBy: uploaderMap[a.uploadedByUserId] || null }));
+  },
+
+  async deleteDisputeEvidenceAttachment(id: string) {
+    const [att] = await db.delete(disputeEvidenceAttachments).where(eq(disputeEvidenceAttachments.id, id)).returning();
+    return att;
+  },
+
+  // Compliance calendar - get all reps with document expiration data
+  async getComplianceCalendar() {
+    return db.select({
+      id: users.id,
+      name: users.name,
+      repId: users.repId,
+      role: users.role,
+      status: users.status,
+      contractorAgreementSignedAt: users.contractorAgreementSignedAt,
+      contractorAgreementExpiresAt: users.contractorAgreementExpiresAt,
+      ndaSignedAt: users.ndaSignedAt,
+      ndaExpiresAt: users.ndaExpiresAt,
+      backgroundCheckStatus: users.backgroundCheckStatus,
+      backgroundCheckExpiresAt: users.backgroundCheckExpiresAt,
+      drugTestStatus: users.drugTestStatus,
+      drugTestExpiresAt: users.drugTestExpiresAt,
+      commissionBlockedDueToExpiry: users.commissionBlockedDueToExpiry,
+      commissionBlockedReason: users.commissionBlockedReason,
+      onboardingStatus: users.onboardingStatus,
+    }).from(users)
+      .where(and(
+        isNull(users.deletedAt),
+        inArray(users.role, ["REP", "LEAD", "MANAGER"] as any[]),
+      ))
+      .orderBy(asc(users.name));
+  },
+
+  async updateUserDocumentExpiration(userId: string, data: {
+    contractorAgreementExpiresAt?: Date | null;
+    ndaExpiresAt?: Date | null;
+    backgroundCheckExpiresAt?: Date | null;
+    drugTestExpiresAt?: Date | null;
+    commissionBlockedDueToExpiry?: boolean;
+    commissionBlockedReason?: string | null;
+  }) {
+    const [user] = await db.update(users).set({ ...data, updatedAt: new Date() }).where(eq(users.id, userId)).returning();
+    return user;
+  },
+
+  async getRepComplianceStatus(userId: string) {
+    const [user] = await db.select({
+      id: users.id,
+      name: users.name,
+      repId: users.repId,
+      contractorAgreementSignedAt: users.contractorAgreementSignedAt,
+      contractorAgreementExpiresAt: users.contractorAgreementExpiresAt,
+      ndaSignedAt: users.ndaSignedAt,
+      ndaExpiresAt: users.ndaExpiresAt,
+      backgroundCheckStatus: users.backgroundCheckStatus,
+      backgroundCheckExpiresAt: users.backgroundCheckExpiresAt,
+      drugTestStatus: users.drugTestStatus,
+      drugTestExpiresAt: users.drugTestExpiresAt,
+      commissionBlockedDueToExpiry: users.commissionBlockedDueToExpiry,
+      commissionBlockedReason: users.commissionBlockedReason,
+    }).from(users).where(eq(users.id, userId));
+    return user || null;
+  },
+
+  // Contractor document version history (immutable audit trail)
+  async createContractorDocumentVersion(data: {
+    userId: string;
+    documentType: string;
+    eventType: string;
+    expiresAt?: Date | null;
+    signedAt?: Date | null;
+    performedByUserId?: string | null;
+    note?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }) {
+    const { contractorDocumentVersions } = await import("@shared/schema");
+    const [version] = await db.insert(contractorDocumentVersions).values(data).returning();
+    return version;
+  },
+
+  async getContractorDocumentVersions(userId: string, documentType?: string) {
+    const { contractorDocumentVersions } = await import("@shared/schema");
+    const conditions = documentType
+      ? and(eq(contractorDocumentVersions.userId, userId), eq(contractorDocumentVersions.documentType, documentType))
+      : eq(contractorDocumentVersions.userId, userId);
+    return db.select().from(contractorDocumentVersions)
+      .where(conditions)
+      .orderBy(desc(contractorDocumentVersions.createdAt));
+  },
+
+  // Re-certification requests
+  async createRecertificationRequest(data: {
+    userId: string;
+    documentTypes: string[];
+    requestedByUserId?: string | null;
+    requestNote?: string | null;
+    expiresAt?: Date | null;
+  }) {
+    const { recertificationRequests } = await import("@shared/schema");
+    const [req] = await db.insert(recertificationRequests).values({
+      ...data,
+      status: "PENDING",
+    }).returning();
+    return req;
+  },
+
+  async getRecertificationRequests(userId?: string) {
+    const { recertificationRequests } = await import("@shared/schema");
+    const conditions = userId ? eq(recertificationRequests.userId, userId) : undefined;
+    return db.select().from(recertificationRequests)
+      .where(conditions)
+      .orderBy(desc(recertificationRequests.createdAt));
+  },
+
+  async updateRecertificationRequest(id: string, data: { status?: string; completedAt?: Date | null }) {
+    const { recertificationRequests } = await import("@shared/schema");
+    const [req] = await db.update(recertificationRequests)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(recertificationRequests.id, id))
+      .returning();
+    return req;
+  },
+
+  // Policy-driven commission block: auto-block reps with expired critical documents
+  async enforceComplianceBlockPolicy() {
+    const now = new Date();
+    // Get all active reps
+    const activeReps = await db.select({
+      id: users.id,
+      contractorAgreementExpiresAt: users.contractorAgreementExpiresAt,
+      ndaExpiresAt: users.ndaExpiresAt,
+      commissionBlockedDueToExpiry: users.commissionBlockedDueToExpiry,
+    }).from(users).where(and(isNull(users.deletedAt), inArray(users.role, ["REP", "LEAD", "MANAGER"] as string[])));
+
+    let blocked = 0;
+    let unblocked = 0;
+    for (const rep of activeReps) {
+      const contractorExpired = rep.contractorAgreementExpiresAt && rep.contractorAgreementExpiresAt < now;
+      const ndaExpired = rep.ndaExpiresAt && rep.ndaExpiresAt < now;
+      const shouldBeBlocked = !!(contractorExpired || ndaExpired);
+
+      if (shouldBeBlocked && !rep.commissionBlockedDueToExpiry) {
+        const reasons: string[] = [];
+        if (contractorExpired) reasons.push("Contractor Agreement expired");
+        if (ndaExpired) reasons.push("NDA expired");
+        await db.update(users).set({
+          commissionBlockedDueToExpiry: true,
+          commissionBlockedReason: `Auto-blocked: ${reasons.join(", ")}`,
+          updatedAt: new Date(),
+        }).where(eq(users.id, rep.id));
+        blocked++;
+      } else if (!shouldBeBlocked && rep.commissionBlockedDueToExpiry) {
+        // Only auto-unblock if reason was auto-block (not manual)
+        await db.update(users).set({
+          commissionBlockedDueToExpiry: false,
+          commissionBlockedReason: null,
+          updatedAt: new Date(),
+        }).where(eq(users.id, rep.id));
+        unblocked++;
+      }
+    }
+    return { blocked, unblocked };
   },
 
   // Finance Imports

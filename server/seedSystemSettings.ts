@@ -13,6 +13,14 @@ const SYSTEM_SETTINGS_DEFAULTS = [
   // Payment variance alert thresholds (configurable by ADMIN via system settings)
   { key: "variance_threshold_pct", value: "5" },
   { key: "variance_threshold_cents", value: "1000" },
+  // Compliance warning thresholds (days before expiry)
+  { key: "compliance_warn_days_critical", value: "30", description: "Days before expiry to show critical (red) warning" },
+  { key: "compliance_warn_days_warning", value: "60", description: "Days before expiry to show warning (amber)" },
+  { key: "compliance_warn_days_notice", value: "90", description: "Days before expiry to show notice (blue)" },
+  // Dispute auto-escalation thresholds
+  { key: "dispute_escalation_amount_threshold", value: "500", description: "Auto-escalate disputes above this dollar amount" },
+  { key: "dispute_escalation_age_pending_days", value: "14", description: "Auto-escalate PENDING disputes older than this many days" },
+  { key: "dispute_escalation_age_review_days", value: "7", description: "Auto-escalate UNDER_REVIEW disputes older than this many days" },
 ];
 
 export async function seedSystemSettings() {
