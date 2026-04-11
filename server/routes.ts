@@ -22489,7 +22489,7 @@ function registerReportRoutes(app: Express, auth: any) {
         const priorGross = priorMap.get(rep.repId) || 0;
         const delta = gross - priorGross;
 
-        const chargebackRatio = gross > 0 ? (cb / gross) * 100 : 0;
+        const chargebackRatio = gross > 0 ? (cb / gross) * 100 : (cb > 0 ? 100 : 0);
 
         const risks: string[] = [];
         if (net <= 0) risks.push("ZERO_PAY");
