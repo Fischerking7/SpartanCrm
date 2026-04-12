@@ -612,7 +612,15 @@ function ReviewStep({ token, repInfo, onBack }: {
   const { t } = useTranslation();
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [sensitiveSSN, setSensitiveSSN] = useState("");
+  const [sensitiveRouting, setSensitiveRouting] = useState("");
+  const [sensitiveAccount, setSensitiveAccount] = useState("");
   const { toast } = useToast();
+
+  const maskValue = (val: string) => {
+    if (val.length <= 4) return val;
+    return "•".repeat(val.length - 4) + val.slice(-4);
+  };
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -669,6 +677,9 @@ function ReviewStep({ token, repInfo, onBack }: {
         repName: repInfo?.name || "",
         repEmail: repInfo?.email || "",
         repPhone: repInfo?.phone || "",
+        ssn: sensitiveSSN,
+        routingNumber: sensitiveRouting,
+        accountNumber: sensitiveAccount,
         ...signatures,
         ...directDepositFields,
         ...w9Fields,
@@ -734,6 +745,49 @@ function ReviewStep({ token, repInfo, onBack }: {
             </Card>
           ))}
         </div>
+
+        <Card className="rounded-2xl border-0 mt-4">
+          <CardContent className="p-4 space-y-4">
+            <p className="text-sm font-medium">{t("onboarding.review.sensitiveTitle")}</p>
+            <p className="text-xs text-muted-foreground">{t("onboarding.review.sensitiveDesc")}</p>
+            <div>
+              <Label className="text-sm">{t("onboarding.review.ssnLabel")}</Label>
+              <Input
+                type="password"
+                value={sensitiveSSN}
+                onChange={(e) => setSensitiveSSN(e.target.value)}
+                placeholder="XXX-XX-XXXX"
+                className="mt-1 h-12 rounded-lg"
+                data-testid="input-review-ssn"
+              />
+              {sensitiveSSN && <p className="text-xs text-muted-foreground mt-1">{maskValue(sensitiveSSN)}</p>}
+            </div>
+            <div>
+              <Label className="text-sm">{t("onboarding.review.routingLabel")}</Label>
+              <Input
+                type="password"
+                value={sensitiveRouting}
+                onChange={(e) => setSensitiveRouting(e.target.value)}
+                placeholder="XXXXXXXXX"
+                className="mt-1 h-12 rounded-lg"
+                data-testid="input-review-routing"
+              />
+              {sensitiveRouting && <p className="text-xs text-muted-foreground mt-1">{maskValue(sensitiveRouting)}</p>}
+            </div>
+            <div>
+              <Label className="text-sm">{t("onboarding.review.accountLabel")}</Label>
+              <Input
+                type="password"
+                value={sensitiveAccount}
+                onChange={(e) => setSensitiveAccount(e.target.value)}
+                placeholder="XXXXXXXXXXXX"
+                className="mt-1 h-12 rounded-lg"
+                data-testid="input-review-account"
+              />
+              {sensitiveAccount && <p className="text-xs text-muted-foreground mt-1">{maskValue(sensitiveAccount)}</p>}
+            </div>
+          </CardContent>
+        </Card>
 
         <Button
           className="w-full h-14 mt-6 rounded-2xl bg-[#C9A84C] hover:bg-[#b8973e] text-white text-base font-semibold"

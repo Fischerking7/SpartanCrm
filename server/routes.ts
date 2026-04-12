@@ -21716,10 +21716,13 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
       if (!validDocTypes.includes(documentType)) return res.status(400).json({ message: "Invalid document type" });
 
       let draftData = { ...req.body };
-      if (documentType === "direct_deposit" || documentType === "w9") {
+      if (documentType === "direct_deposit") {
         delete draftData.ssn;
         delete draftData.routingNumber;
         delete draftData.accountNumber;
+      }
+      if (documentType === "w9") {
+        delete draftData.ssn;
       }
 
       const existing = await db.select().from(onboardingDrafts)
@@ -22088,10 +22091,23 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         status: "ACTIVE",
         appAccessGrantedAt: now,
         appAccessGrantedByUserId: req.user!.id,
-        w9OnFile: true,
-        w9ReceivedDate: now.toISOString().split("T")[0],
         updatedAt: now,
       }).where(eq(users.id, sub.userId));
+
+      const existingTaxProfile = await db.select().from(userTaxProfiles)
+        .where(eq(userTaxProfiles.userId, sub.userId)).limit(1);
+      if (existingTaxProfile.length > 0) {
+        await db.update(userTaxProfiles).set({
+          w9OnFile: true,
+          w9ReceivedDate: now.toISOString().split("T")[0],
+        }).where(eq(userTaxProfiles.userId, sub.userId));
+      } else {
+        await db.insert(userTaxProfiles).values({
+          userId: sub.userId,
+          w9OnFile: true,
+          w9ReceivedDate: now.toISOString().split("T")[0],
+        });
+      }
 
       await db.insert(emailNotifications).values({
         userId: sub.userId,
