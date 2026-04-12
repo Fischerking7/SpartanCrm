@@ -582,6 +582,7 @@ function ReviewStep({ token, repInfo, onBack }: {
       };
       const signatures: Record<string, string> = {};
       let directDepositFields: Record<string, string> = {};
+      let w9Fields: Record<string, string> = {};
       for (const doc of DOCUMENTS) {
         try {
           const draftRes = await fetch(`/api/onboarding/draft/${doc.key}`, {
@@ -600,6 +601,14 @@ function ReviewStep({ token, repInfo, onBack }: {
                 accountNumber: draftData.draft.accountNumber || "",
               };
             }
+            if (doc.key === "w9" && draftData.draft) {
+              w9Fields = {
+                w9FullName: draftData.draft.fullName || "",
+                w9BusinessName: draftData.draft.businessName || "",
+                w9Address: draftData.draft.address || "",
+                w9CityStateZip: draftData.draft.cityStateZip || "",
+              };
+            }
           }
         } catch {}
       }
@@ -611,6 +620,7 @@ function ReviewStep({ token, repInfo, onBack }: {
         repPhone: repInfo?.phone || "",
         ...signatures,
         ...directDepositFields,
+        ...w9Fields,
       };
       formDataObj.append("data", JSON.stringify(data));
 

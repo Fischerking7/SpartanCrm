@@ -21835,6 +21835,10 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         ndaSignedAt: now,
         w9Completed: true,
         w9SignedAt: now,
+        w9FullName: formData.w9FullName || null,
+        w9BusinessName: formData.w9BusinessName || null,
+        w9Address: formData.w9Address || null,
+        w9CityStateZip: formData.w9CityStateZip || null,
         backgroundCheckSignature: formData.backgroundCheckSignature,
         chargebackPolicySignature: formData.chargebackPolicySignature,
         contractorAppSignature: formData.contractorAppSignature,
@@ -22077,6 +22081,8 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         status: "ACTIVE",
         appAccessGrantedAt: now,
         appAccessGrantedByUserId: req.user!.id,
+        w9OnFile: true,
+        w9ReceivedDate: now.toISOString().split("T")[0],
         updatedAt: now,
       }).where(eq(users.id, sub.userId));
 

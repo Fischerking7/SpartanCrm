@@ -13,8 +13,8 @@ export async function sendOnboardingEmails(submissionId: string): Promise<void> 
     emailService.queueEmail({
       to: opsEmail,
       subject: `New Contractor Onboarding Submitted — ${sub.repName}`,
-      text: `${sub.repName} has completed all 7 onboarding documents and is ready for review.\n\nSubmitted: ${new Date(sub.submittedAt).toLocaleString("en-US")}\nIP: ${sub.ipAddress}\n\nPlease review the submission in the admin portal.`,
-      html: `<h2>New Contractor Onboarding Submitted</h2><p><strong>${sub.repName}</strong> has completed all 7 onboarding documents and is ready for review.</p><p>Submitted: ${new Date(sub.submittedAt).toLocaleString("en-US")}<br/>IP: ${sub.ipAddress}</p><p>Please review the submission in the admin portal.</p>`,
+      text: `${sub.repName} has completed all 7 onboarding documents (including IRS Form W-9) and is ready for review.\n\nDocuments: Background Check, Chargeback Policy, Contractor Application, Direct Deposit, Drug Test Consent, NDA, IRS Form W-9\nW-9 Status: ${sub.w9Completed ? "Signed" : "Pending"}\nSubmitted: ${new Date(sub.submittedAt).toLocaleString("en-US")}\nIP: ${sub.ipAddress}\n\nPlease review the submission in the admin portal.`,
+      html: `<h2>New Contractor Onboarding Submitted</h2><p><strong>${sub.repName}</strong> has completed all 7 onboarding documents (including IRS Form W-9) and is ready for review.</p><p><strong>W-9 Status:</strong> ${sub.w9Completed ? "Signed" : "Pending"}</p><p>Submitted: ${new Date(sub.submittedAt).toLocaleString("en-US")}<br/>IP: ${sub.ipAddress}</p><p>Please review the submission in the admin portal.</p>`,
     });
 
     await db.insert(onboardingAuditLog).values({
