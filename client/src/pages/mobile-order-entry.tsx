@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
@@ -50,6 +51,7 @@ const getDefaultForm = (): QuickOrderForm => ({
 export default function MobileOrderEntry() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [mode, setMode] = useState<"standard" | "quick">("standard");
   const [form, setForm] = useState<QuickOrderForm>(getDefaultForm());
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -160,7 +162,7 @@ export default function MobileOrderEntry() {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       
       toast({
-        title: "Order submitted",
+        title: t("mobileEntry.orderSubmitted"),
         description: `Order for ${submittedForm.customerName} created successfully`,
       });
       
@@ -184,7 +186,7 @@ export default function MobileOrderEntry() {
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to create order",
+        title: t("mobileEntry.toastFailed"),
         description: error.message,
         variant: "destructive",
       });
@@ -195,8 +197,8 @@ export default function MobileOrderEntry() {
     e.preventDefault();
     if (!form.customerName || !form.providerId || !form.clientId || !form.serviceId) {
       toast({
-        title: "Missing required fields",
-        description: "Please fill in customer name, provider, client, and service",
+        title: t("mobileEntry.missingFields"),
+        description: t("mobileEntry.missingFieldsDesc"),
         variant: "destructive",
       });
       return;
@@ -211,7 +213,7 @@ export default function MobileOrderEntry() {
       <div className="sticky top-0 z-50 bg-background border-b px-4 py-3">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-lg font-semibold">New Order</h1>
+            <h1 className="text-lg font-semibold">{t("mobileEntry.newOrder")}</h1>
             <p className="text-xs text-muted-foreground">
               {orderCount > 0 ? `${orderCount} orders today` : "Mobile Entry"}
             </p>
@@ -261,7 +263,7 @@ export default function MobileOrderEntry() {
             <CardContent className="p-3">
               <div className="flex items-center gap-2 text-sm">
                 <Zap className="h-4 w-4 text-primary" />
-                <span className="font-medium">Quick Entry Mode</span>
+                <span className="font-medium">{t("mobileEntry.quickEntryMode")}</span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Provider, client & service stay selected after each order for fast entry
@@ -288,7 +290,7 @@ export default function MobileOrderEntry() {
                 onValueChange={(v) => setForm(f => ({ ...f, providerId: v, serviceId: "" }))}
               >
                 <SelectTrigger id="provider" className="h-12 text-base" data-testid="select-provider">
-                  <SelectValue placeholder="Select provider" />
+                  <SelectValue placeholder={t("mobileEntry.selectProvider")} />
                 </SelectTrigger>
                 <SelectContent>
                   {providers?.map(p => (
@@ -305,7 +307,7 @@ export default function MobileOrderEntry() {
                 onValueChange={(v) => setForm(f => ({ ...f, clientId: v, serviceId: "" }))}
               >
                 <SelectTrigger id="client" className="h-12 text-base" data-testid="select-client">
-                  <SelectValue placeholder="Select client" />
+                  <SelectValue placeholder={t("mobileEntry.selectClient")} />
                 </SelectTrigger>
                 <SelectContent>
                   {clients?.map(c => (
@@ -355,7 +357,7 @@ export default function MobileOrderEntry() {
                 id="customerName"
                 value={form.customerName}
                 onChange={(e) => setForm(f => ({ ...f, customerName: e.target.value }))}
-                placeholder="Enter customer name"
+                placeholder={t("mobileEntry.enterCustomerName")}
                 className="h-12 text-base"
                 autoComplete="off"
                 data-testid="input-customer-name"
@@ -391,7 +393,7 @@ export default function MobileOrderEntry() {
                   id="customerAddress"
                   value={form.customerAddress}
                   onChange={(e) => setForm(f => ({ ...f, customerAddress: e.target.value }))}
-                  placeholder="Enter address"
+                  placeholder={t("mobileEntry.enterAddress")}
                   className="h-12 text-base"
                   autoComplete="off"
                   data-testid="input-customer-address"
@@ -446,7 +448,7 @@ export default function MobileOrderEntry() {
             <div className="flex items-center justify-between py-2">
               <div className="flex items-center gap-2">
                 <Tv className="h-4 w-4 text-muted-foreground" />
-                <Label htmlFor="hasTv" className="text-sm font-normal">TV Service</Label>
+                <Label htmlFor="hasTv" className="text-sm font-normal">{t("mobileEntry.tvService")}</Label>
               </div>
               <Switch
                 id="hasTv"
@@ -459,7 +461,7 @@ export default function MobileOrderEntry() {
             <div className="flex items-center justify-between py-2">
               <div className="flex items-center gap-2">
                 <Smartphone className="h-4 w-4 text-muted-foreground" />
-                <Label htmlFor="hasMobile" className="text-sm font-normal">Mobile Service</Label>
+                <Label htmlFor="hasMobile" className="text-sm font-normal">{t("mobileEntry.mobileService")}</Label>
               </div>
               <Switch
                 id="hasMobile"
@@ -471,7 +473,7 @@ export default function MobileOrderEntry() {
 
             {form.hasMobile && (
               <div className="space-y-2 pl-6">
-                <Label htmlFor="mobileLinesQty" className="text-sm">Number of Lines</Label>
+                <Label htmlFor="mobileLinesQty" className="text-sm">{t("mobileEntry.numberOfLines")}</Label>
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
@@ -508,7 +510,7 @@ export default function MobileOrderEntry() {
             onClick={() => setShowAdvanced(!showAdvanced)}
             data-testid="button-toggle-advanced"
           >
-            <span className="text-sm text-muted-foreground">Advanced Options</span>
+            <span className="text-sm text-muted-foreground">{t("mobileEntry.advancedOptions")}</span>
             {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </Button>
         )}

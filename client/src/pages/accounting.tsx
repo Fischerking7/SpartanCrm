@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
@@ -34,11 +36,13 @@ interface GeneratedPayStubResult {
 
 function formatCurrency(amount: string | number) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num);
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(num);
 }
 
 export default function Accounting() {
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [selectedPayRunId, setSelectedPayRunId] = useState<string>("");
   const [reexportAll, setReexportAll] = useState(false);
   const [weekEndingDate, setWeekEndingDate] = useState<string>("");
@@ -113,10 +117,10 @@ export default function Accounting() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      toast({ title: "Export completed", description: reexportAll ? "All approved orders have been exported." : "New approved orders have been exported." });
+      toast({ title: t("accounting.toasts.exportCompleted"), description: reexportAll ? t("accounting.toasts.exportAllDesc") : t("accounting.toasts.exportNewDesc") });
     },
     onError: (error: Error) => {
-      toast({ title: "Export failed", description: error.message, variant: "destructive" });
+      toast({ title: t("accounting.toasts.exportFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -240,7 +244,7 @@ export default function Accounting() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (error) {
-      toast({ title: "Download failed", variant: "destructive" });
+      toast({ title: t("accounting.toasts.downloadFailed"), variant: "destructive" });
     }
   };
 
@@ -284,13 +288,13 @@ export default function Accounting() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    toast({ title: "Export complete", description: "Pay stubs summary exported" });
+    toast({ title: t("accounting.toasts.exportComplete"), description: t("accounting.toasts.exportCompleteDesc") });
   };
 
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Accounting</h1>
+        <h1 className="text-2xl font-semibold">{t("accounting.title")}</h1>
         <p className="text-muted-foreground">
           Export data and import payments from QuickBooks
         </p>
@@ -300,10 +304,10 @@ export default function Accounting() {
         <Label>Select Pay Run (Optional)</Label>
         <Select value={selectedPayRunId || "__NONE__"} onValueChange={(v) => setSelectedPayRunId(v === "__NONE__" ? "" : v)}>
           <SelectTrigger className="w-[300px]" data-testid="select-payrun">
-            <SelectValue placeholder="Select a pay run for imports" />
+            <SelectValue placeholder={t("accounting.selectPayRun")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__NONE__">No Pay Run</SelectItem>
+            <SelectItem value="__NONE__">{t("accounting.noPayRun")}</SelectItem>
             {payRuns?.filter(pr => pr.status === "DRAFT" && pr.id).map((payRun) => (
               <SelectItem key={payRun.id} value={payRun.id}>
                 Week ending {new Date(payRun.weekEndingDate).toLocaleDateString()}
@@ -343,7 +347,7 @@ export default function Accounting() {
         <TabsContent value="export">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Export Approved Orders</CardTitle>
+              <CardTitle className="text-lg">{t("accounting.exportSection")}</CardTitle>
               <CardDescription>
                 Export approved orders to CSV for QuickBooks import.
                 Orders will be marked as exported after download.
@@ -376,7 +380,7 @@ export default function Accounting() {
         <TabsContent value="payments">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Import Payments from QuickBooks</CardTitle>
+              <CardTitle className="text-lg">{t("accounting.importQB")}</CardTitle>
               <CardDescription>
                 Upload a CSV file with payment data. Payments will be matched by invoice number.
                 Unmatched payments will be added to the exception queue.
@@ -406,7 +410,7 @@ export default function Accounting() {
         <TabsContent value="chargebacks">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Import Chargebacks</CardTitle>
+              <CardTitle className="text-lg">{t("accounting.importChargebacks")}</CardTitle>
               <CardDescription>
                 Upload a CSV file with chargeback data. Chargebacks will be matched by invoice number.
                 Unmatched chargebacks will be added to the exception queue.
@@ -460,7 +464,7 @@ export default function Accounting() {
                       <TableHead>Date Sold</TableHead>
                       <TableHead>Rate Card</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead className="text-right">Deduction</TableHead>
+                      <TableHead className="text-right">{t("accounting.deduction")}</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -517,7 +521,7 @@ export default function Accounting() {
               <CardContent className="space-y-4">
                 <div className="flex items-end gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="weekEndingDate">Week Ending Date</Label>
+                    <Label htmlFor="weekEndingDate">{t("accounting.weekEndingDate")}</Label>
                     <Input
                       id="weekEndingDate"
                       type="date"

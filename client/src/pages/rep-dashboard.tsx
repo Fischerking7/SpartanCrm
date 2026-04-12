@@ -17,6 +17,7 @@ import { queryClient } from "@/lib/queryClient";
 import { Download, Upload, TrendingUp, Wallet, ArrowDownCircle, AlertTriangle, Calendar, CheckCircle2, Clock, DollarSign, BarChart2, Phone, PhoneCall, User, MessageSquare, Target } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { SimplifiedOrderStatus } from "@shared/order-status";
+import { useTranslation } from "react-i18next";
 
 interface DashboardSummary {
   weekly: {
@@ -146,8 +147,8 @@ interface FollowUpsData {
   total: number;
 }
 
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
+function formatCurrency(amount: number, locale = "en-US") {
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(amount);
 }
 
 const alertSeverityConfig: Record<string, { colorClass: string; icon: typeof AlertTriangle }> = {
@@ -161,6 +162,8 @@ export default function RepDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const isMobile = useIsMobile();
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
   const [timelineMonths, setTimelineMonths] = useState(6);
   const [contactingLeadId, setContactingLeadId] = useState<string | null>(null);
 
@@ -235,36 +238,36 @@ export default function RepDashboard() {
   const orderColumns = [
     {
       key: "invoiceNumber",
-      header: "Invoice #",
+      header: t("orders.invoiceNumber"),
       cell: (row: MySummary["recentOrders"][0]) => (
         <span className="font-mono text-sm">{row.invoiceNumber || "-"}</span>
       ),
     },
     {
       key: "customerName",
-      header: "Customer",
+      header: t("orders.customer"),
       cell: (row: MySummary["recentOrders"][0]) => <span className="font-medium">{row.customerName}</span>,
     },
     {
       key: "dateSold",
-      header: "Date Sold",
+      header: t("orders.dateSold"),
       cell: (row: MySummary["recentOrders"][0]) => (
         <span className="text-sm text-muted-foreground">
-          {new Date(row.dateSold).toLocaleDateString()}
+          {new Date(row.dateSold).toLocaleDateString(locale)}
         </span>
       ),
     },
     {
       key: "simplifiedStatus",
-      header: "Status",
+      header: t("orders.status"),
       cell: (row: MySummary["recentOrders"][0]) => <SimplifiedStatusBadge status={row.simplifiedStatus} />,
     },
     {
       key: "commissionAmount",
-      header: "Commission",
+      header: t("commissions.commission"),
       cell: (row: MySummary["recentOrders"][0]) => (
         <span className="font-mono text-right block">
-          {formatCurrency(parseFloat(row.commissionAmount))}
+          {formatCurrency(parseFloat(row.commissionAmount), locale)}
         </span>
       ),
       className: "text-right",
@@ -281,19 +284,19 @@ export default function RepDashboard() {
     <div className="p-4 md:p-6 space-y-4 md:space-y-8">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl md:text-2xl font-semibold">Dashboard</h1>
+          <h1 className="text-xl md:text-2xl font-semibold">{t("dashboard.title")}</h1>
           <p className="text-sm md:text-base text-muted-foreground">
-            {mySummary?.greeting ? `${mySummary.greeting}, ${user?.name}` : `Welcome back, ${user?.name}`}
+            {mySummary?.greeting ? `${mySummary.greeting}, ${user?.name}` : `${t("dashboard.welcomeBack")}, ${user?.name}`}
           </p>
         </div>
         <div className="hidden md:flex items-center gap-2 flex-wrap">
           <Button variant="outline" data-testid="button-export-orders">
             <Download className="h-4 w-4 mr-2" />
-            Export Orders
+            {t("dashboard.exportOrders")}
           </Button>
           <Button variant="outline" data-testid="button-import-leads">
             <Upload className="h-4 w-4 mr-2" />
-            Import Leads
+            {t("dashboard.importLeads")}
           </Button>
         </div>
       </div>
@@ -313,7 +316,7 @@ export default function RepDashboard() {
                 <span>{alert.message}</span>
                 {alert.link && (
                   <a href={alert.link} className="ml-auto underline text-xs opacity-75 shrink-0">
-                    View
+                    {t("dashboard.viewAlertLink")}
                   </a>
                 )}
               </div>
@@ -326,7 +329,7 @@ export default function RepDashboard() {
         <Link href="/messages">
           <Button variant="outline" size="sm" className="relative" data-testid="btn-dashboard-messages">
             <MessageSquare className="h-4 w-4 mr-1.5" />
-            Messages
+            {t("messages.title")}
             {(unreadCount?.count || 0) > 0 && (
               <Badge className="absolute -top-1.5 -right-1.5 h-5 min-w-[20px] bg-red-500 text-white text-[10px] px-1">{unreadCount!.count}</Badge>
             )}
@@ -335,7 +338,7 @@ export default function RepDashboard() {
         <Link href="/my-performance">
           <Button variant="outline" size="sm" data-testid="btn-dashboard-performance">
             <Target className="h-4 w-4 mr-1.5" />
-            My Performance
+            {t("dashboard.viewPerformance")}
           </Button>
         </Link>
       </div>
@@ -355,53 +358,53 @@ export default function RepDashboard() {
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 md:gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
-              <CardTitle className="text-xs md:text-sm font-medium">MTD Earned</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">{t("dashboard.mtdEarned")}</CardTitle>
               <TrendingUp className="h-4 w-4 text-green-500 shrink-0" />
             </CardHeader>
             <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               <p className="text-lg md:text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-dashboard-mtd-earned">
-                {formatCurrency(currentPeriod?.earnedAmount || 0)}
+                {formatCurrency(currentPeriod?.earnedAmount || 0, locale)}
               </p>
               <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">
-                {currentPeriod?.soldCount ?? 0} sold · {currentPeriod?.connectedCount ?? 0} connected
+                {t("dashboard.soldConnected", { sold: currentPeriod?.soldCount ?? 0, connected: currentPeriod?.connectedCount ?? 0 })}
               </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
-              <CardTitle className="text-xs md:text-sm font-medium">Pending</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">{t("dashboard.pending")}</CardTitle>
               <Clock className="h-4 w-4 text-yellow-500 shrink-0" />
             </CardHeader>
             <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               <p className="text-lg md:text-2xl font-bold text-yellow-600 dark:text-yellow-400" data-testid="text-dashboard-pending-amount">
-                {formatCurrency(currentPeriod?.pendingAmount || 0)}
+                {formatCurrency(currentPeriod?.pendingAmount || 0, locale)}
               </p>
               <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">
-                {currentPeriod?.pendingCount ?? 0} orders pending
+                {t("dashboard.ordersPending", { count: currentPeriod?.pendingCount ?? 0 })}
               </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
-              <CardTitle className="text-xs md:text-sm font-medium">Next Payment</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">{t("dashboard.nextPayment")}</CardTitle>
               <Calendar className="h-4 w-4 text-primary shrink-0" />
             </CardHeader>
             <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               {nextPayment ? (
                 <>
                   <p className="text-lg md:text-2xl font-bold" data-testid="text-dashboard-next-payment-amount">
-                    {formatCurrency(nextPayment.estimatedAmount)}
+                    {formatCurrency(nextPayment.estimatedAmount, locale)}
                   </p>
                   <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">
-                    Est. {new Date(nextPayment.estimatedDate).toLocaleDateString()} · {nextPayment.ordersIncluded} orders
+                    {t("dashboard.estDate", { date: new Date(nextPayment.estimatedDate).toLocaleDateString(locale), count: nextPayment.ordersIncluded })}
                   </p>
                 </>
               ) : (
                 <>
                   <p className="text-lg md:text-2xl font-bold text-muted-foreground" data-testid="text-dashboard-next-payment-amount">—</p>
-                  <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">No upcoming pay run</p>
+                  <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">{t("dashboard.noUpcomingPayRun")}</p>
                 </>
               )}
             </CardContent>
@@ -409,24 +412,24 @@ export default function RepDashboard() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
-              <CardTitle className="text-xs md:text-sm font-medium">Last Payment</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">{t("dashboard.lastPayment")}</CardTitle>
               <DollarSign className="h-4 w-4 text-blue-500 shrink-0" />
             </CardHeader>
             <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               {lastPayment ? (
                 <>
                   <p className="text-lg md:text-2xl font-bold text-blue-600 dark:text-blue-400" data-testid="text-dashboard-last-payment-amount">
-                    {formatCurrency(lastPayment.amount)}
+                    {formatCurrency(lastPayment.amount, locale)}
                   </p>
                   <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">
-                    {new Date(lastPayment.date).toLocaleDateString()}
+                    {new Date(lastPayment.date).toLocaleDateString(locale)}
                     {lastPayment.stubNumber ? ` · ${lastPayment.stubNumber}` : ""}
                   </p>
                 </>
               ) : (
                 <>
                   <p className="text-lg md:text-2xl font-bold text-muted-foreground" data-testid="text-dashboard-last-payment-amount">—</p>
-                  <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">No payments yet</p>
+                  <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1">{t("dashboard.noPaymentsYet")}</p>
                 </>
               )}
             </CardContent>
@@ -438,38 +441,38 @@ export default function RepDashboard() {
         <div className="grid grid-cols-3 gap-3 md:gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
-              <CardTitle className="text-xs md:text-sm font-medium">YTD Earned</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">{t("dashboard.ytdEarned")}</CardTitle>
               <TrendingUp className="h-4 w-4 text-green-500 shrink-0 hidden md:block" />
             </CardHeader>
             <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               <p className="text-base md:text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-dashboard-ytd-gross">
-                {formatCurrency(ytd.totalEarned || 0)}
+                {formatCurrency(ytd.totalEarned || 0, locale)}
               </p>
-              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">{ytd.totalOrders} orders</p>
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">{t("dashboard.orders", { count: ytd.totalOrders })}</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
-              <CardTitle className="text-xs md:text-sm font-medium">YTD Paid</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">{t("dashboard.ytdPaid")}</CardTitle>
               <Wallet className="h-4 w-4 text-primary shrink-0 hidden md:block" />
             </CardHeader>
             <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               <p className="text-base md:text-2xl font-bold" data-testid="text-dashboard-ytd-net">
-                {formatCurrency(ytd.totalPaid || 0)}
+                {formatCurrency(ytd.totalPaid || 0, locale)}
               </p>
-              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Net paid</p>
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">{t("dashboard.netPaid")}</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1 md:pb-2 px-3 pt-3 md:px-6 md:pt-6">
-              <CardTitle className="text-xs md:text-sm font-medium">Deductions</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">{t("dashboard.deductions")}</CardTitle>
               <ArrowDownCircle className="h-4 w-4 text-red-500 shrink-0 hidden md:block" />
             </CardHeader>
             <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
               <p className="text-base md:text-2xl font-bold text-red-600 dark:text-red-400" data-testid="text-dashboard-ytd-deductions">
-                {formatCurrency(Math.max(0, (ytd.totalEarned || 0) - (ytd.totalPaid || 0)))}
+                {formatCurrency(Math.max(0, (ytd.totalEarned || 0) - (ytd.totalPaid || 0)), locale)}
               </p>
-              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Chargebacks</p>
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">{t("dashboard.chargebacks")}</p>
             </CardContent>
           </Card>
         </div>
@@ -489,14 +492,14 @@ export default function RepDashboard() {
             <div>
               <CardTitle className="text-base md:text-lg font-medium flex items-center gap-2">
                 <PhoneCall className="h-4 w-4 md:h-5 md:w-5 text-primary" />
-                Today's Follow-Ups
+                {t("dashboard.todaysFollowUps")}
               </CardTitle>
               <CardDescription className="text-xs md:text-sm">
-                {followUps.overdue.length + followUps.today.length} lead{followUps.overdue.length + followUps.today.length !== 1 ? "s" : ""} need attention
+                {t("dashboard.leadsNeedAttentionPlural", { count: followUps.overdue.length + followUps.today.length })}
               </CardDescription>
             </div>
             <Button variant="outline" size="sm" asChild>
-              <Link href="/leads" data-testid="link-view-all-leads">View Leads</Link>
+              <Link href="/leads" data-testid="link-view-all-leads">{t("dashboard.viewLeads")}</Link>
             </Button>
           </CardHeader>
           <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
@@ -515,11 +518,11 @@ export default function RepDashboard() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm truncate">{lead.customerName || "Unknown"}</span>
-                      <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4" data-testid={`badge-overdue-${lead.id}`}>Overdue</Badge>
+                      <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4" data-testid={`badge-overdue-${lead.id}`}>{t("dashboard.overdue")}</Badge>
                     </div>
                     <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-disposition-${lead.id}`}>
-                      {lead.disposition && lead.disposition !== "NONE" ? lead.disposition.replace(/_/g, " ") : "No disposition"}
-                      {lead.contactAttempts > 0 && ` · ${lead.contactAttempts} attempt${lead.contactAttempts !== 1 ? "s" : ""}`}
+                      {lead.disposition && lead.disposition !== "NONE" ? lead.disposition.replace(/_/g, " ") : t("dashboard.noDisposition")}
+                      {lead.contactAttempts > 0 && ` · ${t(lead.contactAttempts !== 1 ? "dashboard.contactAttempts" : "dashboard.contactAttempt", { count: lead.contactAttempts })}`}
                     </p>
                     {lead.followUpNotes && (
                       <p className="text-xs text-muted-foreground/80 truncate mt-0.5 italic" data-testid={`text-notes-${lead.id}`}>
@@ -552,7 +555,7 @@ export default function RepDashboard() {
                       data-testid={`button-mark-contacted-${lead.id}`}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                      <span className="hidden sm:inline">Contacted</span>
+                      <span className="hidden sm:inline">{t("dashboard.markContacted")}</span>
                     </Button>
                   </div>
                 </div>
@@ -571,11 +574,11 @@ export default function RepDashboard() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm truncate">{lead.customerName || "Unknown"}</span>
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300" data-testid={`badge-today-${lead.id}`}>Today</Badge>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300" data-testid={`badge-today-${lead.id}`}>{t("dashboard.today")}</Badge>
                     </div>
                     <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-disposition-${lead.id}`}>
-                      {lead.disposition && lead.disposition !== "NONE" ? lead.disposition.replace(/_/g, " ") : "No disposition"}
-                      {lead.contactAttempts > 0 && ` · ${lead.contactAttempts} attempt${lead.contactAttempts !== 1 ? "s" : ""}`}
+                      {lead.disposition && lead.disposition !== "NONE" ? lead.disposition.replace(/_/g, " ") : t("dashboard.noDisposition")}
+                      {lead.contactAttempts > 0 && ` · ${t(lead.contactAttempts !== 1 ? "dashboard.contactAttempts" : "dashboard.contactAttempt", { count: lead.contactAttempts })}`}
                     </p>
                     {lead.followUpNotes && (
                       <p className="text-xs text-muted-foreground/80 truncate mt-0.5 italic" data-testid={`text-notes-${lead.id}`}>
@@ -608,7 +611,7 @@ export default function RepDashboard() {
                       data-testid={`button-mark-contacted-${lead.id}`}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                      <span className="hidden sm:inline">Contacted</span>
+                      <span className="hidden sm:inline">{t("dashboard.markContacted")}</span>
                     </Button>
                   </div>
                 </div>
@@ -623,9 +626,9 @@ export default function RepDashboard() {
           <div>
             <CardTitle className="text-base md:text-lg font-medium flex items-center gap-2">
               <BarChart2 className="h-4 w-4 md:h-5 md:w-5 text-primary" />
-              Earnings Timeline
+              {t("dashboard.earningsTimeline")}
             </CardTitle>
-            <CardDescription className="text-xs md:text-sm">Month-by-month breakdown</CardDescription>
+            <CardDescription className="text-xs md:text-sm">{t("dashboard.monthByMonthBreakdown")}</CardDescription>
           </div>
           <div className="flex gap-1.5 md:gap-2">
             {[3, 6, 12, 24].map((m) => (
@@ -662,14 +665,14 @@ export default function RepDashboard() {
                 <XAxis dataKey="month" tick={{ fontSize: 12 }} className="text-muted-foreground" />
                 <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} className="text-muted-foreground" />
                 <Tooltip
-                  formatter={(value: number, name: string) => [formatCurrency(value), name]}
+                  formatter={(value: number, name: string) => [formatCurrency(value, locale), name]}
                   contentStyle={{ fontSize: 12 }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Area
                   type="monotone"
                   dataKey="grossEarned"
-                  name="Gross Earned"
+                  name={t("dashboard.grossEarned")}
                   stroke="hsl(var(--primary))"
                   fill="url(#colorGross)"
                   strokeWidth={2}
@@ -678,7 +681,7 @@ export default function RepDashboard() {
                 <Area
                   type="monotone"
                   dataKey="netPaid"
-                  name="Net Paid"
+                  name={t("dashboard.netPaidLabel")}
                   stroke="#22c55e"
                   fill="url(#colorNet)"
                   strokeWidth={2}
@@ -688,7 +691,7 @@ export default function RepDashboard() {
             </ResponsiveContainer>
           ) : (
             <div className="h-64 flex items-center justify-center text-muted-foreground text-sm">
-              No earnings data available yet
+              {t("dashboard.noEarningsData")}
             </div>
           )}
         </CardContent>
@@ -728,11 +731,11 @@ export default function RepDashboard() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2 px-3 pt-3 md:px-6 md:pt-6">
           <div>
-            <CardTitle className="text-base md:text-lg font-medium">Recent Orders</CardTitle>
-            <CardDescription className="text-xs md:text-sm">Your last 10 orders</CardDescription>
+            <CardTitle className="text-base md:text-lg font-medium">{t("dashboard.recentOrders")}</CardTitle>
+            <CardDescription className="text-xs md:text-sm">{t("dashboard.yourLastOrders")}</CardDescription>
           </div>
           <Button variant="outline" size="sm" asChild>
-            <a href="/orders" data-testid="link-view-all-orders">View All</a>
+            <a href="/orders" data-testid="link-view-all-orders">{t("dashboard.viewAll")}</a>
           </Button>
         </CardHeader>
         <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
@@ -740,7 +743,7 @@ export default function RepDashboard() {
             columns={orderColumns}
             data={mySummary?.recentOrders || []}
             isLoading={mySummaryLoading}
-            emptyMessage="No orders yet"
+            emptyMessage={t("dashboard.noOrdersYet")}
             testId="table-recent-orders"
           />
         </CardContent>

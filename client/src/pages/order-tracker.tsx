@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n/config";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,15 +61,15 @@ function getOrderStatus(order: SalesOrder): OrderStatus {
 function getStatusConfig(status: OrderStatus) {
   switch (status) {
     case "pending":
-      return { label: "Pending", variant: "outline" as const, icon: Clock, color: "text-yellow-600 dark:text-yellow-400" };
+      return { label: i18n.t("orderTracker.pending"), variant: "outline" as const, icon: Clock, color: "text-yellow-600 dark:text-yellow-400" };
     case "completed":
-      return { label: "Connected", variant: "secondary" as const, icon: CheckCircle2, color: "text-blue-600 dark:text-blue-400" };
+      return { label: i18n.t("orderTracker.connected"), variant: "secondary" as const, icon: CheckCircle2, color: "text-blue-600 dark:text-blue-400" };
     case "approved":
-      return { label: "Approved", variant: "default" as const, icon: ThumbsUp, color: "text-green-600 dark:text-green-400" };
+      return { label: i18n.t("orderTracker.approved"), variant: "default" as const, icon: ThumbsUp, color: "text-green-600 dark:text-green-400" };
     case "paid":
-      return { label: "Paid", variant: "default" as const, icon: DollarSign, color: "text-emerald-600 dark:text-emerald-400" };
+      return { label: i18n.t("orderTracker.paid"), variant: "default" as const, icon: DollarSign, color: "text-emerald-600 dark:text-emerald-400" };
     case "canceled":
-      return { label: "Cancelled", variant: "outline" as const, icon: XCircle, color: "text-muted-foreground" };
+      return { label: i18n.t("orderTracker.cancelled"), variant: "outline" as const, icon: XCircle, color: "text-muted-foreground" };
   }
 }
 
@@ -81,11 +83,11 @@ function getStepIndex(status: OrderStatus): number {
   }
 }
 
-const pipelineSteps = [
-  { label: "Pending", icon: Clock },
-  { label: "Connected", icon: CheckCircle2 },
-  { label: "Approved", icon: ThumbsUp },
-  { label: "Paid", icon: DollarSign },
+const getPipelineSteps = () => [
+  { label: i18n.t("orderTracker.pending"), icon: Clock },
+  { label: i18n.t("orderTracker.connected"), icon: CheckCircle2 },
+  { label: i18n.t("orderTracker.approved"), icon: ThumbsUp },
+  { label: i18n.t("orderTracker.paid"), icon: DollarSign },
 ];
 
 function StatusPipeline({ status }: { status: OrderStatus }) {
@@ -102,7 +104,7 @@ function StatusPipeline({ status }: { status: OrderStatus }) {
 
   return (
     <div className="flex items-center gap-1">
-      {pipelineSteps.map((step, i) => {
+      {getPipelineSteps().map((step, i) => {
         const isActive = i <= stepIndex;
         const isCurrent = i === stepIndex;
         return (
@@ -118,7 +120,7 @@ function StatusPipeline({ status }: { status: OrderStatus }) {
             >
               <step.icon className={isCurrent ? "h-3.5 w-3.5" : "h-3 w-3"} />
             </div>
-            {i < pipelineSteps.length - 1 && (
+            {i < getPipelineSteps().length - 1 && (
               <div className={`w-4 h-0.5 ${isActive ? "bg-primary/40" : "bg-muted"}`} />
             )}
           </div>
@@ -197,11 +199,11 @@ function OrderCard({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      toast({ title: "Order updated", description: "Your changes have been saved." });
+      toast({ title: i18n.t("orderTracker.orderUpdated"), description: i18n.t("orderTracker.changesSaved") });
       onCancelEdit();
     },
     onError: (err: any) => {
-      toast({ title: "Update failed", description: err.message || "Could not save changes.", variant: "destructive" });
+      toast({ title: i18n.t("orderTracker.updateFailed"), description: err.message || i18n.t("orderTracker.couldNotSaveChanges"), variant: "destructive" });
     },
   });
 
@@ -212,11 +214,11 @@ function OrderCard({
     },
     onSuccess: (_, newStatus) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      const label = newStatus === "COMPLETED" ? "completed" : newStatus === "PENDING" ? "pending" : "canceled";
-      toast({ title: `Order marked as ${label}` });
+      const label = newStatus === "COMPLETED" ? i18n.t("orderTracker.connected") : newStatus === "PENDING" ? i18n.t("orderTracker.pending") : i18n.t("orderTracker.cancelled");
+      toast({ title: `${i18n.t("orderTracker.orderUpdated")}: ${label}` });
     },
     onError: (err: any) => {
-      toast({ title: "Status update failed", description: err.message || "Could not update status.", variant: "destructive" });
+      toast({ title: i18n.t("orderTracker.statusUpdateFailed"), description: err.message || i18n.t("orderTracker.couldNotUpdateStatus"), variant: "destructive" });
     },
   });
 
@@ -254,17 +256,17 @@ function OrderCard({
             </Badge>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); onCancelEdit(); }} data-testid={`button-cancel-inline-${order.id}`}>
-                Cancel
+                {i18n.t("orderTracker.cancel")}
               </Button>
               <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid={`button-save-inline-${order.id}`}>
                 {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-                Save
+                {i18n.t("orderTracker.save")}
               </Button>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Customer Name</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.customerName")}</Label>
               <Input
                 value={formData.customerName}
                 onChange={(e) => updateField("customerName", e.target.value)}
@@ -273,7 +275,7 @@ function OrderCard({
               />
             </div>
             <div>
-              <Label className="text-xs">Account #</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.accountNumber")}</Label>
               <Input
                 value={formData.accountNumber}
                 onChange={(e) => updateField("accountNumber", e.target.value)}
@@ -282,7 +284,7 @@ function OrderCard({
               />
             </div>
             <div>
-              <Label className="text-xs">Phone</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.phone")}</Label>
               <Input
                 value={formData.customerPhone}
                 onChange={(e) => updateField("customerPhone", e.target.value)}
@@ -291,7 +293,7 @@ function OrderCard({
               />
             </div>
             <div>
-              <Label className="text-xs">Email</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.email")}</Label>
               <Input
                 value={formData.customerEmail}
                 onChange={(e) => updateField("customerEmail", e.target.value)}
@@ -300,7 +302,7 @@ function OrderCard({
               />
             </div>
             <div>
-              <Label className="text-xs">Install Date</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.installDate")}</Label>
               <Input
                 type="date"
                 value={formData.installDate}
@@ -310,10 +312,10 @@ function OrderCard({
               />
             </div>
             <div>
-              <Label className="text-xs">Service</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.service")}</Label>
               <Select value={formData.serviceId} onValueChange={(v) => updateField("serviceId", v)}>
                 <SelectTrigger onClick={(e) => e.stopPropagation()} data-testid={`select-inline-service-${order.id}`}>
-                  <SelectValue placeholder="Select service" />
+                  <SelectValue placeholder={i18n.t("orderTracker.selectService")} />
                 </SelectTrigger>
                 <SelectContent>
                   {services.map(s => (
@@ -323,7 +325,7 @@ function OrderCard({
               </Select>
             </div>
             <div>
-              <Label className="text-xs">House #/Bldg</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.houseBuilding")}</Label>
               <Input
                 value={formData.houseNumber || ""}
                 onChange={(e) => updateField("houseNumber", e.target.value)}
@@ -332,7 +334,7 @@ function OrderCard({
               />
             </div>
             <div>
-              <Label className="text-xs">Street</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.streetName")}</Label>
               <Input
                 value={formData.streetName || ""}
                 onChange={(e) => updateField("streetName", e.target.value)}
@@ -341,7 +343,7 @@ function OrderCard({
               />
             </div>
             <div>
-              <Label className="text-xs">Apt/Unit</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.aptUnit")}</Label>
               <Input
                 value={formData.aptUnit || ""}
                 onChange={(e) => updateField("aptUnit", e.target.value)}
@@ -350,7 +352,7 @@ function OrderCard({
               />
             </div>
             <div>
-              <Label className="text-xs">City</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.city")}</Label>
               <Input
                 value={formData.city || ""}
                 onChange={(e) => updateField("city", e.target.value)}
@@ -359,7 +361,7 @@ function OrderCard({
               />
             </div>
             <div>
-              <Label className="text-xs">Zip Code</Label>
+              <Label className="text-xs">{i18n.t("orderTracker.zipCode")}</Label>
               <Input
                 value={formData.zipCode || ""}
                 onChange={(e) => updateField("zipCode", e.target.value)}
@@ -411,7 +413,7 @@ function OrderCard({
               )}
             </div>
             <div className="flex items-center gap-x-3 gap-y-0.5 mt-1.5 text-sm text-muted-foreground flex-wrap">
-              <span className="font-medium text-foreground/80">{serviceName || "No service"}</span>
+              <span className="font-medium text-foreground/80">{serviceName || i18n.t("orderTracker.noService")}</span>
               <span className="text-xs">|</span>
               <span>{providerName} - {clientName}</span>
               {repName && (
@@ -425,13 +427,13 @@ function OrderCard({
               {order.dateSold && (
                 <span className="flex items-center gap-1">
                   <CalendarDays className="h-3 w-3" />
-                  Sold: {new Date(order.dateSold).toLocaleDateString()}
+                  {i18n.t("orderTracker.soldPrefix")}: {new Intl.DateTimeFormat(i18n.language === "es" ? "es-MX" : "en-US").format(new Date(order.dateSold))}
                 </span>
               )}
               {order.installDate && (
                 <span className="flex items-center gap-1">
                   <CalendarDays className="h-3 w-3" />
-                  Install: {new Date(order.installDate).toLocaleDateString()}
+                  {i18n.t("orderTracker.installPrefix")}: {new Intl.DateTimeFormat(i18n.language === "es" ? "es-MX" : "en-US").format(new Date(order.installDate))}
                 </span>
               )}
               {order.customerPhone && (
@@ -528,12 +530,12 @@ function OrderCard({
                   ${displayCommission.toFixed(2)}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
-                  {canSeeGross ? "Gross" : "Net"}
+                  {canSeeGross ? i18n.t("orderTracker.gross") : i18n.t("orderTracker.net")}
                 </p>
               </>
             ) : null}
             <p className="text-xs text-muted-foreground">
-              {new Date(order.dateSold).toLocaleDateString()}
+              {new Intl.DateTimeFormat(i18n.language === "es" ? "es-MX" : "en-US").format(new Date(order.dateSold))}
             </p>
           </div>
 
@@ -553,7 +555,9 @@ function OrderCard({
 
 export default function OrderTracker() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const { toast } = useToast();
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
   const isMobile = useIsMobile();
   const canSeeGrossCommissions = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR", "ACCOUNTING"].includes(user?.role || "");
   const canSeeCommission = ["EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR", "ACCOUNTING"].includes(user?.role || "");
@@ -784,10 +788,10 @@ export default function OrderTracker() {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setShowMobileOrderDialog(false);
       resetMobileOrderForm();
-      toast({ title: "Mobile order created successfully" });
+      toast({ title: t("orderTracker.mobileOrderCreated") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create mobile order", description: error.message, variant: "destructive" });
+      toast({ title: t("orderTracker.failedToCreateMobileOrder"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -825,20 +829,20 @@ export default function OrderTracker() {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setShowNewOrderDialog(false);
       resetNewOrderForm();
-      toast({ title: "Order created successfully" });
+      toast({ title: t("orderTracker.orderCreated") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
+      toast({ title: t("orderTracker.failedToCreate"), description: error.message, variant: "destructive" });
     },
   });
 
   const handleCreateOrder = () => {
     if (!newOrderForm.customerName || !newOrderForm.dateSold) {
-      toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
+      toast({ title: t("orderTracker.missingRequiredFields"), description: t("orderTracker.customerNameRequired"), variant: "destructive" });
       return;
     }
     if (isAdmin && !newOrderForm.repId) {
-      toast({ title: "Missing required fields", description: "Rep ID is required", variant: "destructive" });
+      toast({ title: t("orderTracker.missingRequiredFields"), description: t("orderTracker.repIdRequired"), variant: "destructive" });
       return;
     }
     createOrderMutation.mutate(newOrderForm);
@@ -967,12 +971,12 @@ export default function OrderTracker() {
       <div className="flex flex-wrap items-center justify-between gap-3 md:gap-4">
         <div>
           <h1 className="text-xl md:text-2xl font-semibold" data-testid="text-order-tracker-title">
-            Order Tracker
+            {t("orderTracker.title")}
           </h1>
           <p className="text-muted-foreground text-xs md:text-sm">
-            {hasViewModeToggle && viewMode === "team" ? "Viewing your team's orders" :
-             hasViewModeToggle && viewMode === "global" ? "Viewing all orders globally" :
-             "Track your orders from sale to payment"}
+            {hasViewModeToggle && viewMode === "team" ? t("orderTracker.viewingTeamOrders") :
+             hasViewModeToggle && viewMode === "global" ? t("orderTracker.viewingAllOrders") :
+             t("orderTracker.trackFromSaleToPayment")}
           </p>
           {hasViewModeToggle && (
             <div className="flex items-center gap-1 mt-2 bg-muted rounded-lg p-1">
@@ -983,7 +987,7 @@ export default function OrderTracker() {
                 onClick={() => setViewMode("own")}
                 data-testid="button-view-my-orders"
               >
-                My Orders
+                {t("orderTracker.myOrders")}
               </Button>
               <Button
                 variant={viewMode === "team" ? "default" : "ghost"}
@@ -992,7 +996,7 @@ export default function OrderTracker() {
                 onClick={() => setViewMode("team")}
                 data-testid="button-view-my-team"
               >
-                My Team
+                {t("orderTracker.myTeam")}
               </Button>
               {(user?.role === "EXECUTIVE" || user?.role === "MANAGER") && (
                 <Button
@@ -1002,7 +1006,7 @@ export default function OrderTracker() {
                   onClick={() => setViewMode("global")}
                   data-testid="button-view-global"
                 >
-                  Global
+                  {t("orderTracker.global")}
                 </Button>
               )}
             </div>
@@ -1015,16 +1019,16 @@ export default function OrderTracker() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Time</SelectItem>
-              <SelectItem value="today">Today</SelectItem>
-              <SelectItem value="this_week">This Week</SelectItem>
-              <SelectItem value="this_month">This Month</SelectItem>
+              <SelectItem value="all">{t("orderTracker.allTime")}</SelectItem>
+              <SelectItem value="today">{t("orderTracker.today")}</SelectItem>
+              <SelectItem value="this_week">{t("orderTracker.thisWeek")}</SelectItem>
+              <SelectItem value="this_month">{t("orderTracker.thisMonth")}</SelectItem>
             </SelectContent>
           </Select>
           <Button size="sm" className="h-9" onClick={() => setShowNewOrderDialog(true)} data-testid="button-new-order-tracker">
             <Plus className="h-4 w-4 mr-1" />
-            <span className="hidden sm:inline">New Order</span>
-            <span className="sm:hidden">New</span>
+            <span className="hidden sm:inline">{t("orderTracker.newOrder")}</span>
+            <span className="sm:hidden">{t("orderTracker.new")}</span>
           </Button>
           <Button variant="outline" size="sm" className="h-9 hidden md:inline-flex" onClick={() => {
             if (selectedOrder) {
@@ -1044,12 +1048,12 @@ export default function OrderTracker() {
             setShowMobileOrderDialog(true);
           }} data-testid="button-mobile-entry-tracker">
             <Smartphone className="h-4 w-4 mr-1.5" />
-            Mobile Entry
+            {t("orderTracker.mobileEntry")}
           </Button>
           <Link href="/orders" className="hidden md:inline-flex">
             <Button variant="outline" size="sm" className="h-9" data-testid="link-full-orders">
               <ArrowUpRight className="h-4 w-4 mr-1.5" />
-              Full Orders
+              {t("orderTracker.fullOrders")}
             </Button>
           </Link>
         </div>
@@ -1059,11 +1063,11 @@ export default function OrderTracker() {
         <TabsList data-testid="tabs-order-type">
           <TabsTrigger value="data" data-testid="tab-data-orders">
             <Package className="h-4 w-4 mr-1.5" />
-            Data
+            {t("orderTracker.data")}
           </TabsTrigger>
           <TabsTrigger value="mobile" data-testid="tab-mobile-orders">
             <Smartphone className="h-4 w-4 mr-1.5" />
-            Mobile
+            {t("orderTracker.mobile")}
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -1076,11 +1080,11 @@ export default function OrderTracker() {
         >
           <CardContent className="p-2.5 md:p-4">
             <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
-              <span className="text-[10px] md:text-sm text-muted-foreground">Pending</span>
+              <span className="text-[10px] md:text-sm text-muted-foreground">{t("orderTracker.pending")}</span>
               <Clock className="h-3.5 w-3.5 md:h-4 md:w-4 text-yellow-500 shrink-0" />
             </div>
             <p className="text-lg md:text-2xl font-bold">{stats.pending}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">Awaiting completion</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">{t("orderTracker.awaitingCompletion")}</p>
           </CardContent>
         </Card>
         <Card
@@ -1090,11 +1094,11 @@ export default function OrderTracker() {
         >
           <CardContent className="p-2.5 md:p-4">
             <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
-              <span className="text-[10px] md:text-sm text-muted-foreground">Done</span>
+              <span className="text-[10px] md:text-sm text-muted-foreground">{t("orderTracker.done")}</span>
               <CheckCircle2 className="h-3.5 w-3.5 md:h-4 md:w-4 text-blue-500 shrink-0" />
             </div>
             <p className="text-lg md:text-2xl font-bold">{stats.completed}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">Awaiting approval</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">{t("orderTracker.awaitingApproval")}</p>
           </CardContent>
         </Card>
         <Card
@@ -1104,11 +1108,11 @@ export default function OrderTracker() {
         >
           <CardContent className="p-2.5 md:p-4">
             <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
-              <span className="text-[10px] md:text-sm text-muted-foreground">Approved</span>
+              <span className="text-[10px] md:text-sm text-muted-foreground">{t("orderTracker.approved")}</span>
               <ThumbsUp className="h-3.5 w-3.5 md:h-4 md:w-4 text-green-500 shrink-0" />
             </div>
             <p className="text-lg md:text-2xl font-bold">{stats.approved}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">Awaiting payment</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">{t("orderTracker.awaitingPayment")}</p>
           </CardContent>
         </Card>
         <Card
@@ -1118,11 +1122,11 @@ export default function OrderTracker() {
         >
           <CardContent className="p-2.5 md:p-4">
             <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
-              <span className="text-[10px] md:text-sm text-muted-foreground">Paid</span>
+              <span className="text-[10px] md:text-sm text-muted-foreground">{t("orderTracker.paid")}</span>
               <DollarSign className="h-3.5 w-3.5 md:h-4 md:w-4 text-emerald-500 shrink-0" />
             </div>
             <p className="text-lg md:text-2xl font-bold">{stats.paid}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">Commission received</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">{t("orderTracker.commissionReceived")}</p>
           </CardContent>
         </Card>
         <Card
@@ -1132,24 +1136,24 @@ export default function OrderTracker() {
         >
           <CardContent className="p-2.5 md:p-4">
             <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
-              <span className="text-[10px] md:text-sm text-muted-foreground">Total</span>
+              <span className="text-[10px] md:text-sm text-muted-foreground">{t("orderTracker.total")}</span>
               <Filter className="h-3.5 w-3.5 md:h-4 md:w-4 text-muted-foreground shrink-0" />
             </div>
             <p className="text-lg md:text-2xl font-bold">{stats.total}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">All orders</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">{t("orderTracker.allOrdersLabel")}</p>
           </CardContent>
         </Card>
         {canSeeCommission && (
           <Card data-testid="card-stat-earned">
             <CardContent className="p-2.5 md:p-4">
               <div className="flex items-center justify-between gap-1 mb-0.5 md:mb-1">
-                <span className="text-[10px] md:text-sm text-muted-foreground">{canSeeGrossCommissions ? "Gross" : "Net"}</span>
+                <span className="text-[10px] md:text-sm text-muted-foreground">{canSeeGrossCommissions ? t("orderTracker.gross") : t("orderTracker.net")}</span>
                 <DollarSign className="h-3.5 w-3.5 md:h-4 md:w-4 text-primary shrink-0" />
               </div>
               <p className="text-sm md:text-2xl font-bold font-mono truncate">
-                ${stats.totalEarned.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${stats.totalEarned.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">Approved + paid</p>
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5 hidden md:block">{t("orderTracker.approvedPlusPaid")}</p>
             </CardContent>
           </Card>
         )}
@@ -1161,7 +1165,7 @@ export default function OrderTracker() {
             <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by customer, account, invoice..."
+                placeholder={t("orderTracker.searchPlaceholder")}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-9"
@@ -1175,31 +1179,31 @@ export default function OrderTracker() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Time</SelectItem>
-                  <SelectItem value="today">Today</SelectItem>
-                  <SelectItem value="this_week">This Week</SelectItem>
-                  <SelectItem value="this_month">This Month</SelectItem>
+                  <SelectItem value="all">{t("orderTracker.allTime")}</SelectItem>
+                  <SelectItem value="today">{t("orderTracker.today")}</SelectItem>
+                  <SelectItem value="this_week">{t("orderTracker.thisWeek")}</SelectItem>
+                  <SelectItem value="this_month">{t("orderTracker.thisMonth")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelectedOrderIds(new Set()); }}>
             <TabsList className="w-full md:w-auto overflow-x-auto">
-              <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
+              <TabsTrigger value="all" data-testid="tab-all">{t("orderTracker.all")}</TabsTrigger>
               <TabsTrigger value="pending" data-testid="tab-pending">
-                Pending
+                {t("orderTracker.pending")}
                 {stats.pending > 0 && (
                   <span className="ml-1 md:ml-1.5 px-1 md:px-1.5 py-0.5 text-[10px] md:text-xs rounded-full bg-muted">{stats.pending}</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="completed" data-testid="tab-completed">
-                Done
+                {t("orderTracker.done")}
                 {stats.completed > 0 && (
                   <span className="ml-1 md:ml-1.5 px-1 md:px-1.5 py-0.5 text-[10px] md:text-xs rounded-full bg-muted">{stats.completed}</span>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="approved" data-testid="tab-approved">Approved</TabsTrigger>
-              <TabsTrigger value="paid" data-testid="tab-paid">Paid</TabsTrigger>
+              <TabsTrigger value="approved" data-testid="tab-approved">{t("orderTracker.approved")}</TabsTrigger>
+              <TabsTrigger value="paid" data-testid="tab-paid">{t("orderTracker.paid")}</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -1222,8 +1226,8 @@ export default function OrderTracker() {
             />
             <span className="text-sm text-muted-foreground">
               {selectedOrderIds.size > 0
-                ? `${selectedOrderIds.size} of ${sortedOrders.length} selected`
-                : `Select all (${sortedOrders.length})`}
+                ? `${selectedOrderIds.size} ${t("orderTracker.of")} ${sortedOrders.length} ${t("orderTracker.selected")}`
+                : `${t("orderTracker.selectAll")} (${sortedOrders.length})`}
             </span>
           </div>
           {selectedOrderIds.size > 0 && (
@@ -1233,7 +1237,7 @@ export default function OrderTracker() {
               onClick={() => setSelectedOrderIds(new Set())}
               data-testid="button-clear-selection"
             >
-              Clear
+              {t("orderTracker.clear")}
             </Button>
           )}
         </div>
@@ -1243,9 +1247,9 @@ export default function OrderTracker() {
         <Card>
           <CardContent className="p-12 text-center">
             <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-            <p className="text-lg font-medium">No orders found</p>
+            <p className="text-lg font-medium">{t("orderTracker.noOrders")}</p>
             <p className="text-sm text-muted-foreground mt-1">
-              {searchTerm ? "Try adjusting your search" : "Orders will appear here as you make sales"}
+              {searchTerm ? t("orderTracker.tryAdjustSearch") : t("orderTracker.ordersWillAppear")}
             </p>
           </CardContent>
         </Card>
@@ -1284,19 +1288,19 @@ export default function OrderTracker() {
       <Dialog open={showNewOrderDialog} onOpenChange={(open) => { setShowNewOrderDialog(open); if (!open) resetNewOrderForm(); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-visible flex flex-col">
           <DialogHeader>
-            <DialogTitle>Create New Order</DialogTitle>
-            <DialogDescription>Enter the order details below</DialogDescription>
+            <DialogTitle>{t("orders.createOrder")}</DialogTitle>
+            <DialogDescription>{t("orders.enterOrderDetails")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 overflow-y-auto flex-1 pr-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {isAdmin && (
                 <div className="space-y-2">
-                  <Label>Assign To *</Label>
+                  <Label>{t("orders.assignToRequired")}</Label>
                   {isTouchDevice ? (
                     <NativeSelect
                       value={newOrderForm.repId}
                       onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}
-                      placeholder="Select user"
+                      placeholder={t("orders.selectUser")}
                       options={reps?.map((rep) => ({
                         value: rep.repId,
                         label: `${rep.name} (${rep.repId}) - ${rep.role}`
@@ -1306,7 +1310,7 @@ export default function OrderTracker() {
                   ) : (
                     <Select value={newOrderForm.repId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}>
                       <SelectTrigger data-testid="select-rep-tracker">
-                        <SelectValue placeholder="Select user" />
+                        <SelectValue placeholder={t("orders.selectUser")} />
                       </SelectTrigger>
                       <SelectContent>
                         {reps?.map((rep) => (
@@ -1318,12 +1322,12 @@ export default function OrderTracker() {
                 </div>
               )}
               <div className="space-y-2">
-                <Label>Client</Label>
+                <Label>{t("orders.client")}</Label>
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.clientId}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}
-                    placeholder="Select client"
+                    placeholder={t("orders.selectClient")}
                     options={(clients || []).map((client) => ({
                       value: client.id,
                       label: client.name
@@ -1333,7 +1337,7 @@ export default function OrderTracker() {
                 ) : (
                   <Select value={newOrderForm.clientId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}>
                     <SelectTrigger data-testid="select-client-tracker">
-                      <SelectValue placeholder="Select client" />
+                      <SelectValue placeholder={t("orders.selectClient")} />
                     </SelectTrigger>
                     <SelectContent>
                       {(clients || []).map((client) => (
@@ -1344,12 +1348,12 @@ export default function OrderTracker() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Provider</Label>
+                <Label>{t("orders.provider")}</Label>
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.providerId}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}
-                    placeholder="Select provider"
+                    placeholder={t("orders.selectProvider")}
                     options={(providers || []).map((provider) => ({
                       value: provider.id,
                       label: provider.name
@@ -1359,7 +1363,7 @@ export default function OrderTracker() {
                 ) : (
                   <Select value={newOrderForm.providerId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}>
                     <SelectTrigger data-testid="select-provider-tracker">
-                      <SelectValue placeholder="Select provider" />
+                      <SelectValue placeholder={t("orders.selectProvider")} />
                     </SelectTrigger>
                     <SelectContent>
                       {(providers || []).map((provider) => (
@@ -1370,7 +1374,7 @@ export default function OrderTracker() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Date Sold *</Label>
+                <Label>{t("orders.dateSoldRequired")}</Label>
                 <Input
                   type="date"
                   value={newOrderForm.dateSold}
@@ -1379,7 +1383,7 @@ export default function OrderTracker() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Install Date</Label>
+                <Label>{t("orders.installDate")}</Label>
                 <Input
                   type="date"
                   value={newOrderForm.installDate}
@@ -1388,12 +1392,12 @@ export default function OrderTracker() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Install Time</Label>
+                <Label>{t("orders.installTime")}</Label>
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.installTime}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, installTime: v }))}
-                    placeholder="Select time window"
+                    placeholder={t("orders.selectTimeWindow")}
                     options={[
                       { value: "8-11am", label: "8-11am" },
                       { value: "11-2pm", label: "11-2pm" },
@@ -1404,7 +1408,7 @@ export default function OrderTracker() {
                 ) : (
                   <Select value={newOrderForm.installTime} onValueChange={(v) => setNewOrderForm(f => ({ ...f, installTime: v }))}>
                     <SelectTrigger data-testid="select-install-time-tracker">
-                      <SelectValue placeholder="Select time window" />
+                      <SelectValue placeholder={t("orders.selectTimeWindow")} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="8-11am">8-11am</SelectItem>
@@ -1415,50 +1419,50 @@ export default function OrderTracker() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Install Type</Label>
+                <Label>{t("orders.installType")}</Label>
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.installType}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, installType: v }))}
-                    placeholder="Select install type"
+                    placeholder={t("orders.selectInstallType")}
                     options={[
-                      { value: "AGENT_INSTALL", label: "Agent Install" },
-                      { value: "DIRECT_SHIP", label: "Direct Ship" },
-                      { value: "TECH_INSTALL", label: "Tech Install" },
+                      { value: "AGENT_INSTALL", label: t("orders.agentInstall") },
+                      { value: "DIRECT_SHIP", label: t("orders.directShip") },
+                      { value: "TECH_INSTALL", label: t("orders.techInstall") },
                     ]}
                     data-testid="select-install-type-tracker"
                   />
                 ) : (
                   <Select value={newOrderForm.installType} onValueChange={(v) => setNewOrderForm(f => ({ ...f, installType: v }))}>
                     <SelectTrigger data-testid="select-install-type-tracker">
-                      <SelectValue placeholder="Select install type" />
+                      <SelectValue placeholder={t("orders.selectInstallType")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="AGENT_INSTALL">Agent Install</SelectItem>
-                      <SelectItem value="DIRECT_SHIP">Direct Ship</SelectItem>
-                      <SelectItem value="TECH_INSTALL">Tech Install</SelectItem>
+                      <SelectItem value="AGENT_INSTALL">{t("orders.agentInstall")}</SelectItem>
+                      <SelectItem value="DIRECT_SHIP">{t("orders.directShip")}</SelectItem>
+                      <SelectItem value="TECH_INSTALL">{t("orders.techInstall")}</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Account Number</Label>
+                <Label>{t("orders.accountNumber")}</Label>
                 <Input
-                  placeholder="Enter account number"
+                  placeholder={t("orders.enterAccountNumber")}
                   value={newOrderForm.accountNumber}
                   onChange={(e) => setNewOrderForm(f => ({ ...f, accountNumber: e.target.value }))}
                   data-testid="input-account-number-tracker"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Service</Label>
+                <Label>{t("orders.service")}</Label>
                 {!newOrderForm.clientId || !newOrderForm.providerId ? (
-                  <p className="text-sm text-muted-foreground">Select client and provider first</p>
+                  <p className="text-sm text-muted-foreground">{t("orders.selectClientProviderFirst")}</p>
                 ) : isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.serviceId}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}
-                    placeholder="Select service"
+                    placeholder={t("orders.selectService")}
                     options={(availableServices || []).map((service) => ({
                       value: service.id,
                       label: service.name
@@ -1468,7 +1472,7 @@ export default function OrderTracker() {
                 ) : (
                   <Select value={newOrderForm.serviceId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}>
                     <SelectTrigger data-testid="select-service-tracker">
-                      <SelectValue placeholder={availableServices?.length ? "Select service" : "No services available"} />
+                      <SelectValue placeholder={availableServices?.length ? t("orders.selectService") : t("orders.noServicesAvailable")} />
                     </SelectTrigger>
                     <SelectContent>
                       {(availableServices || []).map((service) => (
@@ -1479,27 +1483,27 @@ export default function OrderTracker() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Customer Name *</Label>
+                <Label>{t("orders.customerNameRequired")}</Label>
                 <Input
-                  placeholder="Enter customer name"
+                  placeholder={t("orders.enterCustomerName")}
                   value={newOrderForm.customerName}
                   onChange={(e) => setNewOrderForm(f => ({ ...f, customerName: e.target.value }))}
                   data-testid="input-customer-name-tracker"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Customer Phone</Label>
+                <Label>{t("orders.phone")}</Label>
                 <Input
-                  placeholder="Enter phone number"
+                  placeholder={t("orders.enterPhone")}
                   value={newOrderForm.customerPhone}
                   onChange={(e) => setNewOrderForm(f => ({ ...f, customerPhone: e.target.value }))}
                   data-testid="input-customer-phone-tracker"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Customer Email</Label>
+                <Label>{t("orders.email")}</Label>
                 <Input
-                  placeholder="Enter email address"
+                  placeholder={t("orders.enterEmail")}
                   value={newOrderForm.customerEmail}
                   onChange={(e) => setNewOrderForm(f => ({ ...f, customerEmail: e.target.value }))}
                   data-testid="input-customer-email-tracker"
@@ -1508,7 +1512,7 @@ export default function OrderTracker() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="space-y-2">
-                <Label>House #/Bldg</Label>
+                <Label>{t("orders.house")}</Label>
                 <Input
                   placeholder="123"
                   value={newOrderForm.houseNumber}
@@ -1517,7 +1521,7 @@ export default function OrderTracker() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Street</Label>
+                <Label>{t("orders.street")}</Label>
                 <Input
                   placeholder="Main St"
                   value={newOrderForm.streetName}
@@ -1526,7 +1530,7 @@ export default function OrderTracker() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Apt/Unit</Label>
+                <Label>{t("orders.aptUnit")}</Label>
                 <Input
                   placeholder="Apt 4B"
                   value={newOrderForm.aptUnit}
@@ -1535,16 +1539,16 @@ export default function OrderTracker() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>City</Label>
+                <Label>{t("orders.city")}</Label>
                 <Input
-                  placeholder="City"
+                  placeholder={t("orders.city")}
                   value={newOrderForm.city}
                   onChange={(e) => setNewOrderForm(f => ({ ...f, city: e.target.value }))}
                   data-testid="input-city-tracker"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Zip Code</Label>
+                <Label>{t("orders.zipCode")}</Label>
                 <Input
                   placeholder="12345"
                   value={newOrderForm.zipCode}
@@ -1561,20 +1565,20 @@ export default function OrderTracker() {
                   onCheckedChange={(checked) => setNewOrderForm(f => ({ ...f, hasTv: !!checked }))}
                   data-testid="checkbox-has-tv-tracker"
                 />
-                <Label htmlFor="hasTvTracker" className="cursor-pointer">Video (TV)</Label>
+                <Label htmlFor="hasTvTracker" className="cursor-pointer">{t("orders.videoTv")}</Label>
               </div>
             </div>
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="outline" onClick={() => { setShowNewOrderDialog(false); resetNewOrderForm(); }} data-testid="button-cancel-new-order-tracker">
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={handleCreateOrder}
               disabled={createOrderMutation.isPending}
               data-testid="button-submit-order-tracker"
             >
-              {createOrderMutation.isPending ? "Creating..." : "Create Order"}
+              {createOrderMutation.isPending ? t("orders.creating") : t("orders.createOrder")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1606,18 +1610,18 @@ export default function OrderTracker() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Smartphone className="h-5 w-5" />
-              Create Mobile Order
+              {t("orders.createMobileOrder")}
             </DialogTitle>
             <DialogDescription>
-              Create a new mobile-only order with separate commission tracking.
+              {t("orders.createMobileOrderDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {isAdmin && (
               <div className="space-y-2">
-                <Label>Rep ID *</Label>
+                <Label>{t("orders.repIdRequired")}</Label>
                 <Input
-                  placeholder="Enter rep ID"
+                  placeholder={t("orders.enterRepId")}
                   value={mobileOrderForm.repId}
                   onChange={(e) => setMobileOrderForm(f => ({ ...f, repId: e.target.value }))}
                   data-testid="input-mobile-rep-id-tracker"
@@ -1626,10 +1630,10 @@ export default function OrderTracker() {
             )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Provider *</Label>
+                <Label>{t("orders.providerRequired")}</Label>
                 <Select value={mobileOrderForm.providerId} onValueChange={(v) => setMobileOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}>
                   <SelectTrigger data-testid="select-mobile-provider-tracker">
-                    <SelectValue placeholder="Select provider" />
+                    <SelectValue placeholder={t("orders.selectProvider")} />
                   </SelectTrigger>
                   <SelectContent>
                     {providers?.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
@@ -1637,10 +1641,10 @@ export default function OrderTracker() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Client *</Label>
+                <Label>{t("orders.clientRequired")}</Label>
                 <Select value={mobileOrderForm.clientId} onValueChange={(v) => setMobileOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}>
                   <SelectTrigger data-testid="select-mobile-client-tracker">
-                    <SelectValue placeholder="Select client" />
+                    <SelectValue placeholder={t("orders.selectClient")} />
                   </SelectTrigger>
                   <SelectContent>
                     {clients?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
@@ -1649,10 +1653,10 @@ export default function OrderTracker() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Service *</Label>
+              <Label>{t("orders.serviceRequired")}</Label>
               <Select value={mobileOrderForm.serviceId} onValueChange={(v) => setMobileOrderForm(f => ({ ...f, serviceId: v }))}>
                 <SelectTrigger data-testid="select-mobile-service-tracker">
-                  <SelectValue placeholder={mobileAvailableServices?.length ? "Select service" : "Select provider & client first"} />
+                  <SelectValue placeholder={mobileAvailableServices?.length ? t("orders.selectService") : t("orders.selectClientProviderFirst")} />
                 </SelectTrigger>
                 <SelectContent>
                   {(mobileAvailableServices || []).map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
@@ -1661,16 +1665,16 @@ export default function OrderTracker() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Customer Name *</Label>
+                <Label>{t("orders.customerNameRequired")}</Label>
                 <Input
-                  placeholder="Enter customer name"
+                  placeholder={t("orders.enterCustomerName")}
                   value={mobileOrderForm.customerName}
                   onChange={(e) => setMobileOrderForm(f => ({ ...f, customerName: e.target.value }))}
                   data-testid="input-mobile-customer-name-tracker"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Date Sold *</Label>
+                <Label>{t("orders.dateSoldRequired")}</Label>
                 <Input
                   type="date"
                   value={mobileOrderForm.dateSold}
@@ -1681,18 +1685,18 @@ export default function OrderTracker() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Customer Phone</Label>
+                <Label>{t("orders.phone")}</Label>
                 <Input
-                  placeholder="Enter phone number"
+                  placeholder={t("orders.enterPhone")}
                   value={mobileOrderForm.customerPhone}
                   onChange={(e) => setMobileOrderForm(f => ({ ...f, customerPhone: e.target.value }))}
                   data-testid="input-mobile-customer-phone-tracker"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Account Number</Label>
+                <Label>{t("orders.accountNumber")}</Label>
                 <Input
-                  placeholder="Enter account number"
+                  placeholder={t("orders.enterAccountNumber")}
                   value={mobileOrderForm.accountNumber}
                   onChange={(e) => setMobileOrderForm(f => ({ ...f, accountNumber: e.target.value }))}
                   data-testid="input-mobile-account-number-tracker"
@@ -1700,9 +1704,9 @@ export default function OrderTracker() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Customer Address</Label>
+              <Label>{t("orders.address")}</Label>
               <Textarea
-                placeholder="Enter customer address"
+                placeholder={t("orders.enterAddress")}
                 value={mobileOrderForm.customerAddress}
                 onChange={(e) => setMobileOrderForm(f => ({ ...f, customerAddress: e.target.value }))}
                 data-testid="input-mobile-customer-address-tracker"
@@ -1710,7 +1714,7 @@ export default function OrderTracker() {
             </div>
             <div className="space-y-3 border rounded-md p-4 bg-muted/30">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Mobile Lines ({mobileOrderForm.mobileLines.length})</Label>
+                <Label className="text-sm font-medium">{t("orders.mobileLines", { count: mobileOrderForm.mobileLines.length })}</Label>
                 <Button
                   type="button"
                   variant="outline"
@@ -1718,24 +1722,24 @@ export default function OrderTracker() {
                   onClick={addMobileLine}
                   data-testid="button-add-mobile-line-tracker"
                 >
-                  <Plus className="h-4 w-4 mr-1" /> Add Line
+                  <Plus className="h-4 w-4 mr-1" /> {t("orders.addLine")}
                 </Button>
               </div>
               {mobileOrderForm.mobileLines.map((line, index) => (
                 <div key={index} className="flex items-center gap-3 p-2 bg-background rounded-md border">
                   <span className="text-sm text-muted-foreground w-8">#{index + 1}</span>
                   <div className="flex items-center gap-2">
-                    <Label className="text-sm">Product:</Label>
+                    <Label className="text-sm">{t("orders.product")}:</Label>
                     <Select
                       value={line.mobileProductType || "__none__"}
                       onValueChange={(v) => updateMobileLine(index, "mobileProductType", v === "__none__" ? "" : v)}
                     >
                       <SelectTrigger className="w-28" data-testid={`select-mobile-product-type-tracker-${index}`}>
-                        <SelectValue placeholder="Select" />
+                        <SelectValue placeholder={t("orders.select")} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">Select</SelectItem>
-                        <SelectItem value="UNLIMITED">Unlimited</SelectItem>
+                        <SelectItem value="__none__">{t("orders.select")}</SelectItem>
+                        <SelectItem value="UNLIMITED">{t("orders.unlimited")}</SelectItem>
                         <SelectItem value="3_GIG">3 Gig</SelectItem>
                         <SelectItem value="1_GIG">1 Gig</SelectItem>
                         <SelectItem value="BYOD">BYOD</SelectItem>
@@ -1743,18 +1747,18 @@ export default function OrderTracker() {
                     </Select>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Label className="text-sm">Ported:</Label>
+                    <Label className="text-sm">{t("orders.ported")}:</Label>
                     <Select
                       value={line.mobilePortedStatus || "__none__"}
                       onValueChange={(v) => updateMobileLine(index, "mobilePortedStatus", v === "__none__" ? "" : v)}
                     >
                       <SelectTrigger className="w-28" data-testid={`select-mobile-ported-status-tracker-${index}`}>
-                        <SelectValue placeholder="Select" />
+                        <SelectValue placeholder={t("orders.select")} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">Select</SelectItem>
-                        <SelectItem value="PORTED">Ported</SelectItem>
-                        <SelectItem value="NON_PORTED">Non-Ported</SelectItem>
+                        <SelectItem value="__none__">{t("orders.select")}</SelectItem>
+                        <SelectItem value="PORTED">{t("orders.ported")}</SelectItem>
+                        <SelectItem value="NON_PORTED">{t("orders.nonPorted")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1774,14 +1778,14 @@ export default function OrderTracker() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowMobileOrderDialog(false); resetMobileOrderForm(); }}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={() => createMobileOrderMutation.mutate(mobileOrderForm)}
               disabled={createMobileOrderMutation.isPending || !mobileOrderForm.customerName || !mobileOrderForm.dateSold}
               data-testid="button-submit-mobile-order-tracker"
             >
-              {createMobileOrderMutation.isPending ? "Creating..." : "Create Mobile Order"}
+              {createMobileOrderMutation.isPending ? t("orders.creating") : t("orders.createMobileOrder")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1812,6 +1816,7 @@ function OrderDetailPanel({
   repName?: string;
 }) {
   const { toast } = useToast();
+  const { t } = useTranslation();
   const status = getOrderStatus(order);
   const config = getStatusConfig(status);
   const netCommission = parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned || "0");
@@ -1849,12 +1854,12 @@ function OrderDetailPanel({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      toast({ title: "Order updated", description: "Your changes have been saved." });
+      toast({ title: t("orderTracker.orderUpdated"), description: t("orderTracker.changesSaved") });
       setIsEditing(false);
       onClose();
     },
     onError: (err: any) => {
-      toast({ title: "Update failed", description: err.message || "Could not save changes.", variant: "destructive" });
+      toast({ title: t("orderTracker.updateFailed"), description: err.message || t("orderTracker.couldNotSaveChanges"), variant: "destructive" });
     },
   });
 
@@ -1865,12 +1870,12 @@ function OrderDetailPanel({
     },
     onSuccess: (_, newStatus) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      const label = newStatus === "COMPLETED" ? "completed" : newStatus === "PENDING" ? "pending" : "canceled";
-      toast({ title: `Order marked as ${label}` });
+      const label = newStatus === "COMPLETED" ? t("orderTracker.connected") : newStatus === "PENDING" ? t("orderTracker.pending") : t("orderTracker.cancelled");
+      toast({ title: `${t("orderTracker.orderUpdated")}: ${label}` });
       onClose();
     },
     onError: (err: any) => {
-      toast({ title: "Status update failed", description: err.message || "Could not update status.", variant: "destructive" });
+      toast({ title: t("orderTracker.statusUpdateFailed"), description: err.message || t("orderTracker.couldNotUpdateStatus"), variant: "destructive" });
     },
   });
 
@@ -1881,12 +1886,12 @@ function OrderDetailPanel({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      toast({ title: "Notes saved" });
+      toast({ title: t("orderTracker.notesSaved") });
       setDisplayNotes(notesValue);
       setIsEditingNotes(false);
     },
     onError: (err: any) => {
-      toast({ title: "Failed to save notes", description: err.message || "Could not save notes.", variant: "destructive" });
+      toast({ title: t("orderTracker.failedToSaveNotes"), description: err.message || t("orderTracker.couldNotSaveNotes"), variant: "destructive" });
     },
   });
 
@@ -1926,15 +1931,16 @@ function OrderDetailPanel({
     return location || order.customerAddress || "";
   })();
 
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
   const readOnlyRows: { label: string; value: string | null }[] = [
-    { label: "Invoice #", value: order.invoiceNumber || null },
-    { label: "Rep", value: repName || null },
-    { label: "Provider", value: providerMap.get(order.providerId) || null },
-    { label: "Client", value: clientMap.get(order.clientId) || null },
-    { label: "Date Sold", value: order.dateSold ? new Date(order.dateSold).toLocaleDateString() : null },
-    { label: "Install Type", value: order.installType || null },
-    { label: "TV Sold", value: order.tvSold ? "Yes" : "No" },
-    { label: "Mobile Order", value: order.isMobileOrder ? "Yes" : "No" },
+    { label: t("orderTracker.invoiceNumber"), value: order.invoiceNumber || null },
+    { label: t("orderTracker.rep"), value: repName || null },
+    { label: t("orderTracker.provider"), value: providerMap.get(order.providerId) || null },
+    { label: t("orderTracker.client"), value: clientMap.get(order.clientId) || null },
+    { label: t("orderTracker.saleDate"), value: order.dateSold ? new Intl.DateTimeFormat(locale).format(new Date(order.dateSold)) : null },
+    { label: t("orderTracker.installType"), value: order.installType || null },
+    { label: t("orderTracker.tvSold"), value: order.tvSold ? t("orderTracker.yes") : t("orderTracker.no") },
+    { label: t("orderTracker.mobileOrderLabel"), value: order.isMobileOrder ? t("orderTracker.yes") : t("orderTracker.no") },
   ];
 
   return (
@@ -1949,12 +1955,12 @@ function OrderDetailPanel({
           {!isEditing ? (
             <Button size="sm" variant="outline" onClick={() => setIsEditing(true)} data-testid="button-edit-order">
               <Pencil className="h-3.5 w-3.5 mr-1.5" />
-              Edit
+              {t("orderTracker.edit")}
             </Button>
           ) : (
             <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-order">
               {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-              Save
+              {t("orderTracker.save")}
             </Button>
           )}
         </div>
@@ -1971,7 +1977,7 @@ function OrderDetailPanel({
                 data-testid="button-detail-complete"
               >
                 {statusMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />}
-                Mark as Connected
+                {t("orderTracker.markAsConnected")}
               </Button>
               <Button
                 size="sm"
@@ -1981,7 +1987,7 @@ function OrderDetailPanel({
                 data-testid="button-detail-cancel-order"
               >
                 <XCircle className="h-3.5 w-3.5 mr-1.5" />
-                Cancel Order
+                {t("orderTracker.cancelOrder")}
               </Button>
             </>
           )}
@@ -1994,7 +2000,7 @@ function OrderDetailPanel({
               data-testid="button-detail-revert"
             >
               {statusMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Clock className="h-3.5 w-3.5 mr-1.5" />}
-              Revert to Pending
+              {t("orderTracker.revertToPending")}
             </Button>
           )}
         </div>
@@ -2005,7 +2011,7 @@ function OrderDetailPanel({
       {isEditing ? (
         <div className="space-y-3">
           <div>
-            <Label className="text-xs">Customer Name</Label>
+            <Label className="text-xs">{t("orderTracker.customerName")}</Label>
             <Input
               value={formData.customerName}
               onChange={(e) => updateField("customerName", e.target.value)}
@@ -2013,7 +2019,7 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">Install Date</Label>
+            <Label className="text-xs">{t("orderTracker.installDate")}</Label>
             <Input
               type="date"
               value={formData.installDate}
@@ -2022,7 +2028,7 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">House #/Bldg</Label>
+            <Label className="text-xs">{t("orderTracker.houseBuilding")}</Label>
             <Input
               value={formData.houseNumber}
               onChange={(e) => updateField("houseNumber", e.target.value)}
@@ -2030,7 +2036,7 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">Street</Label>
+            <Label className="text-xs">{t("orderTracker.streetName")}</Label>
             <Input
               value={formData.streetName}
               onChange={(e) => updateField("streetName", e.target.value)}
@@ -2038,7 +2044,7 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">Apt/Unit</Label>
+            <Label className="text-xs">{t("orderTracker.aptUnit")}</Label>
             <Input
               value={formData.aptUnit}
               onChange={(e) => updateField("aptUnit", e.target.value)}
@@ -2046,7 +2052,7 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">City</Label>
+            <Label className="text-xs">{t("orderTracker.city")}</Label>
             <Input
               value={formData.city}
               onChange={(e) => updateField("city", e.target.value)}
@@ -2054,7 +2060,7 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">Zip Code</Label>
+            <Label className="text-xs">{t("orderTracker.zipCode")}</Label>
             <Input
               value={formData.zipCode}
               onChange={(e) => updateField("zipCode", e.target.value)}
@@ -2062,7 +2068,7 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">Phone</Label>
+            <Label className="text-xs">{t("orderTracker.phone")}</Label>
             <Input
               value={formData.customerPhone}
               onChange={(e) => updateField("customerPhone", e.target.value)}
@@ -2070,7 +2076,7 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">Email</Label>
+            <Label className="text-xs">{t("orderTracker.email")}</Label>
             <Input
               value={formData.customerEmail}
               onChange={(e) => updateField("customerEmail", e.target.value)}
@@ -2078,7 +2084,7 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">Account #</Label>
+            <Label className="text-xs">{t("orderTracker.accountNumber")}</Label>
             <Input
               value={formData.accountNumber}
               onChange={(e) => updateField("accountNumber", e.target.value)}
@@ -2086,10 +2092,10 @@ function OrderDetailPanel({
             />
           </div>
           <div>
-            <Label className="text-xs">Service</Label>
+            <Label className="text-xs">{t("orderTracker.service")}</Label>
             <Select value={formData.serviceId} onValueChange={(v) => updateField("serviceId", v)}>
               <SelectTrigger data-testid="select-edit-service">
-                <SelectValue placeholder="Select service" />
+                <SelectValue placeholder={t("orderTracker.selectService")} />
               </SelectTrigger>
               <SelectContent>
                 {services.map(s => (
@@ -2100,7 +2106,7 @@ function OrderDetailPanel({
           </div>
           <div className="flex items-center gap-2 pt-2">
             <Button variant="outline" size="sm" onClick={() => setIsEditing(false)} data-testid="button-cancel-edit">
-              Cancel
+              {t("orderTracker.cancel")}
             </Button>
           </div>
         </div>
@@ -2108,32 +2114,32 @@ function OrderDetailPanel({
         <>
           <div className="space-y-3">
             <div>
-              <p className="text-xs text-muted-foreground">Customer Name</p>
+              <p className="text-xs text-muted-foreground">{t("orderTracker.customerName")}</p>
               <p className="text-sm font-medium">{order.customerName}</p>
             </div>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3">
               <div>
-                <p className="text-xs text-muted-foreground">Service</p>
+                <p className="text-xs text-muted-foreground">{t("orderTracker.service")}</p>
                 <p className="text-sm font-medium">{serviceMap.get(order.serviceId) || "—"}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Install Date</p>
-                <p className="text-sm font-medium">{order.installDate ? new Date(order.installDate).toLocaleDateString() : "—"}</p>
+                <p className="text-xs text-muted-foreground">{t("orderTracker.installDate")}</p>
+                <p className="text-sm font-medium">{order.installDate ? new Intl.DateTimeFormat(locale).format(new Date(order.installDate)) : "—"}</p>
               </div>
               <div className="col-span-2">
-                <p className="text-xs text-muted-foreground">Address</p>
+                <p className="text-xs text-muted-foreground">{t("orderTracker.address")}</p>
                 <p className="text-sm font-medium">{fullAddress || "—"}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Phone</p>
+                <p className="text-xs text-muted-foreground">{t("orderTracker.phone")}</p>
                 <p className="text-sm font-medium" data-testid="text-detail-phone">{order.customerPhone || "—"}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Email</p>
+                <p className="text-xs text-muted-foreground">{t("orderTracker.email")}</p>
                 <p className="text-sm font-medium" data-testid="text-detail-email">{order.customerEmail || "—"}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Account #</p>
+                <p className="text-xs text-muted-foreground">{t("orderTracker.accountNumber")}</p>
                 <p className="text-sm font-medium" data-testid="text-detail-account">{order.accountNumber || "—"}</p>
               </div>
             </div>
@@ -2154,7 +2160,7 @@ function OrderDetailPanel({
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-1.5">
             <StickyNote className="h-4 w-4 text-muted-foreground" />
-            <p className="text-sm font-medium">Notes</p>
+            <p className="text-sm font-medium">{t("orderTracker.notes")}</p>
           </div>
           {!isEditingNotes && (
             <Button
@@ -2164,7 +2170,7 @@ function OrderDetailPanel({
               data-testid="button-edit-notes"
             >
               <Pencil className="h-3.5 w-3.5 mr-1" />
-              {displayNotes ? "Edit" : "Add"}
+              {displayNotes ? t("orderTracker.edit") : t("orderTracker.addNoteBtn")}
             </Button>
           )}
         </div>
@@ -2173,7 +2179,7 @@ function OrderDetailPanel({
             <Textarea
               value={notesValue}
               onChange={(e) => setNotesValue(e.target.value)}
-              placeholder="Add notes about this order..."
+              placeholder={t("orderTracker.addNoteNote")}
               className="resize-none text-sm"
               rows={4}
               data-testid="textarea-order-notes"
@@ -2186,7 +2192,7 @@ function OrderDetailPanel({
                 data-testid="button-save-notes"
               >
                 {notesMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-                Save Notes
+                {t("orderTracker.saveNote")}
               </Button>
               <Button
                 size="sm"
@@ -2194,13 +2200,13 @@ function OrderDetailPanel({
                 onClick={() => { setNotesValue(displayNotes); setIsEditingNotes(false); }}
                 data-testid="button-cancel-notes"
               >
-                Cancel
+                {t("orderTracker.cancel")}
               </Button>
             </div>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground whitespace-pre-wrap" data-testid="text-order-notes">
-            {displayNotes || "No notes yet"}
+            {displayNotes || t("orderTracker.noNotes")}
           </p>
         )}
       </div>
@@ -2209,14 +2215,14 @@ function OrderDetailPanel({
         <div className="border-t pt-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs text-muted-foreground">{canSeeGross ? "Gross Commission" : "Net Commission"}</p>
+              <p className="text-xs text-muted-foreground">{canSeeGross ? t("orderTracker.grossCommission") : t("orderTracker.netCommission")}</p>
               <p className="text-xl font-bold font-mono" data-testid="text-detail-commission">
                 ${displayCommission.toFixed(2)}
               </p>
             </div>
             {parseFloat(order.incentiveEarned || "0") > 0 && (
               <div className="text-right">
-                <p className="text-xs text-muted-foreground">Includes Incentive</p>
+                <p className="text-xs text-muted-foreground">{t("orderTracker.includesIncentive")}</p>
                 <p className="text-sm font-mono">
                   +${parseFloat(order.incentiveEarned || "0").toFixed(2)}
                 </p>
@@ -2226,27 +2232,27 @@ function OrderDetailPanel({
           {canSeeGross && (
             <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
               <div>
-                <p className="text-xs text-muted-foreground">Base</p>
+                <p className="text-xs text-muted-foreground">{t("orderTracker.base")}</p>
                 <p className="font-mono" data-testid="text-detail-base-commission">${parseFloat(order.baseCommissionEarned).toFixed(2)}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Override Deduction</p>
+                <p className="text-xs text-muted-foreground">{t("orderTracker.overrideDeduction")}</p>
                 <p className="font-mono text-orange-600 dark:text-orange-400" data-testid="text-detail-override-deduction">${overrideDeduction.toFixed(2)}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Rep Net</p>
+                <p className="text-xs text-muted-foreground">{t("orderTracker.repNet")}</p>
                 <p className="font-mono" data-testid="text-detail-net-commission">${netCommission.toFixed(2)}</p>
               </div>
             </div>
           )}
           {order.paidDate && (
             <p className="text-xs text-muted-foreground mt-2">
-              Paid on {new Date(order.paidDate).toLocaleDateString()}
+              {t("orderTracker.paidOn")} {new Intl.DateTimeFormat(locale).format(new Date(order.paidDate))}
             </p>
           )}
           {parseFloat(order.commissionPaid || "0") > 0 && (
             <p className="text-xs text-muted-foreground mt-1" data-testid="text-detail-commission-paid">
-              Paid out: ${parseFloat(order.commissionPaid || "0").toFixed(2)}
+              {t("orderTracker.paidOut")}: ${parseFloat(order.commissionPaid || "0").toFixed(2)}
             </p>
           )}
         </div>

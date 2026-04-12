@@ -1,4 +1,5 @@
 import { useState } from "react";
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { KpiCard } from "@/components/kpi-card";
@@ -348,7 +349,7 @@ export default function OperationsReportDashboard() {
                 {data.latestSyncRun.status}
               </Badge>
               <span className="text-sm text-muted-foreground">
-                {new Date(data.latestSyncRun.createdAt).toLocaleString("en-US", { timeZone: "America/New_York" })}
+                {new Date(data.latestSyncRun.createdAt).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { timeZone: "America/New_York" })}
               </span>
               <span className="text-sm">
                 <span className="font-medium">{data.latestSyncRun.matchedCount ?? 0}</span> matched

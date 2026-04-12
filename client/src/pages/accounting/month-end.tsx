@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,7 +40,7 @@ export default function MonthEnd() {
   const monthLabel = (dateStr: string) => {
     if (!dateStr) return "";
     const d = new Date(dateStr + "T00:00:00");
-    return d.toLocaleString("en-US", { month: "long", year: "numeric" });
+    return d.toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { month: "long", year: "numeric" });
   };
 
   return (

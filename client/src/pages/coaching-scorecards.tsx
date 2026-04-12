@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,12 +59,14 @@ function ScoreBar({ score }: { score: number }) {
 }
 
 function TrendBadge({ trend }: { trend: "up" | "down" | "stable" }) {
-  if (trend === "up") return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0 text-xs"><TrendingUp className="h-3 w-3 mr-0.5" />Up</Badge>;
-  if (trend === "down") return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0 text-xs"><TrendingDown className="h-3 w-3 mr-0.5" />Down</Badge>;
-  return <Badge variant="secondary" className="text-xs"><Minus className="h-3 w-3 mr-0.5" />Stable</Badge>;
+  const { t } = useTranslation();
+  if (trend === "up") return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0 text-xs"><TrendingUp className="h-3 w-3 mr-0.5" />{t("coachingScorecards.up")}</Badge>;
+  if (trend === "down") return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0 text-xs"><TrendingDown className="h-3 w-3 mr-0.5" />{t("coachingScorecards.down")}</Badge>;
+  return <Badge variant="secondary" className="text-xs"><Minus className="h-3 w-3 mr-0.5" />{t("coachingScorecards.stable")}</Badge>;
 }
 
 function RepPrepDialog({ repUserId, repName }: { repUserId: string; repName: string }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   const { data: prep, isLoading } = useQuery<RepPrepData>({
@@ -81,13 +84,13 @@ function RepPrepDialog({ repUserId, repName }: { repUserId: string; repName: str
       <DialogTrigger asChild>
         <Button variant="ghost" size="sm" data-testid={`button-prep-${repUserId}`}>
           <ClipboardList className="h-4 w-4 mr-1" />
-          1:1 Prep
+          {t("coachingScorecards.prep1on1")}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>1:1 Meeting Prep — {repName}</DialogTitle>
-          <DialogDescription>Recent trajectory and talking points</DialogDescription>
+          <DialogTitle>{t("coachingScorecards.prepDialogTitle", { name: repName })}</DialogTitle>
+          <DialogDescription>{t("coachingScorecards.prepDialogDesc")}</DialogDescription>
         </DialogHeader>
         {isLoading ? (
           <div className="space-y-3">
@@ -99,31 +102,31 @@ function RepPrepDialog({ repUserId, repName }: { repUserId: string; repName: str
             <div className="grid grid-cols-2 gap-3">
               <Card className="border-primary/20">
                 <CardHeader className="pb-1 pt-3 px-3">
-                  <CardTitle className="text-xs text-muted-foreground">Last 30 Days</CardTitle>
+                  <CardTitle className="text-xs text-muted-foreground">{t("coachingScorecards.last30Days")}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-3 pb-3">
-                  <div className="text-xl font-bold">{prep.last30Days.sold} sold</div>
-                  <div className="text-sm text-muted-foreground">{prep.last30Days.conversionRate}% approval rate</div>
+                  <div className="text-xl font-bold">{t("coachingScorecards.soldCount", { count: prep.last30Days.sold })}</div>
+                  <div className="text-sm text-muted-foreground">{t("coachingScorecards.approvalRate", { count: prep.last30Days.conversionRate })}</div>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="pb-1 pt-3 px-3">
-                  <CardTitle className="text-xs text-muted-foreground">Prior Month</CardTitle>
+                  <CardTitle className="text-xs text-muted-foreground">{t("coachingScorecards.priorMonth")}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-3 pb-3">
-                  <div className="text-xl font-bold">{prep.priorPeriod.sold} sold</div>
-                  <div className="text-sm text-muted-foreground">{prep.priorPeriod.conversionRate}% approval rate</div>
+                  <div className="text-xl font-bold">{t("coachingScorecards.soldCount", { count: prep.priorPeriod.sold })}</div>
+                  <div className="text-sm text-muted-foreground">{t("coachingScorecards.approvalRate", { count: prep.priorPeriod.conversionRate })}</div>
                 </CardContent>
               </Card>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">Trend:</span>
+              <span className="text-sm font-medium">{t("coachingScorecards.trend")}</span>
               <Badge className={prep.trend === "improving" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0" : prep.trend === "declining" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0" : ""}>
                 {prep.trend.charAt(0).toUpperCase() + prep.trend.slice(1)}
               </Badge>
             </div>
             <div>
-              <div className="text-sm font-medium mb-2">Talking Points</div>
+              <div className="text-sm font-medium mb-2">{t("coachingScorecards.talkingPoints")}</div>
               <ul className="space-y-2">
                 {prep.talkingPoints.map((tp, idx) => (
                   <li key={idx} className="flex items-start gap-2 text-sm" data-testid={`text-talking-point-${idx}`}>
@@ -135,7 +138,7 @@ function RepPrepDialog({ repUserId, repName }: { repUserId: string; repName: str
             </div>
           </div>
         ) : (
-          <p className="text-muted-foreground text-center py-6">No data available</p>
+          <p className="text-muted-foreground text-center py-6">{t("coachingScorecards.noData")}</p>
         )}
       </DialogContent>
     </Dialog>
@@ -150,6 +153,7 @@ interface ScorecardWeights {
 }
 
 function WeightsDialog() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [localWeights, setLocalWeights] = useState<ScorecardWeights>({ volume: 30, conversion: 35, avgDeal: 20, quality: 15 });
@@ -158,7 +162,7 @@ function WeightsDialog() {
     queryKey: ["/api/coaching/scorecard-weights"],
     queryFn: async () => {
       const res = await fetch("/api/coaching/scorecard-weights", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to load weights");
+      if (!res.ok) throw new Error(t("coachingScorecards.failedToLoadWeights"));
       return res.json();
     },
     enabled: open,
@@ -172,7 +176,7 @@ function WeightsDialog() {
         body: JSON.stringify(w),
       });
       if (!res.ok) {
-        const e = await res.json().catch(() => ({ message: "Failed to save" }));
+        const e = await res.json().catch(() => ({ message: t("coachingScorecards.failedToSave") }));
         throw new Error(e.message);
       }
       return res.json();
@@ -180,10 +184,10 @@ function WeightsDialog() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/coaching/scorecard-weights"] });
       queryClient.invalidateQueries({ queryKey: ["/api/coaching/scorecards"] });
-      toast({ title: "Weights saved", description: "Scorecard weights updated successfully." });
+      toast({ title: t("coachingScorecards.weightsSaved"), description: t("coachingScorecards.weightsSavedDesc") });
       setOpen(false);
     },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: t("coachingScorecards.error"), description: e.message, variant: "destructive" }),
   });
 
   useEffect(() => {
@@ -202,20 +206,20 @@ function WeightsDialog() {
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" onClick={openDialog} data-testid="button-configure-weights">
           <Settings2 className="h-4 w-4 mr-1" />
-          Weights
+          {t("coachingScorecards.weights")}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Scorecard Weights</DialogTitle>
-          <DialogDescription>Adjust category weights (must total 100%)</DialogDescription>
+          <DialogTitle>{t("coachingScorecards.weightsTitle")}</DialogTitle>
+          <DialogDescription>{t("coachingScorecards.weightsDesc")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           {([
-            { key: "volume", label: "Sales Volume" },
-            { key: "conversion", label: "Conversion Rate" },
-            { key: "avgDeal", label: "Avg Deal Size" },
-            { key: "quality", label: "Quality / Chargebacks" },
+            { key: "volume", label: t("coachingScorecards.salesVolume") },
+            { key: "conversion", label: t("coachingScorecards.conversionRate") },
+            { key: "avgDeal", label: t("coachingScorecards.avgDealSize") },
+            { key: "quality", label: t("coachingScorecards.qualityChargebacks") },
           ] as { key: keyof ScorecardWeights; label: string }[]).map(({ key, label }) => (
             <div key={key} className="flex items-center gap-3">
               <Label className="w-40 text-sm">{label}</Label>
@@ -232,7 +236,7 @@ function WeightsDialog() {
             </div>
           ))}
           <div className={`text-sm font-medium ${valid ? "text-green-600" : "text-red-500"}`}>
-            Total: {total.toFixed(0)}% {valid ? "✓" : "(must be 100%)"}
+            {t("coachingScorecards.total", { count: total.toFixed(0) })} {valid ? "✓" : t("coachingScorecards.mustBe100")}
           </div>
           <Button
             className="w-full"
@@ -240,7 +244,7 @@ function WeightsDialog() {
             onClick={() => saveMutation.mutate(localWeights)}
             data-testid="button-save-weights"
           >
-            {saveMutation.isPending ? "Saving..." : "Save Weights"}
+            {saveMutation.isPending ? t("coachingScorecards.saving") : t("coachingScorecards.saveWeights")}
           </Button>
         </div>
       </DialogContent>
@@ -249,6 +253,7 @@ function WeightsDialog() {
 }
 
 export default function CoachingScorecards() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [period, setPeriod] = useState<Period>("MONTH");
 
@@ -256,7 +261,7 @@ export default function CoachingScorecards() {
     queryKey: ["/api/coaching/scorecards", period],
     queryFn: async () => {
       const res = await fetch(`/api/coaching/scorecards?period=${period}`, { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to load scorecards");
+      if (!res.ok) throw new Error(t("coachingScorecards.failedToLoadScorecards"));
       return res.json();
     },
   });
@@ -273,8 +278,8 @@ export default function CoachingScorecards() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-semibold" data-testid="text-page-title">Coaching Scorecards</h1>
-          <p className="text-muted-foreground">Rep performance scores, coaching alerts, and 1:1 meeting prep</p>
+          <h1 className="text-2xl font-semibold" data-testid="text-page-title">{t("coachingScorecards.title")}</h1>
+          <p className="text-muted-foreground">{t("coachingScorecards.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           {isAdmin && <WeightsDialog />}
@@ -287,7 +292,7 @@ export default function CoachingScorecards() {
                 onClick={() => setPeriod(p)}
                 data-testid={`button-period-${p.toLowerCase()}`}
               >
-                {p === "WEEK" ? "Week" : p === "MONTH" ? "Month" : "Quarter"}
+                {p === "WEEK" ? t("coachingScorecards.week") : p === "MONTH" ? t("coachingScorecards.month") : t("coachingScorecards.quarter")}
               </Button>
             ))}
           </div>
@@ -300,9 +305,9 @@ export default function CoachingScorecards() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <AlertTriangle className="h-5 w-5 text-yellow-500" />
-              Coaching Alerts ({data.needsAttention.length})
+              {t("coachingScorecards.coachingAlerts", { count: data.needsAttention.length })}
             </CardTitle>
-            <CardDescription>Reps that may need attention or a conversation</CardDescription>
+            <CardDescription>{t("coachingScorecards.coachingAlertsDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {data.needsAttention.map((rep) => (
@@ -334,9 +339,9 @@ export default function CoachingScorecards() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
-            Rep Performance Scorecards
+            {t("coachingScorecards.repPerformanceScorecards")}
           </CardTitle>
-          <CardDescription>Composite score based on volume, conversion, deal size, and quality</CardDescription>
+          <CardDescription>{t("coachingScorecards.repPerformanceScorecardsDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -346,12 +351,12 @@ export default function CoachingScorecards() {
           ) : data && data.scorecards.length > 0 ? (
             <div className="space-y-1">
               <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-3 text-xs text-muted-foreground font-medium pb-2 border-b px-2">
-                <span>Rep</span>
-                <span className="text-right w-12">Sold</span>
-                <span className="text-right w-14">Rate</span>
-                <span className="text-right w-20">Avg Deal</span>
-                <span className="text-right w-14">Chgbk</span>
-                <span className="text-right w-24">Score</span>
+                <span>{t("coachingScorecards.rep")}</span>
+                <span className="text-right w-12">{t("coachingScorecards.sold")}</span>
+                <span className="text-right w-14">{t("coachingScorecards.rate")}</span>
+                <span className="text-right w-20">{t("coachingScorecards.avgDeal")}</span>
+                <span className="text-right w-14">{t("coachingScorecards.chgbk")}</span>
+                <span className="text-right w-24">{t("coachingScorecards.score")}</span>
                 <span className="w-20"></span>
               </div>
               {data.scorecards.map((sc) => (
@@ -368,19 +373,19 @@ export default function CoachingScorecards() {
                     )}
                   </div>
                   <div className="flex md:block items-center gap-2">
-                    <span className="text-xs text-muted-foreground md:hidden">Sold:</span>
+                    <span className="text-xs text-muted-foreground md:hidden">{t("coachingScorecards.sold")}:</span>
                     <span className="font-mono text-sm md:text-right md:block w-12" data-testid={`text-sold-${sc.repId}`}>{sc.sold}</span>
                   </div>
                   <div className="flex md:block items-center gap-2">
-                    <span className="text-xs text-muted-foreground md:hidden">Rate:</span>
+                    <span className="text-xs text-muted-foreground md:hidden">{t("coachingScorecards.rate")}:</span>
                     <span className="font-mono text-sm md:text-right md:block w-14">{sc.conversionRate}%</span>
                   </div>
                   <div className="flex md:block items-center gap-2">
-                    <span className="text-xs text-muted-foreground md:hidden">Avg Deal:</span>
+                    <span className="text-xs text-muted-foreground md:hidden">{t("coachingScorecards.avgDeal")}:</span>
                     <span className="font-mono text-sm md:text-right md:block w-20">${parseFloat(sc.avgDeal).toFixed(0)}</span>
                   </div>
                   <div className="flex md:block items-center gap-2">
-                    <span className="text-xs text-muted-foreground md:hidden">Chargeback:</span>
+                    <span className="text-xs text-muted-foreground md:hidden">{t("coachingScorecards.chargeback")}</span>
                     <span className={`font-mono text-sm md:text-right md:block w-14 ${parseFloat(sc.chargebackRate) > 10 ? "text-red-600 dark:text-red-400" : ""}`}>
                       {sc.chargebackRate}%
                     </span>
@@ -397,8 +402,8 @@ export default function CoachingScorecards() {
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>No rep data available for this period</p>
-              <p className="text-xs mt-1">Scorecards appear when reps in your team have sales activity</p>
+              <p>{t("coachingScorecards.noRepData")}</p>
+              <p className="text-xs mt-1">{t("coachingScorecards.scorecardsActivityHint")}</p>
             </div>
           )}
         </CardContent>
@@ -407,11 +412,11 @@ export default function CoachingScorecards() {
       {data && data.scorecards.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Score Methodology</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("coachingScorecards.scoreMethodology")}</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1">
-            <p>Composite score (0–100) based on: <strong>Volume (30%)</strong>, <strong>Conversion rate (35%)</strong>, <strong>Average deal size (20%)</strong>, <strong>Quality/chargeback rate (15%)</strong></p>
-            <p>Coaching alerts surface when a rep has declining conversion, high chargebacks, stale activity, or significant volume drop vs prior period.</p>
+            <p>{t("coachingScorecards.scoreMethodologyDesc")}</p>
+            <p>{t("coachingScorecards.scoreMethodologyAlerts")}</p>
           </CardContent>
         </Card>
       )}

@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -32,7 +33,7 @@ function StatCell({ label, value }: { label: string; value: string | number }) {
 
 export function TeamBreakdownByRepTable({ data, title = "Team Breakdown" }: { data: RepBreakdown[]; title?: string }) {
   const formatCurrency = (value: number) => 
-    `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    `$${value.toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const isMobile = useIsMobile();
 
   return (
@@ -102,7 +103,7 @@ export function TeamBreakdownByRepTable({ data, title = "Team Breakdown" }: { da
 
 export function TeamBreakdownByManagerTable({ data, title = "Manager Breakdown" }: { data: ManagerBreakdown[]; title?: string }) {
   const formatCurrency = (value: number) => 
-    `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    `$${value.toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const isMobile = useIsMobile();
 
   return (

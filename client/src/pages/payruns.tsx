@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
@@ -141,6 +142,7 @@ interface EmailStatusData {
 }
 
 function EmailDeliveryStatus({ payRunId }: { payRunId: string }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [retrying, setRetrying] = useState(false);
 
@@ -168,7 +170,7 @@ function EmailDeliveryStatus({ payRunId }: { payRunId: string }) {
         refetch();
       }
     } catch {
-      toast({ title: "Retry failed", variant: "destructive" });
+      toast({ title: t("payruns.toasts.retryFailed"), variant: "destructive" });
     }
     setRetrying(false);
   };
@@ -272,6 +274,7 @@ interface AuditEntry {
 }
 
 function PayRunAuditTrail({ payRunId }: { payRunId: string }) {
+  const { t } = useTranslation();
   const { data: auditEntries, isLoading } = useQuery<AuditEntry[]>({
     queryKey: ["/api/admin/payruns", payRunId, "audit-trail"],
     queryFn: async () => {
@@ -309,7 +312,7 @@ function PayRunAuditTrail({ payRunId }: { payRunId: string }) {
     return (
       <div className="text-center py-8" data-testid="payrun-audit-trail">
         <History className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
-        <p className="text-sm text-muted-foreground">No audit history yet</p>
+        <p className="text-sm text-muted-foreground">{t("payruns.noAuditHistory")}</p>
       </div>
     );
   }
@@ -348,6 +351,8 @@ function PayRunAuditTrail({ payRunId }: { payRunId: string }) {
 
 export default function PayRuns() {
   const { toast } = useToast();
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [detailTab, setDetailTab] = useState<"details" | "history">("details");
@@ -455,10 +460,10 @@ export default function PayRuns() {
       refetchPool();
       setNewDistRecipientId("");
       setNewDistValue("");
-      toast({ title: "Distribution added" });
+      toast({ title: t("payruns.toasts.distributionAdded") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to add distribution", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.distributionAddFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -476,10 +481,10 @@ export default function PayRuns() {
     },
     onSuccess: () => {
       refetchPool();
-      toast({ title: "Distribution removed" });
+      toast({ title: t("payruns.toasts.distributionRemoved") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to remove distribution", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.distributionRemoveFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -510,10 +515,10 @@ export default function PayRuns() {
       setShowCreateDialog(false);
       setWeekEndingDate("");
       setPayRunName("");
-      toast({ title: "Pay run created successfully" });
+      toast({ title: t("payruns.toasts.created") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create pay run", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.createFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -533,10 +538,10 @@ export default function PayRuns() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
       setShowDeleteDialog(false);
       setPayRunToDelete(null);
-      toast({ title: "Pay run deleted" });
+      toast({ title: t("payruns.toasts.deleted") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to delete pay run", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.deleteFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -554,10 +559,10 @@ export default function PayRuns() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
-      toast({ title: "Pay run finalized" });
+      toast({ title: t("payruns.toasts.finalized") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to finalize", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.finalizeFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -575,10 +580,10 @@ export default function PayRuns() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
-      toast({ title: "Pay run submitted for review" });
+      toast({ title: t("payruns.toasts.submitted") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to submit", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.submitFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -596,10 +601,10 @@ export default function PayRuns() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
-      toast({ title: "Pay run submitted for approval" });
+      toast({ title: t("payruns.toasts.submitted2") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to submit", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.submitFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -617,10 +622,10 @@ export default function PayRuns() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
-      toast({ title: "Pay run approved" });
+      toast({ title: t("payruns.toasts.approved") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to approve", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.approveFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -638,10 +643,10 @@ export default function PayRuns() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/payruns"] });
-      toast({ title: "Pay run rejected and returned to draft" });
+      toast({ title: t("payruns.toasts.rejected") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to reject", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.rejectFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -655,7 +660,7 @@ export default function PayRuns() {
       setVarianceReport(report);
       setShowVarianceDialog(true);
     } catch (error) {
-      toast({ title: "Failed to load variance report", variant: "destructive" });
+      toast({ title: t("payruns.toasts.loadVarianceFailed"), variant: "destructive" });
     } finally {
       setVarianceLoading(false);
     }
@@ -672,7 +677,7 @@ export default function PayRuns() {
       setPreValidationData(data);
       setShowPreValidationDialog(true);
     } catch (error) {
-      toast({ title: "Failed to load pre-validation checklist", variant: "destructive" });
+      toast({ title: t("payruns.toasts.loadChecklistFailed"), variant: "destructive" });
     } finally {
       setPreValidationLoading(false);
     }
@@ -702,7 +707,7 @@ export default function PayRuns() {
       toast({ title: `${data.linked} orders linked to pay run` });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to link orders", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.linkOrdersFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -728,7 +733,7 @@ export default function PayRuns() {
       toast({ title: `${data.unlinked} orders unlinked from pay run` });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to unlink orders", description: error.message, variant: "destructive" });
+      toast({ title: t("payruns.toasts.unlinkOrdersFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -758,7 +763,7 @@ export default function PayRuns() {
       setShowDetailsDialog(true);
       fetchPayRunSummary(payRunId);
     } catch (error) {
-      toast({ title: "Failed to load pay run details", variant: "destructive" });
+      toast({ title: t("payruns.toasts.loadDetailsFailed"), variant: "destructive" });
     }
   };
 
@@ -1142,7 +1147,7 @@ export default function PayRuns() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">Pay Runs</h1>
+          <h1 className="text-2xl font-semibold">{t("payruns.title")}</h1>
           <p className="text-muted-foreground">
             Manage payment cycles and link approved orders
           </p>
@@ -1166,7 +1171,7 @@ export default function PayRuns() {
                 const now = new Date();
                 const diffMs = nextDate.getTime() - now.getTime();
                 const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-                const dateStr = nextDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+                const dateStr = nextDate.toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
                 if (diffDays <= 0) return `Scheduled for today (${dateStr})`;
                 if (diffDays === 1) return `Tomorrow (${dateStr})`;
                 return `In ${diffDays} days (${dateStr})`;
@@ -1576,7 +1581,7 @@ export default function PayRuns() {
               {selectedPayRun.stats.repBreakdown.length > 0 && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">Rep Breakdown</CardTitle>
+                    <CardTitle className="text-base">{t("payruns.repBreakdown")}</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
@@ -1600,7 +1605,7 @@ export default function PayRuns() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between gap-2">
-                  <CardTitle className="text-base">Linked Orders</CardTitle>
+                  <CardTitle className="text-base">{t("payruns.linkedOrders")}</CardTitle>
                   {selectedPayRun.status === "DRAFT" && unlinkOrderIds.length > 0 && (
                     <Button
                       size="sm"
@@ -1618,7 +1623,7 @@ export default function PayRuns() {
                   {selectedPayRun.status === "DRAFT" ? (
                     <div className="space-y-2">
                       {selectedPayRun.orders.length === 0 ? (
-                        <p className="text-muted-foreground text-center py-4">No orders linked to this pay run</p>
+                        <p className="text-muted-foreground text-center py-4">{t("payruns.noLinkedOrders")}</p>
                       ) : (
                         selectedPayRun.orders.map((order) => (
                           <div 
@@ -1684,7 +1689,7 @@ export default function PayRuns() {
           </DialogHeader>
           <div className="space-y-4">
             {unlinkedOrders?.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">No orders were approved during this pay week</p>
+              <p className="text-muted-foreground text-center py-8">{t("payruns.noApprovedOrders")}</p>
             ) : (
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {unlinkedOrders?.map((order) => (
@@ -1805,7 +1810,7 @@ export default function PayRuns() {
               {varianceReport.repSummaries.length > 0 && (
                 <div className="border rounded-lg overflow-hidden">
                   <div className="bg-muted px-4 py-2">
-                    <h4 className="font-medium">Rep Summary</h4>
+                    <h4 className="font-medium">{t("payruns.repSummary")}</h4>
                   </div>
                   <div className="divide-y max-h-48 overflow-y-auto">
                     {varianceReport.repSummaries.map((rep) => (
@@ -1979,7 +1984,7 @@ export default function PayRuns() {
               {preValidationData.checks.length > 0 && preValidationData.blockingCount === 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Required Acknowledgments</span>
+                    <span className="text-muted-foreground">{t("payruns.requiredAck")}</span>
                     <span className="font-medium" data-testid="text-prevalidation-progress">
                       {acknowledgedChecks.size} of {preValidationData.warningCount} checks acknowledged
                     </span>
@@ -2176,8 +2181,8 @@ export default function PayRuns() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="PERCENT">Percentage</SelectItem>
-                              <SelectItem value="FIXED">Fixed Amount</SelectItem>
+                              <SelectItem value="PERCENT">{t("payruns.percentage")}</SelectItem>
+                              <SelectItem value="FIXED">{t("payruns.fixedAmount")}</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>

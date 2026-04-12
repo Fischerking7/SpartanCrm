@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
@@ -16,6 +17,7 @@ import { AlertTriangle, DollarSign, FileText, Check, Flag } from "lucide-react";
 import type { UnmatchedPayment, UnmatchedChargeback, RateIssue, OrderException } from "@shared/schema";
 
 export default function Queues() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [resolvingItem, setResolvingItem] = useState<{ type: string; id: string } | null>(null);
@@ -28,7 +30,7 @@ export default function Queues() {
     queryKey: ["/api/admin/queues/unmatched-payments"],
     queryFn: async () => {
       const res = await fetch("/api/admin/queues/unmatched-payments", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) throw new Error(t("queues.failedToFetch"));
       return res.json();
     },
   });
@@ -37,7 +39,7 @@ export default function Queues() {
     queryKey: ["/api/admin/queues/unmatched-chargebacks"],
     queryFn: async () => {
       const res = await fetch("/api/admin/queues/unmatched-chargebacks", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) throw new Error(t("queues.failedToFetch"));
       return res.json();
     },
   });
@@ -46,7 +48,7 @@ export default function Queues() {
     queryKey: ["/api/admin/queues/rate-issues"],
     queryFn: async () => {
       const res = await fetch("/api/admin/queues/rate-issues", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) throw new Error(t("queues.failedToFetch"));
       return res.json();
     },
   });
@@ -55,7 +57,7 @@ export default function Queues() {
     queryKey: ["/api/admin/queues/order-exceptions"],
     queryFn: async () => {
       const res = await fetch("/api/admin/queues/order-exceptions", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) throw new Error(t("queues.failedToFetch"));
       return res.json();
     },
   });
@@ -69,7 +71,7 @@ export default function Queues() {
       });
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || "Failed to resolve");
+        throw new Error(error.message || t("queues.failedToResolve"));
       }
       return res.json();
     },
@@ -80,22 +82,22 @@ export default function Queues() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/queues/order-exceptions"] });
       setResolvingItem(null);
       setResolutionNote("");
-      toast({ title: "Issue resolved" });
+      toast({ title: t("queues.issueResolved") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to resolve", description: error.message, variant: "destructive" });
+      toast({ title: t("queues.failedToResolve"), description: error.message, variant: "destructive" });
     },
   });
 
   const paymentColumns = [
     {
       key: "reason",
-      header: "Reason",
+      header: t("queues.reason"),
       cell: (row: UnmatchedPayment) => <span className="text-sm">{row.reason}</span>,
     },
     {
       key: "rawRowJson",
-      header: "Raw Data",
+      header: t("queues.rawData"),
       cell: (row: UnmatchedPayment) => (
         <code className="text-xs bg-muted px-2 py-1 rounded block max-w-[300px] truncate">
           {row.rawRowJson}
@@ -104,7 +106,7 @@ export default function Queues() {
     },
     {
       key: "createdAt",
-      header: "Created",
+      header: t("queues.created"),
       cell: (row: UnmatchedPayment) => (
         <span className="text-sm text-muted-foreground">
           {new Date(row.createdAt).toLocaleString()}
@@ -113,12 +115,12 @@ export default function Queues() {
     },
     {
       key: "status",
-      header: "Status",
+      header: t("queues.status"),
       cell: (row: UnmatchedPayment) => (
         row.resolvedAt ? (
-          <Badge variant="default">Resolved</Badge>
+          <Badge variant="default">{t("queues.resolved")}</Badge>
         ) : (
-          <Badge variant="secondary">Pending</Badge>
+          <Badge variant="secondary">{t("queues.pending")}</Badge>
         )
       ),
     },
@@ -134,7 +136,7 @@ export default function Queues() {
             data-testid={`button-resolve-payment-${row.id}`}
           >
             <Check className="h-4 w-4 mr-1" />
-            Resolve
+            {t("queues.resolve")}
           </Button>
         )
       ),
@@ -144,12 +146,12 @@ export default function Queues() {
   const chargebackColumns = [
     {
       key: "reason",
-      header: "Reason",
+      header: t("queues.reason"),
       cell: (row: UnmatchedChargeback) => <span className="text-sm">{row.reason}</span>,
     },
     {
       key: "rawRowJson",
-      header: "Raw Data",
+      header: t("queues.rawData"),
       cell: (row: UnmatchedChargeback) => (
         <code className="text-xs bg-muted px-2 py-1 rounded block max-w-[300px] truncate">
           {row.rawRowJson}
@@ -158,7 +160,7 @@ export default function Queues() {
     },
     {
       key: "createdAt",
-      header: "Created",
+      header: t("queues.created"),
       cell: (row: UnmatchedChargeback) => (
         <span className="text-sm text-muted-foreground">
           {new Date(row.createdAt).toLocaleString()}
@@ -167,12 +169,12 @@ export default function Queues() {
     },
     {
       key: "status",
-      header: "Status",
+      header: t("queues.status"),
       cell: (row: UnmatchedChargeback) => (
         row.resolvedAt ? (
-          <Badge variant="default">Resolved</Badge>
+          <Badge variant="default">{t("queues.resolved")}</Badge>
         ) : (
-          <Badge variant="secondary">Pending</Badge>
+          <Badge variant="secondary">{t("queues.pending")}</Badge>
         )
       ),
     },
@@ -188,7 +190,7 @@ export default function Queues() {
             data-testid={`button-resolve-chargeback-${row.id}`}
           >
             <Check className="h-4 w-4 mr-1" />
-            Resolve
+            {t("queues.resolve")}
           </Button>
         )
       ),
@@ -198,28 +200,28 @@ export default function Queues() {
   const rateColumns = [
     {
       key: "salesOrderId",
-      header: "Order",
+      header: t("queues.order"),
       cell: (row: RateIssue) => (
         <span className="font-mono text-sm">{row.salesOrderId.slice(0, 8)}...</span>
       ),
     },
     {
       key: "type",
-      header: "Issue Type",
+      header: t("queues.issueType"),
       cell: (row: RateIssue) => (
         <Badge variant={row.type === "MISSING_RATE" ? "destructive" : "secondary"}>
-          {row.type === "MISSING_RATE" ? "Missing Rate" : "Rate Conflict"}
+          {row.type === "MISSING_RATE" ? t("queues.missingRate") : t("queues.rateConflict")}
         </Badge>
       ),
     },
     {
       key: "details",
-      header: "Details",
+      header: t("queues.details"),
       cell: (row: RateIssue) => <span className="text-sm">{row.details}</span>,
     },
     {
       key: "createdAt",
-      header: "Created",
+      header: t("queues.created"),
       cell: (row: RateIssue) => (
         <span className="text-sm text-muted-foreground">
           {new Date(row.createdAt).toLocaleString()}
@@ -228,12 +230,12 @@ export default function Queues() {
     },
     {
       key: "status",
-      header: "Status",
+      header: t("queues.status"),
       cell: (row: RateIssue) => (
         row.resolvedAt ? (
-          <Badge variant="default">Resolved</Badge>
+          <Badge variant="default">{t("queues.resolved")}</Badge>
         ) : (
-          <Badge variant="secondary">Pending</Badge>
+          <Badge variant="secondary">{t("queues.pending")}</Badge>
         )
       ),
     },
@@ -249,7 +251,7 @@ export default function Queues() {
             data-testid={`button-resolve-rate-${row.id}`}
           >
             <Check className="h-4 w-4 mr-1" />
-            Resolve
+            {t("queues.resolve")}
           </Button>
         )
       ),
@@ -259,30 +261,30 @@ export default function Queues() {
   const exceptionColumns = [
     {
       key: "salesOrderId",
-      header: "Order",
+      header: t("queues.order"),
       cell: (row: any) => (
         <div>
           <div className="font-medium text-sm">{row.invoiceNumber || row.salesOrderId.slice(0, 8) + "..."}</div>
           {row.customerName && <div className="text-xs text-muted-foreground">{row.customerName}</div>}
-          {row.repId && <div className="text-xs text-muted-foreground">Rep: {row.repId}</div>}
+          {row.repId && <div className="text-xs text-muted-foreground">{t("queues.rep", { repId: row.repId })}</div>}
         </div>
       ),
     },
     {
       key: "reason",
-      header: "Reason",
+      header: t("queues.reason"),
       cell: (row: any) => <span className="text-sm">{row.reason}</span>,
     },
     {
       key: "flaggedBy",
-      header: "Flagged By",
+      header: t("queues.flaggedBy"),
       cell: (row: any) => (
         <span className="text-sm text-muted-foreground">{row.flaggedByName || row.flaggedByUserId.slice(0, 8) + "..."}</span>
       ),
     },
     {
       key: "createdAt",
-      header: "Flagged",
+      header: t("queues.flagged"),
       cell: (row: any) => (
         <span className="text-sm text-muted-foreground">
           {new Date(row.createdAt).toLocaleString()}
@@ -291,12 +293,12 @@ export default function Queues() {
     },
     {
       key: "status",
-      header: "Status",
+      header: t("queues.status"),
       cell: (row: any) => (
         row.resolvedAt ? (
-          <Badge variant="default">Resolved</Badge>
+          <Badge variant="default">{t("queues.resolved")}</Badge>
         ) : (
-          <Badge variant="secondary">Pending</Badge>
+          <Badge variant="secondary">{t("queues.pending")}</Badge>
         )
       ),
     },
@@ -312,7 +314,7 @@ export default function Queues() {
             data-testid={`button-resolve-exception-${row.id}`}
           >
             <Check className="h-4 w-4 mr-1" />
-            Resolve
+            {t("queues.resolve")}
           </Button>
         )
       ),
@@ -327,9 +329,9 @@ export default function Queues() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Exception Queues</h1>
+        <h1 className="text-2xl font-semibold">{t("queues.title")}</h1>
         <p className="text-muted-foreground">
-          Review and resolve unmatched items and rate issues
+          {t("queues.subtitle")}
         </p>
       </div>
 
@@ -337,28 +339,28 @@ export default function Queues() {
         <TabsList>
           <TabsTrigger value="payments" data-testid="tab-payments">
             <DollarSign className="h-4 w-4 mr-2" />
-            Unmatched Payments
+            {t("queues.unmatchedPayments")}
             {unresolvedPayments.length > 0 && (
               <Badge variant="destructive" className="ml-2">{unresolvedPayments.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="chargebacks" data-testid="tab-chargebacks">
             <AlertTriangle className="h-4 w-4 mr-2" />
-            Unmatched Chargebacks
+            {t("queues.unmatchedChargebacks")}
             {unresolvedChargebacks.length > 0 && (
               <Badge variant="destructive" className="ml-2">{unresolvedChargebacks.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="rates" data-testid="tab-rates">
             <FileText className="h-4 w-4 mr-2" />
-            Rate Issues
+            {t("queues.rateIssues")}
             {unresolvedRates.length > 0 && (
               <Badge variant="destructive" className="ml-2">{unresolvedRates.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="flagged" data-testid="tab-flagged">
             <Flag className="h-4 w-4 mr-2" />
-            Flagged Orders
+            {t("queues.flaggedOrders")}
             {unresolvedExceptions.length > 0 && (
               <Badge variant="destructive" className="ml-2">{unresolvedExceptions.length}</Badge>
             )}
@@ -372,7 +374,7 @@ export default function Queues() {
                 columns={paymentColumns}
                 data={unresolvedPayments}
                 isLoading={paymentsLoading}
-                emptyMessage="No unmatched payments"
+                emptyMessage={t("queues.noUnmatchedPayments")}
                 testId="table-unmatched-payments"
               />
             </CardContent>
@@ -386,7 +388,7 @@ export default function Queues() {
                 columns={chargebackColumns}
                 data={unresolvedChargebacks}
                 isLoading={chargebacksLoading}
-                emptyMessage="No unmatched chargebacks"
+                emptyMessage={t("queues.noUnmatchedChargebacks")}
                 testId="table-unmatched-chargebacks"
               />
             </CardContent>
@@ -400,7 +402,7 @@ export default function Queues() {
                 columns={rateColumns}
                 data={unresolvedRates}
                 isLoading={ratesLoading}
-                emptyMessage="No rate issues"
+                emptyMessage={t("queues.noRateIssues")}
                 testId="table-rate-issues"
               />
             </CardContent>
@@ -414,7 +416,7 @@ export default function Queues() {
                 columns={exceptionColumns}
                 data={unresolvedExceptions}
                 isLoading={exceptionsLoading}
-                emptyMessage="No flagged orders"
+                emptyMessage={t("queues.noFlaggedOrders")}
                 testId="table-flagged-orders"
               />
             </CardContent>
@@ -425,32 +427,32 @@ export default function Queues() {
       <Dialog open={!!resolvingItem} onOpenChange={() => setResolvingItem(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Resolve Issue</DialogTitle>
+            <DialogTitle>{t("queues.resolveIssue")}</DialogTitle>
             <DialogDescription>
-              Add a note explaining how this issue was resolved.
+              {t("queues.resolutionNoteDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Resolution Note</Label>
+              <Label>{t("queues.resolutionNote")}</Label>
               <Textarea
                 value={resolutionNote}
                 onChange={(e) => setResolutionNote(e.target.value)}
-                placeholder="Describe how this issue was resolved..."
+                placeholder={t("queues.resolutionNotePlaceholder")}
                 data-testid="input-resolution-note"
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setResolvingItem(null)}>
-              Cancel
+              {t("queues.cancel")}
             </Button>
             <Button
               onClick={() => resolvingItem && resolveMutation.mutate({ ...resolvingItem, note: resolutionNote })}
               disabled={!resolutionNote.trim() || resolveMutation.isPending}
               data-testid="button-confirm-resolve"
             >
-              Mark Resolved
+              {t("queues.markResolved")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Bell, Mail, CheckCircle, XCircle, DollarSign, AlertTriangle, CreditCard, FileText } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useTranslation } from "react-i18next";
 
 interface NotificationPreferences {
   emailOrderApproved: boolean;
@@ -19,6 +20,7 @@ interface NotificationPreferences {
 
 export default function NotificationSettings() {
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const { data: preferences, isLoading } = useQuery<NotificationPreferences>({
     queryKey: ["/api/notification-preferences"],
@@ -38,10 +40,10 @@ export default function NotificationSettings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notification-preferences"] });
-      toast({ title: "Preferences saved" });
+      toast({ title: t("notificationSettings.preferencesSaved") });
     },
     onError: () => {
-      toast({ title: "Failed to save preferences", variant: "destructive" });
+      toast({ title: t("notificationSettings.failedToSave"), variant: "destructive" });
     },
   });
 
@@ -52,43 +54,43 @@ export default function NotificationSettings() {
   const notificationTypes = [
     {
       key: "emailOrderApproved" as const,
-      title: "Order Approved",
-      description: "Get notified when your orders are approved",
+      title: t("notificationSettings.types.orderApproved.title"),
+      description: t("notificationSettings.types.orderApproved.description"),
       icon: CheckCircle,
       iconColor: "text-green-500",
     },
     {
       key: "emailOrderRejected" as const,
-      title: "Order Rejected",
-      description: "Get notified when your orders are rejected",
+      title: t("notificationSettings.types.orderRejected.title"),
+      description: t("notificationSettings.types.orderRejected.description"),
       icon: XCircle,
       iconColor: "text-red-500",
     },
     {
       key: "emailPayRunFinalized" as const,
-      title: "Pay Run Finalized",
-      description: "Get notified when a pay run is finalized and your pay statement is ready",
+      title: t("notificationSettings.types.payRunFinalized.title"),
+      description: t("notificationSettings.types.payRunFinalized.description"),
       icon: DollarSign,
       iconColor: "text-blue-500",
     },
     {
       key: "emailChargebackApplied" as const,
-      title: "Chargeback Applied",
-      description: "Get notified when a chargeback is applied to one of your orders",
+      title: t("notificationSettings.types.chargebackApplied.title"),
+      description: t("notificationSettings.types.chargebackApplied.description"),
       icon: AlertTriangle,
       iconColor: "text-orange-500",
     },
     {
       key: "emailAdvanceUpdates" as const,
-      title: "Advance Updates",
-      description: "Get notified about advance request approvals or rejections",
+      title: t("notificationSettings.types.advanceUpdates.title"),
+      description: t("notificationSettings.types.advanceUpdates.description"),
       icon: CreditCard,
       iconColor: "text-purple-500",
     },
     {
       key: "emailPayStubDelivery" as const,
-      title: "Pay Stub Email Delivery",
-      description: "Receive your pay stub PDF by email when a pay run is finalized",
+      title: t("notificationSettings.types.payStubDelivery.title"),
+      description: t("notificationSettings.types.payStubDelivery.description"),
       icon: FileText,
       iconColor: "text-emerald-500",
     },
@@ -99,8 +101,8 @@ export default function NotificationSettings() {
       <div className="flex items-center gap-3 mb-6">
         <Bell className="h-6 w-6" />
         <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Alert Settings</h1>
-          <p className="text-muted-foreground">Choose which email notifications you want to receive</p>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">{t("notificationSettings.title")}</h1>
+          <p className="text-muted-foreground">{t("notificationSettings.subtitle")}</p>
         </div>
       </div>
 
@@ -108,10 +110,10 @@ export default function NotificationSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
-            Email Notifications
+            {t("notificationSettings.emailNotifications")}
           </CardTitle>
           <CardDescription>
-            We'll send notifications to your registered email address
+            {t("notificationSettings.emailDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -146,13 +148,13 @@ export default function NotificationSettings() {
               </div>
             ))
           ) : (
-            <p className="text-muted-foreground">Unable to load preferences</p>
+            <p className="text-muted-foreground">{t("notificationSettings.unableToLoad")}</p>
           )}
         </CardContent>
       </Card>
 
       <p className="text-sm text-muted-foreground mt-4 text-center">
-        Note: Some critical notifications cannot be disabled and will always be sent.
+        {t("notificationSettings.note")}
       </p>
     </div>
   );

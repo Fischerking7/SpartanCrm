@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
@@ -48,6 +49,7 @@ interface MduStagingOrder {
 export default function MduOrders() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingOrder, setEditingOrder] = useState<MduStagingOrder | null>(null);
   const [showCapture, setShowCapture] = useState(false);
@@ -103,10 +105,10 @@ export default function MduOrders() {
       queryClient.invalidateQueries({ queryKey: ["/api/mdu/orders"] });
       setShowCreateDialog(false);
       resetForm();
-      toast({ title: "Order submitted for review" });
+      toast({ title: t("mduOrders.toasts.submitted") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
+      toast({ title: t("mduOrders.toasts.createFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -127,10 +129,10 @@ export default function MduOrders() {
       queryClient.invalidateQueries({ queryKey: ["/api/mdu/orders"] });
       setEditingOrder(null);
       resetForm();
-      toast({ title: "Order updated" });
+      toast({ title: t("mduOrders.toasts.updated") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to update order", description: error.message, variant: "destructive" });
+      toast({ title: t("mduOrders.toasts.updateFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -148,10 +150,10 @@ export default function MduOrders() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mdu/orders"] });
-      toast({ title: "Order deleted" });
+      toast({ title: t("mduOrders.toasts.deleted") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to delete order", description: error.message, variant: "destructive" });
+      toast({ title: t("mduOrders.toasts.deleteFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -259,8 +261,8 @@ export default function MduOrders() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">My MDU Orders</h1>
-          <p className="text-muted-foreground">Submit orders for review and approval</p>
+          <h1 className="text-2xl font-semibold">{t("mduOrders.title")}</h1>
+          <p className="text-muted-foreground">{t("mduOrders.subtitle")}</p>
         </div>
         <Button onClick={() => { resetForm(); setShowCreateDialog(true); }} data-testid="button-new-mdu-order">
           <Plus className="h-4 w-4 mr-2" />
@@ -274,7 +276,7 @@ export default function MduOrders() {
         </CardHeader>
         <CardContent>
           {pendingOrders.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No pending orders</p>
+            <p className="text-muted-foreground text-center py-8">{t("mduOrders.noPending")}</p>
           ) : (
             <div className="space-y-3">
               {pendingOrders.map(order => (
@@ -425,7 +427,7 @@ export default function MduOrders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="customerBirthday">Birthday</Label>
+                <Label htmlFor="customerBirthday">{t("mduOrders.birthday")}</Label>
                 <Input
                   id="customerBirthday"
                   type="date"
@@ -437,7 +439,7 @@ export default function MduOrders() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="customerSsn">Social Security Number</Label>
+                <Label htmlFor="customerSsn">{t("mduOrders.ssn")}</Label>
                 <Input
                   id="customerSsn"
                   value={formData.customerSsn}
@@ -502,7 +504,7 @@ export default function MduOrders() {
                   id="creditCardName"
                   value={formData.creditCardName}
                   onChange={e => setFormData({ ...formData, creditCardName: e.target.value })}
-                  placeholder="John Doe"
+                  placeholder={t("mduOrders.creditCardNamePlaceholder")}
                   data-testid="input-credit-card-name"
                 />
               </div>
@@ -545,12 +547,12 @@ export default function MduOrders() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
+              <Label htmlFor="notes">{t("mduOrders.notesLabel")}</Label>
               <Textarea
                 id="notes"
                 value={formData.notes}
                 onChange={e => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Additional notes..."
+                placeholder={t("mduOrders.notesPlaceholder")}
                 data-testid="input-notes"
               />
             </div>

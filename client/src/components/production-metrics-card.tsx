@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, Minus, ShoppingCart, CheckCircle, DollarSign } from "lucide-react";
@@ -97,7 +98,7 @@ function MetricRow({
   format?: "number" | "currency";
 }) {
   const displayValue = format === "currency" 
-    ? `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    ? `$${value.toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : value.toLocaleString();
 
   return (

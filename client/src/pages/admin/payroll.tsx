@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -86,7 +87,7 @@ interface User {
 
 function formatCurrency(amount: string | number) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num);
+  return new Intl.NumberFormat(i18n.language === "es" ? "es-MX" : "en-US", { style: "currency", currency: "USD" }).format(num);
 }
 
 function formatDate(date: string) {

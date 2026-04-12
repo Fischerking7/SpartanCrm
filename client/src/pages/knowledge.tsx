@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -93,6 +94,7 @@ function getFileIcon(fileType: string) {
 export default function KnowledgeDatabase() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [showUploadDialog, setShowUploadDialog] = useState(false);
@@ -140,11 +142,11 @@ export default function KnowledgeDatabase() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge-documents"] });
-      toast({ title: "Document uploaded successfully" });
+      toast({ title: t("knowledge.messages.uploadSuccess") });
       resetUploadForm();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to save document", description: error.message, variant: "destructive" });
+      toast({ title: t("knowledge.messages.uploadError"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -155,12 +157,12 @@ export default function KnowledgeDatabase() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge-documents"] });
-      toast({ title: "Document updated" });
+      toast({ title: t("knowledge.messages.updateSuccess") });
       setShowEditDialog(false);
       setSelectedDocument(null);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to update document", description: error.message, variant: "destructive" });
+      toast({ title: t("knowledge.messages.updateError"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -171,12 +173,12 @@ export default function KnowledgeDatabase() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge-documents"] });
-      toast({ title: "Document deleted" });
+      toast({ title: t("knowledge.messages.deleteSuccess") });
       setShowDeleteDialog(false);
       setSelectedDocument(null);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to delete document", description: error.message, variant: "destructive" });
+      toast({ title: t("knowledge.messages.deleteError"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -209,7 +211,7 @@ export default function KnowledgeDatabase() {
 
   const handleSaveDocument = () => {
     if (!uploadedFile || !newDocTitle) {
-      toast({ title: "Please upload a file and provide a title", variant: "destructive" });
+      toast({ title: t("knowledge.messages.formError"), variant: "destructive" });
       return;
     }
 
@@ -294,15 +296,15 @@ export default function KnowledgeDatabase() {
     <div className="p-6 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Knowledge Database</h1>
+          <h1 className="text-2xl font-semibold">{t("knowledge.title")}</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Reference documents, training materials, and resources
+            {t("knowledge.subtitle")}
           </p>
         </div>
         {canUpload && (
           <Button onClick={() => setShowUploadDialog(true)} data-testid="button-upload-document">
             <Upload className="h-4 w-4 mr-2" />
-            Upload Document
+            {t("knowledge.uploadButton")}
           </Button>
         )}
       </div>
@@ -311,7 +313,7 @@ export default function KnowledgeDatabase() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search documents..."
+            placeholder={t("knowledge.searchPlaceholder")}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -320,10 +322,10 @@ export default function KnowledgeDatabase() {
         </div>
         <Select value={categoryFilter} onValueChange={setCategoryFilter}>
           <SelectTrigger className="w-full sm:w-48" data-testid="select-category-filter">
-            <SelectValue placeholder="All Categories" />
+            <SelectValue placeholder={t("knowledge.allCategories")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
+            <SelectItem value="all">{t("knowledge.allCategories")}</SelectItem>
             {CATEGORIES.map((cat) => (
               <SelectItem key={cat} value={cat}>{cat}</SelectItem>
             ))}
@@ -338,8 +340,8 @@ export default function KnowledgeDatabase() {
             <h3 className="text-lg font-medium mb-2">No documents found</h3>
             <p className="text-muted-foreground text-sm">
               {documents.length === 0
-                ? "Upload your first document to get started"
-                : "Try adjusting your search or filter"}
+                ? t("knowledge.noDocuments.emptyDescription")
+                : t("knowledge.noDocuments.filterDescription")}
             </p>
           </CardContent>
         </Card>

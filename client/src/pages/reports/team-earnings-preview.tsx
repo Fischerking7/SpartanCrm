@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,7 +37,7 @@ interface TeamEarningsData {
 }
 
 function fmt(val: string): string {
-  return "$" + parseFloat(val).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return "$" + parseFloat(val).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function DeltaIndicator({ delta }: { delta: string }) {

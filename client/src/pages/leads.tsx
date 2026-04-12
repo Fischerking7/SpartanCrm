@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
@@ -24,6 +25,7 @@ import { dispositionMetadata, terminalDispositions, type Lead, type LeadDisposit
 export default function Leads() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [, setLocation] = useLocation();
   const isMobile = useIsMobile();
   
@@ -264,10 +266,10 @@ export default function Leads() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       setEditingNotes(null);
-      toast({ title: "Notes updated successfully" });
+      toast({ title: t("leads.toasts.notesSaved") });
     },
     onError: () => {
-      toast({ title: "Failed to update notes", variant: "destructive" });
+      toast({ title: t("leads.toasts.notesFailed"), variant: "destructive" });
     },
   });
 
@@ -295,7 +297,7 @@ export default function Leads() {
       toast({ title: `Disposition updated to: ${getDispositionLabel(disposition)}` });
     },
     onError: () => {
-      toast({ title: "Failed to update disposition", variant: "destructive" });
+      toast({ title: t("leads.toasts.dispositionFailed"), variant: "destructive" });
     },
   });
 
@@ -312,10 +314,10 @@ export default function Leads() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads/counts"] });
-      toast({ title: "Disposition reversed - lead is active again" });
+      toast({ title: t("leads.toasts.dispositionReversed") });
     },
     onError: () => {
-      toast({ title: "Failed to reverse disposition", variant: "destructive" });
+      toast({ title: t("leads.toasts.dispositionReversedFailed"), variant: "destructive" });
     },
   });
 
@@ -394,10 +396,10 @@ export default function Leads() {
       setShowAssignDialog(false);
       setAssigningLeadId(null);
       setAssignTargetRepId("");
-      toast({ title: "Lead assigned successfully" });
+      toast({ title: t("leads.toasts.assigned") });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to assign lead", description: error.message, variant: "destructive" });
+      toast({ title: t("leads.toasts.assignFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -458,7 +460,7 @@ export default function Leads() {
       toast({ title: `Deleted ${data.count} leads. Export downloaded.` });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to delete leads", description: error.message, variant: "destructive" });
+      toast({ title: t("leads.toasts.bulkDeleteFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -485,7 +487,7 @@ export default function Leads() {
       toast({ title: data.message });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to assign leads", description: error.message, variant: "destructive" });
+      toast({ title: t("leads.toasts.bulkAssignFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -590,10 +592,10 @@ export default function Leads() {
         accountNumber: "",
         notes: "",
       });
-      toast({ title: "Lead created successfully" });
+      toast({ title: t("leads.toasts.created") });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to create lead", description: error.message, variant: "destructive" });
+      toast({ title: t("leads.toasts.createFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -706,10 +708,10 @@ export default function Leads() {
       <div className="flex items-center justify-between gap-3 md:gap-4 flex-wrap">
         <div>
           <h1 className="text-xl md:text-2xl font-semibold" data-testid="text-page-title">
-            {activeTab === "pipeline" ? "Sales Pipeline" : viewingRepName ? `${viewingRepName}'s Leads` : "My Leads"}
+            {activeTab === "pipeline" ? t("leads.salesPipeline") : viewingRepName ? `${viewingRepName}'s Leads` : t("leads.myLeads")}
           </h1>
           <p className="text-xs md:text-base text-muted-foreground">
-            {activeTab === "pipeline" ? "Disposition flow and conversion metrics" : viewingRepName ? `Viewing leads for ${viewingRepName}` : "View and manage your imported leads"}
+            {activeTab === "pipeline" ? t("leads.pipelineSubtitle") : viewingRepName ? t("leads.viewingLeads", { name: viewingRepName }) : t("leads.leadsSubtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2 md:gap-4 flex-wrap">

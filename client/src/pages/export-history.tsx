@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -15,6 +16,7 @@ interface ExportBatchWithCreator extends ExportBatch {
 }
 
 export default function ExportHistory() {
+  const { t } = useTranslation();
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
 
   const { data: batches, isLoading: batchesLoading } = useQuery<ExportBatchWithCreator[]>({
@@ -39,7 +41,7 @@ export default function ExportHistory() {
   const columns = [
     {
       key: "createdAt",
-      header: "Export Date",
+      header: t("exportHistory.columns.exportDate"),
       cell: (batch: ExportBatchWithCreator) => (
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -52,14 +54,14 @@ export default function ExportHistory() {
     },
     {
       key: "id",
-      header: "Batch ID",
+      header: t("exportHistory.columns.batchId"),
       cell: (batch: ExportBatchWithCreator) => (
         <span className="font-mono text-sm">{batch.id.slice(0, 8)}</span>
       ),
     },
     {
       key: "recordCount",
-      header: "Records",
+      header: t("exportHistory.columns.records"),
       cell: (batch: ExportBatchWithCreator) => (
         <div className="flex items-center gap-2">
           <Hash className="h-4 w-4 text-muted-foreground" />
@@ -69,7 +71,7 @@ export default function ExportHistory() {
     },
     {
       key: "fileName",
-      header: "File Name",
+      header: t("exportHistory.columns.fileName"),
       cell: (batch: ExportBatchWithCreator) => (
         <span className="text-sm text-muted-foreground truncate max-w-[200px] block">
           {batch.fileName || "-"}
@@ -78,7 +80,7 @@ export default function ExportHistory() {
     },
     {
       key: "notes",
-      header: "Notes",
+      header: t("exportHistory.columns.notes"),
       cell: (batch: ExportBatchWithCreator) => (
         <span className="text-sm text-muted-foreground truncate max-w-[150px] block">
           {batch.notes || "-"}
@@ -87,7 +89,7 @@ export default function ExportHistory() {
     },
     {
       key: "actions",
-      header: "Actions",
+      header: t("exportHistory.columns.actions"),
       cell: (batch: ExportBatchWithCreator) => (
         <Button
           size="icon"
@@ -104,31 +106,31 @@ export default function ExportHistory() {
   const orderColumns = [
     {
       key: "invoiceNumber",
-      header: "Invoice",
+      header: t("exportHistory.orderColumns.invoice"),
       cell: (order: SalesOrder) => (
         <span className="font-mono text-sm">{order.invoiceNumber || "-"}</span>
       ),
     },
     {
       key: "customerName",
-      header: "Customer",
+      header: t("exportHistory.orderColumns.customer"),
       cell: (order: SalesOrder) => order.customerName,
     },
     {
       key: "repId",
-      header: "Rep ID",
+      header: t("exportHistory.orderColumns.repId"),
       cell: (order: SalesOrder) => (
         <span className="font-mono text-sm">{order.repId}</span>
       ),
     },
     {
       key: "dateSold",
-      header: "Date Sold",
+      header: t("exportHistory.orderColumns.dateSold"),
       cell: (order: SalesOrder) => new Date(order.dateSold).toLocaleDateString(),
     },
     {
       key: "commission",
-      header: "Commission",
+      header: t("exportHistory.orderColumns.commission"),
       cell: (order: SalesOrder) => (
         <span className="font-mono">
           ${(parseFloat(order.baseCommissionEarned) + parseFloat(order.incentiveEarned)).toFixed(2)}
@@ -137,7 +139,7 @@ export default function ExportHistory() {
     },
     {
       key: "exportedAt",
-      header: "Exported At",
+      header: t("exportHistory.orderColumns.exportedAt"),
       cell: (order: SalesOrder) => (
         order.exportedAt ? new Date(order.exportedAt).toLocaleDateString() : "-"
       ),
@@ -147,9 +149,9 @@ export default function ExportHistory() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Export History</h1>
+        <h1 className="text-2xl font-semibold">{t("exportHistory.title")}</h1>
         <p className="text-muted-foreground">
-          View past accounting exports and their included orders
+          {t("exportHistory.subtitle")}
         </p>
       </div>
 
@@ -157,10 +159,10 @@ export default function ExportHistory() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5" />
-            Export Batches
+            {t("exportHistory.batchesTitle")}
           </CardTitle>
           <CardDescription>
-            Each export batch contains approved orders that were exported to QuickBooks
+            {t("exportHistory.batchesDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -168,7 +170,7 @@ export default function ExportHistory() {
             columns={columns}
             data={batches || []}
             isLoading={batchesLoading}
-            emptyMessage="No export batches yet. Export approved orders from the Orders page."
+            emptyMessage={t("exportHistory.noBatches")}
             testId="table-export-batches"
           />
         </CardContent>
@@ -177,31 +179,31 @@ export default function ExportHistory() {
       <Dialog open={!!selectedBatch} onOpenChange={() => setSelectedBatch(null)}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Export Batch Details</DialogTitle>
+            <DialogTitle>{t("exportHistory.dialogTitle")}</DialogTitle>
             <DialogDescription>
               {batchDetails?.batch ? (
                 <>
-                  Exported on {new Date(batchDetails.batch.createdAt).toLocaleString()} - 
-                  {batchDetails.batch.recordCount} orders
+                  {t("exportHistory.exportedOn")} {new Date(batchDetails.batch.createdAt).toLocaleString()} - 
+                  {batchDetails.batch.recordCount} {t("exportHistory.orders")}
                 </>
-              ) : "Loading..."}
+              ) : t("exportHistory.loading")}
             </DialogDescription>
           </DialogHeader>
           {detailsLoading ? (
-            <div className="py-8 text-center text-muted-foreground">Loading orders...</div>
+            <div className="py-8 text-center text-muted-foreground">{t("exportHistory.loadingOrders")}</div>
           ) : batchDetails?.orders ? (
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <Label className="text-muted-foreground">Batch ID</Label>
+                  <Label className="text-muted-foreground">{t("exportHistory.batchId")}</Label>
                   <p className="font-mono text-sm">{batchDetails.batch.id.slice(0, 12)}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Total Orders</Label>
+                  <Label className="text-muted-foreground">{t("exportHistory.totalOrders")}</Label>
                   <p className="font-semibold">{batchDetails.batch.recordCount}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Total Commission</Label>
+                  <Label className="text-muted-foreground">{t("exportHistory.totalCommission")}</Label>
                   <p className="font-mono font-semibold">
                     ${batchDetails.orders.reduce((sum, o) => 
                       sum + parseFloat(o.baseCommissionEarned) + parseFloat(o.incentiveEarned), 0
@@ -210,12 +212,12 @@ export default function ExportHistory() {
                 </div>
               </div>
               <div className="border-t pt-4">
-                <Label className="text-muted-foreground mb-2 block">Included Orders</Label>
+                <Label className="text-muted-foreground mb-2 block">{t("exportHistory.includedOrders")}</Label>
                 <DataTable
                   columns={orderColumns}
                   data={batchDetails.orders}
                   isLoading={false}
-                  emptyMessage="No orders in this batch"
+                  emptyMessage={t("exportHistory.noOrders")}
                   testId="table-batch-orders"
                 />
               </div>

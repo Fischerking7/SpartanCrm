@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 import { getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -72,7 +74,8 @@ interface RepListingData {
 }
 
 function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(amount);
 }
 
 function getServiceIcon(category: string) {
@@ -87,6 +90,7 @@ function getServiceIcon(category: string) {
 }
 
 function SalesOverviewTab() {
+  const { t } = useTranslation();
   const { data, isLoading } = useQuery<SalesOverviewData>({
     queryKey: ["/api/executive/sales-overview"],
     queryFn: async () => {
@@ -94,14 +98,14 @@ function SalesOverviewTab() {
         headers: getAuthHeaders(),
         credentials: "include" 
       });
-      if (!res.ok) throw new Error("Failed to fetch sales overview");
+      if (!res.ok) throw new Error(t("executiveReports.failedToFetchOverview"));
       return res.json();
     },
   });
 
   if (isLoading) return <Skeleton className="h-96" />;
 
-  if (!data) return <p className="text-muted-foreground">No data available</p>;
+  if (!data) return <p className="text-muted-foreground">{t("executiveReports.noData")}</p>;
 
   const { companyTotals, serviceBreakdown, providerBreakdown, teamBreakdown } = data;
 
@@ -111,7 +115,7 @@ function SalesOverviewTab() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-primary" />
-            Company-Wide Sales (MTD)
+            {t("executiveReports.companyWideSales")}
           </CardTitle>
           <CardDescription>
             {data.period.start} to {data.period.end}
@@ -120,29 +124,29 @@ function SalesOverviewTab() {
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="text-center p-4 bg-muted/50 rounded-lg">
-              <p className="text-sm text-muted-foreground">Total Sales</p>
+              <p className="text-sm text-muted-foreground">{t("executiveReports.totalSales")}</p>
               <p className="text-3xl font-bold" data-testid="text-total-sales">{companyTotals.totalSales}</p>
             </div>
             <div className="text-center p-4 bg-green-50 dark:bg-green-950/30 rounded-lg">
               <p className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                <CheckCircle className="h-3 w-3 text-green-600" /> Connected
+                <CheckCircle className="h-3 w-3 text-green-600" /> {t("executiveReports.connected")}
               </p>
               <p className="text-3xl font-bold text-green-600" data-testid="text-connected-sales">{companyTotals.connectedSales}</p>
             </div>
             <div className="text-center p-4 bg-yellow-50 dark:bg-yellow-950/30 rounded-lg">
               <p className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                <Clock className="h-3 w-3 text-yellow-600" /> Pending
+                <Clock className="h-3 w-3 text-yellow-600" /> {t("executiveReports.pending")}
               </p>
               <p className="text-3xl font-bold text-yellow-600" data-testid="text-pending-sales">{companyTotals.pendingSales}</p>
             </div>
             <div className="text-center p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
-              <p className="text-sm text-muted-foreground">Connected Commission</p>
+              <p className="text-sm text-muted-foreground">{t("executiveReports.connectedCommission")}</p>
               <p className="text-2xl font-bold text-blue-600" data-testid="text-connected-commission">
                 {formatCurrency(companyTotals.connectedCommissions)}
               </p>
             </div>
             <div className="text-center p-4 bg-orange-50 dark:bg-orange-950/30 rounded-lg">
-              <p className="text-sm text-muted-foreground">Pending Commission</p>
+              <p className="text-sm text-muted-foreground">{t("executiveReports.pendingCommission")}</p>
               <p className="text-2xl font-bold text-orange-600" data-testid="text-pending-commission">
                 {formatCurrency(companyTotals.pendingCommissions)}
               </p>
@@ -156,21 +160,21 @@ function SalesOverviewTab() {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <Tv className="h-4 w-4" />
-              Service Type Breakdown
+              {t("executiveReports.serviceTypeBreakdown")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {serviceBreakdown.length === 0 ? (
-              <p className="text-muted-foreground text-center py-4">No service data</p>
+              <p className="text-muted-foreground text-center py-4">{t("executiveReports.noServiceData")}</p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Service</TableHead>
-                    <TableHead className="text-right">Sales</TableHead>
-                    <TableHead className="text-right">Connected</TableHead>
-                    <TableHead className="text-right">Pending</TableHead>
-                    <TableHead className="text-right">Commission</TableHead>
+                    <TableHead>{t("executiveReports.service")}</TableHead>
+                    <TableHead className="text-right">{t("executiveReports.sales")}</TableHead>
+                    <TableHead className="text-right">{t("executiveReports.connected")}</TableHead>
+                    <TableHead className="text-right">{t("executiveReports.pending")}</TableHead>
+                    <TableHead className="text-right">{t("executiveReports.commission")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -196,21 +200,21 @@ function SalesOverviewTab() {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <Building2 className="h-4 w-4" />
-              Provider Breakdown
+              {t("executiveReports.providerBreakdown")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {providerBreakdown.length === 0 ? (
-              <p className="text-muted-foreground text-center py-4">No provider data</p>
+              <p className="text-muted-foreground text-center py-4">{t("executiveReports.noProviderData")}</p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Provider</TableHead>
-                    <TableHead className="text-right">Sales</TableHead>
-                    <TableHead className="text-right">Connected</TableHead>
-                    <TableHead className="text-right">Pending</TableHead>
-                    <TableHead className="text-right">Commission</TableHead>
+                    <TableHead>{t("executiveReports.provider")}</TableHead>
+                    <TableHead className="text-right">{t("executiveReports.sales")}</TableHead>
+                    <TableHead className="text-right">{t("executiveReports.connected")}</TableHead>
+                    <TableHead className="text-right">{t("executiveReports.pending")}</TableHead>
+                    <TableHead className="text-right">{t("executiveReports.commission")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -234,23 +238,23 @@ function SalesOverviewTab() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
-            Manager Team Performance
+            {t("executiveReports.managerTeamPerformance")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {teamBreakdown.length === 0 ? (
-            <p className="text-muted-foreground text-center py-4">No team data</p>
+            <p className="text-muted-foreground text-center py-4">{t("executiveReports.noTeamData")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Manager</TableHead>
-                  <TableHead className="text-right">Team Size</TableHead>
-                  <TableHead className="text-right">Total Sales</TableHead>
-                  <TableHead className="text-right">Connected</TableHead>
-                  <TableHead className="text-right">Pending</TableHead>
-                  <TableHead className="text-right">Connected Commission</TableHead>
-                  <TableHead className="text-right">Pending Commission</TableHead>
+                  <TableHead>{t("executiveReports.manager")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.teamSize")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.totalSales")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.connected")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.pending")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.connectedCommission")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.pendingCommission")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -279,6 +283,7 @@ function SalesOverviewTab() {
 }
 
 function RepListingTab() {
+  const { t } = useTranslation();
   const { data, isLoading } = useQuery<RepListingData>({
     queryKey: ["/api/executive/rep-listing"],
     queryFn: async () => {
@@ -286,14 +291,14 @@ function RepListingTab() {
         headers: getAuthHeaders(),
         credentials: "include" 
       });
-      if (!res.ok) throw new Error("Failed to fetch rep listing");
+      if (!res.ok) throw new Error(t("executiveReports.failedToFetchListing"));
       return res.json();
     },
   });
 
   if (isLoading) return <Skeleton className="h-96" />;
 
-  if (!data) return <p className="text-muted-foreground">No data available</p>;
+  if (!data) return <p className="text-muted-foreground">{t("executiveReports.noData")}</p>;
 
   return (
     <div className="space-y-6">
@@ -301,27 +306,27 @@ function RepListingTab() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <User className="h-5 w-5 text-primary" />
-            Rep Performance (MTD)
+            {t("executiveReports.repPerformance")}
           </CardTitle>
           <CardDescription>
-            {data.period.start} to {data.period.end} - Sorted by total sales
+            {t("executiveReports.repPerformanceDesc", { start: data.period.start, end: data.period.end })}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {data.reps.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No rep data available</p>
+            <p className="text-muted-foreground text-center py-8">{t("executiveReports.noRepData")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Rank</TableHead>
-                  <TableHead>Rep</TableHead>
-                  <TableHead>Manager</TableHead>
-                  <TableHead className="text-right">Total Sales</TableHead>
-                  <TableHead className="text-right">Connected</TableHead>
-                  <TableHead className="text-right">Pending</TableHead>
-                  <TableHead className="text-right">Connected Commission</TableHead>
-                  <TableHead className="text-right">Pending Commission</TableHead>
+                  <TableHead>{t("executiveReports.rank")}</TableHead>
+                  <TableHead>{t("executiveReports.rep")}</TableHead>
+                  <TableHead>{t("executiveReports.manager")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.totalSales")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.connected")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.pending")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.connectedCommission")}</TableHead>
+                  <TableHead className="text-right">{t("executiveReports.pendingCommission")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -358,7 +363,7 @@ function RepListingTab() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Service Type Summary (All Reps)</CardTitle>
+              <CardTitle className="text-lg">{t("executiveReports.serviceTypeSummaryAll")}</CardTitle>
             </CardHeader>
             <CardContent>
               {(() => {
@@ -375,16 +380,16 @@ function RepListingTab() {
                 });
                 const entries = Object.entries(aggregated);
                 if (entries.length === 0) {
-                  return <p className="text-muted-foreground text-center py-4">No service data</p>;
+                  return <p className="text-muted-foreground text-center py-4">{t("executiveReports.noServiceData")}</p>;
                 }
                 return (
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Service</TableHead>
-                        <TableHead className="text-right">Sales</TableHead>
-                        <TableHead className="text-right">Connected</TableHead>
-                        <TableHead className="text-right">Commission</TableHead>
+                        <TableHead>{t("executiveReports.service")}</TableHead>
+                        <TableHead className="text-right">{t("executiveReports.sales")}</TableHead>
+                        <TableHead className="text-right">{t("executiveReports.connected")}</TableHead>
+                        <TableHead className="text-right">{t("executiveReports.commission")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -408,7 +413,7 @@ function RepListingTab() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Provider Summary (All Reps)</CardTitle>
+              <CardTitle className="text-lg">{t("executiveReports.providerSummaryAll")}</CardTitle>
             </CardHeader>
             <CardContent>
               {(() => {
@@ -425,16 +430,16 @@ function RepListingTab() {
                 });
                 const entries = Object.entries(aggregated);
                 if (entries.length === 0) {
-                  return <p className="text-muted-foreground text-center py-4">No provider data</p>;
+                  return <p className="text-muted-foreground text-center py-4">{t("executiveReports.noProviderData")}</p>;
                 }
                 return (
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Provider</TableHead>
-                        <TableHead className="text-right">Sales</TableHead>
-                        <TableHead className="text-right">Connected</TableHead>
-                        <TableHead className="text-right">Commission</TableHead>
+                        <TableHead>{t("executiveReports.provider")}</TableHead>
+                        <TableHead className="text-right">{t("executiveReports.sales")}</TableHead>
+                        <TableHead className="text-right">{t("executiveReports.connected")}</TableHead>
+                        <TableHead className="text-right">{t("executiveReports.commission")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -459,22 +464,23 @@ function RepListingTab() {
 }
 
 export default function ExecutiveReports() {
+  const { t } = useTranslation();
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold" data-testid="text-page-title">Executive Reports</h1>
-        <p className="text-muted-foreground">Sales performance overview for the company and individual reps</p>
+        <h1 className="text-2xl font-semibold" data-testid="text-page-title">{t("executiveReports.title")}</h1>
+        <p className="text-muted-foreground">{t("executiveReports.subtitle")}</p>
       </div>
 
       <Tabs defaultValue="sales-overview" className="space-y-4">
         <TabsList>
           <TabsTrigger value="sales-overview" data-testid="tab-sales-overview">
             <BarChart3 className="h-4 w-4 mr-2" />
-            Sales Overview
+            {t("executiveReports.salesOverview")}
           </TabsTrigger>
           <TabsTrigger value="rep-listing" data-testid="tab-rep-listing">
             <Users className="h-4 w-4 mr-2" />
-            Rep Listing
+            {t("executiveReports.repListing")}
           </TabsTrigger>
         </TabsList>
 

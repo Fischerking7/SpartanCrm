@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { KpiCard } from "@/components/kpi-card";
@@ -61,7 +62,7 @@ interface CoachingScorecardsData {
 
 function formatTime(iso: string | null) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+  return new Date(iso).toLocaleTimeString(i18n.language === "es" ? "es-MX" : "en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
 }
 
 export default function ManagerDashboard() {
@@ -178,7 +179,7 @@ export default function ManagerDashboard() {
                   <TableCell className="text-center font-medium">{rep.todayOrders}</TableCell>
                   <TableCell className="text-center">{rep.periodOrders}</TableCell>
                   <TableCell className="text-right font-mono text-sm">
-                    ${parseFloat(rep.periodCommission).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    ${parseFloat(rep.periodCommission).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2 })}
                   </TableCell>
                 </TableRow>
               ))}
@@ -258,7 +259,7 @@ export default function ManagerDashboard() {
                   <p className="text-xs text-muted-foreground truncate">{msg.subject}</p>
                 </div>
                 <span className="text-[10px] text-muted-foreground whitespace-nowrap shrink-0">
-                  {new Date(msg.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  {new Date(msg.createdAt).toLocaleDateString(i18n.language === "es" ? "es-MX" : "en-US", { month: "short", day: "numeric" })}
                 </span>
               </div>
             ))}

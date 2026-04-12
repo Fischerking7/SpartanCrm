@@ -1,6 +1,7 @@
 import { useLocation, Link } from "wouter";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import {
   Sidebar,
   SidebarContent,
@@ -17,6 +18,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageToggle } from "@/components/language-toggle";
 import {
   LayoutDashboard,
   FileText,
@@ -70,90 +73,90 @@ import {
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
 
-type MenuItem = { title: string; url: string; icon: React.ComponentType<{ className?: string }> };
+type MenuItem = { titleKey: string; url: string; icon: React.ComponentType<{ className?: string }> };
 
 // ============ SHARED MENU BLOCKS (Single Source of Truth) ============
 
 const MENU = {
   // Core Sales Items
-  orders: { title: "Orders", url: "/orders", icon: FileText },
-  orderTracker: { title: "Order Tracker", url: "/order-tracker", icon: ClipboardList },
-  quickEntry: { title: "Quick Entry", url: "/mobile-entry", icon: Smartphone },
-  leads: { title: "My Leads", url: "/leads", icon: UserPlus },
-  mduOrders: { title: "My MDU Orders", url: "/mdu-orders", icon: Building2 },
+  orders: { titleKey: "sidebar.menu.orders", url: "/orders", icon: FileText },
+  orderTracker: { titleKey: "sidebar.menu.orderTracker", url: "/order-tracker", icon: ClipboardList },
+  quickEntry: { titleKey: "sidebar.menu.quickEntry", url: "/mobile-entry", icon: Smartphone },
+  leads: { titleKey: "sidebar.menu.leads", url: "/leads", icon: UserPlus },
+  mduOrders: { titleKey: "sidebar.menu.mduOrders", url: "/mdu-orders", icon: Building2 },
   
   // Dashboard & Analytics
-  dashboard: { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  leadPool: { title: "Lead Pool", url: "/sales-pipeline", icon: Users },
-  reports: { title: "Reports", url: "/reports", icon: BarChart3 },
-  execReports: { title: "Executive Reports", url: "/executive-reports", icon: TrendingUp },
+  dashboard: { titleKey: "sidebar.menu.dashboard", url: "/dashboard", icon: LayoutDashboard },
+  leadPool: { titleKey: "sidebar.menu.leadPool", url: "/sales-pipeline", icon: Users },
+  reports: { titleKey: "sidebar.menu.reports", url: "/reports", icon: BarChart3 },
+  execReports: { titleKey: "sidebar.menu.execReports", url: "/executive-reports", icon: TrendingUp },
   
   // Personal Finance
-  commissions: { title: "Commissions", url: "/commissions", icon: DollarSign },
-  forecast: { title: "Forecast", url: "/commission-forecast", icon: Target },
-  myPay: { title: "Pay History", url: "/my-pay", icon: Calendar },
-  myDisputes: { title: "Disputes", url: "/my-disputes", icon: MessageSquareWarning },
+  commissions: { titleKey: "sidebar.menu.commissions", url: "/commissions", icon: DollarSign },
+  forecast: { titleKey: "sidebar.menu.forecast", url: "/commission-forecast", icon: Target },
+  myPay: { titleKey: "sidebar.menu.myPay", url: "/my-pay", icon: Calendar },
+  myDisputes: { titleKey: "sidebar.menu.myDisputes", url: "/my-disputes", icon: MessageSquareWarning },
   
   // Operations
-  mduReview: { title: "MDU Review", url: "/admin/mdu-review", icon: Building2 },
-  payRuns: { title: "Pay Runs", url: "/payruns", icon: Calendar },
-  adjustments: { title: "Adjustments", url: "/adjustments", icon: ClipboardList },
+  mduReview: { titleKey: "sidebar.menu.mduReview", url: "/admin/mdu-review", icon: Building2 },
+  payRuns: { titleKey: "sidebar.menu.payRuns", url: "/payruns", icon: Calendar },
+  adjustments: { titleKey: "sidebar.menu.adjustments", url: "/adjustments", icon: ClipboardList },
   
   // Accounting & Audit
-  accounting: { title: "Accounting", url: "/accounting", icon: FileSpreadsheet },
-  finance: { title: "Finance & AR", url: "/finance", icon: DollarSign },
-  exports: { title: "Export History", url: "/export-history", icon: Download },
-  recalculate: { title: "Recalculate", url: "/recalculate", icon: Calculator },
-  queues: { title: "Exception Queues", url: "/queues", icon: AlertTriangle },
-  audit: { title: "Audit Log", url: "/audit", icon: History },
+  accounting: { titleKey: "sidebar.menu.accountingMenu", url: "/accounting", icon: FileSpreadsheet },
+  finance: { titleKey: "sidebar.menu.finance", url: "/finance", icon: DollarSign },
+  exports: { titleKey: "sidebar.menu.exports", url: "/export-history", icon: Download },
+  recalculate: { titleKey: "sidebar.menu.recalculate", url: "/recalculate", icon: Calculator },
+  queues: { titleKey: "sidebar.menu.queues", url: "/queues", icon: AlertTriangle },
+  audit: { titleKey: "sidebar.menu.audit", url: "/audit", icon: History },
   
   // Resources & Settings
-  knowledge: { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
-  credentials: { title: "My Credentials", url: "/my-credentials", icon: Key },
-  alerts: { title: "Alerts", url: "/notifications", icon: BellRing },
-  settings: { title: "Alert Settings", url: "/notification-settings", icon: Settings2 },
+  knowledge: { titleKey: "sidebar.menu.knowledge", url: "/knowledge", icon: BookOpen },
+  credentials: { titleKey: "sidebar.menu.credentials", url: "/my-credentials", icon: Key },
+  alerts: { titleKey: "sidebar.menu.alerts", url: "/notifications", icon: BellRing },
+  settings: { titleKey: "sidebar.menu.alertSettings", url: "/notification-settings", icon: Settings2 },
   
   // Admin Settings
-  users: { title: "Users", url: "/admin/users", icon: Users },
-  providers: { title: "Providers", url: "/admin/providers", icon: Building2 },
-  clients: { title: "Clients", url: "/admin/clients", icon: Building2 },
-  services: { title: "Services", url: "/admin/services", icon: Settings },
-  rateCards: { title: "Rate Cards", url: "/admin/rate-cards", icon: DollarSign },
-  incentives: { title: "Incentives", url: "/admin/incentives", icon: DollarSign },
-  overrides: { title: "Overrides", url: "/admin/overrides", icon: Users },
-  overrideApprovals: { title: "Override Approvals", url: "/admin/override-approvals", icon: CheckSquare },
-  empCredentials: { title: "Employee Credentials", url: "/admin/employee-credentials", icon: Key },
-  adminDisputes: { title: "Disputes", url: "/admin/disputes", icon: MessageSquareWarning },
-  complianceCalendar: { title: "Compliance Calendar", url: "/admin/compliance-calendar", icon: Shield },
-  userActivity: { title: "User Activity", url: "/admin/user-activity", icon: Activity },
-  onboarding: { title: "Onboarding", url: "/onboarding", icon: ClipboardList },
-  onboardingReview: { title: "Onboarding Review", url: "/admin/onboarding-review", icon: CheckSquare },
-  installSync: { title: "Install Sync", url: "/admin/install-sync", icon: RefreshCw },
-  carrierProfiles: { title: "Carrier Profiles", url: "/admin/carrier-profiles", icon: Radio },
-  carrierRepMappings: { title: "Rep Mappings", url: "/admin/carrier-rep-mappings", icon: Users },
-  payroll: { title: "Payroll", url: "/admin/payroll", icon: Calendar },
-  advPayroll: { title: "Advanced Payroll", url: "/admin/payroll-advanced", icon: DollarSign },
-  quickbooks: { title: "QuickBooks", url: "/admin/quickbooks", icon: Link2 },
-  automationRules: { title: "Automation Rules", url: "/admin/automation-rules", icon: Zap },
-  savedReports: { title: "Saved Reports", url: "/admin/saved-reports", icon: BookMarked },
+  users: { titleKey: "sidebar.menu.users", url: "/admin/users", icon: Users },
+  providers: { titleKey: "sidebar.menu.providers", url: "/admin/providers", icon: Building2 },
+  clients: { titleKey: "sidebar.menu.clients", url: "/admin/clients", icon: Building2 },
+  services: { titleKey: "sidebar.menu.services", url: "/admin/services", icon: Settings },
+  rateCards: { titleKey: "sidebar.menu.rateCards", url: "/admin/rate-cards", icon: DollarSign },
+  incentives: { titleKey: "sidebar.menu.incentives", url: "/admin/incentives", icon: DollarSign },
+  overrides: { titleKey: "sidebar.menu.overrides", url: "/admin/overrides", icon: Users },
+  overrideApprovals: { titleKey: "sidebar.menu.overrideApprovals", url: "/admin/override-approvals", icon: CheckSquare },
+  empCredentials: { titleKey: "sidebar.menu.empCredentials", url: "/admin/employee-credentials", icon: Key },
+  adminDisputes: { titleKey: "sidebar.menu.adminDisputes", url: "/admin/disputes", icon: MessageSquareWarning },
+  complianceCalendar: { titleKey: "sidebar.menu.complianceCalendar", url: "/admin/compliance-calendar", icon: Shield },
+  userActivity: { titleKey: "sidebar.menu.userActivity", url: "/admin/user-activity", icon: Activity },
+  onboarding: { titleKey: "sidebar.menu.onboarding", url: "/onboarding", icon: ClipboardList },
+  onboardingReview: { titleKey: "sidebar.menu.onboardingReview", url: "/admin/onboarding-review", icon: CheckSquare },
+  installSync: { titleKey: "sidebar.menu.installSync", url: "/admin/install-sync", icon: RefreshCw },
+  carrierProfiles: { titleKey: "sidebar.menu.carrierProfiles", url: "/admin/carrier-profiles", icon: Radio },
+  carrierRepMappings: { titleKey: "sidebar.menu.repMappings", url: "/admin/carrier-rep-mappings", icon: Users },
+  payroll: { titleKey: "sidebar.payroll", url: "/admin/payroll", icon: Calendar },
+  advPayroll: { titleKey: "sidebar.menu.advPayroll", url: "/admin/payroll-advanced", icon: DollarSign },
+  quickbooks: { titleKey: "sidebar.menu.quickbooks", url: "/admin/quickbooks", icon: Link2 },
+  automationRules: { titleKey: "sidebar.menu.automationRules", url: "/admin/automation-rules", icon: Zap },
+  savedReports: { titleKey: "sidebar.menu.savedReports", url: "/admin/saved-reports", icon: BookMarked },
 
   // New: Operations Automation
-  slaDashboard: { title: "SLA & Bottlenecks", url: "/operations/sla-dashboard", icon: Timer },
-  onboardingPipeline: { title: "Onboarding Pipeline", url: "/operations/onboarding-pipeline", icon: UserCheck },
+  slaDashboard: { titleKey: "sidebar.menu.slaDashboard", url: "/operations/sla-dashboard", icon: Timer },
+  onboardingPipeline: { titleKey: "sidebar.menu.onboardingPipeline", url: "/operations/onboarding-pipeline", icon: UserCheck },
 
   // New: Accounting Automation
-  paymentVariances: { title: "Payment Variances", url: "/accounting/payment-variances", icon: BadgeAlert },
-  monthEnd: { title: "Month-End Checklist", url: "/accounting/month-end", icon: CalendarCheck },
-  cashFlow: { title: "Cash Flow Forecast", url: "/accounting/cash-flow", icon: TrendingDown },
+  paymentVariances: { titleKey: "sidebar.menu.paymentVariances", url: "/accounting/payment-variances", icon: BadgeAlert },
+  monthEnd: { titleKey: "sidebar.menu.monthEnd", url: "/accounting/month-end", icon: CalendarCheck },
+  cashFlow: { titleKey: "sidebar.menu.cashFlow", url: "/accounting/cash-flow", icon: TrendingDown },
 
   // Task 33: Sales Leadership & Rep Experience
-  pipelineForecast: { title: "Pipeline Forecast", url: "/pipeline-forecast", icon: GitBranch },
-  coachingScorecards: { title: "Coaching Scorecards", url: "/coaching-scorecards", icon: Award },
-  earningsSimulator: { title: "Earnings Simulator", url: "/earnings-simulator", icon: Calculator },
-  referrals: { title: "Referrals & Follow-Ups", url: "/referrals", icon: Phone },
-  messages: { title: "Messages", url: "/messages", icon: MessageSquare },
-  myPerformance: { title: "My Performance", url: "/my-performance", icon: BarChart2 },
-} as const;
+  pipelineForecast: { titleKey: "sidebar.menu.pipelineForecast", url: "/pipeline-forecast", icon: GitBranch },
+  coachingScorecards: { titleKey: "sidebar.menu.coachingScorecards", url: "/coaching-scorecards", icon: Award },
+  earningsSimulator: { titleKey: "sidebar.menu.earningsSimulator", url: "/earnings-simulator", icon: Calculator },
+  referrals: { titleKey: "sidebar.menu.referrals", url: "/referrals", icon: Phone },
+  messages: { titleKey: "sidebar.menu.messages", url: "/messages", icon: MessageSquare },
+  myPerformance: { titleKey: "sidebar.menu.myPerformance", url: "/my-performance", icon: BarChart2 },
+};
 
 // ============ COMPOSED MENU GROUPS ============
 
@@ -311,18 +314,21 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
 // ============ COMPONENTS ============
 
 function MenuItems({ items, location, badges }: { items: MenuItem[]; location: string; badges?: Record<string, number> }) {
+  const { t } = useTranslation();
   return (
     <SidebarMenu>
       {items.map((item) => {
         const badgeCount = badges?.[item.url];
+        const label = t(item.titleKey);
+        const testId = item.titleKey.split(".").pop()?.toLowerCase().replace(/\s+/g, "-") ?? item.url.replace(/\//g, "-");
         return (
           <SidebarMenuItem key={item.url}>
             <SidebarMenuButton asChild isActive={location === item.url}>
-              <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
+              <Link href={item.url} data-testid={`link-${testId}`}>
                 <item.icon className="h-4 w-4" />
-                <span className="flex-1">{item.title}</span>
+                <span className="flex-1">{label}</span>
                 {badgeCount != null && badgeCount > 0 && (
-                  <Badge variant="destructive" className="ml-auto text-xs px-1.5 py-0.5 min-w-[1.25rem] text-center" data-testid={`badge-menu-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
+                  <Badge variant="destructive" className="ml-auto text-xs px-1.5 py-0.5 min-w-[1.25rem] text-center" data-testid={`badge-menu-${testId}`}>
                     {badgeCount > 99 ? "99+" : badgeCount}
                   </Badge>
                 )}
@@ -379,6 +385,7 @@ function CollapsibleSection({
 export function AppSidebar() {
   const { user, logout } = useAuth();
   const [location] = useLocation();
+  const { t } = useTranslation();
 
   if (!user) return null;
 
@@ -437,20 +444,20 @@ export function AppSidebar() {
     return (
       <>
         <CollapsibleSection 
-          title="Sales" 
+          title={t("sidebar.sales")} 
           icon={Briefcase} 
           items={menu.sales} 
           location={location}
           defaultOpen={true}
         />
         <CollapsibleSection 
-          title="My Account" 
+          title={t("sidebar.myAccount")} 
           icon={User} 
           items={menu.personal} 
           location={location}
         />
         <CollapsibleSection 
-          title="Resources" 
+          title={t("sidebar.resources")} 
           icon={BookOpen} 
           items={menu.resources} 
           location={location}
@@ -463,21 +470,21 @@ export function AppSidebar() {
   const renderAdminSidebar = () => (
     <>
       <CollapsibleSection 
-        title="Operations" 
+        title={t("sidebar.operations")} 
         icon={Briefcase} 
         items={adminOpsItems} 
         location={location}
         defaultOpen={true}
       />
       <CollapsibleSection 
-        title="Accounting" 
+        title={t("sidebar.accounting")} 
         icon={Wallet} 
         items={adminAccountingItems} 
         location={location}
         badges={exceptionBadges}
       />
       <CollapsibleSection 
-        title="Resources" 
+        title={t("sidebar.resources")} 
         icon={BookOpen} 
         items={[MENU.knowledge]} 
         location={location}
@@ -498,21 +505,21 @@ export function AppSidebar() {
     return (
       <>
         <CollapsibleSection 
-          title="Operations" 
+          title={t("sidebar.operations")} 
           icon={Briefcase} 
           items={opsItems} 
           location={location}
           defaultOpen={true}
         />
         <CollapsibleSection
-          title="Ops Automation"
+          title={t("sidebar.operationsAutomation")}
           icon={Timer}
           items={operationsAutomationItems}
           location={location}
         />
         {isExec ? (
           <CollapsibleSection 
-            title="Accounting" 
+            title={t("sidebar.accounting")} 
             icon={Wallet} 
             items={[MENU.audit, ...accountingAutomationItems]} 
             location={location}
@@ -520,14 +527,14 @@ export function AppSidebar() {
         ) : (
           <>
             <CollapsibleSection 
-              title="Accounting" 
+              title={t("sidebar.accounting")} 
               icon={Wallet} 
               items={adminAccountingItems} 
               location={location}
               badges={exceptionBadges}
             />
             <CollapsibleSection
-              title="Acct Automation"
+              title={t("sidebar.accountingAutomation")}
               icon={CalendarCheck}
               items={accountingAutomationItems}
               location={location}
@@ -535,26 +542,26 @@ export function AppSidebar() {
           </>
         )}
         <CollapsibleSection 
-          title="Insights" 
+          title={t("sidebar.insights")} 
           icon={TrendingUp} 
           items={adminInsightsItems} 
           location={location}
         />
         <CollapsibleSection 
-          title="My Account" 
+          title={t("sidebar.myAccount")} 
           icon={User} 
           items={[...personalItems, ...preferencesItems]} 
           location={location}
           badges={notifBadges}
         />
         <CollapsibleSection 
-          title="Resources" 
+          title={t("sidebar.resources")} 
           icon={BookOpen} 
           items={[MENU.knowledge]} 
           location={location}
         />
         <CollapsibleSection 
-          title="System Settings" 
+          title={t("sidebar.systemSettings")} 
           icon={Cog} 
           items={settingsItems} 
           location={location}
@@ -566,39 +573,39 @@ export function AppSidebar() {
   const renderDirectorSidebar = () => (
     <>
       <CollapsibleSection
-        title="Dashboard"
+        title={t("sidebar.menu.dashboard")}
         icon={LayoutDashboard}
         items={[MENU.dashboard, MENU.quickEntry]}
         location={location}
         defaultOpen={true}
       />
       <CollapsibleSection
-        title="Operations"
+        title={t("sidebar.operations")}
         icon={Briefcase}
         items={[MENU.orders, MENU.orderTracker, MENU.overrideApprovals, MENU.adjustments]}
         location={location}
       />
       <CollapsibleSection
-        title="Insights"
+        title={t("sidebar.insights")}
         icon={TrendingUp}
         items={[MENU.reports, MENU.execReports, MENU.userActivity]}
         location={location}
       />
       <CollapsibleSection
-        title="Settings"
+        title={t("common.settings")}
         icon={Cog}
         items={[MENU.users, MENU.rateCards]}
         location={location}
       />
       <CollapsibleSection
-        title="My Account"
+        title={t("sidebar.myAccount")}
         icon={User}
         items={[...personalItems, ...preferencesItems]}
         location={location}
         badges={notifBadges}
       />
       <CollapsibleSection
-        title="Resources"
+        title={t("sidebar.resources")}
         icon={BookOpen}
         items={[MENU.knowledge]}
         location={location}
@@ -609,52 +616,52 @@ export function AppSidebar() {
   const renderAccountingSidebar = () => (
     <>
       <CollapsibleSection
-        title="Dashboard"
+        title={t("sidebar.menu.dashboard")}
         icon={LayoutDashboard}
         items={[MENU.dashboard]}
         location={location}
         defaultOpen={true}
       />
       <CollapsibleSection
-        title="Orders"
+        title={t("sidebar.menu.orders")}
         icon={Briefcase}
         items={[MENU.orders]}
         location={location}
       />
       <CollapsibleSection
-        title="Accounting"
+        title={t("sidebar.accounting")}
         icon={Wallet}
         items={[...adminAccountingItems, MENU.payRuns, MENU.overrideApprovals]}
         location={location}
         badges={exceptionBadges}
       />
       <CollapsibleSection
-        title="Acct Automation"
+        title={t("sidebar.accountingAutomation")}
         icon={CalendarCheck}
         items={accountingAutomationItems}
         location={location}
       />
       <CollapsibleSection
-        title="Insights"
+        title={t("sidebar.insights")}
         icon={TrendingUp}
         items={[MENU.reports, MENU.execReports]}
         location={location}
       />
       <CollapsibleSection
-        title="System Settings"
+        title={t("sidebar.systemSettings")}
         icon={Cog}
         items={[MENU.rateCards, MENU.quickbooks, MENU.overrides]}
         location={location}
       />
       <CollapsibleSection
-        title="My Account"
+        title={t("sidebar.myAccount")}
         icon={User}
         items={[...personalItems, ...preferencesItems]}
         location={location}
         badges={notifBadges}
       />
       <CollapsibleSection
-        title="Resources"
+        title={t("sidebar.resources")}
         icon={BookOpen}
         items={[MENU.knowledge]}
         location={location}
@@ -699,6 +706,10 @@ export function AppSidebar() {
             </div>
           </div>
         </div>
+        <div className="flex items-center gap-1 mb-2">
+          <LanguageToggle />
+          <ThemeToggle />
+        </div>
         <Button
           variant="ghost"
           className="w-full justify-start"
@@ -706,7 +717,7 @@ export function AppSidebar() {
           data-testid="button-logout"
         >
           <LogOut className="h-4 w-4 mr-2" />
-          Sign Out
+          {t("common.signOut")}
         </Button>
       </SidebarFooter>
     </Sidebar>

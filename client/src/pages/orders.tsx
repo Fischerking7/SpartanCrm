@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n/config";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -35,12 +37,15 @@ function formatLocalDate(dateStr: string): string {
   const parts = dateStr.split("T")[0].split("-");
   if (parts.length !== 3) return dateStr;
   const [year, month, day] = parts.map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString();
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
+  return new Intl.DateTimeFormat(locale).format(new Date(year, month - 1, day));
 }
 
 export default function Orders() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const { toast } = useToast();
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
   const searchString = useSearch();
   const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
@@ -201,8 +206,8 @@ export default function Orders() {
         setShowNewOrderDialog(true);
         setLocation("/orders", { replace: true });
         toast({
-          title: "Lead information loaded",
-          description: "Customer details have been pre-filled from the lead.",
+          title: t("orders.leadLoaded"),
+          description: t("orders.leadPreFilled"),
         });
       } else if (fromMdu) {
         // Fetch MDU order data securely from backend (not via URL params)
@@ -233,13 +238,13 @@ export default function Orders() {
             }));
             setShowNewOrderDialog(true);
             toast({
-              title: "MDU order loaded",
-              description: "Order details have been pre-filled from the MDU staging order.",
+              title: t("orders.mduOrderLoaded"),
+              description: t("orders.mduOrderLoadedDesc"),
             });
           } catch (error) {
             toast({
-              title: "Failed to load MDU order",
-              description: "Could not fetch the MDU order details.",
+              title: t("orders.failedToLoadMduOrder"),
+              description: t("orders.importFailedMduOrderDesc"),
               variant: "destructive",
             });
           }
@@ -288,13 +293,13 @@ export default function Orders() {
       
       if (result.success > 0) {
         toast({
-          title: "Import completed",
-          description: `Successfully imported ${result.success} orders${result.failed > 0 ? `, ${result.failed} failed` : ""}`,
+          title: t("orders.importCompleted"),
+          description: t("orders.importCompletedDesc", { success: result.success, failed: result.failed > 0 ? t("orders.importCompletedWithFailed", { failed: result.failed }) : "" }),
         });
       }
     } catch (error: any) {
       toast({
-        title: "Import failed",
+        title: t("orders.importFailed"),
         description: error.message,
         variant: "destructive",
       });
@@ -496,10 +501,10 @@ export default function Orders() {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setShowNewOrderDialog(false);
       resetNewOrderForm();
-      toast({ title: "Order created successfully" });
+      toast({ title: t("orders.orderCreated") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedToCreateOrder"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -532,10 +537,10 @@ export default function Orders() {
       setShowMobileOrderDialog(false);
       resetMobileOrderForm();
       setActiveTab("mobile");
-      toast({ title: "Mobile order created successfully" });
+      toast({ title: t("orders.mobileOrderCreated") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create mobile order", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedToCreateMobileOrder"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -635,10 +640,10 @@ export default function Orders() {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/orders", data.id, "commission-lines"] });
       setSelectedOrder(data);
-      toast({ title: "Order updated" });
+      toast({ title: t("orders.orderUpdated") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to update order", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedToUpdateOrder"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -658,10 +663,10 @@ export default function Orders() {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/orders", data.id, "commission-lines"] });
       setSelectedOrder(data);
-      toast({ title: "Commission recalculated successfully" });
+      toast({ title: t("orders.commissionRecalculated") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to recalculate commission", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedRecalculate"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -680,10 +685,10 @@ export default function Orders() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setSelectedOrder(data);
-      toast({ title: "Order approved successfully" });
+      toast({ title: t("orders.orderApprovedSuccess") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to approve order", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedToApproveOrder"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -702,10 +707,10 @@ export default function Orders() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setSelectedOrder(data);
-      toast({ title: "Order moved to pending" });
+      toast({ title: t("orders.orderMovedToPending") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to move order to pending", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedToMovePending"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -725,10 +730,10 @@ export default function Orders() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setSelectedOrderIds(new Set());
-      toast({ title: `Approved ${data.approved} orders${data.skipped > 0 ? `, ${data.skipped} skipped` : ""}` });
+      toast({ title: t("orders.bulkApproveSuccess", { approved: data.approved, skipped: data.skipped > 0 ? t("orders.bulkApproveSkipped", { skipped: data.skipped }) : "" }) });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to bulk approve orders", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedBulkApprove"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -736,7 +741,7 @@ export default function Orders() {
 
   const handleExportToExcel = () => {
     if (!filteredOrders?.length) {
-      toast({ title: "No orders to export", variant: "destructive" });
+      toast({ title: t("orders.noOrdersToExport"), variant: "destructive" });
       return;
     }
     
@@ -744,8 +749,8 @@ export default function Orders() {
     // grossCommissionTotal comes from sum of commission line items (original rate card amounts)
     // baseCommissionEarned is the NET (after override deducted)
     const headers = isAdminOrExec 
-      ? ["Rep Name", "SLSID", "Account Number", "Customer Name", "Phone", "Email", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Gross Commission", "Override", "Net Commission", "Provider"]
-      : ["Rep Name", "SLSID", "Account Number", "Customer Name", "Phone", "Email", "House #/Bldg", "Street", "Apt/Unit", "City", "Zip Code", "Date Sold", "Date Install", "Service", "Provider"];
+      ? [t("orders.exportRepName"), t("orders.exportSlsid"), t("orders.exportAccountNumber"), t("orders.exportCustomerName"), t("orders.exportPhone"), t("orders.exportEmail"), t("orders.exportHouse"), t("orders.exportStreet"), t("orders.exportAptUnit"), t("orders.exportCity"), t("orders.exportZipCode"), t("orders.exportDateSold"), t("orders.exportDateInstall"), t("orders.exportService"), t("orders.exportGrossCommission"), t("orders.exportOverride"), t("orders.exportNetCommission"), t("orders.exportProvider")]
+      : [t("orders.exportRepName"), t("orders.exportSlsid"), t("orders.exportAccountNumber"), t("orders.exportCustomerName"), t("orders.exportPhone"), t("orders.exportEmail"), t("orders.exportHouse"), t("orders.exportStreet"), t("orders.exportAptUnit"), t("orders.exportCity"), t("orders.exportZipCode"), t("orders.exportDateSold"), t("orders.exportDateInstall"), t("orders.exportService"), t("orders.exportProvider")];
     const rows = filteredOrders.map(order => {
       const service = services?.find(s => s.id === order.serviceId);
       const provider = providers?.find(p => p.id === order.providerId);
@@ -805,17 +810,17 @@ export default function Orders() {
     a.click();
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
-    toast({ title: "Export successful", description: `${filteredOrders.length} orders exported` });
+    toast({ title: t("orders.exportSuccessful"), description: t("orders.ordersExported", { count: filteredOrders.length }) });
   };
 
   // Submit original order then open mobile order form
   const submitOrderThenOpenMobile = async () => {
     if (!newOrderForm.customerName || !newOrderForm.dateSold) {
-      toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
+      toast({ title: t("orders.missingRequiredFields"), description: t("orders.customerNameDateRequired"), variant: "destructive" });
       return;
     }
     if (isAdmin && !newOrderForm.repId) {
-      toast({ title: "Missing required fields", description: "Rep ID is required", variant: "destructive" });
+      toast({ title: t("orders.missingRequiredFields"), description: t("orders.repIdRequired"), variant: "destructive" });
       return;
     }
     
@@ -838,7 +843,7 @@ export default function Orders() {
       });
       setShowNewOrderDialog(false);
       setShowMobileOrderDialog(true);
-      toast({ title: "Order created", description: "Now add mobile order details" });
+      toast({ title: t("orders.orderCreatedAddMobile"), description: t("orders.orderCreatedAddMobileDesc") });
     } catch (error: any) {
       // Error already handled by mutation's onError
     }
@@ -858,9 +863,9 @@ export default function Orders() {
         throw new Error(error.message || "Failed to delete order");
       }
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      toast({ title: "Order deleted successfully" });
+      toast({ title: t("orders.orderDeleted") });
     } catch (error: any) {
-      toast({ title: "Failed to delete order", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedToDeleteOrder"), description: error.message, variant: "destructive" });
     }
   };
 
@@ -879,10 +884,10 @@ export default function Orders() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setSelectedOrder(data);
-      toast({ title: "Order marked as paid" });
+      toast({ title: t("orders.orderMarkedAsPaid") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to mark as paid", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedToMarkAsPaid"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -902,16 +907,16 @@ export default function Orders() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setSelectedOrderIds(new Set());
-      toast({ title: `${data.marked} orders marked as paid`, description: data.skipped > 0 ? `${data.skipped} orders skipped (already paid)` : undefined });
+      toast({ title: t("orders.bulkMarkPaidSuccess", { marked: data.marked }), description: data.skipped > 0 ? t("orders.bulkMarkPaidSkipped", { skipped: data.skipped }) : undefined });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to mark orders as paid", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedBulkMarkPaid"), description: error.message, variant: "destructive" });
     },
   });
 
   const handleBulkMarkPaid = () => {
     if (selectedOrderIds.size === 0) {
-      toast({ title: "No orders selected", variant: "destructive" });
+      toast({ title: t("orders.noOrdersSelected"), variant: "destructive" });
       return;
     }
     if (!confirm(`Mark ${selectedOrderIds.size} order(s) as paid?`)) {
@@ -936,16 +941,16 @@ export default function Orders() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setSelectedOrderIds(new Set());
-      toast({ title: `${data.deleted} order(s) deleted successfully` });
+      toast({ title: t("orders.bulkDeleteSuccess", { deleted: data.deleted }) });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to delete orders", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedBulkDelete"), description: error.message, variant: "destructive" });
     },
   });
 
   const handleBulkDelete = () => {
     if (selectedOrderIds.size === 0) {
-      toast({ title: "No orders selected", variant: "destructive" });
+      toast({ title: t("orders.noOrdersSelected"), variant: "destructive" });
       return;
     }
     if (!confirm(`Are you sure you want to permanently delete ${selectedOrderIds.size} order(s)? This action cannot be undone.`)) {
@@ -968,10 +973,10 @@ export default function Orders() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      toast({ title: "Order approval reversed" });
+      toast({ title: t("orders.orderApprovalReversed") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to reverse approval", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedReverseApproval"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -1015,20 +1020,20 @@ export default function Orders() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/queues/order-exceptions"] });
       setFlaggingOrder(null);
       setFlagReason("");
-      toast({ title: "Order flagged", description: "Order has been sent to the exception queue" });
+      toast({ title: t("orders.orderFlagged"), description: t("orders.orderFlaggedDesc") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to flag order", description: error.message, variant: "destructive" });
+      toast({ title: t("orders.failedToFlagOrder"), description: error.message, variant: "destructive" });
     },
   });
 
   const handleCreateOrder = () => {
     if (!newOrderForm.customerName || !newOrderForm.dateSold) {
-      toast({ title: "Missing required fields", description: "Customer name and date sold are required", variant: "destructive" });
+      toast({ title: t("orders.missingRequiredFields"), description: t("orders.customerNameDateRequired"), variant: "destructive" });
       return;
     }
     if (isAdmin && !newOrderForm.repId) {
-      toast({ title: "Missing required fields", description: "Rep ID is required", variant: "destructive" });
+      toast({ title: t("orders.missingRequiredFields"), description: t("orders.repIdRequired"), variant: "destructive" });
       return;
     }
     createOrderMutation.mutate(newOrderForm);
@@ -1147,7 +1152,7 @@ export default function Orders() {
     },
     {
       key: "invoiceNumber",
-      header: "Invoice #",
+      header: t("orders.invoiceNumber"),
       cell: (row: SalesOrder) => (
         <span className="font-mono text-sm">{row.invoiceNumber || "-"}</span>
       ),
@@ -1156,7 +1161,7 @@ export default function Orders() {
       ? [
           {
             key: "repId",
-            header: "Rep ID",
+            header: t("orders.repId"),
             cell: (row: SalesOrder) => (
               <span className="font-mono text-sm">{row.repId}</span>
             ),
@@ -1165,14 +1170,14 @@ export default function Orders() {
       : []),
     {
       key: "customerName",
-      header: "Customer Name",
+      header: t("orders.customerName"),
       cell: (row: SalesOrder) => (
         <span className="font-medium truncate block max-w-[150px]">{row.customerName}</span>
       ),
     },
     {
       key: "accountNumber",
-      header: "Account #",
+      header: t("orders.accountNumber"),
       cell: (row: SalesOrder) => (
         <span className="font-mono text-sm text-muted-foreground truncate block max-w-[100px]">
           {row.accountNumber || "-"}
@@ -1181,7 +1186,7 @@ export default function Orders() {
     },
     {
       key: "dateSold",
-      header: "Date Sold",
+      header: t("orders.dateSold"),
       cell: (row: SalesOrder) => (
         <span className="text-sm text-muted-foreground">
           {formatLocalDate(row.dateSold)}
@@ -1190,7 +1195,7 @@ export default function Orders() {
     },
     {
       key: "installDate",
-      header: "Install Date",
+      header: t("orders.installDate"),
       cell: (row: SalesOrder) => (
         <span className="text-sm text-muted-foreground">
           {row.installDate ? formatLocalDate(row.installDate) : "-"}
@@ -1199,12 +1204,12 @@ export default function Orders() {
     },
     {
       key: "installType",
-      header: "Install Type",
+      header: t("orders.installType"),
       cell: (row: SalesOrder) => {
         const typeLabels: Record<string, string> = {
-          "AGENT_INSTALL": "Agent Install",
-          "DIRECT_SHIP": "Direct Ship",
-          "TECH_INSTALL": "Tech Install",
+          "AGENT_INSTALL": t("orders.agentInstall"),
+          "DIRECT_SHIP": t("orders.directShip"),
+          "TECH_INSTALL": t("orders.techInstall"),
         };
         return (
           <span className="text-sm text-muted-foreground">
@@ -1215,7 +1220,7 @@ export default function Orders() {
     },
         ...((canSeeCommission && (activeTab === "orders" || !isAdminOrExec)) ? [{
       key: "baseCommissionEarned",
-      header: "Commission",
+      header: t("orders.commission"),
       cell: (row: SalesOrder) => {
         const grossCommission = parseFloat((row as any).grossCommissionTotal || "0");
         const netCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
@@ -1237,7 +1242,7 @@ export default function Orders() {
     }] : []),
     ...(activeTab === "orders" && isAdminOrExec ? [{
       key: "overrideAmount",
-      header: "Override",
+      header: t("orders.override"),
       cell: (row: SalesOrder) => {
         const amount = getOverrideAmount(row);
         return (
@@ -1250,7 +1255,7 @@ export default function Orders() {
     }] : []),
     ...(activeTab === "mobile" ? [{
       key: "mobileLinesQty",
-      header: "Lines",
+      header: t("orders.lines"),
       cell: (row: SalesOrder) => (
         <span className="font-mono text-right block">
           {(row as any).mobileLinesQty || 0}
@@ -1260,7 +1265,7 @@ export default function Orders() {
     }] : []),
     ...(activeTab === "mobile" ? [{
       key: "mobileCommission",
-      header: "Mobile Commission",
+      header: t("orders.mobileCommission"),
       cell: (row: SalesOrder) => {
         const mobileCommission = parseFloat((row as any).mobileCommissionTotal || "0");
         if (isAdminOrExec) {
@@ -1282,7 +1287,7 @@ export default function Orders() {
     }] : []),
     ...(activeTab === "mobile" && isAdminOrExec ? [{
       key: "mobileOverride",
-      header: "Mobile Override",
+      header: t("orders.mobileOverride"),
       cell: (row: SalesOrder) => {
         const amount = parseFloat((row as any).mobileOverrideDeduction || "0");
         return (
@@ -1295,7 +1300,7 @@ export default function Orders() {
     }] : []),
     ...(isAdminOrExec ? [{
       key: "totalCommission",
-      header: "Total",
+      header: t("orders.total"),
       cell: (row: SalesOrder) => {
         const gross = activeTab === "mobile"
           ? parseFloat((row as any).mobileCommissionTotal || "0")
@@ -1314,7 +1319,7 @@ export default function Orders() {
     }] : []),
     {
       key: "provider",
-      header: "Provider",
+      header: t("orders.provider"),
       cell: (row: SalesOrder) => {
         const provider = providers?.find(p => p.id === row.providerId);
         return <span className="text-sm truncate block max-w-[100px]">{provider?.name || "-"}</span>;
@@ -1322,7 +1327,7 @@ export default function Orders() {
     },
     ...(user?.role === "REP" ? [{
       key: "simplifiedStatus",
-      header: "Status",
+      header: t("orders.status"),
       cell: (row: SalesOrder) => (
         <SimplifiedStatusBadge status={
           row.simplifiedStatus
@@ -1340,20 +1345,20 @@ export default function Orders() {
     }] : [
       {
         key: "jobStatus",
-        header: "Job",
+        header: t("orders.job"),
         cell: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
       },
       // Approval status column
       {
         key: "approvalStatus",
-        header: "Approval",
+        header: t("orders.approval"),
         cell: (row: SalesOrder) => <ApprovalStatusBadge status={row.approvalStatus} />,
       },
     ]),
     // Payment status only visible to ADMIN and OPERATIONS
     ...((user?.role === "ADMIN" || user?.role === "OPERATIONS") ? [{
       key: "paymentStatus",
-      header: "Payment",
+      header: t("orders.payment"),
       cell: (row: SalesOrder) => (
         <div className="flex items-center gap-1.5 flex-wrap">
           <PaymentStatusBadge status={row.paymentStatus} />
@@ -1621,10 +1626,10 @@ export default function Orders() {
                 <Card data-testid="insight-net-earned">
                   <CardContent className="p-3">
                     <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <span className="text-xs text-muted-foreground">Net Earned</span>
+                      <span className="text-xs text-muted-foreground">{t("orders.netEarned")}</span>
                       <DollarSign className="h-3.5 w-3.5 text-primary" />
                     </div>
-                    <p className="text-xl font-bold font-mono">${totalEarned.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                    <p className="text-xl font-bold font-mono">${totalEarned.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
                   </CardContent>
                 </Card>
               )}
@@ -1632,10 +1637,10 @@ export default function Orders() {
                 <Card data-testid="insight-total-paid">
                   <CardContent className="p-3">
                     <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <span className="text-xs text-muted-foreground">Total Paid</span>
+                      <span className="text-xs text-muted-foreground">{t("orders.totalPaid")}</span>
                       <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
                     </div>
-                    <p className="text-xl font-bold font-mono">${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                    <p className="text-xl font-bold font-mono">${totalPaid.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
                   </CardContent>
                 </Card>
               )}
@@ -1687,7 +1692,7 @@ export default function Orders() {
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search orders..."
+              placeholder={t("orders.searchPlaceholder")}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
@@ -1703,10 +1708,10 @@ export default function Orders() {
           >
             <Select value={providerFilter} onValueChange={setProviderFilter}>
               <SelectTrigger className={isMobile ? "w-full" : "w-[140px]"} data-testid="select-provider-filter">
-                <SelectValue placeholder="Provider" />
+                <SelectValue placeholder={t("orders.provider")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Providers</SelectItem>
+                <SelectItem value="all">{t("orders.allProviders")}</SelectItem>
                 {providers?.map((p) => (
                   <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                 ))}
@@ -1714,10 +1719,10 @@ export default function Orders() {
             </Select>
             <Select value={clientFilter} onValueChange={setClientFilter}>
               <SelectTrigger className={isMobile ? "w-full" : "w-[130px]"} data-testid="select-client-filter">
-                <SelectValue placeholder="Client" />
+                <SelectValue placeholder={t("orders.client")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Clients</SelectItem>
+                <SelectItem value="all">{t("orders.allClients")}</SelectItem>
                 {clients?.map((c) => (
                   <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                 ))}
@@ -1726,10 +1731,10 @@ export default function Orders() {
             {isAdmin && (
               <Select value={repFilter} onValueChange={setRepFilter}>
                 <SelectTrigger className={isMobile ? "w-full" : "w-[160px]"} data-testid="select-rep-filter">
-                  <SelectValue placeholder="Rep" />
+                  <SelectValue placeholder={t("orders.rep")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Reps</SelectItem>
+                  <SelectItem value="all">{t("orders.allReps")}</SelectItem>
                   {reps?.map((u: User) => (
                     <SelectItem key={u.id} value={u.repId}>{u.repId} - {u.name}</SelectItem>
                   ))}
@@ -1738,23 +1743,23 @@ export default function Orders() {
             )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className={isMobile ? "w-full" : "w-[140px]"} data-testid="select-status-filter">
-                <SelectValue placeholder="Job Status" />
+                <SelectValue placeholder={t("orders.jobStatus")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Job Status</SelectItem>
-                <SelectItem value="PENDING">Pending</SelectItem>
-                <SelectItem value="COMPLETED">Connected</SelectItem>
-                <SelectItem value="CANCELED">Cancelled</SelectItem>
+                <SelectItem value="all">{t("orders.allJobStatus")}</SelectItem>
+                <SelectItem value="PENDING">{t("orders.pending")}</SelectItem>
+                <SelectItem value="COMPLETED">{t("orders.connected")}</SelectItem>
+                <SelectItem value="CANCELED">{t("orders.cancelled")}</SelectItem>
               </SelectContent>
             </Select>
             <div className={isMobile ? "space-y-2 w-full" : "flex items-center gap-2"}>
               <Select value={dateFilterType} onValueChange={setDateFilterType}>
                 <SelectTrigger className={isMobile ? "w-full" : "w-[130px]"} data-testid="select-date-filter-type">
-                  <SelectValue placeholder="Date Type" />
+                  <SelectValue placeholder={t("orders.dateType")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="installDate">Install Date</SelectItem>
-                  <SelectItem value="dateSold">Date Sold</SelectItem>
+                  <SelectItem value="installDate">{t("orders.installDate")}</SelectItem>
+                  <SelectItem value="dateSold">{t("orders.dateSold")}</SelectItem>
                 </SelectContent>
               </Select>
               <Input
@@ -1762,59 +1767,59 @@ export default function Orders() {
                 value={dateFromFilter}
                 onChange={(e) => setDateFromFilter(e.target.value)}
                 className={isMobile ? "w-full" : "w-[140px]"}
-                placeholder="From"
+                placeholder={t("common.from")}
                 data-testid="input-date-from"
               />
-              {!isMobile && <span className="text-muted-foreground">to</span>}
+              {!isMobile && <span className="text-muted-foreground">{t("common.to")}</span>}
               <Input
                 type="date"
                 value={dateToFilter}
                 onChange={(e) => setDateToFilter(e.target.value)}
                 className={isMobile ? "w-full" : "w-[140px]"}
-                placeholder="To"
+                placeholder={t("common.to")}
                 data-testid="input-date-to"
               />
             </div>
             {isAdmin && (
               <Select value={exportFilter} onValueChange={setExportFilter}>
                 <SelectTrigger className={isMobile ? "w-full" : "w-[160px]"} data-testid="select-export-filter">
-                  <SelectValue placeholder="Export status" />
+                  <SelectValue placeholder={t("orders.exportStatus")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Export Status</SelectItem>
-                  <SelectItem value="ready">Ready to Export</SelectItem>
-                  <SelectItem value="unexported">Not Exported</SelectItem>
-                  <SelectItem value="exported">Exported</SelectItem>
+                  <SelectItem value="all">{t("orders.allExportStatus")}</SelectItem>
+                  <SelectItem value="ready">{t("orders.readyToExport")}</SelectItem>
+                  <SelectItem value="unexported">{t("orders.notExported")}</SelectItem>
+                  <SelectItem value="exported">{t("orders.exported")}</SelectItem>
                 </SelectContent>
               </Select>
             )}
             <Select value={approvalFilter} onValueChange={setApprovalFilter}>
               <SelectTrigger className={isMobile ? "w-full" : "w-[160px]"} data-testid="select-approval-filter">
-                <SelectValue placeholder="Approval" />
+                <SelectValue placeholder={t("orders.approval")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Approval</SelectItem>
-                <SelectItem value="UNAPPROVED">Pending Approval</SelectItem>
-                <SelectItem value="APPROVED">Approved</SelectItem>
+                <SelectItem value="all">{t("orders.allApproval")}</SelectItem>
+                <SelectItem value="UNAPPROVED">{t("orders.pendingApproval")}</SelectItem>
+                <SelectItem value="APPROVED">{t("orders.approved")}</SelectItem>
               </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger className={isMobile ? "w-full" : "w-[180px]"} data-testid="select-sort-orders">
-                <SelectValue placeholder="Sort by" />
+                <SelectValue placeholder={t("orders.sortBy")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="repId_asc">Rep ID (A-Z)</SelectItem>
-                <SelectItem value="repId_desc">Rep ID (Z-A)</SelectItem>
-                <SelectItem value="dateSold_desc">Date Sold (Newest)</SelectItem>
-                <SelectItem value="dateSold_asc">Date Sold (Oldest)</SelectItem>
-                <SelectItem value="customerName_asc">Customer (A-Z)</SelectItem>
-                <SelectItem value="customerName_desc">Customer (Z-A)</SelectItem>
-                <SelectItem value="commission_desc">Commission (High-Low)</SelectItem>
-                <SelectItem value="commission_asc">Commission (Low-High)</SelectItem>
-                <SelectItem value="installDate_desc">Install Date (Newest)</SelectItem>
-                <SelectItem value="installDate_asc">Install Date (Oldest)</SelectItem>
-                <SelectItem value="createdAt_desc">Created (Newest)</SelectItem>
-                <SelectItem value="createdAt_asc">Created (Oldest)</SelectItem>
+                <SelectItem value="repId_asc">{t("orders.repIdAsc")}</SelectItem>
+                <SelectItem value="repId_desc">{t("orders.repIdDesc")}</SelectItem>
+                <SelectItem value="dateSold_desc">{t("orders.dateSoldNewest")}</SelectItem>
+                <SelectItem value="dateSold_asc">{t("orders.dateSoldOldest")}</SelectItem>
+                <SelectItem value="customerName_asc">{t("orders.customerAsc")}</SelectItem>
+                <SelectItem value="customerName_desc">{t("orders.customerDesc")}</SelectItem>
+                <SelectItem value="commission_desc">{t("orders.commissionHighLow")}</SelectItem>
+                <SelectItem value="commission_asc">{t("orders.commissionLowHigh")}</SelectItem>
+                <SelectItem value="installDate_desc">{t("orders.installDateNewest")}</SelectItem>
+                <SelectItem value="installDate_asc">{t("orders.installDateOldest")}</SelectItem>
+                <SelectItem value="createdAt_desc">{t("orders.createdNewest")}</SelectItem>
+                <SelectItem value="createdAt_asc">{t("orders.createdOldest")}</SelectItem>
               </SelectContent>
             </Select>
           </MobileFilterDrawer>
@@ -1824,37 +1829,37 @@ export default function Orders() {
             columns={columns}
             data={filteredOrders || []}
             isLoading={isLoading}
-            emptyMessage="No orders found"
+            emptyMessage={t("orders.noOrders")}
             testId="table-orders"
             mobileCard={{
               title: (row: SalesOrder) => row.customerName,
-              subtitle: (row: SalesOrder) => `${row.invoiceNumber || "No Invoice"} \u00B7 ${row.repId || ""}`,
+              subtitle: (row: SalesOrder) => `${row.invoiceNumber || t("orders.noInvoice")} \u00B7 ${row.repId || ""}`,
               fields: [
                 {
-                  label: "Date Sold",
+                  label: t("orders.dateSold"),
                   render: (row: SalesOrder) => formatLocalDate(row.dateSold),
                 },
                 {
-                  label: "Install Date",
+                  label: t("orders.installDate"),
                   render: (row: SalesOrder) => row.installDate ? formatLocalDate(row.installDate) : "-",
                 },
                 {
-                  label: "Job Status",
+                  label: t("orders.jobStatus"),
                   render: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
                 },
                 {
-                  label: "Approval",
+                  label: t("orders.approval"),
                   render: (row: SalesOrder) => <ApprovalStatusBadge status={row.approvalStatus} />,
                 },
                 ...(canSeeCommission ? [{
-                  label: "Commission",
+                  label: t("orders.commission"),
                   render: (row: SalesOrder) => {
                     const netCommission = parseFloat(row.baseCommissionEarned) + parseFloat(row.incentiveEarned || "0");
                     return <span className="font-mono">${netCommission.toFixed(2)}</span>;
                   },
                 }] : []),
                 {
-                  label: "Provider",
+                  label: t("orders.provider"),
                   render: (row: SalesOrder) => {
                     const provider = providers?.find(p => p.id === row.providerId);
                     return provider?.name || "-";
@@ -1889,7 +1894,7 @@ export default function Orders() {
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-muted-foreground">Customer</Label>
+                  <Label className="text-muted-foreground">{t("orders.customer")}</Label>
                   {isOperations ? (
                     <Input
                       defaultValue={selectedOrder.customerName}
@@ -1906,7 +1911,7 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Email</Label>
+                  <Label className="text-muted-foreground">{t("orders.email")}</Label>
                   {isOperations ? (
                     <Input
                       defaultValue={selectedOrder.customerEmail || ""}
@@ -1923,7 +1928,7 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Phone</Label>
+                  <Label className="text-muted-foreground">{t("orders.phone")}</Label>
                   {isOperations ? (
                     <Input
                       defaultValue={selectedOrder.customerPhone || ""}
@@ -1940,7 +1945,7 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Rep ID (Sales ID)</Label>
+                  <Label className="text-muted-foreground">{t("orders.repIdSalesId")}</Label>
                   {isAdminOrExec ? (
                     <Select
                       value={selectedOrder.repId || undefined}
@@ -1961,7 +1966,7 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Client</Label>
+                  <Label className="text-muted-foreground">{t("orders.client")}</Label>
                   {isOperations ? (
                     <Select
                       value={selectedOrder.clientId || ""}
@@ -1969,7 +1974,7 @@ export default function Orders() {
                       disabled={updateJobStatusMutation.isPending}
                     >
                       <SelectTrigger className="w-full" data-testid="select-order-client">
-                        <SelectValue placeholder="Select client" />
+                        <SelectValue placeholder={t("orders.selectClient")} />
                       </SelectTrigger>
                       <SelectContent>
                         {clients?.map((client) => (
@@ -1982,7 +1987,7 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Provider</Label>
+                  <Label className="text-muted-foreground">{t("orders.provider")}</Label>
                   {isOperations ? (
                     <Select
                       value={selectedOrder.providerId || ""}
@@ -1990,7 +1995,7 @@ export default function Orders() {
                       disabled={updateJobStatusMutation.isPending}
                     >
                       <SelectTrigger className="w-full" data-testid="select-order-provider">
-                        <SelectValue placeholder="Select provider" />
+                        <SelectValue placeholder={t("orders.selectProvider")} />
                       </SelectTrigger>
                       <SelectContent>
                         {providers?.map((provider) => (
@@ -2003,7 +2008,7 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Service</Label>
+                  <Label className="text-muted-foreground">{t("orders.service")}</Label>
                   {isOperations ? (
                     <Select
                       value={selectedOrder.serviceId || ""}
@@ -2011,7 +2016,7 @@ export default function Orders() {
                       disabled={updateJobStatusMutation.isPending}
                     >
                       <SelectTrigger className="w-full" data-testid="select-order-service">
-                        <SelectValue placeholder="Select service" />
+                        <SelectValue placeholder={t("orders.selectService")} />
                       </SelectTrigger>
                       <SelectContent>
                         {services?.map((service) => (
@@ -2024,7 +2029,7 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">TV Sold</Label>
+                  <Label className="text-muted-foreground">{t("orders.tvSold")}</Label>
                   <div className="flex items-center gap-2 mt-1">
                     {isOperations ? (
                       <>
@@ -2036,16 +2041,16 @@ export default function Orders() {
                           data-testid="switch-tv-sold"
                         />
                         <Label htmlFor="detail-tv-sold" className="text-sm cursor-pointer">
-                          {selectedOrder.tvSold ? "Yes" : "No"}
+                          {selectedOrder.tvSold ? t("orders.yes") : t("orders.no")}
                         </Label>
                       </>
                     ) : (
-                      <p className="font-medium">{selectedOrder.tvSold ? "Yes" : "No"}</p>
+                      <p className="font-medium">{selectedOrder.tvSold ? t("orders.yes") : t("orders.no")}</p>
                     )}
                   </div>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Mobile Sold</Label>
+                  <Label className="text-muted-foreground">{t("orders.mobileSold")}</Label>
                   <div className="flex items-center gap-2 mt-1">
                     {isOperations ? (
                       <>
@@ -2074,17 +2079,17 @@ export default function Orders() {
                           data-testid="switch-mobile-sold"
                         />
                         <Label htmlFor="detail-mobile-sold" className="text-sm cursor-pointer">
-                          {selectedOrder.mobileSold ? "Yes" : "No"}
+                          {selectedOrder.mobileSold ? t("orders.yes") : t("orders.no")}
                         </Label>
                       </>
                     ) : (
-                      <p className="font-medium">{selectedOrder.mobileSold ? "Yes" : "No"}</p>
+                      <p className="font-medium">{selectedOrder.mobileSold ? t("orders.yes") : t("orders.no")}</p>
                     )}
                   </div>
                 </div>
                 {selectedOrder.mobileSold && (
                   <div>
-                    <Label className="text-muted-foreground">Mobile Type</Label>
+                    <Label className="text-muted-foreground">{t("orders.mobileType")}</Label>
                     {isOperations ? (
                       <Select
                         value={selectedOrder.mobileProductType || ""}
@@ -2092,10 +2097,10 @@ export default function Orders() {
                         disabled={updateJobStatusMutation.isPending}
                       >
                         <SelectTrigger className="w-full" data-testid="select-mobile-product-type">
-                          <SelectValue placeholder="Select type" />
+                          <SelectValue placeholder={t("orders.selectType")} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="UNLIMITED">Unlimited</SelectItem>
+                          <SelectItem value="UNLIMITED">{t("orders.unlimited")}</SelectItem>
                           <SelectItem value="3_GIG">3 Gig</SelectItem>
                           <SelectItem value="1_GIG">1 Gig</SelectItem>
                           <SelectItem value="BYOD">BYOD</SelectItem>
@@ -2103,7 +2108,7 @@ export default function Orders() {
                       </Select>
                     ) : (
                       <p className="font-medium">
-                        {selectedOrder.mobileProductType === "UNLIMITED" ? "Unlimited" :
+                        {selectedOrder.mobileProductType === "UNLIMITED" ? t("orders.unlimited") :
                          selectedOrder.mobileProductType === "3_GIG" ? "3 Gig" :
                          selectedOrder.mobileProductType === "1_GIG" ? "1 Gig" :
                          selectedOrder.mobileProductType === "BYOD" ? "BYOD" : "-"}
@@ -2112,7 +2117,7 @@ export default function Orders() {
                   </div>
                 )}
                 <div>
-                  <Label className="text-muted-foreground">Account Number</Label>
+                  <Label className="text-muted-foreground">{t("orders.accountNumber")}</Label>
                   {isOperations ? (
                     <Input
                       defaultValue={selectedOrder.accountNumber || ""}
@@ -2129,37 +2134,37 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">House #/Bldg</Label>
+                  <Label className="text-muted-foreground">{t("orders.house")}</Label>
                   <p className="text-sm">{selectedOrder.houseNumber || "-"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Street</Label>
+                  <Label className="text-muted-foreground">{t("orders.street")}</Label>
                   <p className="text-sm">{selectedOrder.streetName || "-"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Apt/Unit</Label>
+                  <Label className="text-muted-foreground">{t("orders.aptUnit")}</Label>
                   <p className="text-sm">{selectedOrder.aptUnit || "-"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">City</Label>
+                  <Label className="text-muted-foreground">{t("orders.city")}</Label>
                   <p className="text-sm">{selectedOrder.city || "-"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Zip Code</Label>
+                  <Label className="text-muted-foreground">{t("orders.zipCode")}</Label>
                   <p className="text-sm">{selectedOrder.zipCode || "-"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Date Sold</Label>
+                  <Label className="text-muted-foreground">{t("orders.dateSold")}</Label>
                   <p>{formatLocalDate(selectedOrder.dateSold)}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Created At</Label>
+                  <Label className="text-muted-foreground">{t("orders.createdAt")}</Label>
                   <p className="text-sm">
-                    {selectedOrder.createdAt ? new Date(selectedOrder.createdAt).toLocaleString() : "-"}
+                    {selectedOrder.createdAt ? new Intl.DateTimeFormat(i18n.language === "es" ? "es-MX" : "en-US", { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(selectedOrder.createdAt)) : "-"}
                   </p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Install Date</Label>
+                  <Label className="text-muted-foreground">{t("orders.installDate")}</Label>
                   <div className="mt-1">
                     <Input
                       type="date"
@@ -2173,7 +2178,7 @@ export default function Orders() {
                   </div>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Install Time</Label>
+                  <Label className="text-muted-foreground">{t("orders.installTime")}</Label>
                   <div className="mt-1">
                     <Select
                       value={selectedOrder.installTime || ""}
@@ -2181,7 +2186,7 @@ export default function Orders() {
                       disabled={updateJobStatusMutation.isPending}
                     >
                       <SelectTrigger className="w-full" data-testid="select-detail-install-time">
-                        <SelectValue placeholder="Select time" />
+                        <SelectValue placeholder={t("orders.selectTimeWindow")} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="8-11am">8-11am</SelectItem>
@@ -2192,7 +2197,7 @@ export default function Orders() {
                   </div>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Install Type</Label>
+                  <Label className="text-muted-foreground">{t("orders.installType")}</Label>
                   <div className="mt-1">
                     <Select
                       value={selectedOrder.installType || ""}
@@ -2200,18 +2205,18 @@ export default function Orders() {
                       disabled={updateJobStatusMutation.isPending}
                     >
                       <SelectTrigger className="w-full" data-testid="select-detail-install-type">
-                        <SelectValue placeholder="Select type" />
+                        <SelectValue placeholder={t("orders.selectInstallType")} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="AGENT_INSTALL">Agent Install</SelectItem>
-                        <SelectItem value="DIRECT_SHIP">Direct Ship</SelectItem>
-                        <SelectItem value="TECH_INSTALL">Tech Install</SelectItem>
+                        <SelectItem value="AGENT_INSTALL">{t("orders.agentInstall")}</SelectItem>
+                        <SelectItem value="DIRECT_SHIP">{t("orders.directShip")}</SelectItem>
+                        <SelectItem value="TECH_INSTALL">{t("orders.techInstall")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Job Status</Label>
+                  <Label className="text-muted-foreground">{t("orders.jobStatus")}</Label>
                   <div className="mt-1">
                     <Select
                       value={selectedOrder.jobStatus}
@@ -2222,31 +2227,31 @@ export default function Orders() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="PENDING">Pending</SelectItem>
-                        <SelectItem value="COMPLETED">Connected</SelectItem>
-                        <SelectItem value="CANCELED">Cancelled</SelectItem>
+                        <SelectItem value="PENDING">{t("orders.pending")}</SelectItem>
+                        <SelectItem value="COMPLETED">{t("orders.connected")}</SelectItem>
+                        <SelectItem value="CANCELED">{t("orders.cancelled")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
                               </div>
               <div className="border-t pt-4">
-                <Label className="text-muted-foreground">Service Breakdown</Label>
+                <Label className="text-muted-foreground">{t("orders.serviceBreakdown")}</Label>
                 <div className="mt-2 space-y-2">
                   <div className="flex justify-between gap-2">
-                    <span>{services?.find(s => s.id === selectedOrder.serviceId)?.name || "Internet Service"}</span>
-                    <span className="font-mono text-muted-foreground">Included</span>
+                    <span>{services?.find(s => s.id === selectedOrder.serviceId)?.name || t("orders.internetService")}</span>
+                    <span className="font-mono text-muted-foreground">{t("orders.included")}</span>
                   </div>
                   {selectedOrder.tvSold && (
                     <div className="flex justify-between gap-2">
-                      <span>TV Addon</span>
-                      <span className="font-mono text-muted-foreground">Included</span>
+                      <span>{t("orders.tvAddon")}</span>
+                      <span className="font-mono text-muted-foreground">{t("orders.included")}</span>
                     </div>
                   )}
                   {selectedOrder.mobileSold && selectedOrder.mobileLinesQty > 0 && (
                     <div className="flex justify-between gap-2">
-                      <span>Mobile Lines ({selectedOrder.mobileLinesQty})</span>
-                      <span className="font-mono text-muted-foreground">Included</span>
+                      <span>{t("orders.mobileLines", { count: selectedOrder.mobileLinesQty })}</span>
+                      <span className="font-mono text-muted-foreground">{t("orders.included")}</span>
                     </div>
                   )}
                 </div>
@@ -2254,7 +2259,7 @@ export default function Orders() {
               {canSeeCommission && (
                 <div className="border-t pt-4">
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <Label className="text-muted-foreground">Commission Breakdown</Label>
+                    <Label className="text-muted-foreground">{t("orders.commissionBreakdown")}</Label>
                     {isAdmin && (
                       <Button
                         size="sm"
@@ -2263,7 +2268,7 @@ export default function Orders() {
                         disabled={recalculateCommissionMutation.isPending}
                         data-testid="button-recalculate-commission"
                       >
-                        {recalculateCommissionMutation.isPending ? "Recalculating..." : "Recalculate"}
+                        {recalculateCommissionMutation.isPending ? t("orders.recalculating") : t("orders.recalculate")}
                       </Button>
                     )}
                   </div>
@@ -2301,13 +2306,13 @@ export default function Orders() {
                             <>
                               {commissionLines.map((line, idx) => {
                                 const categoryLabels: Record<string, string> = {
-                                  "INTERNET": "Internet",
-                                  "MOBILE": "Mobile",
-                                  "VIDEO": "Video (TV)"
+                                  "INTERNET": t("orders.internet"),
+                                  "MOBILE": t("orders.mobileCategory"),
+                                  "VIDEO": t("orders.video")
                                 };
                                 const label = categoryLabels[line.serviceCategory] || line.serviceCategory;
                                 const detail = line.serviceCategory === "MOBILE" && line.quantity > 1 
-                                  ? ` (${line.quantity} lines)` 
+                                  ? ` (${t("orders.lines", { count: line.quantity })})` 
                                   : line.serviceCategory === "MOBILE" && line.mobileProductType
                                     ? ` (${line.mobileProductType.replace("_", " ")})`
                                     : "";
@@ -2411,11 +2416,11 @@ export default function Orders() {
                 data-testid="button-mark-paid"
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
-                {markPaidMutation.isPending ? "Marking..." : "Mark as Paid"}
+                {markPaidMutation.isPending ? t("orders.markingAsPaid") : t("orders.markAsPaid")}
               </Button>
             )}
             <Button variant="outline" onClick={() => setSelectedOrder(null)}>
-              Close
+              {t("orders.close")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2424,8 +2429,8 @@ export default function Orders() {
       <Dialog open={showNewOrderDialog} onOpenChange={(open) => { setShowNewOrderDialog(open); if (!open) resetNewOrderForm(); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-visible flex flex-col">
           <DialogHeader>
-            <DialogTitle>Create New Order</DialogTitle>
-            <DialogDescription>Enter the order details below</DialogDescription>
+            <DialogTitle>{t("orders.createOrder")}</DialogTitle>
+            <DialogDescription>{t("orders.enterOrderDetails")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 overflow-y-auto flex-1 pr-2">
             {!showCapture ? (
@@ -2437,7 +2442,7 @@ export default function Orders() {
                 data-testid="button-capture-from-screenshot"
               >
                 <Camera className="h-4 w-4 mr-2" />
-                Capture from Screenshot
+                {t("orders.captureFromScreenshot")}
               </Button>
             ) : (
               <ScreenshotCapture
@@ -2456,7 +2461,7 @@ export default function Orders() {
                     <NativeSelect
                       value={newOrderForm.repId}
                       onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}
-                      placeholder="Select user"
+                      placeholder={t("orders.selectUser")}
                       options={reps?.map((rep) => ({
                         value: rep.repId,
                         label: `${rep.name} (${rep.repId}) - ${rep.role}`
@@ -2466,7 +2471,7 @@ export default function Orders() {
                   ) : (
                     <Select value={newOrderForm.repId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, repId: v }))}>
                       <SelectTrigger data-testid="select-rep">
-                        <SelectValue placeholder="Select user" />
+                        <SelectValue placeholder={t("orders.selectUser")} />
                       </SelectTrigger>
                       <SelectContent>
                         {reps?.map((rep) => (
@@ -2478,12 +2483,12 @@ export default function Orders() {
                 </div>
               )}
               <div className="space-y-2">
-                <Label>Client</Label>
+                <Label>{t("orders.client")}</Label>
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.clientId}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}
-                    placeholder="Select client"
+                    placeholder={t("orders.selectClient")}
                     options={(clients || []).map((client) => ({
                       value: client.id,
                       label: client.name
@@ -2493,7 +2498,7 @@ export default function Orders() {
                 ) : (
                   <Select value={newOrderForm.clientId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}>
                     <SelectTrigger data-testid="select-client">
-                      <SelectValue placeholder="Select client" />
+                      <SelectValue placeholder={t("orders.selectClient")} />
                     </SelectTrigger>
                     <SelectContent>
                       {(clients || []).map((client) => (
@@ -2505,14 +2510,14 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  Provider
+                  {t("orders.provider")}
                   {aiExtractedFields.has("providerId") && <AiFieldIndicator fieldName="providerId" confidence={captureConfidence.providerId} />}
                 </Label>
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.providerId}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}
-                    placeholder="Select provider"
+                    placeholder={t("orders.selectProvider")}
                     options={(providers || []).map((provider) => ({
                       value: provider.id,
                       label: provider.name
@@ -2522,7 +2527,7 @@ export default function Orders() {
                 ) : (
                   <Select value={newOrderForm.providerId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}>
                     <SelectTrigger data-testid="select-provider">
-                      <SelectValue placeholder="Select provider" />
+                      <SelectValue placeholder={t("orders.selectProvider")} />
                     </SelectTrigger>
                     <SelectContent>
                       {(providers || []).map((provider) => (
@@ -2533,7 +2538,7 @@ export default function Orders() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Date Sold *</Label>
+                <Label>{t("orders.dateSoldRequired")}</Label>
                 <Input 
                   type="date" 
                   value={newOrderForm.dateSold}
@@ -2543,7 +2548,7 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  Install Date
+                  {t("orders.installDate")}
                   {aiExtractedFields.has("installDate") && <AiFieldIndicator fieldName="installDate" confidence={captureConfidence.installDate} />}
                 </Label>
                 <Input 
@@ -2554,12 +2559,12 @@ export default function Orders() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Install Time</Label>
+                <Label>{t("orders.installTime")}</Label>
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.installTime}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, installTime: v }))}
-                    placeholder="Select time window"
+                    placeholder={t("orders.selectTimeWindow")}
                     options={[
                       { value: "8-11am", label: "8-11am" },
                       { value: "11-2pm", label: "11-2pm" },
@@ -2570,7 +2575,7 @@ export default function Orders() {
                 ) : (
                   <Select value={newOrderForm.installTime} onValueChange={(v) => setNewOrderForm(f => ({ ...f, installTime: v }))}>
                     <SelectTrigger data-testid="select-install-time">
-                      <SelectValue placeholder="Select time window" />
+                      <SelectValue placeholder={t("orders.selectTimeWindow")} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="8-11am">8-11am</SelectItem>
@@ -2581,39 +2586,39 @@ export default function Orders() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Install Type</Label>
+                <Label>{t("orders.installType")}</Label>
                 {isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.installType}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, installType: v }))}
-                    placeholder="Select install type"
+                    placeholder={t("orders.selectInstallType")}
                     options={[
-                      { value: "AGENT_INSTALL", label: "Agent Install" },
-                      { value: "DIRECT_SHIP", label: "Direct Ship" },
-                      { value: "TECH_INSTALL", label: "Tech Install" },
+                      { value: "AGENT_INSTALL", label: t("orders.agentInstall") },
+                      { value: "DIRECT_SHIP", label: t("orders.directShip") },
+                      { value: "TECH_INSTALL", label: t("orders.techInstall") },
                     ]}
                     data-testid="select-install-type"
                   />
                 ) : (
                   <Select value={newOrderForm.installType} onValueChange={(v) => setNewOrderForm(f => ({ ...f, installType: v }))}>
                     <SelectTrigger data-testid="select-install-type">
-                      <SelectValue placeholder="Select install type" />
+                      <SelectValue placeholder={t("orders.selectInstallType")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="AGENT_INSTALL">Agent Install</SelectItem>
-                      <SelectItem value="DIRECT_SHIP">Direct Ship</SelectItem>
-                      <SelectItem value="TECH_INSTALL">Tech Install</SelectItem>
+                      <SelectItem value="AGENT_INSTALL">{t("orders.agentInstall")}</SelectItem>
+                      <SelectItem value="DIRECT_SHIP">{t("orders.directShip")}</SelectItem>
+                      <SelectItem value="TECH_INSTALL">{t("orders.techInstall")}</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  Account Number
+                  {t("orders.accountNumber")}
                   {aiExtractedFields.has("accountNumber") && <AiFieldIndicator fieldName="accountNumber" confidence={captureConfidence.accountNumber} />}
                 </Label>
                 <Input 
-                  placeholder="Enter account number" 
+                  placeholder={t("orders.enterAccountNumber")} 
                   value={newOrderForm.accountNumber}
                   onChange={(e) => setNewOrderForm(f => ({ ...f, accountNumber: e.target.value }))}
                   data-testid="input-account-number" 
@@ -2621,16 +2626,16 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  Service
+                  {t("orders.service")}
                   {aiExtractedFields.has("serviceId") && <AiFieldIndicator fieldName="serviceId" confidence={captureConfidence.serviceId} />}
                 </Label>
                 {!newOrderForm.clientId || !newOrderForm.providerId ? (
-                  <p className="text-sm text-muted-foreground">Select client and provider first</p>
+                  <p className="text-sm text-muted-foreground">{t("orders.selectClientProviderFirst")}</p>
                 ) : isTouchDevice ? (
                   <NativeSelect
                     value={newOrderForm.serviceId}
                     onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}
-                    placeholder="Select service"
+                    placeholder={t("orders.selectService")}
                     options={(availableServices || []).map((service) => ({
                       value: service.id,
                       label: service.name
@@ -2640,7 +2645,7 @@ export default function Orders() {
                 ) : (
                   <Select value={newOrderForm.serviceId} onValueChange={(v) => setNewOrderForm(f => ({ ...f, serviceId: v }))}>
                     <SelectTrigger data-testid="select-service">
-                      <SelectValue placeholder={availableServices?.length ? "Select service" : "No services available"} />
+                      <SelectValue placeholder={availableServices?.length ? t("orders.selectService") : t("orders.noServicesAvailable")} />
                     </SelectTrigger>
                     <SelectContent>
                       {(availableServices || []).map((service) => (
@@ -2652,11 +2657,11 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  Customer Name *
+                  {t("orders.customerNameRequired")}
                   {aiExtractedFields.has("customerName") && <AiFieldIndicator fieldName="customerName" confidence={captureConfidence.customerName} />}
                 </Label>
                 <Input 
-                  placeholder="Enter customer name" 
+                  placeholder={t("orders.enterCustomerName")} 
                   value={newOrderForm.customerName}
                   onChange={(e) => setNewOrderForm(f => ({ ...f, customerName: e.target.value }))}
                   data-testid="input-customer-name" 
@@ -2664,11 +2669,11 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  Customer Phone
+                  {t("orders.phone")}
                   {aiExtractedFields.has("customerPhone") && <AiFieldIndicator fieldName="customerPhone" confidence={captureConfidence.customerPhone} />}
                 </Label>
                 <Input 
-                  placeholder="Enter phone number" 
+                  placeholder={t("orders.enterPhone")} 
                   value={newOrderForm.customerPhone}
                   onChange={(e) => setNewOrderForm(f => ({ ...f, customerPhone: e.target.value }))}
                   data-testid="input-customer-phone" 
@@ -2676,11 +2681,11 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  Customer Email
+                  {t("orders.email")}
                   {aiExtractedFields.has("customerEmail") && <AiFieldIndicator fieldName="customerEmail" confidence={captureConfidence.customerEmail} />}
                 </Label>
                 <Input 
-                  placeholder="Enter email address" 
+                  placeholder={t("orders.enterEmail")} 
                   value={newOrderForm.customerEmail}
                   onChange={(e) => setNewOrderForm(f => ({ ...f, customerEmail: e.target.value }))}
                   data-testid="input-customer-email" 
@@ -2690,7 +2695,7 @@ export default function Orders() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  House #/Bldg
+                  {t("orders.house")}
                   {aiExtractedFields.has("houseNumber") && <AiFieldIndicator fieldName="houseNumber" confidence={captureConfidence.houseNumber} />}
                 </Label>
                 <Input 
@@ -2702,7 +2707,7 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  Street
+                  {t("orders.street")}
                   {aiExtractedFields.has("streetName") && <AiFieldIndicator fieldName="streetName" confidence={captureConfidence.streetName} />}
                 </Label>
                 <Input 
@@ -2714,7 +2719,7 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  Apt/Unit
+                  {t("orders.aptUnit")}
                   {aiExtractedFields.has("aptUnit") && <AiFieldIndicator fieldName="aptUnit" confidence={captureConfidence.aptUnit} />}
                 </Label>
                 <Input 
@@ -2726,11 +2731,11 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  City
+                  {t("orders.city")}
                   {aiExtractedFields.has("city") && <AiFieldIndicator fieldName="city" confidence={captureConfidence.city} />}
                 </Label>
                 <Input 
-                  placeholder="City"
+                  placeholder={t("orders.city")}
                   value={newOrderForm.city}
                   onChange={(e) => setNewOrderForm(f => ({ ...f, city: e.target.value }))}
                   data-testid="input-city"
@@ -2738,7 +2743,7 @@ export default function Orders() {
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
-                  Zip Code
+                  {t("orders.zipCode")}
                   {aiExtractedFields.has("zipCode") && <AiFieldIndicator fieldName="zipCode" confidence={captureConfidence.zipCode} />}
                 </Label>
                 <Input 
@@ -2779,7 +2784,7 @@ export default function Orders() {
               disabled={createOrderMutation.isPending}
               data-testid="button-submit-order"
             >
-              {createOrderMutation.isPending ? "Creating..." : "Create Order"}
+              {createOrderMutation.isPending ? t("orders.creating") : t("orders.createOrder")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2790,10 +2795,10 @@ export default function Orders() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5" />
-              Import Orders from Excel
+              {t("orders.importOrdersFromExcel")}
             </DialogTitle>
             <DialogDescription>
-              Upload an Excel file (.xlsx, .xls) with order data. Required columns: customerName, dateSold.
+              {t("orders.importOrdersDesc")}
             </DialogDescription>
           </DialogHeader>
           
@@ -2814,7 +2819,7 @@ export default function Orders() {
               >
                 <Upload className="h-8 w-8 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">
-                  {importFile ? importFile.name : "Click to select Excel file"}
+                  {importFile ? importFile.name : t("orders.clickToSelectExcel")}
                 </span>
               </label>
             </div>
@@ -2825,13 +2830,13 @@ export default function Orders() {
                   {importResult.success > 0 && (
                     <div className="flex items-center gap-2 text-green-600">
                       <CheckCircle className="h-4 w-4" />
-                      <span>{importResult.success} imported</span>
+                      <span>{t("orders.importedCount", { count: importResult.success })}</span>
                     </div>
                   )}
                   {importResult.failed > 0 && (
                     <div className="flex items-center gap-2 text-red-600">
                       <AlertCircle className="h-4 w-4" />
-                      <span>{importResult.failed} failed</span>
+                      <span>{t("orders.failedCount", { count: importResult.failed })}</span>
                     </div>
                   )}
                 </div>
@@ -2841,7 +2846,7 @@ export default function Orders() {
                       <div key={i} className="text-red-600">{err}</div>
                     ))}
                     {importResult.errors.length > 10 && (
-                      <div className="text-muted-foreground">...and {importResult.errors.length - 10} more errors</div>
+                      <div className="text-muted-foreground">{t("orders.moreErrors", { count: importResult.errors.length - 10 })}</div>
                     )}
                   </div>
                 )}
@@ -2849,21 +2854,21 @@ export default function Orders() {
             )}
             
             <div className="text-xs text-muted-foreground space-y-1">
-              <p className="font-medium">Expected columns:</p>
-              <p>customerName, dateSold (required), repId (optional), customerAddress, accountNumber, installDate, providerId, clientId, serviceId, invoiceNumber, tvSold, mobileSold, mobileLinesQty</p>
+              <p className="font-medium">{t("orders.expectedColumns")}</p>
+              <p>{t("orders.importColumnsDesc")}</p>
             </div>
           </div>
           
           <DialogFooter>
             <Button variant="outline" onClick={closeImportDialog}>
-              Cancel
+              {t("orders.cancel")}
             </Button>
             <Button
               onClick={handleImport}
               disabled={!importFile || isImporting}
               data-testid="button-confirm-import"
             >
-              {isImporting ? "Importing..." : "Import"}
+              {isImporting ? t("orders.importing") : t("orders.import")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2874,25 +2879,25 @@ export default function Orders() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Flag className="h-5 w-5 text-orange-500" />
-              Flag Order for Review
+              {t("orders.flagOrder")}
             </DialogTitle>
             <DialogDescription>
-              This order will be sent to the exception queue for review. Please provide a reason.
+              {t("orders.flagOrderDesc")}
             </DialogDescription>
           </DialogHeader>
           
           {flaggingOrder && (
             <div className="bg-muted p-3 rounded-md text-sm space-y-1">
-              <p><span className="font-medium">Customer:</span> {flaggingOrder.customerName}</p>
-              <p><span className="font-medium">Invoice:</span> {flaggingOrder.invoiceNumber || "N/A"}</p>
-              <p><span className="font-medium">Rep ID:</span> {flaggingOrder.repId}</p>
+              <p><span className="font-medium">{t("orders.customer")}:</span> {flaggingOrder.customerName}</p>
+              <p><span className="font-medium">{t("orders.invoiceNumber")}:</span> {flaggingOrder.invoiceNumber || "N/A"}</p>
+              <p><span className="font-medium">{t("orders.repId")}:</span> {flaggingOrder.repId}</p>
             </div>
           )}
 
           <div className="space-y-2">
-            <Label>Reason for flagging *</Label>
+            <Label>{t("orders.flagReasonRequired")}</Label>
             <Textarea
-              placeholder="Describe why this order needs review..."
+              placeholder={t("orders.flagReasonPlaceholder")}
               value={flagReason}
               onChange={(e) => setFlagReason(e.target.value)}
               data-testid="input-flag-reason"
@@ -2901,14 +2906,14 @@ export default function Orders() {
           
           <DialogFooter>
             <Button variant="outline" onClick={() => { setFlaggingOrder(null); setFlagReason(""); }}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={() => flaggingOrder && flagOrderMutation.mutate({ orderId: flaggingOrder.id, reason: flagReason })}
               disabled={!flagReason.trim() || flagOrderMutation.isPending}
               data-testid="button-confirm-flag"
             >
-              {flagOrderMutation.isPending ? "Flagging..." : "Flag Order"}
+              {flagOrderMutation.isPending ? t("orders.flagging") : t("orders.flagOrder")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2919,18 +2924,18 @@ export default function Orders() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Smartphone className="h-5 w-5" />
-              Create Mobile Order
+              {t("orders.createMobileOrder")}
             </DialogTitle>
             <DialogDescription>
-              Create a new mobile-only order with separate commission tracking.
+              {t("orders.createMobileOrderDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {isAdmin && (
               <div className="space-y-2">
-                <Label>Rep ID *</Label>
+                <Label>{t("orders.repIdRequired")}</Label>
                 <Input 
-                  placeholder="Enter rep ID" 
+                  placeholder={t("orders.enterRepId")} 
                   value={mobileOrderForm.repId}
                   onChange={(e) => setMobileOrderForm(f => ({ ...f, repId: e.target.value }))}
                   data-testid="input-mobile-rep-id"
@@ -2939,10 +2944,10 @@ export default function Orders() {
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Provider *</Label>
+                <Label>{t("orders.providerRequired")}</Label>
                 <Select value={mobileOrderForm.providerId} onValueChange={(v) => setMobileOrderForm(f => ({ ...f, providerId: v, serviceId: "" }))}>
                   <SelectTrigger data-testid="select-mobile-provider">
-                    <SelectValue placeholder="Select provider" />
+                    <SelectValue placeholder={t("orders.selectProvider")} />
                   </SelectTrigger>
                   <SelectContent>
                     {providers?.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
@@ -2950,10 +2955,10 @@ export default function Orders() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Client *</Label>
+                <Label>{t("orders.clientRequired")}</Label>
                 <Select value={mobileOrderForm.clientId} onValueChange={(v) => setMobileOrderForm(f => ({ ...f, clientId: v, serviceId: "" }))}>
                   <SelectTrigger data-testid="select-mobile-client">
-                    <SelectValue placeholder="Select client" />
+                    <SelectValue placeholder={t("orders.selectClient")} />
                   </SelectTrigger>
                   <SelectContent>
                     {clients?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
@@ -2962,10 +2967,10 @@ export default function Orders() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Service *</Label>
+              <Label>{t("orders.serviceRequired")}</Label>
               <Select value={mobileOrderForm.serviceId} onValueChange={(v) => setMobileOrderForm(f => ({ ...f, serviceId: v }))}>
                 <SelectTrigger data-testid="select-mobile-service">
-                  <SelectValue placeholder={mobileAvailableServices?.length ? "Select service" : "Select provider & client first"} />
+                  <SelectValue placeholder={mobileAvailableServices?.length ? t("orders.selectService") : t("orders.selectProviderClientFirst")} />
                 </SelectTrigger>
                 <SelectContent>
                   {(mobileAvailableServices || []).map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
@@ -2974,16 +2979,16 @@ export default function Orders() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Customer Name *</Label>
+                <Label>{t("orders.customerNameRequired")}</Label>
                 <Input 
-                  placeholder="Enter customer name" 
+                  placeholder={t("orders.enterCustomerName")} 
                   value={mobileOrderForm.customerName}
                   onChange={(e) => setMobileOrderForm(f => ({ ...f, customerName: e.target.value }))}
                   data-testid="input-mobile-customer-name"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Date Sold *</Label>
+                <Label>{t("orders.dateSoldRequired")}</Label>
                 <Input 
                   type="date" 
                   value={mobileOrderForm.dateSold}
@@ -2994,18 +2999,18 @@ export default function Orders() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Customer Phone</Label>
+                <Label>{t("orders.phone")}</Label>
                 <Input 
-                  placeholder="Enter phone number" 
+                  placeholder={t("orders.enterPhone")} 
                   value={mobileOrderForm.customerPhone}
                   onChange={(e) => setMobileOrderForm(f => ({ ...f, customerPhone: e.target.value }))}
                   data-testid="input-mobile-customer-phone"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Account Number</Label>
+                <Label>{t("orders.accountNumber")}</Label>
                 <Input 
-                  placeholder="Enter account number" 
+                  placeholder={t("orders.enterAccountNumber")} 
                   value={mobileOrderForm.accountNumber}
                   onChange={(e) => setMobileOrderForm(f => ({ ...f, accountNumber: e.target.value }))}
                   data-testid="input-mobile-account-number"
@@ -3013,9 +3018,9 @@ export default function Orders() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Customer Address</Label>
+              <Label>{t("orders.address")}</Label>
               <Textarea 
-                placeholder="Enter customer address" 
+                placeholder={t("orders.enterAddress")} 
                 value={mobileOrderForm.customerAddress}
                 onChange={(e) => setMobileOrderForm(f => ({ ...f, customerAddress: e.target.value }))}
                 data-testid="input-mobile-customer-address"
@@ -3023,7 +3028,7 @@ export default function Orders() {
             </div>
             <div className="space-y-3 border rounded-md p-4 bg-muted/30">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Mobile Lines ({mobileOrderForm.mobileLines.length})</Label>
+                <Label className="text-sm font-medium">{t("orders.mobileLines", { count: mobileOrderForm.mobileLines.length })}</Label>
                 <Button 
                   type="button" 
                   variant="outline" 
@@ -3031,24 +3036,24 @@ export default function Orders() {
                   onClick={addMobileLine}
                   data-testid="button-add-mobile-line"
                 >
-                  <Plus className="h-4 w-4 mr-1" /> Add Line
+                  <Plus className="h-4 w-4 mr-1" /> {t("orders.addLine")}
                 </Button>
               </div>
               {mobileOrderForm.mobileLines.map((line, index) => (
                 <div key={index} className="flex flex-col sm:flex-row sm:items-center gap-3 p-2 bg-background rounded-md border">
                   <span className="text-sm text-muted-foreground w-8">#{index + 1}</span>
                   <div className="flex items-center gap-2">
-                    <Label className="text-sm">Product:</Label>
+                    <Label className="text-sm">{t("orders.product")}:</Label>
                     <Select 
                       value={line.mobileProductType || "__none__"} 
                       onValueChange={(v) => updateMobileLine(index, "mobileProductType", v === "__none__" ? "" : v)}
                     >
                       <SelectTrigger className="w-full sm:w-28" data-testid={`select-mobile-product-type-${index}`}>
-                        <SelectValue placeholder="Select" />
+                        <SelectValue placeholder={t("orders.select")} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">Select</SelectItem>
-                        <SelectItem value="UNLIMITED">Unlimited</SelectItem>
+                        <SelectItem value="__none__">{t("orders.select")}</SelectItem>
+                        <SelectItem value="UNLIMITED">{t("orders.unlimited")}</SelectItem>
                         <SelectItem value="3_GIG">3 Gig</SelectItem>
                         <SelectItem value="1_GIG">1 Gig</SelectItem>
                         <SelectItem value="BYOD">BYOD</SelectItem>
@@ -3056,18 +3061,18 @@ export default function Orders() {
                     </Select>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Label className="text-sm">Ported:</Label>
+                    <Label className="text-sm">{t("orders.ported")}:</Label>
                     <Select 
                       value={line.mobilePortedStatus || "__none__"} 
                       onValueChange={(v) => updateMobileLine(index, "mobilePortedStatus", v === "__none__" ? "" : v)}
                     >
                       <SelectTrigger className="w-full sm:w-28" data-testid={`select-mobile-ported-status-${index}`}>
-                        <SelectValue placeholder="Select" />
+                        <SelectValue placeholder={t("orders.select")} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">Select</SelectItem>
-                        <SelectItem value="PORTED">Ported</SelectItem>
-                        <SelectItem value="NON_PORTED">Non-Ported</SelectItem>
+                        <SelectItem value="__none__">{t("orders.select")}</SelectItem>
+                        <SelectItem value="PORTED">{t("orders.ported")}</SelectItem>
+                        <SelectItem value="NON_PORTED">{t("orders.nonPorted")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -3087,14 +3092,14 @@ export default function Orders() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowMobileOrderDialog(false); resetMobileOrderForm(); }}>
-              Cancel
+              {t("orders.cancel")}
             </Button>
             <Button 
               onClick={() => createMobileOrderMutation.mutate(mobileOrderForm)} 
               disabled={createMobileOrderMutation.isPending || !mobileOrderForm.customerName || !mobileOrderForm.dateSold}
               data-testid="button-submit-mobile-order"
             >
-              {createMobileOrderMutation.isPending ? "Creating..." : "Create Mobile Order"}
+              {createMobileOrderMutation.isPending ? t("orders.creating") : t("orders.createMobileOrder")}
             </Button>
           </DialogFooter>
         </DialogContent>

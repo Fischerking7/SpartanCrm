@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { Card, CardContent } from "@/components/ui/card";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -29,9 +30,9 @@ export function StatsCard({
   const formatValue = (val: string | number) => {
     if (typeof val === "string") return val;
     if (isCurrency) {
-      return `$${val.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+      return `$${val.toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2 })}`;
     }
-    return val.toLocaleString("en-US");
+    return val.toLocaleString(i18n.language === "es" ? "es-MX" : "en-US");
   };
 
   return (

@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,7 +54,7 @@ interface FinancialSnapshotData {
 }
 
 function formatCents(cents: number): string {
-  return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  return `$${(cents / 100).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 function MomBadge({ pct }: { pct: number }) {

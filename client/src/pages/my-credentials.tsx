@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { Key, CreditCard, Eye, EyeOff, User, Shield } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface EmployeeCredential {
   id: string;
@@ -66,6 +67,7 @@ function FieldDisplay({ value, label }: { value: string | null | undefined; labe
 }
 
 function CredentialCard({ credential }: { credential: EmployeeCredential }) {
+  const { t } = useTranslation();
   const [showPasswords, setShowPasswords] = useState(false);
 
   return (
@@ -83,32 +85,32 @@ function CredentialCard({ credential }: { credential: EmployeeCredential }) {
             data-testid={`button-toggle-passwords-${credential.id}`}
           >
             {showPasswords ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
-            {showPasswords ? "Hide" : "Show"}
+            {showPasswords ? t("myCredentials.hide") : t("myCredentials.show")}
           </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-1">
-        <FieldDisplay value={credential.peopleSoftNumber} label="PeopleSoft #" />
-        <FieldDisplay value={credential.networkId} label="Network ID" />
-        <FieldDisplay value={credential.workEmail} label="Work Email" />
-        <FieldDisplay value={credential.deviceNumber} label="Device #" />
-        <FieldDisplay value={credential.rtr} label="RTR" />
-        <FieldDisplay value={credential.authenticatorUsername} label="Authenticator Username" />
-        <FieldDisplay value={credential.gmail} label="Gmail" />
+        <FieldDisplay value={credential.peopleSoftNumber} label={t("myCredentials.fields.peopleSoft")} />
+        <FieldDisplay value={credential.networkId} label={t("myCredentials.fields.networkId")} />
+        <FieldDisplay value={credential.workEmail} label={t("myCredentials.fields.workEmail")} />
+        <FieldDisplay value={credential.deviceNumber} label={t("myCredentials.fields.deviceNumber")} />
+        <FieldDisplay value={credential.rtr} label={t("myCredentials.fields.rtr")} />
+        <FieldDisplay value={credential.authenticatorUsername} label={t("myCredentials.fields.authenticatorUsername")} />
+        <FieldDisplay value={credential.gmail} label={t("myCredentials.fields.gmail")} />
         
         {showPasswords && (
           <>
-            <PasswordDisplay value={credential.tempPassword} label="Temp Password" />
-            <PasswordDisplay value={credential.rtrPassword} label="RTR Password" />
-            <PasswordDisplay value={credential.authenticatorPassword} label="Authenticator Password" />
-            <PasswordDisplay value={credential.ipadPin} label="iPad PIN" />
-            <PasswordDisplay value={credential.gmailPassword} label="Gmail Password" />
+            <PasswordDisplay value={credential.tempPassword} label={t("myCredentials.fields.tempPassword")} />
+            <PasswordDisplay value={credential.rtrPassword} label={t("myCredentials.fields.rtrPassword")} />
+            <PasswordDisplay value={credential.authenticatorPassword} label={t("myCredentials.fields.authenticatorPassword")} />
+            <PasswordDisplay value={credential.ipadPin} label={t("myCredentials.fields.ipadPin")} />
+            <PasswordDisplay value={credential.gmailPassword} label={t("myCredentials.fields.gmailPassword")} />
           </>
         )}
         
         {credential.notes && (
           <div className="pt-3 mt-2 border-t">
-            <span className="text-muted-foreground text-sm">Notes:</span>
+            <span className="text-muted-foreground text-sm">{t("myCredentials.notes")}</span>
             <p className="text-sm mt-1 whitespace-pre-wrap">{credential.notes}</p>
           </div>
         )}
@@ -118,6 +120,7 @@ function CredentialCard({ credential }: { credential: EmployeeCredential }) {
 }
 
 function BankAccountCard({ account }: { account: BankAccount }) {
+  const { t } = useTranslation();
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -126,20 +129,21 @@ function BankAccountCard({ account }: { account: BankAccount }) {
             <CreditCard className="h-4 w-4" />
             {account.bankName}
           </CardTitle>
-          {account.isPrimary && <Badge variant="default">Primary</Badge>}
+          {account.isPrimary && <Badge variant="default">{t("myCredentials.primary")}</Badge>}
         </div>
-        <CardDescription className="capitalize">{account.accountType} Account</CardDescription>
+        <CardDescription className="capitalize">{account.accountType} {t("myCredentials.accountType")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-1">
-        <FieldDisplay value={account.accountHolderName} label="Account Holder" />
-        <FieldDisplay value={account.routingNumber} label="Routing #" />
-        <FieldDisplay value={account.accountNumber} label="Account #" />
+        <FieldDisplay value={account.accountHolderName} label={t("myCredentials.fields.accountHolder")} />
+        <FieldDisplay value={account.routingNumber} label={t("myCredentials.fields.routingNumber")} />
+        <FieldDisplay value={account.accountNumber} label={t("myCredentials.fields.accountNumber")} />
       </CardContent>
     </Card>
   );
 }
 
 export default function MyCredentials() {
+  const { t } = useTranslation();
   const { user } = useAuth();
 
   const { data: credentials, isLoading: loadingCredentials } = useQuery<EmployeeCredential[]>({
@@ -171,8 +175,8 @@ export default function MyCredentials() {
       <div className="flex items-center gap-3">
         <User className="h-6 w-6 text-primary" />
         <div>
-          <h1 className="text-2xl font-semibold">My Profile</h1>
-          <p className="text-muted-foreground">View your credentials and banking information</p>
+          <h1 className="text-2xl font-semibold">{t("myCredentials.title")}</h1>
+          <p className="text-muted-foreground">{t("myCredentials.subtitle")}</p>
         </div>
       </div>
 
@@ -184,7 +188,7 @@ export default function MyCredentials() {
             </div>
             <div>
               <p className="font-medium">{user?.name}</p>
-              <p className="text-sm text-muted-foreground">Rep ID: {user?.repId} • Role: {user?.role}</p>
+              <p className="text-sm text-muted-foreground">{t("myCredentials.repId")}: {user?.repId} • {t("myCredentials.role")}: {user?.role}</p>
             </div>
           </div>
         </CardContent>
@@ -194,11 +198,11 @@ export default function MyCredentials() {
         <TabsList className="w-full justify-start">
           <TabsTrigger value="credentials" className="gap-2">
             <Key className="h-4 w-4" />
-            Credentials
+            {t("myCredentials.credentials")}
           </TabsTrigger>
           <TabsTrigger value="banking" className="gap-2">
             <CreditCard className="h-4 w-4" />
-            Banking
+            {t("myCredentials.banking")}
           </TabsTrigger>
         </TabsList>
         
@@ -212,8 +216,8 @@ export default function MyCredentials() {
             <Card>
               <CardContent className="py-12 text-center">
                 <Key className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">No credentials on file</p>
-                <p className="text-sm text-muted-foreground mt-1">Contact your admin to set up your credentials.</p>
+                <p className="text-muted-foreground">{t("myCredentials.noCredentials")}</p>
+                <p className="text-sm text-muted-foreground mt-1">{t("myCredentials.noCredentialsDesc")}</p>
               </CardContent>
             </Card>
           ) : (
@@ -234,8 +238,8 @@ export default function MyCredentials() {
             <Card>
               <CardContent className="py-12 text-center">
                 <CreditCard className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">No bank accounts on file</p>
-                <p className="text-sm text-muted-foreground mt-1">Contact your admin to set up your banking information.</p>
+                <p className="text-muted-foreground">{t("myCredentials.noBanking")}</p>
+                <p className="text-sm text-muted-foreground mt-1">{t("myCredentials.noBankingDesc")}</p>
               </CardContent>
             </Card>
           ) : (

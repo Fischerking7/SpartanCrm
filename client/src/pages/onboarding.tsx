@@ -12,6 +12,8 @@ import {
   CheckCircle2, Circle, Clock, FileText, ChevronRight, ChevronLeft,
   Loader2, Shield, Phone, Check, AlertTriangle
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 
 const DOCUMENTS = [
   { key: "background_check", name: "Background Check Authorization", time: "~3 min" },
@@ -23,10 +25,12 @@ const DOCUMENTS = [
 ];
 
 function formatDate(d: string | Date) {
-  return new Date(d).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
+  return new Date(d).toLocaleDateString(locale, { month: "2-digit", day: "2-digit", year: "numeric" });
 }
 
 export default function OnboardingPortal() {
+  const { t } = useTranslation();
   const [step, setStep] = useState(1);
   const [repId, setRepId] = useState("");
   const [otp, setOtp] = useState("");
@@ -44,7 +48,7 @@ export default function OnboardingPortal() {
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.message || "Verification failed");
+        throw new Error(err.message || t("onboarding.otp.failedTitle"));
       }
       return res.json();
     },
@@ -53,11 +57,11 @@ export default function OnboardingPortal() {
         setToken(data.token);
         setOtpExpiry(null);
         setStep(2);
-        toast({ title: "Verified!", description: "Welcome to Iron Crest onboarding." });
+        toast({ title: t("onboarding.otp.verifiedTitle"), description: t("onboarding.otp.verifiedDesc") });
       }
     },
     onError: (err: Error) => {
-      toast({ title: "Verification failed", description: err.message, variant: "destructive" });
+      toast({ title: t("onboarding.otp.failedTitle"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -125,16 +129,16 @@ export default function OnboardingPortal() {
       <div className="min-h-screen bg-[#1B2A4A] p-4 pt-8" data-testid="onboarding-documents">
         <div className="max-w-lg mx-auto">
           <div className="text-white mb-6">
-            <p className="text-sm text-[#C9A84C] font-medium">Step 2 of 4</p>
-            <h1 className="text-xl font-bold mt-1">Complete Your Documents</h1>
+            <p className="text-sm text-[#C9A84C] font-medium">{t("onboarding.steps.stepOf", { current: 2, total: 4 })}</p>
+            <h1 className="text-xl font-bold mt-1">{t("onboarding.steps.completeDocs")}</h1>
             <p className="text-sm text-white/60 mt-1">
-              {repInfo?.name ? `Welcome, ${repInfo.name}` : "Loading..."}
+              {repInfo?.name ? t("onboarding.portal.welcome", { name: repInfo.name }) : t("onboarding.portal.loading")}
             </p>
           </div>
 
           <div className="mb-6">
             <div className="flex justify-between text-sm text-white/80 mb-2">
-              <span>{completedCount} of 6 complete</span>
+              <span>{t("onboarding.portal.completeCount", { count: completedCount })}</span>
               <span>{Math.round(progressPct)}%</span>
             </div>
             <Progress value={progressPct} className="h-2 bg-white/20" />
@@ -165,19 +169,19 @@ export default function OnboardingPortal() {
                           <Circle className="h-6 w-6 text-muted-foreground flex-shrink-0" />
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm">{doc.name}</p>
+                          <p className="font-medium text-sm">{t(`onboarding.docs.${doc.key}.name`)}</p>
                           <div className="flex items-center gap-2 mt-1">
                             {submitted ? (
                               <Badge variant="secondary" className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                                Complete
+                                {t("onboarding.portal.badges.complete")}
                               </Badge>
                             ) : drafted ? (
                               <Badge variant="secondary" className="text-[10px] bg-[#C9A84C]/20 text-[#C9A84C]">
-                                Signed
+                                {t("onboarding.portal.badges.signed")}
                               </Badge>
                             ) : (
                               <Badge variant="secondary" className="text-[10px]">
-                                Incomplete
+                                {t("onboarding.portal.badges.incomplete")}
                               </Badge>
                             )}
                             <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -200,7 +204,7 @@ export default function OnboardingPortal() {
               onClick={() => setStep(4)}
               data-testid="button-review-submit"
             >
-              Review & Submit
+              {t("onboarding.portal.reviewButton")}
             </Button>
           )}
         </div>
@@ -224,6 +228,7 @@ function OtpStep({ repId, setRepId, otp, setOtp, onVerify, isPending, otpExpiry 
   isPending: boolean;
   otpExpiry: number | null;
 }) {
+  const { t } = useTranslation();
   const [countdown, setCountdown] = useState(0);
 
   useEffect(() => {
@@ -243,29 +248,29 @@ function OtpStep({ repId, setRepId, otp, setOtp, onVerify, isPending, otpExpiry 
           <div className="w-16 h-16 rounded-full bg-[#C9A84C]/20 flex items-center justify-center mx-auto mb-4">
             <Shield className="h-8 w-8 text-[#C9A84C]" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Iron Crest CRM</h1>
-          <p className="text-white/60 mt-2 text-sm">Step 1 of 4 — Verify Your Identity</p>
+          <h1 className="text-2xl font-bold text-white">{t("onboarding.otp.title")}</h1>
+          <p className="text-white/60 mt-2 text-sm">{t("onboarding.steps.stepOf", { current: 1, total: 4 })} — {t("onboarding.steps.verifyIdentity")}</p>
         </div>
 
         <Card className="rounded-2xl border-0 shadow-lg">
           <CardContent className="p-6 space-y-5">
             <div>
-              <Label className="text-sm font-medium">Rep ID</Label>
+              <Label className="text-sm font-medium">{t("onboarding.otp.repIdLabel")}</Label>
               <Input
                 value={repId}
                 onChange={(e) => setRepId(e.target.value)}
-                placeholder="Enter your Rep ID"
+                placeholder={t("onboarding.otp.repIdPlaceholder")}
                 className="mt-1.5 h-12 text-base rounded-lg"
                 data-testid="input-rep-id"
               />
             </div>
 
             <div>
-              <Label className="text-sm font-medium">6-Digit OTP Code</Label>
+              <Label className="text-sm font-medium">{t("onboarding.otp.otpLabel")}</Label>
               <Input
                 value={otp}
                 onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="000000"
+                placeholder={t("onboarding.otp.otpPlaceholder")}
                 inputMode="numeric"
                 maxLength={6}
                 className="mt-1.5 h-14 text-center text-2xl tracking-[0.5em] font-mono rounded-lg"
@@ -273,7 +278,7 @@ function OtpStep({ repId, setRepId, otp, setOtp, onVerify, isPending, otpExpiry 
               />
               {countdown > 0 && (
                 <p className="text-xs text-muted-foreground text-center mt-2">
-                  Code expires in {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, "0")}
+                  {t("onboarding.otp.expiresIn", { time: `${Math.floor(countdown / 60)}:${String(countdown % 60).padStart(2, "0")}` })}
                 </p>
               )}
             </div>
@@ -284,7 +289,7 @@ function OtpStep({ repId, setRepId, otp, setOtp, onVerify, isPending, otpExpiry 
               disabled={isPending || !repId.trim() || otp.length !== 6}
               data-testid="button-verify-otp"
             >
-              {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : "Verify & Continue"}
+              {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : t("onboarding.otp.verifyButton")}
             </Button>
           </CardContent>
         </Card>
@@ -292,7 +297,7 @@ function OtpStep({ repId, setRepId, otp, setOtp, onVerify, isPending, otpExpiry 
         <div className="text-center mt-6">
           <a href="#" className="text-[#C9A84C] text-sm flex items-center justify-center gap-2" data-testid="link-contact-manager">
             <Phone className="h-4 w-4" />
-            Contact your manager for help
+            {t("onboarding.otp.contactManager")}
           </a>
         </div>
       </div>
@@ -306,6 +311,7 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
   onBack: () => void;
   onNext: () => void;
 }) {
+  const { t } = useTranslation();
   const doc = DOCUMENTS.find(d => d.key === docKey)!;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -338,11 +344,11 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
         headers,
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Save failed");
+      if (!res.ok) throw new Error(t("onboarding.form.saveFailed"));
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Draft saved" });
+      toast({ title: t("onboarding.form.draftSaved") });
     },
   });
 
@@ -395,45 +401,45 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
     switch (docKey) {
       case "background_check":
         return [
-          { key: "fullName", label: "Full Legal Name", type: "text" },
-          { key: "dateOfBirth", label: "Date of Birth", type: "date" },
-          { key: "driversLicense", label: "Driver's License #", type: "text" },
-          { key: "consentGiven", label: "I consent to a background check", type: "checkbox" },
+          { key: "fullName", label: t("onboarding.docs.background_check.fullName"), type: "text" },
+          { key: "dateOfBirth", label: t("onboarding.docs.background_check.dateOfBirth"), type: "date" },
+          { key: "driversLicense", label: t("onboarding.docs.background_check.driversLicense"), type: "text" },
+          { key: "consentGiven", label: t("onboarding.docs.background_check.consentGiven"), type: "checkbox" },
         ];
       case "chargeback_policy":
         return [
-          { key: "acknowledged", label: "I have read and understand the Chargeback & Rolling Reserve Policy", type: "checkbox" },
-          { key: "initials", label: "Initials", type: "text" },
+          { key: "acknowledged", label: t("onboarding.docs.chargeback_policy.acknowledged"), type: "checkbox" },
+          { key: "initials", label: t("onboarding.docs.chargeback_policy.initials"), type: "text" },
         ];
       case "contractor_app":
         return [
-          { key: "fullName", label: "Full Legal Name", type: "text" },
-          { key: "address", label: "Home Address", type: "text" },
-          { key: "city", label: "City", type: "text" },
-          { key: "state", label: "State", type: "text" },
-          { key: "zip", label: "ZIP Code", type: "text" },
-          { key: "phone", label: "Phone Number", type: "tel" },
-          { key: "email", label: "Email", type: "email" },
-          { key: "emergencyName", label: "Emergency Contact Name", type: "text" },
-          { key: "emergencyPhone", label: "Emergency Contact Phone", type: "tel" },
+          { key: "fullName", label: t("onboarding.docs.contractor_app.fullName"), type: "text" },
+          { key: "address", label: t("onboarding.docs.contractor_app.address"), type: "text" },
+          { key: "city", label: t("onboarding.docs.contractor_app.city"), type: "text" },
+          { key: "state", label: t("onboarding.docs.contractor_app.state"), type: "text" },
+          { key: "zip", label: t("onboarding.docs.contractor_app.zip"), type: "text" },
+          { key: "phone", label: t("onboarding.docs.contractor_app.phone"), type: "tel" },
+          { key: "email", label: t("onboarding.docs.contractor_app.email"), type: "email" },
+          { key: "emergencyName", label: t("onboarding.docs.contractor_app.emergencyName"), type: "text" },
+          { key: "emergencyPhone", label: t("onboarding.docs.contractor_app.emergencyPhone"), type: "tel" },
         ];
       case "direct_deposit":
         return [
-          { key: "bankName", label: "Bank Name", type: "text" },
-          { key: "accountType", label: "Account Type (Checking/Savings)", type: "text" },
-          { key: "routingNumber", label: "Routing Number", type: "text" },
-          { key: "accountNumber", label: "Account Number", type: "text" },
-          { key: "ssn", label: "SSN (Last 4)", type: "text" },
+          { key: "bankName", label: t("onboarding.docs.direct_deposit.bankName"), type: "text" },
+          { key: "accountType", label: t("onboarding.docs.direct_deposit.accountType"), type: "text" },
+          { key: "routingNumber", label: t("onboarding.docs.direct_deposit.routingNumber"), type: "text" },
+          { key: "accountNumber", label: t("onboarding.docs.direct_deposit.accountNumber"), type: "text" },
+          { key: "ssn", label: t("onboarding.docs.direct_deposit.ssn"), type: "text" },
         ];
       case "drug_test":
         return [
-          { key: "consentGiven", label: "I consent to drug testing as required", type: "checkbox" },
-          { key: "fullName", label: "Full Legal Name", type: "text" },
+          { key: "consentGiven", label: t("onboarding.docs.drug_test.consentGiven"), type: "checkbox" },
+          { key: "fullName", label: t("onboarding.docs.drug_test.fullName"), type: "text" },
         ];
       case "nda":
         return [
-          { key: "acknowledged", label: "I agree to maintain confidentiality of all company information", type: "checkbox" },
-          { key: "fullName", label: "Full Legal Name", type: "text" },
+          { key: "acknowledged", label: t("onboarding.docs.nda.acknowledged"), type: "checkbox" },
+          { key: "fullName", label: t("onboarding.docs.nda.fullName"), type: "text" },
         ];
       default:
         return [];
@@ -446,12 +452,12 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
     <div className="min-h-screen bg-background p-4 pt-6" data-testid={`doc-form-${docKey}`}>
       <div className="max-w-lg mx-auto">
         <button onClick={onBack} className="flex items-center gap-1 text-sm text-muted-foreground mb-4" data-testid="button-back-docs">
-          <ChevronLeft className="h-4 w-4" /> Back to Documents
+          <ChevronLeft className="h-4 w-4" /> {t("onboarding.form.backToDocs")}
         </button>
 
         <div className="mb-6">
-          <h1 className="text-lg font-bold">{doc.name}</h1>
-          <p className="text-sm text-muted-foreground mt-1">Please complete all fields and sign below.</p>
+          <h1 className="text-lg font-bold">{t(`onboarding.docs.${docKey}.name`)}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t("onboarding.form.instructions")}</p>
         </div>
 
         <div className="space-y-4">
@@ -485,10 +491,10 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
 
         <div className="mt-6">
           <div className="flex items-center justify-between mb-2">
-            <Label className="text-sm font-medium">Signature</Label>
+            <Label className="text-sm font-medium">{t("onboarding.form.signature")}</Label>
             {hasSigned && (
               <button onClick={clearSignature} className="text-xs text-[#C9A84C]" data-testid="button-clear-signature">
-                Clear
+                {t("onboarding.form.clear")}
               </button>
             )}
           </div>
@@ -509,7 +515,7 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
             />
           </div>
           <p className="text-xs text-muted-foreground mt-1 text-center">
-            Draw your signature above
+            {t("onboarding.form.drawSignature")}
           </p>
         </div>
 
@@ -521,7 +527,7 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
             disabled={saveMutation.isPending}
             data-testid="button-save-draft"
           >
-            {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Draft"}
+            {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : t("onboarding.form.saveDraft")}
           </Button>
           <Button
             className="flex-1 h-12 rounded-lg bg-[#C9A84C] hover:bg-[#b8973e] text-white"
@@ -533,7 +539,7 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
             disabled={!hasSigned}
             data-testid="button-next-document"
           >
-            Next Document <ChevronRight className="h-4 w-4 ml-1" />
+            {t("onboarding.form.nextDoc")} <ChevronRight className="h-4 w-4 ml-1" />
           </Button>
         </div>
       </div>
@@ -546,6 +552,7 @@ function ReviewStep({ token, repInfo, onBack }: {
   repInfo: any;
   onBack: () => void;
 }) {
+  const { t } = useTranslation();
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const { toast } = useToast();
@@ -603,13 +610,13 @@ function ReviewStep({ token, repInfo, onBack }: {
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.message || "Submit failed");
+        throw new Error(err.message || t("onboarding.review.submitFailed"));
       }
 
       setSubmitted(true);
-      toast({ title: "Onboarding submitted!" });
+      toast({ title: t("onboarding.review.successTitle") });
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: t("onboarding.review.errorTitle"), description: err.message, variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -621,9 +628,9 @@ function ReviewStep({ token, repInfo, onBack }: {
         <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
           <Check className="h-8 w-8 text-emerald-400" />
         </div>
-        <h1 className="text-2xl font-bold text-white">All Set!</h1>
+        <h1 className="text-2xl font-bold text-white">{t("onboarding.review.successTitle")}</h1>
         <p className="text-white/60 text-center mt-2 max-w-xs">
-          Your onboarding documents have been submitted. You'll receive an email once approved.
+          {t("onboarding.review.successDesc")}
         </p>
       </div>
     );
@@ -633,12 +640,12 @@ function ReviewStep({ token, repInfo, onBack }: {
     <div className="min-h-screen bg-[#1B2A4A] p-4 pt-8" data-testid="onboarding-review">
       <div className="max-w-lg mx-auto">
         <button onClick={onBack} className="flex items-center gap-1 text-sm text-white/60 mb-4" data-testid="button-back-review">
-          <ChevronLeft className="h-4 w-4" /> Back to Documents
+          <ChevronLeft className="h-4 w-4" /> {t("onboarding.form.backToDocs")}
         </button>
 
         <div className="text-white mb-6">
-          <p className="text-sm text-[#C9A84C] font-medium">Step 4 of 4</p>
-          <h1 className="text-xl font-bold mt-1">Review & Submit</h1>
+          <p className="text-sm text-[#C9A84C] font-medium">{t("onboarding.steps.stepOf", { current: 4, total: 4 })}</p>
+          <h1 className="text-xl font-bold mt-1">{t("onboarding.review.title")}</h1>
         </div>
 
         <div className="space-y-3">
@@ -647,8 +654,8 @@ function ReviewStep({ token, repInfo, onBack }: {
               <CardContent className="p-4 flex items-center gap-3">
                 <CheckCircle2 className="h-5 w-5 text-emerald-500 flex-shrink-0" />
                 <div className="flex-1">
-                  <p className="text-sm font-medium">{doc.name}</p>
-                  <p className="text-xs text-muted-foreground">Completed {formatDate(new Date())}</p>
+                  <p className="text-sm font-medium">{t(`onboarding.docs.${doc.key}.name`)}</p>
+                  <p className="text-xs text-muted-foreground">{t("onboarding.review.completedOn", { date: formatDate(new Date()) })}</p>
                 </div>
               </CardContent>
             </Card>
@@ -661,11 +668,11 @@ function ReviewStep({ token, repInfo, onBack }: {
           disabled={submitting}
           data-testid="button-final-submit"
         >
-          {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : "Submit All Documents"}
+          {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : t("onboarding.review.submitButton")}
         </Button>
 
         <p className="text-xs text-white/40 text-center mt-4">
-          By submitting, you confirm all information is accurate and agree to the E-SIGN Act disclosure.
+          {t("onboarding.review.eSignDisclosure")}
         </p>
       </div>
     </div>

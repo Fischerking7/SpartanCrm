@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageProvider } from "@/components/language-provider";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
@@ -16,6 +17,8 @@ import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { differenceInDays, isBefore } from "date-fns";
 import { AlertTriangle, XCircle, Shield } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import "@/i18n/config";
 
 import Login from "@/pages/login";
 import ChangePassword from "@/pages/change-password";
@@ -131,50 +134,6 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
   return <>{children}</>;
 }
 
-const routeTitles: Record<string, string> = {
-  "/": "Dashboard",
-  "/dashboard": "Dashboard",
-  "/orders": "Orders",
-  "/order-tracker": "Order Tracker",
-  "/mobile-entry": "Quick Entry",
-  "/leads": "My Leads",
-  "/commissions": "Commissions",
-  "/commission-forecast": "Forecast",
-  "/my-pay": "Pay History",
-  "/my-disputes": "Disputes",
-  "/knowledge": "Knowledge Base",
-  "/notifications": "Alerts",
-  "/notification-settings": "Alert Settings",
-  "/reports": "Reports",
-  "/executive-reports": "Reports",
-  "/sales-pipeline": "Sales Pipeline",
-  "/pipeline-forecast": "Pipeline Forecast",
-  "/coaching-scorecards": "Coaching Scorecards",
-  "/earnings-simulator": "Earnings Simulator",
-  "/referrals": "Referrals & Follow-Ups",
-  "/messages": "Messages",
-  "/my-performance": "My Performance",
-  "/adjustments": "Adjustments",
-  "/change-password": "Settings",
-  "/my-credentials": "My Credentials",
-  "/payruns": "Pay Runs",
-  "/accounting": "Accounting",
-  "/finance": "Finance",
-  "/audit": "Audit Log",
-  "/queues": "Queues",
-  "/export-history": "Exports",
-  "/recalculate": "Recalculate",
-  "/admin/user-activity": "User Activity",
-  "/admin/automation-rules": "Automation Rules",
-  "/admin/saved-reports": "Saved Reports",
-  "/operations/sla-dashboard": "SLA & Bottlenecks",
-  "/operations/onboarding-pipeline": "Onboarding Pipeline",
-  "/accounting/payment-variances": "Payment Variances",
-  "/accounting/month-end": "Month-End Checklist",
-  "/accounting/cash-flow": "Cash Flow Forecast",
-  "/admin/compliance-calendar": "Compliance Calendar",
-  "/admin/disputes": "Disputes",
-};
 
 interface ComplianceStatus {
   contractorAgreementExpiresAt: string | null;
@@ -187,6 +146,7 @@ interface ComplianceStatus {
 
 function ComplianceAlertBanner() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const repRoles = ["REP", "MDU", "LEAD"];
   const isRep = user && repRoles.includes(user.role);
 
@@ -218,16 +178,16 @@ function ComplianceAlertBanner() {
 
   if (pendingRecert.length > 0 && status) {
     const docLabels: Record<string, string> = {
-      CONTRACTOR_AGREEMENT: "Contractor Agreement",
-      NDA: "NDA",
-      BACKGROUND_CHECK: "Background Check",
-      DRUG_TEST: "Drug Test",
+      CONTRACTOR_AGREEMENT: t("compliance.contractorAgreement"),
+      NDA: t("compliance.nda"),
+      BACKGROUND_CHECK: t("compliance.backgroundCheck"),
+      DRUG_TEST: t("compliance.drugTest"),
     };
     const allDocs = [...new Set(pendingRecert.flatMap(r => r.documentTypes))].map(d => docLabels[d] || d);
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-900/20 border-b border-purple-200 dark:border-purple-800 text-sm" data-testid="banner-recertification-required">
         <Shield className="h-4 w-4 text-purple-600 flex-shrink-0" />
-        <span className="text-purple-700 dark:text-purple-400"><strong>Re-certification required:</strong> {allDocs.join(", ")}. Please contact your manager to complete re-signing.</span>
+        <span className="text-purple-700 dark:text-purple-400"><strong>{t("compliance.recertificationRequired")}:</strong> {allDocs.join(", ")}. {t("compliance.contactManager")}</span>
       </div>
     );
   }
@@ -247,10 +207,10 @@ function ComplianceAlertBanner() {
   };
 
   const expiries = [
-    { name: "Contractor Agreement", status: checkExpiry(status.contractorAgreementExpiresAt) },
-    { name: "NDA", status: checkExpiry(status.ndaExpiresAt) },
-    { name: "Background Check", status: checkExpiry(status.backgroundCheckExpiresAt) },
-    { name: "Drug Test", status: checkExpiry(status.drugTestExpiresAt) },
+    { name: t("compliance.contractorAgreement"), status: checkExpiry(status.contractorAgreementExpiresAt) },
+    { name: t("compliance.nda"), status: checkExpiry(status.ndaExpiresAt) },
+    { name: t("compliance.backgroundCheck"), status: checkExpiry(status.backgroundCheckExpiresAt) },
+    { name: t("compliance.drugTest"), status: checkExpiry(status.drugTestExpiresAt) },
   ].filter(e => e.status !== null);
 
   const hasExpired = expiries.some(e => e.status === "expired");
@@ -262,8 +222,8 @@ function ComplianceAlertBanner() {
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 text-sm" data-testid="banner-commission-blocked">
         <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
-        <span className="text-red-700 dark:text-red-400 font-medium">Commission payouts blocked:</span>
-        <span className="text-red-600 dark:text-red-300">{status.commissionBlockedReason || "Expired documents. Contact your manager."}</span>
+        <span className="text-red-700 dark:text-red-400 font-medium">{t("compliance.commissionBlocked")}:</span>
+        <span className="text-red-600 dark:text-red-300">{status.commissionBlockedReason || t("compliance.expiredDocs") + ". " + t("compliance.contactManager")}</span>
       </div>
     );
   }
@@ -273,7 +233,7 @@ function ComplianceAlertBanner() {
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 text-sm" data-testid="banner-expired-docs">
         <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
-        <span className="text-red-700 dark:text-red-400"><strong>Expired documents:</strong> {expiredNames}. Re-certification required — contact your manager immediately.</span>
+        <span className="text-red-700 dark:text-red-400"><strong>{t("compliance.expiredDocs")}:</strong> {expiredNames}. {t("compliance.recertRequired")}</span>
       </div>
     );
   }
@@ -283,7 +243,7 @@ function ComplianceAlertBanner() {
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 text-sm" data-testid="banner-expiring-docs-30">
         <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />
-        <span className="text-red-700 dark:text-red-400"><strong>Documents expiring within 30 days:</strong> {criticalNames}. Contact your manager to schedule renewal.</span>
+        <span className="text-red-700 dark:text-red-400"><strong>{t("compliance.expiringDocs30")}:</strong> {criticalNames}. {t("compliance.scheduleRenewal")}</span>
       </div>
     );
   }
@@ -293,7 +253,7 @@ function ComplianceAlertBanner() {
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 text-sm" data-testid="banner-expiring-docs-60">
         <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
-        <span className="text-amber-700 dark:text-amber-400"><strong>Documents expiring within 60 days:</strong> {warningNames}. Please plan to renew these soon.</span>
+        <span className="text-amber-700 dark:text-amber-400"><strong>{t("compliance.expiringDocs60")}:</strong> {warningNames}. {t("compliance.planRenewal")}</span>
       </div>
     );
   }
@@ -303,7 +263,7 @@ function ComplianceAlertBanner() {
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 text-sm" data-testid="banner-expiring-docs-90">
         <Shield className="h-4 w-4 text-blue-500 flex-shrink-0" />
-        <span className="text-blue-700 dark:text-blue-400"><strong>90-day renewal reminder:</strong> {noticeNames} will expire within 90 days.</span>
+        <span className="text-blue-700 dark:text-blue-400"><strong>{t("compliance.renewalReminder90")}:</strong> {noticeNames} {t("compliance.expiresWithin90")}</span>
       </div>
     );
   }
@@ -314,6 +274,7 @@ function ComplianceAlertBanner() {
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [location] = useLocation();
+  const { t } = useTranslation();
   useActivityTracker();
   
   if (!user) return null;
@@ -325,6 +286,52 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 
   const fieldRoles = ["REP", "MDU", "LEAD"];
   const showBottomNav = fieldRoles.includes(user.role);
+
+  const routeTitles: Record<string, string> = {
+    "/": t("sidebar.menu.dashboard"),
+    "/dashboard": t("sidebar.menu.dashboard"),
+    "/orders": t("sidebar.menu.orders"),
+    "/order-tracker": t("sidebar.menu.orderTracker"),
+    "/mobile-entry": t("sidebar.menu.quickEntry"),
+    "/leads": t("sidebar.menu.leads"),
+    "/commissions": t("sidebar.menu.commissions"),
+    "/commission-forecast": t("sidebar.menu.forecast"),
+    "/my-pay": t("sidebar.menu.myPay"),
+    "/my-disputes": t("sidebar.menu.myDisputes"),
+    "/knowledge": t("sidebar.menu.knowledge"),
+    "/notifications": t("sidebar.menu.alerts"),
+    "/notification-settings": t("sidebar.menu.alertSettings"),
+    "/reports": t("sidebar.menu.reports"),
+    "/executive-reports": t("sidebar.menu.execReports"),
+    "/sales-pipeline": t("sidebar.menu.leadPool"),
+    "/pipeline-forecast": t("sidebar.menu.pipelineForecast"),
+    "/coaching-scorecards": t("sidebar.menu.coachingScorecards"),
+    "/earnings-simulator": t("sidebar.menu.earningsSimulator"),
+    "/referrals": t("sidebar.menu.referrals"),
+    "/messages": t("sidebar.menu.messages"),
+    "/my-performance": t("sidebar.menu.myPerformance"),
+    "/adjustments": t("sidebar.menu.adjustments"),
+    "/change-password": t("common.settings"),
+    "/my-credentials": t("sidebar.menu.credentials"),
+    "/payruns": t("sidebar.menu.payRuns"),
+    "/accounting": t("sidebar.menu.accountingMenu"),
+    "/finance": t("sidebar.menu.finance"),
+    "/audit": t("sidebar.menu.audit"),
+    "/queues": t("sidebar.menu.queues"),
+    "/export-history": t("sidebar.menu.exports"),
+    "/recalculate": t("sidebar.menu.recalculate"),
+    "/admin/user-activity": t("sidebar.menu.userActivity"),
+    "/admin/automation-rules": t("sidebar.menu.automationRules"),
+    "/admin/saved-reports": t("sidebar.menu.savedReports"),
+    "/operations/sla-dashboard": t("sidebar.menu.slaDashboard"),
+    "/operations/onboarding-pipeline": t("sidebar.menu.onboardingPipeline"),
+    "/accounting/payment-variances": t("sidebar.menu.paymentVariances"),
+    "/accounting/month-end": t("sidebar.menu.monthEnd"),
+    "/accounting/cash-flow": t("sidebar.menu.cashFlow"),
+    "/admin/compliance-calendar": t("sidebar.menu.complianceCalendar"),
+    "/admin/disputes": t("sidebar.menu.adminDisputes"),
+  };
+
   const pageTitle = routeTitles[location] || routeTitles[location.split("/").slice(0, 2).join("/")] || "";
 
   return (
@@ -517,12 +524,14 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <TooltipProvider>
-          <AuthProvider>
-            <Router />
-            <Toaster />
-          </AuthProvider>
-        </TooltipProvider>
+        <LanguageProvider>
+          <TooltipProvider>
+            <AuthProvider>
+              <Router />
+              <Toaster />
+            </AuthProvider>
+          </TooltipProvider>
+        </LanguageProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

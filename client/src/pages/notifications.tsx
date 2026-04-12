@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
 import { useState } from "react";
+import i18n from "@/i18n/config";
 import {
   Bell,
   CheckCircle,
@@ -25,6 +27,7 @@ import {
   filterByCategory,
   type CategoryKeyWithAll,
 } from "@/lib/notification-types";
+import { useTranslation } from "react-i18next";
 
 type Notification = {
   id: string;
@@ -61,33 +64,34 @@ const getNotificationIcon = (type: string) => {
   }
 };
 
-const getNotificationBadge = (type: string) => {
+const getNotificationBadge = (type: string, t: (key: string) => string) => {
   switch (type) {
     case "ORDER_APPROVED":
-      return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">Approved</Badge>;
+      return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">{t("notifications.types.orderApproved")}</Badge>;
     case "ORDER_REJECTED":
-      return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800">Rejected</Badge>;
+      return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800">{t("notifications.types.orderRejected")}</Badge>;
     case "PENDING_APPROVAL_ALERT":
-      return <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-800">Pending</Badge>;
+      return <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-800">{t("notifications.types.pendingApproval")}</Badge>;
     case "CHARGEBACK_ALERT":
     case "CHARGEBACK_APPLIED":
-      return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-800">Chargeback</Badge>;
+      return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-800">{t("notifications.types.chargebackAlert")}</Badge>;
     case "LOW_PERFORMANCE_WARNING":
-      return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800">Performance</Badge>;
+      return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800">{t("notifications.types.lowPerformance")}</Badge>;
     case "PAY_RUN_FINALIZED":
-      return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">Payroll</Badge>;
+      return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">{t("notifications.types.payRunFinalized")}</Badge>;
     case "DISPUTE_RESOLVED":
-      return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">Dispute</Badge>;
+      return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">{t("notifications.types.disputeResolved")}</Badge>;
     case "COMPLIANCE_EXPIRING":
-      return <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-800">Compliance</Badge>;
+      return <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-800">{t("notifications.types.complianceExpiring")}</Badge>;
     default:
-      return <Badge variant="outline">Info</Badge>;
+      return <Badge variant="outline">{t("notifications.types.info")}</Badge>;
   }
 };
 
 export default function NotificationsPage() {
   const [, navigate] = useLocation();
   const [category, setCategory] = useState<CategoryKeyWithAll>("all");
+  const { t } = useTranslation();
 
   const { data: notifications, isLoading } = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
@@ -156,9 +160,9 @@ export default function NotificationsPage() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <Bell className="h-5 w-5 md:h-6 md:w-6" />
-          <h1 className="text-xl md:text-2xl font-semibold">Alerts</h1>
+          <h1 className="text-xl md:text-2xl font-semibold">{t("notifications.title")}</h1>
           {unreadCount > 0 && (
-            <Badge variant="default" data-testid="badge-unread-count">{unreadCount} unread</Badge>
+            <Badge variant="default" data-testid="badge-unread-count">{unreadCount} {t("notifications.unread")}</Badge>
           )}
         </div>
         {unreadCount > 0 && (
@@ -170,7 +174,7 @@ export default function NotificationsPage() {
             data-testid="button-mark-all-read"
           >
             <CheckCheck className="h-4 w-4 mr-2" />
-            Mark All Read
+            {t("notifications.markAllRead")}
           </Button>
         )}
       </div>
@@ -178,26 +182,26 @@ export default function NotificationsPage() {
       <Tabs value={category} onValueChange={(v) => setCategory(v as CategoryKeyWithAll)}>
         <TabsList className="w-full justify-start overflow-x-auto" data-testid="tabs-notification-category">
           <TabsTrigger value="all" data-testid="tab-all">
-            All ({notifications?.length || 0})
+            {t("notifications.all")} ({notifications?.length || 0})
           </TabsTrigger>
           <TabsTrigger value="orders" data-testid="tab-orders">
-            Orders ({getCategoryCount("orders")})
+            {t("sidebar.menu.orders")} ({getCategoryCount("orders")})
           </TabsTrigger>
           <TabsTrigger value="pay" data-testid="tab-pay">
-            Pay ({getCategoryCount("pay")})
+            {t("payHistory.title")} ({getCategoryCount("pay")})
           </TabsTrigger>
           <TabsTrigger value="compliance" data-testid="tab-compliance">
-            Compliance ({getCategoryCount("compliance")})
+            {t("notifications.types.complianceExpiring")} ({getCategoryCount("compliance")})
           </TabsTrigger>
           <TabsTrigger value="system" data-testid="tab-system">
-            System ({getCategoryCount("system")})
+            {t("sidebar.systemSettings")} ({getCategoryCount("system")})
           </TabsTrigger>
         </TabsList>
       </Tabs>
 
       {filteredUnread > 0 && category !== "all" && (
         <div className="text-sm text-muted-foreground">
-          {filteredUnread} unread in this category
+          {filteredUnread} {t("notifications.unread")}
         </div>
       )}
 
@@ -206,9 +210,7 @@ export default function NotificationsPage() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Bell className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground text-center">
-              {category === "all"
-                ? "No notifications yet. You'll receive alerts here for order updates, chargebacks, and more."
-                : `No ${category} notifications.`}
+              {t("notifications.noNotifications")}
             </p>
           </CardContent>
         </Card>
@@ -228,15 +230,15 @@ export default function NotificationsPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      {getNotificationBadge(notification.type)}
+                      {getNotificationBadge(notification.type, t)}
                       <span className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+                        {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true, locale: i18n.language === "es" ? es : undefined })}
                       </span>
                       <span className="text-xs text-muted-foreground hidden md:inline">
-                        ({format(new Date(notification.createdAt), "MMM d, yyyy 'at' h:mm a")})
+                        ({new Intl.DateTimeFormat(i18n.language === "es" ? "es-MX" : "en-US", { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(notification.createdAt))})
                       </span>
                       {!notification.isRead && (
-                        <Badge variant="secondary" className="text-xs">New</Badge>
+                        <Badge variant="secondary" className="text-xs">{t("notifications.new")}</Badge>
                       )}
                     </div>
                     <h3 className="font-medium text-sm md:text-base mb-1">{notification.subject}</h3>
@@ -246,9 +248,9 @@ export default function NotificationsPage() {
                   </div>
                   <div className="flex-shrink-0 flex items-center gap-2">
                     {notification.status === "SENT" ? (
-                      <span title="Email sent"><Mail className="h-4 w-4 text-green-500" /></span>
+                      <span title={t("notifications.read")}><Mail className="h-4 w-4 text-green-500" /></span>
                     ) : notification.status === "PENDING" ? (
-                      <span title="Email pending"><Clock className="h-4 w-4 text-muted-foreground" /></span>
+                      <span title={t("common.pending")}><Clock className="h-4 w-4 text-muted-foreground" /></span>
                     ) : null}
                     {!notification.isRead && (
                       <Button
@@ -259,7 +261,7 @@ export default function NotificationsPage() {
                           markReadMutation.mutate(notification.id);
                         }}
                         disabled={markReadMutation.isPending}
-                        title="Mark as read"
+                        title={t("notifications.markAsRead")}
                         data-testid={`button-mark-read-${notification.id}`}
                       >
                         <MailOpen className="h-4 w-4" />

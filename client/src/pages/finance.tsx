@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -68,6 +69,8 @@ interface ColumnMapping {
 
 export default function Finance() {
   const { toast } = useToast();
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
   const isMobile = useIsMobile();
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [selectedImportId, setSelectedImportId] = useState<string>("");
@@ -271,7 +274,7 @@ export default function Finance() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/finance/imports"] });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
-      toast({ title: "Import deleted successfully" });
+      toast({ title: t("finance.toasts.importDeleted") });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -291,7 +294,7 @@ export default function Finance() {
       return res.json();
     },
     onSuccess: async () => {
-      toast({ title: "Payment Recorded", description: "Payment has been recorded against this AR" });
+      toast({ title: t("finance.toasts.paymentRecorded"), description: t("finance.toasts.paymentRecordedDesc") });
       setShowPaymentDialog(false);
       setPaymentAmount("");
       setPaymentReference("");
@@ -319,7 +322,7 @@ export default function Finance() {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Reason Saved" });
+      toast({ title: t("finance.toasts.reasonSaved") });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -336,7 +339,7 @@ export default function Finance() {
       return res.json();
     },
     onSuccess: async () => {
-      toast({ title: "Expected Amount Updated" });
+      toast({ title: t("finance.toasts.expectedUpdated") });
       setEditingExpected(false);
       setNewExpectedAmount("");
       setExpectedChangeReason("");
@@ -361,7 +364,7 @@ export default function Finance() {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "AR Written Off" });
+      toast({ title: t("finance.toasts.writtenOff") });
       setSelectedAr(null);
       queryClient.invalidateQueries({ queryKey: ["/api/finance/ar"] });
       queryClient.invalidateQueries({ queryKey: ["/api/finance/ar/summary"] });
@@ -493,10 +496,10 @@ export default function Finance() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/finance/imports", selectedImportId] });
-      toast({ title: "Row ignored" });
+      toast({ title: t("finance.toasts.rowIgnored") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to ignore row", description: error.message, variant: "destructive" });
+      toast({ title: t("finance.toasts.ignoreRowFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -519,7 +522,7 @@ export default function Finance() {
       setCreateOrderProviderId("");
       setCreateOrderServiceId("");
       setCreateOrderRepId("");
-      toast({ title: "Order created and matched" });
+      toast({ title: t("finance.toasts.orderCreated") });
     },
     onError: (error: Error) => {
       toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
@@ -741,7 +744,7 @@ export default function Finance() {
   };
 
   const formatCurrency = (cents: number) => {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+    return new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(cents / 100);
   };
 
   const getStatusBadge = (status: string) => {
@@ -774,7 +777,7 @@ export default function Finance() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Finance & AR</h1>
+        <h1 className="text-2xl font-semibold">{t("finance.title")}</h1>
         <p className="text-muted-foreground">
           Import client files, match to orders, track accounts receivable
         </p>

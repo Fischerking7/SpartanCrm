@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
@@ -64,6 +65,7 @@ function ComposeDialog({ open, onOpenChange, defaultCategory, defaultSubject, de
 }) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [toUserId, setToUserId] = useState(defaultToUserId || "");
   const [subject, setSubject] = useState(defaultSubject || "");
   const [body, setBody] = useState(defaultBody || "");
@@ -98,7 +100,7 @@ function ComposeDialog({ open, onOpenChange, defaultCategory, defaultSubject, de
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Message sent" });
+      toast({ title: t("messages.toasts.sent") });
       queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/messages/unread-count"] });
       onOpenChange(false);
@@ -108,7 +110,7 @@ function ComposeDialog({ open, onOpenChange, defaultCategory, defaultSubject, de
       setCategory("GENERAL");
     },
     onError: () => {
-      toast({ title: "Failed to send message", variant: "destructive" });
+      toast({ title: t("messages.toasts.sendFailed"), variant: "destructive" });
     },
   });
 
@@ -145,7 +147,7 @@ function ComposeDialog({ open, onOpenChange, defaultCategory, defaultSubject, de
             ) : null}
             <Select value={toUserId} onValueChange={setToUserId}>
               <SelectTrigger data-testid="select-recipient">
-                <SelectValue placeholder="Select recipient" />
+                <SelectValue placeholder={t("messages.selectRecipient")} />
               </SelectTrigger>
               <SelectContent>
                 {(supervisors || []).map((u: { id: string; name: string; role: string }) => (
@@ -155,7 +157,7 @@ function ComposeDialog({ open, onOpenChange, defaultCategory, defaultSubject, de
             </Select>
           </div>
           <div>
-            <label className="text-sm font-medium mb-1 block">Category</label>
+            <label className="text-sm font-medium mb-1 block">{t("messages.category")}</label>
             <Select value={category} onValueChange={setCategory}>
               <SelectTrigger data-testid="select-category">
                 <SelectValue />
@@ -168,12 +170,12 @@ function ComposeDialog({ open, onOpenChange, defaultCategory, defaultSubject, de
             </Select>
           </div>
           <div>
-            <label className="text-sm font-medium mb-1 block">Subject</label>
-            <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" data-testid="input-subject" />
+            <label className="text-sm font-medium mb-1 block">{t("messages.subject")}</label>
+            <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder={t("messages.subjectPlaceholder")} data-testid="input-subject" />
           </div>
           <div>
-            <label className="text-sm font-medium mb-1 block">Message</label>
-            <Textarea value={body} onChange={e => setBody(e.target.value)} placeholder="Type your message..." rows={4} data-testid="input-body" />
+            <label className="text-sm font-medium mb-1 block">{t("messages.message")}</label>
+            <Textarea value={body} onChange={e => setBody(e.target.value)} placeholder={t("messages.messagePlaceholder")} rows={4} data-testid="input-body" />
           </div>
           <Button
             className="w-full"
@@ -195,6 +197,7 @@ function ReplyDialog({ open, onOpenChange, parentMessage }: {
   onOpenChange: (open: boolean) => void;
   parentMessage: Message;
 }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [body, setBody] = useState("");
 
@@ -215,14 +218,14 @@ function ReplyDialog({ open, onOpenChange, parentMessage }: {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Reply sent" });
+      toast({ title: t("messages.toasts.replySent") });
       queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/messages/team-inbox"] });
       onOpenChange(false);
       setBody("");
     },
     onError: () => {
-      toast({ title: "Failed to send reply", variant: "destructive" });
+      toast({ title: t("messages.toasts.replyFailed"), variant: "destructive" });
     },
   });
 
@@ -236,7 +239,7 @@ function ReplyDialog({ open, onOpenChange, parentMessage }: {
           <p className="font-medium">{parentMessage.subject}</p>
           <p className="text-muted-foreground mt-1">{parentMessage.body}</p>
         </div>
-        <Textarea value={body} onChange={e => setBody(e.target.value)} placeholder="Type your reply..." rows={4} data-testid="input-reply-body" />
+        <Textarea value={body} onChange={e => setBody(e.target.value)} placeholder={t("messages.replyPlaceholder")} rows={4} data-testid="input-reply-body" />
         <Button
           className="w-full mt-2"
           onClick={() => replyMutation.mutate()}
@@ -345,6 +348,7 @@ function MessageCard({ message, isIncoming, onReply, onMarkRead, onEscalate, thr
 
 export default function Messages() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -432,10 +436,10 @@ export default function Messages() {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Escalated to formal dispute" });
+      toast({ title: t("messages.toasts.escalated") });
     },
     onError: () => {
-      toast({ title: "Failed to escalate", variant: "destructive" });
+      toast({ title: t("messages.toasts.escalateFailed"), variant: "destructive" });
     },
   });
 
@@ -453,8 +457,8 @@ export default function Messages() {
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg md:text-2xl font-bold" data-testid="text-messages-title">Messages</h1>
-          <p className="text-sm text-muted-foreground">Communicate with your team</p>
+          <h1 className="text-lg md:text-2xl font-bold" data-testid="text-messages-title">{t("messages.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("messages.subtitle")}</p>
         </div>
         <Button onClick={() => setComposeOpen(true)} data-testid="btn-compose">
           <Plus className="h-4 w-4 mr-2" />
@@ -491,8 +495,8 @@ export default function Messages() {
             <Card>
               <CardContent className="p-8 text-center text-muted-foreground">
                 <Inbox className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p className="font-medium">No messages yet</p>
-                <p className="text-sm mt-1">Messages from your team will appear here</p>
+                <p className="font-medium">{t("messages.noMessages")}</p>
+                <p className="text-sm mt-1">{t("messages.noMessagesDesc")}</p>
               </CardContent>
             </Card>
           ) : (
@@ -514,8 +518,8 @@ export default function Messages() {
             <Card>
               <CardContent className="p-8 text-center text-muted-foreground">
                 <Send className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p className="font-medium">No sent messages</p>
-                <p className="text-sm mt-1">Messages you send will appear here</p>
+                <p className="font-medium">{t("messages.noSentMessages")}</p>
+                <p className="text-sm mt-1">{t("messages.noSentMessagesDesc")}</p>
               </CardContent>
             </Card>
           ) : (
@@ -538,8 +542,8 @@ export default function Messages() {
               <Card>
                 <CardContent className="p-8 text-center text-muted-foreground">
                   <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                  <p className="font-medium">No team messages</p>
-                  <p className="text-sm mt-1">Messages from your direct reports will appear here</p>
+                  <p className="font-medium">{t("messages.noTeamMessages")}</p>
+                  <p className="text-sm mt-1">{t("messages.noTeamMessagesDesc")}</p>
                 </CardContent>
               </Card>
             ) : (

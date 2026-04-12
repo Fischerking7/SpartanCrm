@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { LayoutDashboard, ClipboardList, Zap, MessageSquare, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 interface NavItem {
   label: string;
@@ -16,6 +17,7 @@ export function MobileBottomNav() {
   const isMobile = useIsMobile();
   const { user } = useAuth();
   const [location, setLocation] = useLocation();
+  const { t } = useTranslation();
 
   const { data: unreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/messages/unread-count"],
@@ -35,11 +37,11 @@ export function MobileBottomNav() {
   const unreadCount = unreadData?.count || 0;
 
   const navItems: NavItem[] = [
-    { label: "Dashboard", icon: <LayoutDashboard className="h-5 w-5" />, path: "/" },
-    { label: "Orders", icon: <ClipboardList className="h-5 w-5" />, path: "/order-tracker" },
-    { label: "Quick Entry", icon: <Zap className="h-5 w-5" />, path: "/mobile-entry" },
-    { label: "Performance", icon: <Target className="h-5 w-5" />, path: "/my-performance" },
-    { label: "Messages", icon: <MessageSquare className="h-5 w-5" />, path: "/messages", badge: unreadCount },
+    { label: t("nav.dashboard"), icon: <LayoutDashboard className="h-5 w-5" />, path: "/" },
+    { label: t("nav.orders"), icon: <ClipboardList className="h-5 w-5" />, path: "/order-tracker" },
+    { label: t("nav.quickEntry"), icon: <Zap className="h-5 w-5" />, path: "/mobile-entry" },
+    { label: t("nav.performance"), icon: <Target className="h-5 w-5" />, path: "/my-performance" },
+    { label: t("nav.messages"), icon: <MessageSquare className="h-5 w-5" />, path: "/messages", badge: unreadCount },
   ];
 
   return (

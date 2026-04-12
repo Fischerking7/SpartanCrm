@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { getAuthHeaders } from "@/lib/auth";
 import { DataTable } from "@/components/data-table";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -114,6 +115,7 @@ function formatActionLabel(action: string): string {
 }
 
 export default function Audit() {
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
   const [tableFilter, setTableFilter] = useState<string>("all");
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -122,7 +124,7 @@ export default function Audit() {
     queryKey: ["/api/admin/audit"],
     queryFn: async () => {
       const res = await fetch("/api/admin/audit", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch audit logs");
+      if (!res.ok) throw new Error(t("audit.failedToFetchLogs"));
       return res.json();
     },
   });
@@ -131,7 +133,7 @@ export default function Audit() {
     queryKey: ["/api/admin/users"],
     queryFn: async () => {
       const res = await fetch("/api/admin/users", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch users");
+      if (!res.ok) throw new Error(t("audit.failedToFetchUsers"));
       return res.json();
     },
   });
@@ -143,6 +145,15 @@ export default function Audit() {
     });
     return map;
   }, [users]);
+
+  const formatActionLabel = (action: string): string => {
+    if (t(`audit.actions.${action}`, { defaultValue: "" })) {
+      return t(`audit.actions.${action}`);
+    }
+    return action
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  };
 
   const filteredLogs = logs?.filter((log) => {
     const userInfo = log.userId ? userMap.get(log.userId) : null;
@@ -196,7 +207,7 @@ export default function Audit() {
   const columns = [
     {
       key: "createdAt",
-      header: "When",
+      header: t("audit.when"),
       cell: (row: AuditLog) => (
         <div className="whitespace-nowrap">
           <div className="text-sm">{new Date(row.createdAt).toLocaleDateString()}</div>
@@ -206,11 +217,11 @@ export default function Audit() {
     },
     {
       key: "userId",
-      header: "User",
+      header: t("audit.user"),
       cell: (row: AuditLog) => {
         const userInfo = row.userId ? userMap.get(row.userId) : null;
         if (!userInfo) {
-          return <span className="text-sm text-muted-foreground">System</span>;
+          return <span className="text-sm text-muted-foreground">{t("audit.system")}</span>;
         }
         return (
           <div>
@@ -222,7 +233,7 @@ export default function Audit() {
     },
     {
       key: "action",
-      header: "Action",
+      header: t("audit.action"),
       cell: (row: AuditLog) => (
         <Badge variant={getActionBadgeVariant(row.action)} data-testid={`badge-audit-action-${row.id}`}>
           {formatActionLabel(row.action)}
@@ -231,14 +242,14 @@ export default function Audit() {
     },
     {
       key: "tableName",
-      header: "Area",
+      header: t("audit.area"),
       cell: (row: AuditLog) => (
         <span className="text-sm capitalize">{row.tableName.replace(/_/g, " ")}</span>
       ),
     },
     {
       key: "changes",
-      header: "Details",
+      header: t("audit.details"),
       cell: (row: AuditLog) => {
         const hasDetails = row.beforeJson || row.afterJson;
         if (!hasDetails) {
@@ -255,21 +266,21 @@ export default function Audit() {
               data-testid={`button-expand-audit-${row.id}`}
             >
               {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              {isExpanded ? "Hide" : "View"} Details
+              {isExpanded ? t("audit.hide") : t("audit.view")} {t("audit.details")}
             </Button>
             {isExpanded && (
               <div className="mt-2 space-y-2 border-l-2 border-muted pl-3">
                 {row.afterJson && (
                   <div>
                     <div className="text-xs font-medium text-muted-foreground mb-1">
-                      {row.beforeJson ? "Updated Values" : "Details"}
+                      {row.beforeJson ? t("audit.updatedValues") : t("audit.details")}
                     </div>
                     {formatChanges(row.afterJson)}
                   </div>
                 )}
                 {row.beforeJson && (
                   <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1">Previous Values</div>
+                    <div className="text-xs font-medium text-muted-foreground mb-1">{t("audit.previousValues")}</div>
                     {formatChanges(row.beforeJson)}
                   </div>
                 )}
@@ -286,9 +297,9 @@ export default function Audit() {
       <div className="flex items-center gap-3">
         <History className="h-6 w-6 text-primary" />
         <div>
-          <h1 className="text-2xl font-semibold">Audit Log</h1>
+          <h1 className="text-2xl font-semibold">{t("audit.title")}</h1>
           <p className="text-muted-foreground">
-            Track all system changes and user actions
+            {t("audit.subtitle")}
           </p>
         </div>
       </div>
@@ -299,7 +310,7 @@ export default function Audit() {
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by user, action, or area..."
+                placeholder={t("audit.searchPlaceholder")}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -309,10 +320,10 @@ export default function Audit() {
             <Select value={tableFilter} onValueChange={setTableFilter}>
               <SelectTrigger className="w-[180px]" data-testid="select-table-filter">
                 <Filter className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Filter by area" />
+                <SelectValue placeholder={t("audit.filterByArea")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Areas</SelectItem>
+                <SelectItem value="all">{t("audit.allAreas")}</SelectItem>
                 {tableNames.map((table) => (
                   <SelectItem key={table} value={table}>
                     {table.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
@@ -327,7 +338,7 @@ export default function Audit() {
             columns={columns}
             data={filteredLogs || []}
             isLoading={isLoading}
-            emptyMessage="No audit logs found"
+            emptyMessage={t("audit.noLogsFound")}
             testId="table-audit-logs"
           />
         </CardContent>

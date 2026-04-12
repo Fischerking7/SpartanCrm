@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,7 +51,8 @@ interface PendingOverride {
 
 function formatCurrency(amount: number | string) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num || 0);
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(num || 0);
 }
 
 function StatCard({ title, value, subtitle, icon: Icon, color, href }: {
@@ -101,6 +104,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function AccountingDashboard() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
   const { data: stats, isLoading: statsLoading } = useQuery<AdminStats>({
     queryKey: ["/api/dashboard/admin-stats"],
     queryFn: async () => {
@@ -149,8 +154,8 @@ export default function AccountingDashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">Accounting Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">Financial overview and action items</p>
+        <h1 className="text-2xl font-bold" data-testid="text-page-title">{t("accountingDashboard.title")}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{t("accountingDashboard.subtitle")}</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -161,31 +166,31 @@ export default function AccountingDashboard() {
         ) : (
           <>
             <StatCard
-              title="Earned MTD"
+              title={t("accountingDashboard.earnedMTD")}
               value={formatCurrency(stats?.totalEarnedMTD || 0)}
-              subtitle="Total commissions earned"
+              subtitle={t("accountingDashboard.totalCommissionsEarned")}
               icon={DollarSign}
               color="bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-400"
             />
             <StatCard
-              title="Paid MTD"
+              title={t("accountingDashboard.paidMTD")}
               value={formatCurrency(stats?.totalPaidMTD || 0)}
-              subtitle="Total commissions paid"
+              subtitle={t("accountingDashboard.totalCommissionsPaid")}
               icon={CircleDollarSign}
               color="bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-400"
             />
             <StatCard
-              title="Pending Overrides"
+              title={t("accountingDashboard.pendingOverrides")}
               value={pendingCount?.count || 0}
-              subtitle={pendingOverrideTotal > 0 ? formatCurrency(pendingOverrideTotal) : "None pending"}
+              subtitle={pendingOverrideTotal > 0 ? formatCurrency(pendingOverrideTotal) : t("accountingDashboard.nonePending")}
               icon={Clock}
               color="bg-amber-100 text-amber-600 dark:bg-amber-900 dark:text-amber-400"
               href="/admin/override-approvals"
             />
             <StatCard
-              title="Action Items"
+              title={t("accountingDashboard.actionItems")}
               value={(stats?.unmatchedPayments || 0) + (stats?.unmatchedChargebacks || 0) + (stats?.pendingAdjustments || 0)}
-              subtitle={`${stats?.unmatchedPayments || 0} payments · ${stats?.unmatchedChargebacks || 0} chargebacks`}
+              subtitle={t("accountingDashboard.paymentsChargebacks", { payments: stats?.unmatchedPayments || 0, chargebacks: stats?.unmatchedChargebacks || 0 })}
               icon={AlertTriangle}
               color="bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-400"
               href="/queues"
@@ -200,11 +205,11 @@ export default function AccountingDashboard() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <Wallet className="w-4 h-4" />
-                Pending Override Approvals
+                {t("accountingDashboard.pendingOverrideApprovals")}
               </CardTitle>
               <Link href="/admin/override-approvals">
                 <Button variant="ghost" size="sm" data-testid="link-view-overrides">
-                  View All <ArrowRight className="w-3 h-3 ml-1" />
+                  {t("accountingDashboard.viewAll")} <ArrowRight className="w-3 h-3 ml-1" />
                 </Button>
               </Link>
             </div>
@@ -213,7 +218,7 @@ export default function AccountingDashboard() {
             {pendingOverrides.length === 0 ? (
               <div className="flex flex-col items-center py-6 text-muted-foreground">
                 <CheckCircle className="w-8 h-8 mb-2 opacity-50" />
-                <p className="text-sm">All overrides approved</p>
+                <p className="text-sm">{t("accountingDashboard.allOverridesApproved")}</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -240,12 +245,12 @@ export default function AccountingDashboard() {
                   ))}
                   {pendingOverrides.length > 5 && (
                     <p className="text-xs text-muted-foreground text-center pt-1">
-                      +{pendingOverrides.length - 5} more pending
+                      {t("accountingDashboard.morePending", { count: pendingOverrides.length - 5 })}
                     </p>
                   )}
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-border">
-                  <span className="text-sm font-medium">Total Pending</span>
+                  <span className="text-sm font-medium">{t("accountingDashboard.totalPending")}</span>
                   <span className="text-sm font-bold text-green-600 dark:text-green-400">
                     {formatCurrency(pendingOverrideTotal)}
                   </span>
@@ -260,11 +265,11 @@ export default function AccountingDashboard() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <Receipt className="w-4 h-4" />
-                Pay Runs
+                {t("accountingDashboard.payRunsSection")}
               </CardTitle>
               <Link href="/payruns">
                 <Button variant="ghost" size="sm" data-testid="link-view-payruns">
-                  View All <ArrowRight className="w-3 h-3 ml-1" />
+                  {t("accountingDashboard.viewAll")} <ArrowRight className="w-3 h-3 ml-1" />
                 </Button>
               </Link>
             </div>
@@ -277,7 +282,7 @@ export default function AccountingDashboard() {
             ) : recentPayRuns.length === 0 ? (
               <div className="flex flex-col items-center py-6 text-muted-foreground">
                 <FileText className="w-8 h-8 mb-2 opacity-50" />
-                <p className="text-sm">No pay runs yet</p>
+                <p className="text-sm">{t("accountingDashboard.noPayRuns")}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -313,8 +318,8 @@ export default function AccountingDashboard() {
                 <FileText className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-sm font-medium">Accounting Tools</p>
-                <p className="text-xs text-muted-foreground">Pay stubs, imports, exports</p>
+                <p className="text-sm font-medium">{t("accountingDashboard.accountingTools")}</p>
+                <p className="text-xs text-muted-foreground">{t("accountingDashboard.payStubsDesc")}</p>
               </div>
               <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />
             </CardContent>
@@ -328,8 +333,8 @@ export default function AccountingDashboard() {
                 <TrendingUp className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-sm font-medium">Finance Imports</p>
-                <p className="text-xs text-muted-foreground">AR reconciliation & matching</p>
+                <p className="text-sm font-medium">{t("accountingDashboard.financeImports")}</p>
+                <p className="text-xs text-muted-foreground">{t("accountingDashboard.arDesc")}</p>
               </div>
               <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />
             </CardContent>
@@ -343,9 +348,9 @@ export default function AccountingDashboard() {
                 <CheckCircle className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-sm font-medium">Override Approvals</p>
+                <p className="text-sm font-medium">{t("accountingDashboard.overrideApprovals")}</p>
                 <p className="text-xs text-muted-foreground">
-                  {(pendingCount?.count || 0) > 0 ? `${pendingCount?.count} pending review` : "All caught up"}
+                  {(pendingCount?.count || 0) > 0 ? t("accountingDashboard.pendingReview", { count: pendingCount?.count }) : t("accountingDashboard.allCaughtUp")}
                 </p>
               </div>
               <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />

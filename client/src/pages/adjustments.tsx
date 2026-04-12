@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
 import { DataTable } from "@/components/data-table";
 import { ApprovalStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -19,6 +20,7 @@ import type { Adjustment, User } from "@shared/schema";
 export default function Adjustments() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [formData, setFormData] = useState({
@@ -78,10 +80,10 @@ export default function Adjustments() {
         reason: "",
         adjustmentDate: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })(),
       });
-      toast({ title: "Adjustment created successfully" });
+      toast({ title: t("adjustments.toasts.created") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create adjustment", description: error.message, variant: "destructive" });
+      toast({ title: t("adjustments.toasts.createFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -99,10 +101,10 @@ export default function Adjustments() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/adjustments"] });
-      toast({ title: "Adjustment approved" });
+      toast({ title: t("adjustments.toasts.approved") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to approve", description: error.message, variant: "destructive" });
+      toast({ title: t("adjustments.toasts.approveFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -120,10 +122,10 @@ export default function Adjustments() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/adjustments"] });
-      toast({ title: "Adjustment rejected" });
+      toast({ title: t("adjustments.toasts.rejected") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to reject", description: error.message, variant: "destructive" });
+      toast({ title: t("adjustments.toasts.rejectFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -135,7 +137,7 @@ export default function Adjustments() {
   const columns = [
     {
       key: "adjustmentDate",
-      header: "Date",
+      header: t("adjustments.columns.date"),
       cell: (row: Adjustment) => (
         <span className="text-sm text-muted-foreground">
           {new Date(row.adjustmentDate).toLocaleDateString()}
@@ -144,17 +146,17 @@ export default function Adjustments() {
     },
     {
       key: "type",
-      header: "Type",
+      header: t("adjustments.columns.type"),
       cell: (row: Adjustment) => <Badge variant="outline">{row.type}</Badge>,
     },
     {
       key: "payeeType",
-      header: "Payee Type",
+      header: t("adjustments.columns.payeeType"),
       cell: (row: Adjustment) => <Badge variant="secondary">{row.payeeType}</Badge>,
     },
     {
       key: "amount",
-      header: "Amount",
+      header: t("adjustments.columns.amount"),
       cell: (row: Adjustment) => (
         <span className={`font-mono ${parseFloat(row.amount) >= 0 ? "text-green-600" : "text-red-600"}`}>
           {parseFloat(row.amount) >= 0 ? "+" : ""}${parseFloat(row.amount).toFixed(2)}
@@ -164,21 +166,21 @@ export default function Adjustments() {
     },
     {
       key: "reason",
-      header: "Reason",
+      header: t("adjustments.columns.reason"),
       cell: (row: Adjustment) => (
         <span className="text-sm truncate block max-w-[200px]">{row.reason}</span>
       ),
     },
     {
       key: "approvalStatus",
-      header: "Status",
+      header: t("adjustments.columns.status"),
       cell: (row: Adjustment) => <ApprovalStatusBadge status={row.approvalStatus} />,
     },
     ...(canApprove
       ? [
           {
             key: "actions",
-            header: "Actions",
+            header: t("adjustments.columns.actions"),
             cell: (row: Adjustment) =>
               row.approvalStatus === "UNAPPROVED" ? (
                 <div className="flex items-center gap-1">
@@ -213,14 +215,14 @@ export default function Adjustments() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">Adjustments</h1>
+          <h1 className="text-2xl font-semibold">{t("adjustments.title")}</h1>
           <p className="text-muted-foreground">
-            {canApprove ? "Review and approve commission adjustments" : "Submit adjustment requests"}
+            {canApprove ? t("adjustments.reviewDesc") : t("adjustments.submitDesc")}
           </p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="button-new-adjustment">
           <Plus className="h-4 w-4 mr-2" />
-          New Adjustment
+          {t("adjustments.newAdjustment")}
         </Button>
       </div>
 
@@ -229,7 +231,7 @@ export default function Adjustments() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search adjustments..."
+              placeholder={t("adjustments.searchPlaceholder")}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 max-w-md"
@@ -242,7 +244,7 @@ export default function Adjustments() {
             columns={columns}
             data={filteredAdjustments || []}
             isLoading={isLoading}
-            emptyMessage="No adjustments found"
+            emptyMessage={t("adjustments.noAdjustments")}
             testId="table-adjustments"
           />
         </CardContent>
@@ -251,21 +253,21 @@ export default function Adjustments() {
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create Adjustment</DialogTitle>
+            <DialogTitle>{t("adjustments.createTitle")}</DialogTitle>
             <DialogDescription>
-              Submit a new commission adjustment for approval.
+              {t("adjustments.createDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {isAdmin && (
               <div className="space-y-2">
-                <Label>Payee</Label>
+                <Label>{t("adjustments.payee")}</Label>
                 <Select
                   value={formData.payeeUserId}
                   onValueChange={(v) => setFormData({ ...formData, payeeUserId: v })}
                 >
                   <SelectTrigger data-testid="select-payee">
-                    <SelectValue placeholder="Select user" />
+                    <SelectValue placeholder={t("adjustments.selectUser")} />
                   </SelectTrigger>
                   <SelectContent>
                     {users?.filter(u => u.status === "ACTIVE" && u.id).map((u) => (
@@ -277,7 +279,7 @@ export default function Adjustments() {
             )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Type</Label>
+                <Label>{t("adjustments.type")}</Label>
                 <Select
                   value={formData.type}
                   onValueChange={(v) => setFormData({ ...formData, type: v })}
@@ -286,17 +288,17 @@ export default function Adjustments() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="BONUS">Bonus</SelectItem>
-                    <SelectItem value="CORRECTION">Correction</SelectItem>
-                    <SelectItem value="PENALTY">Penalty</SelectItem>
-                    <SelectItem value="ADVANCE">Advance</SelectItem>
-                    <SelectItem value="CLAWBACK">Clawback</SelectItem>
-                    <SelectItem value="OTHER">Other</SelectItem>
+                    <SelectItem value="BONUS">{t("adjustments.types.bonus")}</SelectItem>
+                    <SelectItem value="CORRECTION">{t("adjustments.types.correction")}</SelectItem>
+                    <SelectItem value="PENALTY">{t("adjustments.types.penalty")}</SelectItem>
+                    <SelectItem value="ADVANCE">{t("adjustments.types.advance")}</SelectItem>
+                    <SelectItem value="CLAWBACK">{t("adjustments.types.clawback")}</SelectItem>
+                    <SelectItem value="OTHER">{t("adjustments.types.other")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Amount</Label>
+                <Label>{t("adjustments.amount")}</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -308,7 +310,7 @@ export default function Adjustments() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Date</Label>
+              <Label>{t("adjustments.date")}</Label>
               <Input
                 type="date"
                 value={formData.adjustmentDate}
@@ -317,25 +319,25 @@ export default function Adjustments() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Reason</Label>
+              <Label>{t("adjustments.reason")}</Label>
               <Textarea
                 value={formData.reason}
                 onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                placeholder="Enter reason for adjustment..."
+                placeholder={t("adjustments.reasonPlaceholder")}
                 data-testid="input-reason"
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
-              Cancel
+              {t("adjustments.cancel")}
             </Button>
             <Button
               onClick={() => createMutation.mutate(formData)}
               disabled={!formData.reason.trim() || !formData.amount || createMutation.isPending}
               data-testid="button-submit-adjustment"
             >
-              Submit Adjustment
+              {t("adjustments.submitAdjustment")}
             </Button>
           </DialogFooter>
         </DialogContent>

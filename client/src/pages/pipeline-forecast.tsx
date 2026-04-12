@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n/config";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,11 +55,13 @@ interface TeamsData {
 
 function formatCurrency(val: string | number) {
   const n = typeof val === "string" ? parseFloat(val) : val;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
 export default function PipelineForecast() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [period, setPeriod] = useState<Period>("MONTH");
   const [trendMonths, setTrendMonths] = useState("6");
   const [repIdFilter, setRepIdFilter] = useState<string>("all");
@@ -136,8 +140,8 @@ export default function PipelineForecast() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-semibold" data-testid="text-page-title">Pipeline Forecasting</h1>
-          <p className="text-muted-foreground">Conversion funnel, win-rate trends, and projected revenue</p>
+          <h1 className="text-2xl font-semibold" data-testid="text-page-title">{t("pipeline.title")}</h1>
+          <p className="text-muted-foreground">{t("pipeline.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-1 bg-muted p-1 rounded-md">
@@ -149,7 +153,7 @@ export default function PipelineForecast() {
                 onClick={() => setPeriod(p)}
                 data-testid={`button-period-${p.toLowerCase()}`}
               >
-                {p === "WEEK" ? "Week" : p === "MONTH" ? "Month" : "Quarter"}
+                {p === "WEEK" ? t("pipeline.week") : p === "MONTH" ? t("pipeline.month") : t("pipeline.quarter")}
               </Button>
             ))}
           </div>
@@ -165,10 +169,10 @@ export default function PipelineForecast() {
               {teamList.length > 0 && (
                 <Select value={teamIdFilter} onValueChange={(v) => { setTeamIdFilter(v); setRepIdFilter("all"); }}>
                   <SelectTrigger className="w-44 h-8" data-testid="select-team-filter">
-                    <SelectValue placeholder="All Teams" />
+                    <SelectValue placeholder={t("pipeline.allTeams")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Teams</SelectItem>
+                    <SelectItem value="all">{t("pipeline.allTeams")}</SelectItem>
                     {teamList.map(t => (
                       <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                     ))}
@@ -177,10 +181,10 @@ export default function PipelineForecast() {
               )}
               <Select value={repIdFilter} onValueChange={setRepIdFilter}>
                 <SelectTrigger className="w-44 h-8" data-testid="select-rep-filter">
-                  <SelectValue placeholder="All Reps" />
+                  <SelectValue placeholder={t("pipeline.allReps")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Reps</SelectItem>
+                  <SelectItem value="all">{t("pipeline.allReps")}</SelectItem>
                   {repPerf?.reps.map(rep => (
                     <SelectItem key={rep.repId} value={rep.repId}>{rep.name}</SelectItem>
                   ))}
@@ -189,10 +193,10 @@ export default function PipelineForecast() {
               {providerList.length > 0 && (
                 <Select value={providerIdFilter} onValueChange={setProviderIdFilter}>
                   <SelectTrigger className="w-44 h-8" data-testid="select-provider-filter">
-                    <SelectValue placeholder="All Providers" />
+                    <SelectValue placeholder={t("pipeline.allProviders")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Providers</SelectItem>
+                    <SelectItem value="all">{t("pipeline.allProviders")}</SelectItem>
                     {providerList.map(p => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                     ))}
@@ -201,12 +205,12 @@ export default function PipelineForecast() {
               )}
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={resetFilters} className="h-8 text-xs" data-testid="button-clear-filters">
-                  Clear Filters
+                  {t("pipeline.clearFilters")}
                 </Button>
               )}
               {hasActiveFilters && (
                 <Badge variant="secondary" className="text-xs">
-                  Filtered view
+                  {t("pipeline.filteredView")}
                 </Badge>
               )}
             </div>
@@ -219,9 +223,9 @@ export default function PipelineForecast() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Target className="h-5 w-5 text-primary" />
-            Conversion Funnel
+            {t("pipeline.conversionFunnel")}
           </CardTitle>
-          <CardDescription>Orders progressing from Sold to Paid commission</CardDescription>
+          <CardDescription>{t("pipeline.conversionFunnelDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           {funnelLoading ? (
@@ -270,21 +274,21 @@ export default function PipelineForecast() {
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
                 <div className="text-center">
-                  <div className="text-sm text-muted-foreground">Install Rate</div>
+                  <div className="text-sm text-muted-foreground">{t("pipeline.installRate")}</div>
                   <div className="font-bold text-lg" data-testid="text-install-rate">{funnel.metrics.installRate}%</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-sm text-muted-foreground">Approval Rate</div>
+                  <div className="text-sm text-muted-foreground">{t("pipeline.approvalRate")}</div>
                   <div className="font-bold text-lg" data-testid="text-approval-rate">{funnel.metrics.approvalRate}%</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-sm text-muted-foreground">Total Commission</div>
+                  <div className="text-sm text-muted-foreground">{t("pipeline.totalCommission")}</div>
                   <div className="font-bold text-lg text-green-600 dark:text-green-400" data-testid="text-total-commission">
                     {formatCurrency(funnel.metrics.totalCommission)}
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-sm text-muted-foreground">Paid Commission</div>
+                  <div className="text-sm text-muted-foreground">{t("pipeline.paidCommission")}</div>
                   <div className="font-bold text-lg text-blue-600 dark:text-blue-400" data-testid="text-paid-commission">
                     {formatCurrency(funnel.metrics.paidCommission)}
                   </div>
@@ -292,7 +296,7 @@ export default function PipelineForecast() {
               </div>
             </div>
           ) : (
-            <p className="text-muted-foreground text-center py-6">No funnel data available</p>
+            <p className="text-muted-foreground text-center py-6">{t("pipeline.noFunnelData")}</p>
           )}
         </CardContent>
       </Card>
@@ -304,18 +308,18 @@ export default function PipelineForecast() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-primary" />
-                Win-Rate Trends
+                {t("pipeline.winRateTrends")}
               </CardTitle>
-              <CardDescription>Approval rates and revenue over time</CardDescription>
+              <CardDescription>{t("pipeline.winRateTrendsDesc")}</CardDescription>
             </div>
             <Select value={trendMonths} onValueChange={setTrendMonths}>
               <SelectTrigger className="w-32" data-testid="select-trend-months">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="3">3 months</SelectItem>
-                <SelectItem value="6">6 months</SelectItem>
-                <SelectItem value="12">12 months</SelectItem>
+                <SelectItem value="3">{t("pipeline.threeMonths")}</SelectItem>
+                <SelectItem value="6">{t("pipeline.sixMonths")}</SelectItem>
+                <SelectItem value="12">{t("pipeline.twelveMonths")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -326,55 +330,55 @@ export default function PipelineForecast() {
           ) : trends && trends.trends.length > 0 ? (
             <div className="space-y-6">
               <div>
-                <div className="text-sm font-medium text-muted-foreground mb-2">Win Rate (%)</div>
+                <div className="text-sm font-medium text-muted-foreground mb-2">{t("pipeline.winRatePct")}</div>
                 <ResponsiveContainer width="100%" height={160}>
                   <LineChart data={trends.trends}>
                     <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                     <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
-                    <Tooltip formatter={(val: any) => [`${parseFloat(val).toFixed(1)}%`, "Win Rate"]} />
-                    <Line type="monotone" dataKey="winRate" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} name="Win Rate %" />
+                    <Tooltip formatter={(val: any) => [`${parseFloat(val).toFixed(1)}%`, t("pipeline.winRate")]} />
+                    <Line type="monotone" dataKey="winRate" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} name={t("pipeline.winRate")} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
               <div>
-                <div className="text-sm font-medium text-muted-foreground mb-2">Sales Volume</div>
+                <div className="text-sm font-medium text-muted-foreground mb-2">{t("pipeline.salesVolume")}</div>
                 <ResponsiveContainer width="100%" height={140}>
                   <BarChart data={trends.trends}>
                     <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                     <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip />
-                    <Bar dataKey="sold" name="Sold" fill="#8b5cf6" radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="approved" name="Approved" fill="#6366f1" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="sold" name={t("pipeline.sold")} fill="#8b5cf6" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="approved" name={t("pipeline.approved")} fill="#6366f1" radius={[2, 2, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
 
               {trends.projection && (
                 <div className="border rounded-lg p-4 bg-primary/5">
-                  <div className="text-sm font-medium mb-2">Projected Next Month ({trends.projection.month})</div>
+                  <div className="text-sm font-medium mb-2">{t("pipeline.projectedNextMonth", { month: trends.projection.month })}</div>
                   <div className="grid grid-cols-3 gap-4 text-center">
                     <div>
                       <div className="text-xl font-bold" data-testid="text-projected-sold">{trends.projection.estimatedSold}</div>
-                      <div className="text-xs text-muted-foreground">Est. Sales</div>
+                      <div className="text-xs text-muted-foreground">{t("pipeline.estSales")}</div>
                     </div>
                     <div>
                       <div className="text-xl font-bold text-primary" data-testid="text-projected-win-rate">{trends.projection.estimatedWinRate}%</div>
-                      <div className="text-xs text-muted-foreground">Est. Win Rate</div>
+                      <div className="text-xs text-muted-foreground">{t("pipeline.estWinRate")}</div>
                     </div>
                     <div>
                       <div className="text-xl font-bold text-green-600 dark:text-green-400" data-testid="text-projected-revenue">
                         {formatCurrency(trends.projection.estimatedRevenue)}
                       </div>
-                      <div className="text-xs text-muted-foreground">Est. Revenue</div>
+                      <div className="text-xs text-muted-foreground">{t("pipeline.estRevenue")}</div>
                     </div>
                   </div>
                 </div>
               )}
             </div>
           ) : (
-            <p className="text-muted-foreground text-center py-6">No trend data available</p>
+            <p className="text-muted-foreground text-center py-6">{t("pipeline.noTrendData")}</p>
           )}
         </CardContent>
       </Card>
@@ -385,9 +389,9 @@ export default function PipelineForecast() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5 text-primary" />
-              Rep Performance Breakdown
+              {t("pipeline.repPerformance")}
             </CardTitle>
-            <CardDescription>Sales volume and approval rates by rep</CardDescription>
+            <CardDescription>{t("pipeline.repPerformanceDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
             {repPerfLoading ? (
@@ -397,12 +401,12 @@ export default function PipelineForecast() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-muted-foreground">
-                      <th className="text-left pb-2 font-medium">Rep</th>
-                      <th className="text-right pb-2 font-medium">Sold</th>
-                      <th className="text-right pb-2 font-medium">Approved</th>
-                      <th className="text-right pb-2 font-medium">Rate</th>
-                      <th className="text-right pb-2 font-medium">Commission</th>
-                      <th className="text-right pb-2 font-medium">Avg Deal</th>
+                      <th className="text-left pb-2 font-medium">{t("pipeline.rep")}</th>
+                      <th className="text-right pb-2 font-medium">{t("pipeline.sold")}</th>
+                      <th className="text-right pb-2 font-medium">{t("pipeline.approved")}</th>
+                      <th className="text-right pb-2 font-medium">{t("pipeline.rate")}</th>
+                      <th className="text-right pb-2 font-medium">{t("pipeline.commission")}</th>
+                      <th className="text-right pb-2 font-medium">{t("pipeline.avgDeal")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -427,7 +431,7 @@ export default function PipelineForecast() {
                     ))}
                   </tbody>
                 </table>
-                <p className="text-xs text-muted-foreground mt-2">Click a rep row to drill down into their funnel data</p>
+                <p className="text-xs text-muted-foreground mt-2">{t("pipeline.clickRepToDrill")}</p>
               </div>
             )}
           </CardContent>
@@ -439,7 +443,7 @@ export default function PipelineForecast() {
         <div className="flex justify-end">
           <Button variant="outline" asChild>
             <Link href="/coaching-scorecards" data-testid="link-coaching-scorecards">
-              View Coaching Scorecards
+              {t("pipeline.viewCoachingScorecard")}
               <ArrowRight className="h-4 w-4 ml-2" />
             </Link>
           </Button>

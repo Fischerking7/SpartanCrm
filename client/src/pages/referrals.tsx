@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Users, Plus, CheckCircle2, Clock, Phone, MapPin, Calendar, UserCheck, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface Referral {
   id: string;
@@ -74,17 +75,27 @@ const followUpTypeLabels: Record<string, string> = {
 };
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === "CONVERTED") return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0">Converted</Badge>;
-  if (status === "PENDING") return <Badge variant="secondary">Pending</Badge>;
-  if (status === "LOST") return <Badge variant="destructive">Lost</Badge>;
+  const { t } = useTranslation();
+  if (status === "CONVERTED") return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0">{t("referrals.referral.statuses.CONVERTED")}</Badge>;
+  if (status === "PENDING") return <Badge variant="secondary">{t("referrals.referral.statuses.PENDING")}</Badge>;
+  if (status === "LOST") return <Badge variant="destructive">{t("referrals.referral.statuses.LOST")}</Badge>;
   return <Badge variant="outline">{status}</Badge>;
 }
 
 function FollowUpTypeBadge({ type }: { type: string }) {
+  const { t } = useTranslation();
+  const followUpTypeLabels: Record<string, string> = {
+    SATISFACTION_CALL: t("referrals.followUp.types.SATISFACTION_CALL"),
+    CHECK_IN: t("referrals.followUp.types.CHECK_IN"),
+    REFERRAL_ASK: t("referrals.followUp.types.REFERRAL_ASK"),
+    RETENTION: t("referrals.followUp.types.RETENTION"),
+    OTHER: t("referrals.followUp.types.OTHER"),
+  };
   return <Badge variant="outline" className="text-xs">{followUpTypeLabels[type] || type}</Badge>;
 }
 
 function AddReferralDialog() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
@@ -101,11 +112,11 @@ function AddReferralDialog() {
     mutationFn: () => apiRequest("POST", "/api/referrals", form),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/referrals"] });
-      toast({ title: "Referral logged successfully" });
+      toast({ title: t("referrals.addReferral.success") });
       setOpen(false);
       setForm({ referrerName: "", referrerPhone: "", referredName: "", referredPhone: "", referredAddress: "", notes: "", referralDate: new Date().toISOString().split("T")[0] });
     },
-    onError: () => toast({ title: "Failed to log referral", variant: "destructive" }),
+    onError: () => toast({ title: t("referrals.addReferral.error"), variant: "destructive" }),
   });
 
   return (
@@ -113,56 +124,56 @@ function AddReferralDialog() {
       <DialogTrigger asChild>
         <Button data-testid="button-add-referral">
           <Plus className="h-4 w-4 mr-2" />
-          Log Referral
+          {t("referrals.addReferral.trigger")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Log Customer Referral</DialogTitle>
-          <DialogDescription>Record a referral from an existing customer</DialogDescription>
+          <DialogTitle>{t("referrals.addReferral.title")}</DialogTitle>
+          <DialogDescription>{t("referrals.addReferral.description")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Referrer Name *</Label>
-              <Input value={form.referrerName} onChange={e => setForm(f => ({ ...f, referrerName: e.target.value }))} placeholder="Existing customer" data-testid="input-referrer-name" />
+              <Label>{t("referrals.addReferral.referrerName")}</Label>
+              <Input value={form.referrerName} onChange={e => setForm(f => ({ ...f, referrerName: e.target.value }))} placeholder={t("referrals.addReferral.referrerNamePlaceholder")} data-testid="input-referrer-name" />
             </div>
             <div>
-              <Label>Referrer Phone</Label>
-              <Input value={form.referrerPhone} onChange={e => setForm(f => ({ ...f, referrerPhone: e.target.value }))} placeholder="Phone number" data-testid="input-referrer-phone" />
+              <Label>{t("referrals.addReferral.referrerPhone")}</Label>
+              <Input value={form.referrerPhone} onChange={e => setForm(f => ({ ...f, referrerPhone: e.target.value }))} placeholder={t("referrals.addReferral.referrerPhone")} data-testid="input-referrer-phone" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Referred Name *</Label>
-              <Input value={form.referredName} onChange={e => setForm(f => ({ ...f, referredName: e.target.value }))} placeholder="Referred person" data-testid="input-referred-name" />
+              <Label>{t("referrals.addReferral.referredName")}</Label>
+              <Input value={form.referredName} onChange={e => setForm(f => ({ ...f, referredName: e.target.value }))} placeholder={t("referrals.addReferral.referredNamePlaceholder")} data-testid="input-referred-name" />
             </div>
             <div>
-              <Label>Referred Phone</Label>
-              <Input value={form.referredPhone} onChange={e => setForm(f => ({ ...f, referredPhone: e.target.value }))} placeholder="Phone number" data-testid="input-referred-phone" />
+              <Label>{t("referrals.addReferral.referredPhone")}</Label>
+              <Input value={form.referredPhone} onChange={e => setForm(f => ({ ...f, referredPhone: e.target.value }))} placeholder={t("referrals.addReferral.referredPhone")} data-testid="input-referred-phone" />
             </div>
           </div>
           <div>
-            <Label>Referred Address</Label>
-            <Input value={form.referredAddress} onChange={e => setForm(f => ({ ...f, referredAddress: e.target.value }))} placeholder="Address" data-testid="input-referred-address" />
+            <Label>{t("referrals.addReferral.referredAddress")}</Label>
+            <Input value={form.referredAddress} onChange={e => setForm(f => ({ ...f, referredAddress: e.target.value }))} placeholder={t("referrals.addReferral.referredAddress")} data-testid="input-referred-address" />
           </div>
           <div>
-            <Label>Referral Date</Label>
+            <Label>{t("referrals.addReferral.referralDate")}</Label>
             <Input type="date" value={form.referralDate} onChange={e => setForm(f => ({ ...f, referralDate: e.target.value }))} data-testid="input-referral-date" />
           </div>
           <div>
-            <Label>Notes</Label>
-            <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Any context..." rows={2} data-testid="input-referral-notes" />
+            <Label>{t("referrals.addReferral.notes")}</Label>
+            <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder={t("referrals.addReferral.notesPlaceholder")} rows={2} data-testid="input-referral-notes" />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => setOpen(false)}>{t("referrals.addReferral.cancel")}</Button>
           <Button
             onClick={() => mutation.mutate()}
             disabled={!form.referrerName || !form.referredName || mutation.isPending}
             data-testid="button-submit-referral"
           >
-            {mutation.isPending ? "Saving..." : "Log Referral"}
+            {mutation.isPending ? t("referrals.addReferral.saving") : t("referrals.addReferral.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -171,6 +182,7 @@ function AddReferralDialog() {
 }
 
 function AddFollowUpDialog() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
@@ -181,15 +193,23 @@ function AddFollowUpDialog() {
     notes: "",
   });
 
+  const followUpTypeLabels: Record<string, string> = {
+    SATISFACTION_CALL: t("referrals.followUp.types.SATISFACTION_CALL"),
+    CHECK_IN: t("referrals.followUp.types.CHECK_IN"),
+    REFERRAL_ASK: t("referrals.followUp.types.REFERRAL_ASK"),
+    RETENTION: t("referrals.followUp.types.RETENTION"),
+    OTHER: t("referrals.followUp.types.OTHER"),
+  };
+
   const mutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/post-install-followups", form),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/post-install-followups"] });
-      toast({ title: "Follow-up scheduled" });
+      toast({ title: t("referrals.addFollowUp.success") });
       setOpen(false);
       setForm({ customerName: "", customerPhone: "", followUpDate: (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split("T")[0]; })(), followUpType: "SATISFACTION_CALL", notes: "" });
     },
-    onError: () => toast({ title: "Failed to schedule follow-up", variant: "destructive" }),
+    onError: () => toast({ title: t("referrals.addFollowUp.error"), variant: "destructive" }),
   });
 
   return (
@@ -197,32 +217,32 @@ function AddFollowUpDialog() {
       <DialogTrigger asChild>
         <Button variant="outline" data-testid="button-add-followup">
           <Plus className="h-4 w-4 mr-2" />
-          Schedule Follow-Up
+          {t("referrals.addFollowUp.trigger")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Schedule Post-Install Follow-Up</DialogTitle>
-          <DialogDescription>Set a reminder to check in with a recent customer</DialogDescription>
+          <DialogTitle>{t("referrals.addFollowUp.title")}</DialogTitle>
+          <DialogDescription>{t("referrals.addFollowUp.description")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Customer Name *</Label>
-              <Input value={form.customerName} onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))} placeholder="Customer name" data-testid="input-followup-customer-name" />
+              <Label>{t("referrals.addFollowUp.customerName")}</Label>
+              <Input value={form.customerName} onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))} placeholder={t("referrals.addFollowUp.customerNamePlaceholder")} data-testid="input-followup-customer-name" />
             </div>
             <div>
-              <Label>Phone</Label>
-              <Input value={form.customerPhone} onChange={e => setForm(f => ({ ...f, customerPhone: e.target.value }))} placeholder="Phone number" data-testid="input-followup-phone" />
+              <Label>{t("referrals.addFollowUp.phone")}</Label>
+              <Input value={form.customerPhone} onChange={e => setForm(f => ({ ...f, customerPhone: e.target.value }))} placeholder={t("referrals.addFollowUp.phonePlaceholder")} data-testid="input-followup-phone" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Follow-Up Date</Label>
+              <Label>{t("referrals.addFollowUp.date")}</Label>
               <Input type="date" value={form.followUpDate} onChange={e => setForm(f => ({ ...f, followUpDate: e.target.value }))} data-testid="input-followup-date" />
             </div>
             <div>
-              <Label>Type</Label>
+              <Label>{t("referrals.addFollowUp.type")}</Label>
               <Select value={form.followUpType} onValueChange={v => setForm(f => ({ ...f, followUpType: v }))}>
                 <SelectTrigger data-testid="select-followup-type">
                   <SelectValue />
@@ -236,18 +256,18 @@ function AddFollowUpDialog() {
             </div>
           </div>
           <div>
-            <Label>Notes</Label>
-            <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Notes..." rows={2} data-testid="input-followup-notes" />
+            <Label>{t("referrals.addFollowUp.notes")}</Label>
+            <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder={t("referrals.addFollowUp.notesPlaceholder")} rows={2} data-testid="input-followup-notes" />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => setOpen(false)}>{t("referrals.addFollowUp.cancel")}</Button>
           <Button
             onClick={() => mutation.mutate()}
             disabled={!form.customerName || mutation.isPending}
             data-testid="button-submit-followup"
           >
-            {mutation.isPending ? "Saving..." : "Schedule"}
+            {mutation.isPending ? t("referrals.addFollowUp.saving") : t("referrals.addFollowUp.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -256,6 +276,7 @@ function AddFollowUpDialog() {
 }
 
 function FollowUpItem({ item, onComplete, onCancel }: { item: FollowUp; onComplete: (id: string) => void; onCancel: (id: string) => void }) {
+  const { t } = useTranslation();
   const today = new Date().toISOString().split("T")[0];
   const isOverdue = item.followUpDate < today && item.status === "SCHEDULED";
 
@@ -270,7 +291,7 @@ function FollowUpItem({ item, onComplete, onCancel }: { item: FollowUp; onComple
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-medium text-sm">{item.customerName}</span>
-          {isOverdue && <Badge variant="destructive" className="text-xs">Overdue</Badge>}
+          {isOverdue && <Badge variant="destructive" className="text-xs">{t("referrals.followUp.item.overdue")}</Badge>}
           <FollowUpTypeBadge type={item.followUpType} />
         </div>
         <div className="flex items-center gap-3 mt-0.5">
@@ -327,27 +348,27 @@ export default function Referrals() {
       apiRequest("PATCH", `/api/referrals/${id}`, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/referrals"] });
-      toast({ title: "Referral updated" });
+      toast({ title: t("referrals.messages.referralUpdated") });
     },
-    onError: () => toast({ title: "Failed to update referral", variant: "destructive" }),
+    onError: () => toast({ title: t("referrals.messages.failedToUpdateReferral"), variant: "destructive" }),
   });
 
   const completeFollowUpMutation = useMutation({
     mutationFn: (id: string) => apiRequest("PATCH", `/api/post-install-followups/${id}`, { status: "COMPLETED" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/post-install-followups"] });
-      toast({ title: "Follow-up marked complete" });
+      toast({ title: t("referrals.messages.followUpCompleted") });
     },
-    onError: () => toast({ title: "Failed to complete follow-up", variant: "destructive" }),
+    onError: () => toast({ title: t("referrals.messages.failedToCompleteFollowUp"), variant: "destructive" }),
   });
 
   const cancelFollowUpMutation = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/post-install-followups/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/post-install-followups"] });
-      toast({ title: "Follow-up cancelled" });
+      toast({ title: t("referrals.messages.followUpCancelled") });
     },
-    onError: () => toast({ title: "Failed to cancel follow-up", variant: "destructive" }),
+    onError: () => toast({ title: t("referrals.messages.failedToCancelFollowUp"), variant: "destructive" }),
   });
 
   const stats = referralsData?.stats;
@@ -357,8 +378,8 @@ export default function Referrals() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-semibold" data-testid="text-page-title">Referrals & Follow-Ups</h1>
-          <p className="text-muted-foreground">Track customer referrals and post-install check-ins</p>
+          <h1 className="text-2xl font-semibold" data-testid="text-page-title">{t("referrals.title")}</h1>
+          <p className="text-muted-foreground">{t("referrals.subtitle")}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <AddFollowUpDialog />
@@ -371,25 +392,25 @@ export default function Referrals() {
         <Card>
           <CardContent className="p-4">
             <div className="text-2xl font-bold" data-testid="text-total-referrals">{stats?.total ?? 0}</div>
-            <div className="text-xs text-muted-foreground">Total Referrals</div>
+            <div className="text-xs text-muted-foreground">{t("referrals.totalReferrals")}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <div className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-converted-referrals">{stats?.converted ?? 0}</div>
-            <div className="text-xs text-muted-foreground">Converted</div>
+            <div className="text-xs text-muted-foreground">{t("referrals.converted")}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <div className="text-2xl font-bold text-primary" data-testid="text-conversion-rate">{stats?.conversionRate ?? "0"}%</div>
-            <div className="text-xs text-muted-foreground">Conversion Rate</div>
+            <div className="text-xs text-muted-foreground">{t("referrals.conversionRate")}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <div className={`text-2xl font-bold ${urgentCount > 0 ? "text-red-600 dark:text-red-400" : ""}`} data-testid="text-urgent-followups">{urgentCount}</div>
-            <div className="text-xs text-muted-foreground">Urgent Follow-Ups</div>
+            <div className="text-xs text-muted-foreground">{t("referrals.urgentFollowUps")}</div>
           </CardContent>
         </Card>
       </div>
@@ -397,12 +418,12 @@ export default function Referrals() {
       <Tabs defaultValue="followups">
         <TabsList>
           <TabsTrigger value="followups" data-testid="tab-followups">
-            Follow-Ups
+            {t("referrals.tabs.followUps")}
             {urgentCount > 0 && (
               <Badge variant="destructive" className="ml-1.5 text-xs px-1.5 py-0 h-4">{urgentCount}</Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="referrals" data-testid="tab-referrals">Referrals</TabsTrigger>
+          <TabsTrigger value="referrals" data-testid="tab-referrals">{t("referrals.tabs.referrals")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="followups" className="space-y-4 mt-4">
@@ -416,7 +437,7 @@ export default function Referrals() {
                 <div>
                   <div className="text-sm font-medium text-red-600 dark:text-red-400 mb-2 flex items-center gap-1">
                     <Clock className="h-4 w-4" />
-                    Overdue ({followUpsData?.overdue.length})
+                    {t("referrals.followUp.overdue")} ({followUpsData?.overdue.length})
                   </div>
                   <div className="space-y-2">
                     {followUpsData?.overdue.map(item => (
@@ -435,7 +456,7 @@ export default function Referrals() {
                 <div>
                   <div className="text-sm font-medium text-primary mb-2 flex items-center gap-1">
                     <Calendar className="h-4 w-4" />
-                    Today ({followUpsData?.today.length})
+                    {t("referrals.followUp.today")} ({followUpsData?.today.length})
                   </div>
                   <div className="space-y-2">
                     {followUpsData?.today.map(item => (
@@ -452,7 +473,7 @@ export default function Referrals() {
 
               {(followUpsData?.upcoming.length || 0) > 0 && (
                 <div>
-                  <div className="text-sm font-medium text-muted-foreground mb-2">Upcoming ({followUpsData?.upcoming.length})</div>
+                  <div className="text-sm font-medium text-muted-foreground mb-2">{t("referrals.followUp.upcoming")} ({followUpsData?.upcoming.length})</div>
                   <div className="space-y-2">
                     {followUpsData?.upcoming.map(item => (
                       <FollowUpItem
@@ -468,7 +489,7 @@ export default function Referrals() {
 
               {(followUpsData?.completed.length || 0) > 0 && (
                 <div>
-                  <div className="text-sm font-medium text-muted-foreground mb-2">Recently Completed ({followUpsData?.completed.length})</div>
+                  <div className="text-sm font-medium text-muted-foreground mb-2">{t("referrals.followUp.recentlyCompleted")} ({followUpsData?.completed.length})</div>
                   <div className="space-y-2">
                     {followUpsData?.completed.slice(0, 5).map(item => (
                       <div key={item.id} className="flex items-center gap-3 p-2.5 rounded-lg border bg-muted/30 opacity-70" data-testid={`followup-completed-${item.id}`}>
@@ -487,8 +508,8 @@ export default function Referrals() {
               {!followUpsData?.overdue.length && !followUpsData?.today.length && !followUpsData?.upcoming.length && !followUpsData?.completed.length && (
                 <div className="text-center py-12 text-muted-foreground">
                   <Phone className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No follow-ups scheduled</p>
-                  <p className="text-xs mt-1">Schedule post-install check-ins to stay connected with your customers</p>
+                  <p>{t("referrals.followUp.noFollowUps")}</p>
+                  <p className="text-xs mt-1">{t("referrals.followUp.noFollowUpsDesc")}</p>
                 </div>
               )}
             </>
@@ -513,7 +534,7 @@ export default function Referrals() {
                       <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-3 flex-wrap">
                         <span className="flex items-center gap-1">
                           <UserCheck className="h-3 w-3" />
-                          Referred by {ref.referrerName}
+                          {t("referrals.referral.referredBy", { name: ref.referrerName })}
                         </span>
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
@@ -544,7 +565,7 @@ export default function Referrals() {
                           data-testid={`button-convert-${ref.id}`}
                         >
                           <CheckCircle2 className="h-3 w-3 mr-1" />
-                          Converted
+                          {t("referrals.referral.statuses.CONVERTED")}
                         </Button>
                         <Button
                           variant="ghost"
@@ -553,7 +574,7 @@ export default function Referrals() {
                           onClick={() => markReferralMutation.mutate({ id: ref.id, status: "LOST" })}
                           data-testid={`button-lost-${ref.id}`}
                         >
-                          Lost
+                          {t("referrals.referral.statuses.LOST")}
                         </Button>
                       </div>
                     )}
@@ -564,8 +585,8 @@ export default function Referrals() {
           ) : (
             <div className="text-center py-12 text-muted-foreground">
               <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>No referrals logged yet</p>
-              <p className="text-xs mt-1">Log referrals from satisfied customers to track your conversion pipeline</p>
+              <p>{t("referrals.referral.noReferrals")}</p>
+              <p className="text-xs mt-1">{t("referrals.referral.noReferralsDesc")}</p>
             </div>
           )}
         </TabsContent>

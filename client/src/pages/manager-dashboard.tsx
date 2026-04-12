@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
 import { ProductionMetricsModule } from "@/components/production-metrics-card";
 import { DashboardChartsModule } from "@/components/dashboard-charts";
 import { NextDayInstallsCard } from "@/components/next-day-installs";
@@ -105,6 +106,7 @@ const __ALL__ = "__ALL__";
 
 export default function ManagerDashboard() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [cadence, setCadence] = useState<Cadence>("WEEK");
   const [supervisorFilter, setSupervisorFilter] = useState<string>(__ALL__);
   const [repFilter, setRepFilter] = useState<string>(__ALL__);
@@ -149,9 +151,9 @@ export default function ManagerDashboard() {
   });
 
   const cadenceLabels: Record<Cadence, string> = {
-    DAY: "Today",
-    WEEK: "This Week",
-    MONTH: "This Month",
+    DAY: t("managerDashboard.today"),
+    WEEK: t("managerDashboard.thisWeek"),
+    MONTH: t("managerDashboard.thisMonth"),
   };
 
   const clearFilters = () => {
@@ -165,7 +167,7 @@ export default function ManagerDashboard() {
   const columns = [
     {
       key: "name",
-      header: "Rep",
+      header: t("managerDashboard.rep"),
       cell: (row: ProductionData["breakdown"][0]) => (
         <div>
           <span className="font-medium">{row.name}</span>
@@ -175,7 +177,7 @@ export default function ManagerDashboard() {
     },
     {
       key: "sold",
-      header: "Sold",
+      header: t("managerDashboard.sold"),
       cell: (row: ProductionData["breakdown"][0]) => (
         <span className="font-mono text-right block">{row.sold}</span>
       ),
@@ -183,7 +185,7 @@ export default function ManagerDashboard() {
     },
     {
       key: "connected",
-      header: "Connected",
+      header: t("managerDashboard.connected"),
       cell: (row: ProductionData["breakdown"][0]) => (
         <span className="font-mono text-right block font-medium">{row.connected}</span>
       ),
@@ -191,7 +193,7 @@ export default function ManagerDashboard() {
     },
     {
       key: "approved",
-      header: "Approved",
+      header: t("managerDashboard.approved"),
       cell: (row: ProductionData["breakdown"][0]) => (
         <span className="font-mono text-right block text-green-600 dark:text-green-400">{row.approved}</span>
       ),
@@ -199,7 +201,7 @@ export default function ManagerDashboard() {
     },
     {
       key: "conversion",
-      header: "Conversion",
+      header: t("managerDashboard.conversion"),
       cell: (row: ProductionData["breakdown"][0]) => (
         <span className="font-mono text-right block">{row.conversionPercent}%</span>
       ),
@@ -210,9 +212,9 @@ export default function ManagerDashboard() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Team Dashboard</h1>
+        <h1 className="text-2xl font-semibold">{t("managerDashboard.title")}</h1>
         <p className="text-muted-foreground">
-          Welcome back, {user?.name}
+          {t("managerDashboard.welcome", { name: user?.name })}
         </p>
       </div>
 
@@ -252,7 +254,7 @@ export default function ManagerDashboard() {
       {summary?.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && (
         <TeamBreakdownByRepTable
           data={summary.breakdowns.teamByRep}
-          title="Team Breakdown (MTD)"
+          title={t("managerDashboard.teamBreakdownMtd")}
         />
       )}
 
@@ -260,8 +262,8 @@ export default function ManagerDashboard() {
         <CardHeader>
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <CardTitle>Filtered Production</CardTitle>
-              <CardDescription>Production by rep with filters</CardDescription>
+              <CardTitle>{t("managerDashboard.filteredProduction")}</CardTitle>
+              <CardDescription>{t("managerDashboard.filteredProductionDesc")}</CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <div className="flex gap-1 bg-muted p-1 rounded-md">
@@ -283,10 +285,10 @@ export default function ManagerDashboard() {
             <Filter className="h-4 w-4 text-muted-foreground" />
             <Select value={supervisorFilter} onValueChange={setSupervisorFilter}>
               <SelectTrigger className="w-40" data-testid="select-supervisor-filter">
-                <SelectValue placeholder="Supervisor" />
+                <SelectValue placeholder={t("managerDashboard.supervisor")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={__ALL__}>All Supervisors</SelectItem>
+                <SelectItem value={__ALL__}>{t("managerDashboard.allSupervisors")}</SelectItem>
                 {filterOptions?.supervisors.map((s) => (
                   <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                 ))}
@@ -294,10 +296,10 @@ export default function ManagerDashboard() {
             </Select>
             <Select value={repFilter} onValueChange={setRepFilter}>
               <SelectTrigger className="w-40" data-testid="select-rep-filter">
-                <SelectValue placeholder="Rep" />
+                <SelectValue placeholder={t("managerDashboard.rep")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={__ALL__}>All Reps</SelectItem>
+                <SelectItem value={__ALL__}>{t("managerDashboard.allReps")}</SelectItem>
                 {filterOptions?.reps.map((r) => (
                   <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
                 ))}
@@ -305,10 +307,10 @@ export default function ManagerDashboard() {
             </Select>
             <Select value={providerFilter} onValueChange={setProviderFilter}>
               <SelectTrigger className="w-40" data-testid="select-provider-filter">
-                <SelectValue placeholder="Provider" />
+                <SelectValue placeholder={t("managerDashboard.allProviders")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={__ALL__}>All Providers</SelectItem>
+                <SelectItem value={__ALL__}>{t("managerDashboard.allProviders")}</SelectItem>
                 {filterOptions?.providers.map((p) => (
                   <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                 ))}
@@ -316,7 +318,7 @@ export default function ManagerDashboard() {
             </Select>
             {hasFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="button-clear-filters">
-                Clear
+                {t("managerDashboard.clear")}
               </Button>
             )}
           </div>
@@ -326,7 +328,7 @@ export default function ManagerDashboard() {
             columns={columns}
             data={filteredData?.breakdown || []}
             isLoading={filteredLoading}
-            emptyMessage="No production data available"
+            emptyMessage={t("managerDashboard.noProductionData")}
             testId="table-team-production"
           />
         </CardContent>

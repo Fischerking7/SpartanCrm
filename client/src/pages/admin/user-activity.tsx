@@ -1,4 +1,5 @@
 import { useState } from "react";
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -102,7 +103,7 @@ function formatTimeAgo(dateStr: string | null) {
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleString("en-US", {
+  return new Date(dateStr).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",

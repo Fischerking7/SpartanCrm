@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -67,9 +68,9 @@ export function Leaderboard() {
     const start = new Date(data.startDate);
     const end = new Date(data.endDate);
     if (period === "daily") {
-      return start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      return start.toLocaleDateString(i18n.language === "es" ? "es-MX" : "en-US", { month: "short", day: "numeric" });
     }
-    return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+    return `${start.toLocaleDateString(i18n.language === "es" ? "es-MX" : "en-US", { month: "short", day: "numeric" })} - ${end.toLocaleDateString(i18n.language === "es" ? "es-MX" : "en-US", { month: "short", day: "numeric" })}`;
   };
 
   return (

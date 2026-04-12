@@ -1,4 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 import { getAuthHeaders } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -68,7 +70,8 @@ interface EvidenceAttachment {
 function formatCurrency(amount: string | number | null) {
   if (amount === null) return "-";
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num);
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(num);
 }
 
 function formatDate(date: string) {
@@ -80,6 +83,7 @@ function formatDateTime(date: string) {
 }
 
 function DisputeStatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
   const variants: Record<string, { className: string; icon: React.ComponentType<{ className?: string }> }> = {
     PENDING: { className: "border text-muted-foreground", icon: Clock },
     UNDER_REVIEW: { className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-0", icon: Eye },
@@ -94,41 +98,33 @@ function DisputeStatusBadge({ status }: { status: string }) {
   return (
     <Badge className={`gap-1 ${config.className}`}>
       <Icon className="h-3 w-3" />
-      {status.replace(/_/g, " ")}
+      {t(`adminDisputes.statuses.${status}`, { defaultValue: status.replace(/_/g, " ") })}
     </Badge>
   );
 }
 
 function DisputeTypeBadge({ type }: { type: string }) {
+  const { t } = useTranslation();
   const labels: Record<string, string> = {
-    MISSING_COMMISSION: "Missing Commission",
-    INCORRECT_AMOUNT: "Incorrect Amount",
-    INCORRECT_SERVICE: "Incorrect Service",
-    CHARGEBACK_DISPUTE: "Chargeback Dispute",
-    OTHER: "Other",
+    MISSING_COMMISSION: t("adminDisputes.types.MISSING_COMMISSION"),
+    INCORRECT_AMOUNT: t("adminDisputes.types.INCORRECT_AMOUNT"),
+    INCORRECT_SERVICE: t("adminDisputes.types.INCORRECT_SERVICE"),
+    CHARGEBACK_DISPUTE: t("adminDisputes.types.CHARGEBACK_DISPUTE"),
+    OTHER: t("adminDisputes.types.OTHER"),
   };
   return <Badge variant="outline">{labels[type] || type}</Badge>;
 }
 
 function EscalationTimeline({ disputeId }: { disputeId: string }) {
+  const { t } = useTranslation();
   const { data: events, isLoading } = useQuery<EscalationEvent[]>({
     queryKey: ["/api/disputes", disputeId, "timeline"],
     queryFn: async () => {
       const res = await fetch(`/api/disputes/${disputeId}/timeline`, { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to load timeline");
+      if (!res.ok) throw new Error(t("adminDisputes.failedToLoadTimeline"));
       return res.json();
     },
   });
-
-  const eventTypeLabel: Record<string, string> = {
-    STATUS_CHANGED: "Status Changed",
-    ESCALATED: "Escalated",
-    LEGAL_HOLD_PLACED: "Legal Hold Placed",
-    LEGAL_HOLD_RELEASED: "Legal Hold Released",
-    RESOLVED: "Resolved",
-    EVIDENCE_UPLOADED: "Evidence Uploaded",
-    CREATED: "Dispute Created",
-  };
 
   const eventTypeColor: Record<string, string> = {
     ESCALATED: "text-orange-600",
@@ -140,7 +136,7 @@ function EscalationTimeline({ disputeId }: { disputeId: string }) {
 
   if (isLoading) return <Skeleton className="h-24 w-full" />;
   if (!events || events.length === 0) {
-    return <p className="text-sm text-muted-foreground py-2">No timeline events yet.</p>;
+    return <p className="text-sm text-muted-foreground py-2">{t("adminDisputes.noTimeline")}</p>;
   }
 
   return (
@@ -153,16 +149,18 @@ function EscalationTimeline({ disputeId }: { disputeId: string }) {
           </div>
           <div className="pb-3 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`font-medium ${eventTypeColor[event.eventType] || ""}`}>{eventTypeLabel[event.eventType] || event.eventType}</span>
+              <span className={`font-medium ${eventTypeColor[event.eventType] || ""}`}>
+                {t(`adminDisputes.eventTypes.${event.eventType}`, { defaultValue: event.eventType })}
+              </span>
               {event.fromStatus && event.toStatus && event.fromStatus !== event.toStatus && (
                 <span className="text-xs text-muted-foreground">
-                  {event.fromStatus.replace(/_/g, " ")} → {event.toStatus.replace(/_/g, " ")}
+                  {t(`adminDisputes.statuses.${event.fromStatus}`, { defaultValue: event.fromStatus.replace(/_/g, " ") })} → {t(`adminDisputes.statuses.${event.toStatus}`, { defaultValue: event.toStatus.replace(/_/g, " ") })}
                 </span>
               )}
               <span className="text-xs text-muted-foreground ml-auto">{formatDateTime(event.createdAt)}</span>
             </div>
             {event.actor && (
-              <p className="text-xs text-muted-foreground">by {event.actor.name} ({event.actor.role})</p>
+              <p className="text-xs text-muted-foreground">{t("adminDisputes.byActor", { name: event.actor.name, role: event.actor.role })}</p>
             )}
             {event.note && <p className="text-sm mt-0.5 text-muted-foreground">{event.note}</p>}
           </div>
@@ -173,11 +171,12 @@ function EscalationTimeline({ disputeId }: { disputeId: string }) {
 }
 
 function EvidencePanel({ disputeId }: { disputeId: string }) {
+  const { t } = useTranslation();
   const { data: attachments, isLoading } = useQuery<EvidenceAttachment[]>({
     queryKey: ["/api/disputes", disputeId, "evidence"],
     queryFn: async () => {
       const res = await fetch(`/api/disputes/${disputeId}/evidence`, { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to load evidence");
+      if (!res.ok) throw new Error(t("adminDisputes.failedToLoadEvidence"));
       return res.json();
     },
   });
@@ -198,18 +197,18 @@ function EvidencePanel({ disputeId }: { disputeId: string }) {
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.message || "Upload failed");
+        throw new Error(err.message || t("adminDisputes.uploadFailed"));
       }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/disputes", disputeId, "evidence"] });
       queryClient.invalidateQueries({ queryKey: ["/api/disputes", disputeId, "timeline"] });
-      toast({ title: "Evidence uploaded" });
+      toast({ title: t("adminDisputes.evidenceUploaded") });
       setDescription("");
       if (fileRef.current) fileRef.current.value = "";
     },
-    onError: (e: Error) => toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: t("adminDisputes.uploadFailed"), description: e.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -218,14 +217,14 @@ function EvidencePanel({ disputeId }: { disputeId: string }) {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
-      if (!res.ok) throw new Error("Failed to delete");
+      if (!res.ok) throw new Error(t("adminDisputes.deleteFailed"));
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/disputes", disputeId, "evidence"] });
-      toast({ title: "Attachment removed" });
+      toast({ title: t("adminDisputes.attachmentRemoved") });
     },
-    onError: () => toast({ title: "Delete failed", variant: "destructive" }),
+    onError: () => toast({ title: t("adminDisputes.deleteFailed"), variant: "destructive" }),
   });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -244,7 +243,7 @@ function EvidencePanel({ disputeId }: { disputeId: string }) {
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <Input
-          placeholder="Description (optional)"
+          placeholder={t("adminDisputes.descriptionOptional")}
           value={description}
           onChange={e => setDescription(e.target.value)}
           className="flex-1"
@@ -259,14 +258,14 @@ function EvidencePanel({ disputeId }: { disputeId: string }) {
           data-testid="button-upload-evidence"
         >
           <Upload className="h-4 w-4 mr-1" />
-          {uploadMutation.isPending ? "Uploading..." : "Upload"}
+          {uploadMutation.isPending ? t("adminDisputes.uploading") : t("adminDisputes.upload")}
         </Button>
       </div>
 
       {isLoading ? (
         <Skeleton className="h-16 w-full" />
       ) : !attachments || attachments.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-2">No evidence attached yet.</p>
+        <p className="text-sm text-muted-foreground py-2">{t("adminDisputes.noEvidence")}</p>
       ) : (
         <div className="space-y-2">
           {attachments.map(att => (
@@ -298,6 +297,7 @@ function EvidencePanel({ disputeId }: { disputeId: string }) {
 }
 
 function ResolveDisputeDialog({ dispute, userName }: { dispute: CommissionDispute; userName: string }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ status: "", resolution: "", resolvedAmount: "" });
   const { toast } = useToast();
@@ -311,17 +311,17 @@ function ResolveDisputeDialog({ dispute, userName }: { dispute: CommissionDisput
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.message || "Failed to resolve dispute");
+        throw new Error(err.message || t("adminDisputes.failedToLoadDisputes"));
       }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/disputes"] });
-      toast({ title: "Dispute resolved" });
+      toast({ title: t("adminDisputes.disputeResolved") });
       setOpen(false);
       setForm({ status: "", resolution: "", resolvedAmount: "" });
     },
-    onError: (error: Error) => toast({ title: "Failed to resolve", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("adminDisputes.failedToLoadDisputes"), description: error.message, variant: "destructive" }),
   });
 
   return (
@@ -329,40 +329,40 @@ function ResolveDisputeDialog({ dispute, userName }: { dispute: CommissionDisput
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" data-testid={`button-resolve-dispute-${dispute.id}`}>
           <Gavel className="h-4 w-4 mr-1" />
-          Resolve
+          {t("adminDisputes.resolve")}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>Resolve Dispute</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{t("adminDisputes.resolveDispute")}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div className="p-3 bg-muted rounded-lg text-sm">
-            <p className="text-muted-foreground">Rep: <span className="text-foreground font-medium">{userName}</span></p>
-            <p className="text-muted-foreground mt-1">Title: <span className="text-foreground">{dispute.title}</span></p>
+            <p className="text-muted-foreground">{t("adminDisputes.submittedBy")}: <span className="text-foreground font-medium">{userName}</span></p>
+            <p className="text-muted-foreground mt-1">{t("adminDisputes.title")}: <span className="text-foreground">{dispute.title}</span></p>
           </div>
           <form onSubmit={e => { e.preventDefault(); if (!form.status || !form.resolution) return; resolveMutation.mutate(form); }} className="space-y-3">
             <div>
-              <Label>Resolution Status *</Label>
+              <Label>{t("adminDisputes.resolutionStatus")}</Label>
               <Select value={form.status} onValueChange={v => setForm({ ...form, status: v })}>
-                <SelectTrigger data-testid="select-resolution-status"><SelectValue placeholder="Select resolution" /></SelectTrigger>
+                <SelectTrigger data-testid="select-resolution-status"><SelectValue placeholder={t("adminDisputes.selectResolution")} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="APPROVED">Approved - Issue Valid</SelectItem>
-                  <SelectItem value="REJECTED">Rejected - Issue Invalid</SelectItem>
-                  <SelectItem value="CLOSED">Closed - No Action Needed</SelectItem>
+                  <SelectItem value="APPROVED">{t("adminDisputes.approvedValid")}</SelectItem>
+                  <SelectItem value="REJECTED">{t("adminDisputes.rejectedInvalid")}</SelectItem>
+                  <SelectItem value="CLOSED">{t("adminDisputes.closedNoAction")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Resolved Amount (if applicable)</Label>
-              <Input type="number" step="0.01" value={form.resolvedAmount} onChange={e => setForm({ ...form, resolvedAmount: e.target.value })} placeholder="$0.00" data-testid="input-resolved-amount" />
+              <Label>{t("adminDisputes.resolvedAmount")}</Label>
+              <Input type="number" step="0.01" value={form.resolvedAmount} onChange={e => setForm({ ...form, resolvedAmount: e.target.value })} placeholder={t("adminDisputes.resolvedAmountPlaceholder")} data-testid="input-resolved-amount" />
             </div>
             <div>
-              <Label>Resolution Notes *</Label>
-              <Textarea value={form.resolution} onChange={e => setForm({ ...form, resolution: e.target.value })} placeholder="Explain the resolution..." rows={3} data-testid="input-resolution" />
+              <Label>{t("adminDisputes.resolutionNotes")}</Label>
+              <Textarea value={form.resolution} onChange={e => setForm({ ...form, resolution: e.target.value })} placeholder={t("adminDisputes.explainResolution")} rows={3} data-testid="input-resolution" />
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>{t("adminDisputes.cancel")}</Button>
               <Button type="submit" disabled={resolveMutation.isPending} data-testid="button-confirm-resolve">
-                {resolveMutation.isPending ? "Resolving..." : "Resolve Dispute"}
+                {resolveMutation.isPending ? t("adminDisputes.resolving") : t("adminDisputes.resolveDispute")}
               </Button>
             </div>
           </form>
@@ -373,6 +373,7 @@ function ResolveDisputeDialog({ dispute, userName }: { dispute: CommissionDisput
 }
 
 function LegalHoldDialog({ dispute }: { dispute: CommissionDispute }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const { toast } = useToast();
@@ -390,10 +391,10 @@ function LegalHoldDialog({ dispute }: { dispute: CommissionDispute }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/disputes"] });
-      toast({ title: "Legal hold placed — commission frozen" });
+      toast({ title: t("adminDisputes.legalHoldPlaced") });
       setOpen(false);
     },
-    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: t("adminDisputes.failedToLoadDisputes"), description: e.message, variant: "destructive" }),
   });
 
   const releaseMutation = useMutation({
@@ -408,10 +409,10 @@ function LegalHoldDialog({ dispute }: { dispute: CommissionDispute }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/disputes"] });
-      toast({ title: "Legal hold released" });
+      toast({ title: t("adminDisputes.legalHoldReleased") });
       setOpen(false);
     },
-    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: t("adminDisputes.failedToLoadDisputes"), description: e.message, variant: "destructive" }),
   });
 
   return (
@@ -419,40 +420,40 @@ function LegalHoldDialog({ dispute }: { dispute: CommissionDispute }) {
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" className={isOnHold ? "text-purple-600 border-purple-300" : ""} data-testid={`button-legal-hold-${dispute.id}`}>
           <Shield className="h-4 w-4 mr-1" />
-          {isOnHold ? "Release Hold" : "Legal Hold"}
+          {isOnHold ? t("adminDisputes.releaseHold") : t("adminDisputes.legalHold")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{isOnHold ? "Release Legal Hold" : "Place Legal Hold"}</DialogTitle>
+          <DialogTitle>{isOnHold ? t("adminDisputes.releaseLegalHold") : t("adminDisputes.placeLegalHold")}</DialogTitle>
         </DialogHeader>
         {isOnHold ? (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">This will release the legal hold and restore the dispute to review. Commission will be unfrozen.</p>
+            <p className="text-sm text-muted-foreground">{t("adminDisputes.releaseHoldDesc")}</p>
             {dispute.legalHoldReason && (
               <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                <p className="text-xs text-muted-foreground">Original hold reason:</p>
+                <p className="text-xs text-muted-foreground">{t("adminDisputes.originalHoldReason")}</p>
                 <p className="text-sm">{dispute.legalHoldReason}</p>
               </div>
             )}
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}>{t("adminDisputes.cancel")}</Button>
               <Button onClick={() => releaseMutation.mutate()} disabled={releaseMutation.isPending} data-testid="button-confirm-release-hold">
-                {releaseMutation.isPending ? "Releasing..." : "Release Hold"}
+                {releaseMutation.isPending ? t("adminDisputes.releasing") : t("adminDisputes.releaseHold")}
               </Button>
             </div>
           </div>
         ) : (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">Placing a legal hold will freeze all related commission and payroll until the hold is released. This action is logged and audited.</p>
+            <p className="text-sm text-muted-foreground">{t("adminDisputes.placeHoldDesc")}</p>
             <div>
-              <Label>Reason for Legal Hold *</Label>
-              <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe why this dispute requires a legal hold..." rows={3} data-testid="input-hold-reason" />
+              <Label>{t("adminDisputes.reasonForHold")}</Label>
+              <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder={t("adminDisputes.holdReasonPlaceholder")} rows={3} data-testid="input-hold-reason" />
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}>{t("adminDisputes.cancel")}</Button>
               <Button variant="destructive" onClick={() => holdMutation.mutate()} disabled={!reason || holdMutation.isPending} data-testid="button-confirm-hold">
-                {holdMutation.isPending ? "Placing Hold..." : "Place Legal Hold"}
+                {holdMutation.isPending ? t("adminDisputes.placingHold") : t("adminDisputes.placeLegalHold")}
               </Button>
             </div>
           </div>

@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { KpiCard } from "@/components/kpi-card";
@@ -41,7 +42,7 @@ interface ReferralsData {
 
 function formatTime(iso: string | null) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+  return new Date(iso).toLocaleTimeString(i18n.language === "es" ? "es-MX" : "en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
 }
 
 export default function MyDashboard() {
@@ -96,7 +97,7 @@ export default function MyDashboard() {
           <div>
             <p className="text-sm text-muted-foreground">Period Commission Earned</p>
             <p className="text-3xl font-bold" data-testid="text-period-commission">
-              ${parseFloat(data.periodCommission).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              ${parseFloat(data.periodCommission).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2 })}
             </p>
           </div>
         </CardContent>
@@ -134,7 +135,7 @@ export default function MyDashboard() {
                     {data.latestStatement.periodStart} — {data.latestStatement.periodEnd}
                   </p>
                   <p className="text-lg font-bold">
-                    ${parseFloat(data.latestStatement.netPay || "0").toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    ${parseFloat(data.latestStatement.netPay || "0").toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2 })}
                   </p>
                 </div>
                 <Badge variant="outline" data-testid="badge-statement-status">{data.latestStatement.status}</Badge>

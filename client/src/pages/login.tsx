@@ -10,13 +10,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageToggle } from "@/components/language-toggle";
 import { Lock, User, AlertTriangle } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
+import { useTranslation } from "react-i18next";
 
 export default function Login() {
   const { login } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const [sessionExpiredMsg, setSessionExpiredMsg] = useState<string | null>(null);
 
@@ -40,8 +43,8 @@ export default function Login() {
       setLocation("/dashboard");
     } catch (error) {
       toast({
-        title: "Login Failed",
-        description: error instanceof Error ? error.message : "Invalid credentials",
+        title: t("auth.loginFailed"),
+        description: error instanceof Error ? error.message : t("auth.invalidCredentials"),
         variant: "destructive",
       });
     } finally {
@@ -51,7 +54,8 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <header className="flex items-center justify-end p-3 md:p-4 border-b">
+      <header className="flex items-center justify-end gap-1 p-3 md:p-4 border-b">
+        <LanguageToggle />
         <ThemeToggle />
       </header>
       
@@ -67,8 +71,8 @@ export default function Login() {
               />
             </div>
             <div>
-              <CardTitle className="text-xl md:text-2xl font-semibold">Iron Crest CRM</CardTitle>
-              <CardDescription className="mt-1.5 text-sm">Sign in to access your dashboard</CardDescription>
+              <CardTitle className="text-xl md:text-2xl font-semibold">{t("login.ironCrestCRM")}</CardTitle>
+              <CardDescription className="mt-1.5 text-sm">{t("login.signInDescription")}</CardDescription>
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-6 md:px-6">
@@ -85,13 +89,13 @@ export default function Login() {
                   name="repId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm font-medium">Rep ID</FormLabel>
+                      <FormLabel className="text-sm font-medium">{t("auth.repId")}</FormLabel>
                       <FormControl>
                         <div className="relative">
                           <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                           <Input
                             {...field}
-                            placeholder="Enter your Rep ID"
+                            placeholder={t("auth.enterRepId")}
                             className="pl-10 h-11 md:h-10 text-base md:text-sm"
                             data-testid="input-rep-id"
                           />
@@ -106,14 +110,14 @@ export default function Login() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm font-medium">Password</FormLabel>
+                      <FormLabel className="text-sm font-medium">{t("auth.password")}</FormLabel>
                       <FormControl>
                         <div className="relative">
                           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                           <Input
                             {...field}
                             type="password"
-                            placeholder="Enter your password"
+                            placeholder={t("auth.enterPassword")}
                             className="pl-10 h-11 md:h-10 text-base md:text-sm"
                             data-testid="input-password"
                           />
@@ -129,7 +133,7 @@ export default function Login() {
                   disabled={isLoading}
                   data-testid="button-login"
                 >
-                  {isLoading ? "Signing in..." : "Sign In"}
+                  {isLoading ? t("auth.signingIn") : t("auth.signIn")}
                 </Button>
               </form>
             </Form>

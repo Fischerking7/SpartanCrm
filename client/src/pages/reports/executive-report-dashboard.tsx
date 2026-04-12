@@ -1,4 +1,5 @@
 import { useState } from "react";
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { KpiCard } from "@/components/kpi-card";
@@ -86,17 +87,17 @@ export default function ExecutiveReportDashboard() {
         <KpiCard label="Connect Rate" value={`${installRate}%`} variant={installRate >= 70 ? "success" : installRate >= 50 ? "warning" : "danger"} />
         <KpiCard
           label="Total Commission"
-          value={`$${parseFloat(bucket.totalCommission).toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
+          value={`$${parseFloat(bucket.totalCommission).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2 })}`}
           variant="default"
         />
         <KpiCard
           label="Total Rack Rate"
-          value={`$${parseFloat(bucket.totalRackRate).toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
+          value={`$${parseFloat(bucket.totalRackRate).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2 })}`}
           variant="default"
         />
         <KpiCard
           label="Total Profit"
-          value={`$${parseFloat(bucket.totalProfit).toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
+          value={`$${parseFloat(bucket.totalProfit).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2 })}`}
           variant="success"
         />
       </div>

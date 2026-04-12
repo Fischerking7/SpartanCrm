@@ -7,8 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Lock, AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export default function ChangePassword() {
+  const { t } = useTranslation();
   const { user, token, mustChangePassword, refreshUser, logout } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -22,8 +24,8 @@ export default function ChangePassword() {
     
     if (newPassword !== confirmPassword) {
       toast({
-        title: "Passwords do not match",
-        description: "Please make sure your new passwords match.",
+        title: t("changePassword.passwordsDoNotMatch"),
+        description: t("changePassword.makeSureMatch"),
         variant: "destructive",
       });
       return;
@@ -31,8 +33,8 @@ export default function ChangePassword() {
     
     if (newPassword.length < 8) {
       toast({
-        title: "Password too short",
-        description: "Password must be at least 8 characters.",
+        title: t("changePassword.passwordTooShort"),
+        description: t("changePassword.atLeast8Chars"),
         variant: "destructive",
       });
       return;
@@ -52,20 +54,20 @@ export default function ChangePassword() {
       
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || "Failed to change password");
+        throw new Error(error.message || t("changePassword.failedToChange"));
       }
       
       toast({
-        title: "Password changed",
-        description: "Your password has been updated successfully.",
+        title: t("changePassword.passwordChanged"),
+        description: t("changePassword.updatedSuccessfully"),
       });
       
       await refreshUser();
       setLocation("/");
     } catch (error) {
       toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to change password",
+        title: t("changePassword.error"),
+        description: error instanceof Error ? error.message : t("changePassword.failedToChange"),
         variant: "destructive",
       });
     } finally {
@@ -79,26 +81,26 @@ export default function ChangePassword() {
         <CardHeader className="space-y-1">
           <div className="flex items-center gap-2">
             <Lock className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-2xl" data-testid="text-page-title">Change Password</CardTitle>
+            <CardTitle className="text-2xl" data-testid="text-page-title">{t("changePassword.title")}</CardTitle>
           </div>
           {mustChangePassword && (
             <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md">
               <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
               <CardDescription className="text-amber-700 dark:text-amber-300">
-                You must change your password before continuing.
+                {t("changePassword.mustChangeTitle")}
               </CardDescription>
             </div>
           )}
           {!mustChangePassword && (
             <CardDescription>
-              Update your password to keep your account secure.
+              {t("changePassword.updateSecure")}
             </CardDescription>
           )}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="current-password">Current Password</Label>
+              <Label htmlFor="current-password">{t("changePassword.currentPassword")}</Label>
               <Input
                 id="current-password"
                 type="password"
@@ -109,7 +111,7 @@ export default function ChangePassword() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="new-password">New Password</Label>
+              <Label htmlFor="new-password">{t("changePassword.newPassword")}</Label>
               <Input
                 id="new-password"
                 type="password"
@@ -120,11 +122,11 @@ export default function ChangePassword() {
                 data-testid="input-new-password"
               />
               <p className="text-sm text-muted-foreground">
-                Must be at least 8 characters
+                {t("changePassword.minLengthHint")}
               </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm New Password</Label>
+              <Label htmlFor="confirm-password">{t("changePassword.confirmNewPassword")}</Label>
               <Input
                 id="confirm-password"
                 type="password"
@@ -141,7 +143,7 @@ export default function ChangePassword() {
                 disabled={isSubmitting}
                 data-testid="button-change-password"
               >
-                {isSubmitting ? "Changing..." : "Change Password"}
+                {isSubmitting ? t("changePassword.changing") : t("changePassword.changeButton")}
               </Button>
               {mustChangePassword ? (
                 <Button
@@ -151,7 +153,7 @@ export default function ChangePassword() {
                   onClick={logout}
                   data-testid="button-logout"
                 >
-                  Log Out
+                  {t("changePassword.logout")}
                 </Button>
               ) : (
                 <Button
@@ -161,7 +163,7 @@ export default function ChangePassword() {
                   onClick={() => setLocation("/")}
                   data-testid="button-cancel"
                 >
-                  Cancel
+                  {t("changePassword.cancel")}
                 </Button>
               )}
             </div>

@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -33,7 +34,7 @@ export function NextDayInstallsCard() {
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr + "T12:00:00");
-    return date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+    return date.toLocaleDateString(i18n.language === "es" ? "es-MX" : "en-US", { weekday: "long", month: "short", day: "numeric" });
   };
 
   if (isLoading) {

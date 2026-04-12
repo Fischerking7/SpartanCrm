@@ -1,4 +1,5 @@
 import { useState } from "react";
+import i18n from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -117,10 +118,10 @@ export default function DirectorDashboard() {
                     <TableCell className="text-center">{team.totalOrders}</TableCell>
                     <TableCell className="text-center">{team.totalInstalls}</TableCell>
                     <TableCell className="text-right font-mono text-sm">
-                      ${parseFloat(team.totalCommission).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                      ${parseFloat(team.totalCommission).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">
-                      ${parseFloat(team.avgCommissionPerRep).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                      ${parseFloat(team.avgCommissionPerRep).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2 })}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -180,7 +181,7 @@ export default function DirectorDashboard() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">
-                      ${parseFloat(rep.totalCommission).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                      ${parseFloat(rep.totalCommission).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { minimumFractionDigits: 2 })}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
 import { ProductionMetricsModule } from "@/components/production-metrics-card";
 import { DashboardChartsModule } from "@/components/dashboard-charts";
 import { NextDayInstallsCard } from "@/components/next-day-installs";
@@ -72,6 +73,7 @@ interface DashboardSummary {
 
 export default function SupervisorDashboard() {
   const { user } = useAuth();
+  const { t } = useTranslation();
 
   const { data: summary, isLoading } = useQuery<DashboardSummary>({
     queryKey: ["/api/dashboard/summary"],
@@ -85,9 +87,9 @@ export default function SupervisorDashboard() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Team Dashboard</h1>
+        <h1 className="text-2xl font-semibold">{t("dashboard.teamDashboard")}</h1>
         <p className="text-muted-foreground">
-          Welcome back, {user?.name}
+          {t("dashboard.welcomeBack")}, {user?.name}
         </p>
       </div>
 
@@ -127,7 +129,7 @@ export default function SupervisorDashboard() {
           {summary.breakdowns.teamByRep && summary.breakdowns.teamByRep.length > 0 && (
             <TeamBreakdownByRepTable
               data={summary.breakdowns.teamByRep}
-              title="Team Breakdown (MTD)"
+              title={t("dashboard.teamBreakdownMtd")}
             />
           )}
         </>

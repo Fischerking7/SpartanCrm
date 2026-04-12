@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { StatsCard } from "@/components/stats-card";
 import { DataTable } from "@/components/data-table";
@@ -35,6 +36,7 @@ interface AdminStats {
 }
 
 export default function AdminDashboard({ hideHeader = false }: { hideHeader?: boolean }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   const isFounder = user?.role === "OPERATIONS";
@@ -51,11 +53,17 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
       if (!res.ok) throw new Error("Failed to seed");
       const data = await res.json();
       toast({ 
-        title: "Reference data synced!", 
-        description: `${data.results.users || 0} users, ${data.results.providers} providers, ${data.results.clients} clients, ${data.results.services} services, ${data.results.rateCards} rate cards` 
+        title: t("adminDashboard.referenceDataSynced"), 
+        description: t("adminDashboard.syncResults", { 
+          users: data.results.users || 0,
+          providers: data.results.providers,
+          clients: data.results.clients,
+          services: data.results.services,
+          rateCards: data.results.rateCards
+        })
       });
     } catch {
-      toast({ title: "Seed failed", variant: "destructive" });
+      toast({ title: t("adminDashboard.seedFailed"), variant: "destructive" });
     } finally {
       setIsSeeding(false);
     }
@@ -74,9 +82,9 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      toast({ title: "Export downloaded", description: "Paste this SQL in the Production database panel" });
+      toast({ title: t("adminDashboard.exportDownloaded"), description: t("adminDashboard.exportDownloadedDesc") });
     } catch {
-      toast({ title: "Export failed", variant: "destructive" });
+      toast({ title: t("adminDashboard.exportFailed"), variant: "destructive" });
     }
   };
 
@@ -84,7 +92,7 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
     queryKey: ["/api/dashboard/admin-stats"],
     queryFn: async () => {
       const res = await fetch("/api/dashboard/admin-stats", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch stats");
+      if (!res.ok) throw new Error(t("adminDashboard.failedToFetchStats"));
       return res.json();
     },
   });
@@ -93,7 +101,7 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
     queryKey: ["/api/orders"],
     queryFn: async () => {
       const res = await fetch("/api/orders", { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error("Failed to fetch orders");
+      if (!res.ok) throw new Error(t("adminDashboard.failedToFetchOrders"));
       const orders = await res.json();
       return orders.filter((o: SalesOrder) => o.jobStatus === "PENDING").slice(0, 5);
     },
@@ -102,17 +110,17 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
   const queueColumns = [
     {
       key: "repId",
-      header: "Rep",
+      header: t("adminDashboard.rep"),
       cell: (row: SalesOrder) => <span className="font-mono text-sm">{row.repId}</span>,
     },
     {
       key: "customerName",
-      header: "Customer",
+      header: t("adminDashboard.customer"),
       cell: (row: SalesOrder) => <span className="font-medium truncate block max-w-[150px]">{row.customerName}</span>,
     },
     {
       key: "dateSold",
-      header: "Date",
+      header: t("adminDashboard.date"),
       cell: (row: SalesOrder) => (
         <span className="text-sm text-muted-foreground">
           {new Date(row.dateSold).toLocaleDateString()}
@@ -121,12 +129,12 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
     },
     {
       key: "jobStatus",
-      header: "Job",
+      header: t("adminDashboard.job"),
       cell: (row: SalesOrder) => <JobStatusBadge status={row.jobStatus} />,
     },
     {
       key: "baseCommissionEarned",
-      header: "Commission",
+      header: t("adminDashboard.commission"),
       cell: (row: SalesOrder) => (
         <span className="font-mono text-right block">
           ${parseFloat(row.baseCommissionEarned).toFixed(2)}
@@ -140,9 +148,9 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
     <div className="p-6 space-y-8">
       {!hideHeader && (
         <div>
-          <h1 className="text-2xl font-semibold">Admin Dashboard</h1>
+          <h1 className="text-2xl font-semibold">{t("adminDashboard.title")}</h1>
           <p className="text-muted-foreground">
-            System overview and quick actions
+            {t("adminDashboard.subtitle")}
           </p>
         </div>
       )}
@@ -161,26 +169,26 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatsCard
-            title="Total Earned MTD"
+            title={t("adminDashboard.totalEarnedMtd")}
             value={stats?.totalEarnedMTD || 0}
             icon={DollarSign}
             testId="stat-total-earned"
           />
           <StatsCard
-            title="Total Paid MTD"
+            title={t("adminDashboard.totalPaidMtd")}
             value={stats?.totalPaidMTD || 0}
             icon={DollarSign}
             testId="stat-total-paid"
           />
           <StatsCard
-            title="Active Reps"
+            title={t("adminDashboard.activeReps")}
             value={stats?.activeReps || 0}
             icon={Users}
             testId="stat-active-reps"
             isCurrency={false}
           />
           <StatsCard
-            title="Pending Connects"
+            title={t("adminDashboard.pendingConnects")}
             value={stats?.pendingInstalls || 0}
             icon={CheckSquare}
             testId="stat-pending-installs"
@@ -193,12 +201,12 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
             <div>
-              <CardTitle className="text-lg font-medium">Pending Orders</CardTitle>
-              <CardDescription>Orders awaiting completion</CardDescription>
+              <CardTitle className="text-lg font-medium">{t("adminDashboard.pendingOrders")}</CardTitle>
+              <CardDescription>{t("adminDashboard.pendingOrdersDesc")}</CardDescription>
             </div>
             <Button variant="outline" size="sm" asChild>
               <Link href="/orders" data-testid="link-view-all-orders">
-                View All
+                {t("adminDashboard.viewAll")}
               </Link>
             </Button>
           </CardHeader>
@@ -207,7 +215,7 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
               columns={queueColumns}
               data={pendingOrders || []}
               isLoading={pendingLoading}
-              emptyMessage="No pending orders"
+              emptyMessage={t("adminDashboard.noPendingOrders")}
               testId="table-pending-orders"
             />
           </CardContent>
@@ -218,16 +226,16 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
             <CardHeader>
               <CardTitle className="text-lg font-medium flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                Exception Queues
+                {t("adminDashboard.exceptionQueues")}
               </CardTitle>
-              <CardDescription>Items requiring attention</CardDescription>
+              <CardDescription>{t("adminDashboard.exceptionQueuesDesc")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <Link href="/queues?tab=payments">
                 <div className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer">
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Unmatched Payments</span>
+                    <span className="text-sm">{t("adminDashboard.unmatchedPayments")}</span>
                   </div>
                   <Badge variant={stats?.unmatchedPayments ? "destructive" : "secondary"}>
                     {stats?.unmatchedPayments || 0}
@@ -238,7 +246,7 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
                 <div className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Unmatched Chargebacks</span>
+                    <span className="text-sm">{t("adminDashboard.unmatchedChargebacks")}</span>
                   </div>
                   <Badge variant={stats?.unmatchedChargebacks ? "destructive" : "secondary"}>
                     {stats?.unmatchedChargebacks || 0}
@@ -249,7 +257,7 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
                 <div className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer">
                   <div className="flex items-center gap-2">
                     <DollarSign className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Rate Issues</span>
+                    <span className="text-sm">{t("adminDashboard.rateIssues")}</span>
                   </div>
                   <Badge variant={stats?.rateIssues ? "destructive" : "secondary"}>
                     {stats?.rateIssues || 0}
@@ -260,7 +268,7 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
                 <div className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer">
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Pending Adjustments</span>
+                    <span className="text-sm">{t("adminDashboard.pendingAdjustments")}</span>
                   </div>
                   <Badge variant={stats?.pendingAdjustments ? "secondary" : "outline"}>
                     {stats?.pendingAdjustments || 0}
@@ -271,7 +279,7 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
                 <div className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer" data-testid="link-installed-awaiting-payment">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-orange-500" />
-                    <span className="text-sm">Connected — Awaiting Payment</span>
+                    <span className="text-sm">{t("adminDashboard.connectedAwaitingPayment")}</span>
                   </div>
                   <Badge variant={stats?.installedAwaitingPayment ? "destructive" : "secondary"}>
                     {stats?.installedAwaitingPayment || 0}
@@ -283,25 +291,25 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg font-medium">Quick Actions</CardTitle>
+              <CardTitle className="text-lg font-medium">{t("adminDashboard.quickActions")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <Button variant="outline" className="w-full justify-start" asChild>
                 <Link href="/orders" data-testid="link-view-orders">
                   <CheckSquare className="h-4 w-4 mr-2" />
-                  Manage Orders
+                  {t("adminDashboard.manageOrders")}
                 </Link>
               </Button>
               <Button variant="outline" className="w-full justify-start" asChild>
                 <Link href="/accounting" data-testid="link-export-accounting">
                   <FileText className="h-4 w-4 mr-2" />
-                  Export to Accounting
+                  {t("adminDashboard.exportToAccounting")}
                 </Link>
               </Button>
               <Button variant="outline" className="w-full justify-start" asChild>
                 <Link href="/payruns" data-testid="link-manage-payruns">
                   <Clock className="h-4 w-4 mr-2" />
-                  Manage Pay Runs
+                  {t("adminDashboard.managePayRuns")}
                 </Link>
               </Button>
               {isFounder && (
@@ -313,7 +321,7 @@ export default function AdminDashboard({ hideHeader = false }: { hideHeader?: bo
                   data-testid="button-seed-reference-data"
                 >
                   <RefreshCw className={`h-4 w-4 mr-2 ${isSeeding ? 'animate-spin' : ''}`} />
-                  {isSeeding ? "Syncing..." : "Sync Reference Data"}
+                  {isSeeding ? t("adminDashboard.syncing") : t("adminDashboard.syncReferenceData")}
                 </Button>
               )}
             </CardContent>

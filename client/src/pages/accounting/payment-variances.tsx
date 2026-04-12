@@ -1,4 +1,5 @@
 import { useState } from "react";
+import i18n from "i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -36,7 +37,7 @@ interface VarianceData {
 }
 
 const fmt = (cents: number) =>
-  (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+  (cents / 100).toLocaleString(i18n.language === "es" ? "es-MX" : "en-US", { style: "currency", currency: "USD" });
 
 export default function PaymentVariances() {
   const { user } = useAuth();

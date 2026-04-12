@@ -1,6 +1,8 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, getAuthHeaders } from "@/lib/auth";
+import i18n from "@/i18n/config";
 import { StatsCard } from "@/components/stats-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -63,7 +65,8 @@ const PERIOD_OPTIONS = [
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
 
 function formatCurrency(value: number): string {
-  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const locale = i18n.language === "es" ? "es-MX" : "en-US";
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
 }
 
 interface ReportSummary {
@@ -210,6 +213,7 @@ interface ProductionMetrics {
 export default function Reports() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [period, setPeriod] = useState("this_month");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
@@ -423,7 +427,7 @@ export default function Reports() {
 
   const handleExport = () => {
     if (!commissionSummary?.data?.length) {
-      toast({ title: "No data to export", variant: "destructive" });
+      toast({ title: t("reports.toasts.noData"), variant: "destructive" });
       return;
     }
 
@@ -448,7 +452,7 @@ export default function Reports() {
     a.click();
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
-    toast({ title: "Report exported successfully" });
+    toast({ title: t("reports.toasts.exported") });
   };
 
   const getTrendIcon = (value: string) => {
@@ -470,7 +474,7 @@ export default function Reports() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-xl md:text-2xl font-semibold">Production Results</h1>
+            <h1 className="text-xl md:text-2xl font-semibold">{t("reports.productionResults")}</h1>
             {production?.scopeInfo && (
               <Badge variant="secondary" className="flex items-center gap-1" data-testid="badge-scope">
                 <Users className="h-3 w-3" />
@@ -721,33 +725,33 @@ export default function Reports() {
       <Tabs defaultValue="detailed" className="space-y-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <TabsList className="flex-wrap">
-            <TabsTrigger value="detailed" data-testid="tab-detailed">Detailed Analytics</TabsTrigger>
-            <TabsTrigger value="trend" data-testid="tab-trend">Trend Analysis</TabsTrigger>
-            <TabsTrigger value="performance" data-testid="tab-performance">Rep Performance</TabsTrigger>
-            <TabsTrigger value="breakdown" data-testid="tab-breakdown">Sales Breakdown</TabsTrigger>
-            <TabsTrigger value="commission" data-testid="tab-commission">Commission Summary</TabsTrigger>
-            <TabsTrigger value="rep-leaderboard" data-testid="tab-rep-leaderboard">Rep Leaderboard</TabsTrigger>
+            <TabsTrigger value="detailed" data-testid="tab-detailed">{t("reports.tabs.detailed")}</TabsTrigger>
+            <TabsTrigger value="trend" data-testid="tab-trend">{t("reports.tabs.trend")}</TabsTrigger>
+            <TabsTrigger value="performance" data-testid="tab-performance">{t("reports.tabs.performance")}</TabsTrigger>
+            <TabsTrigger value="breakdown" data-testid="tab-breakdown">{t("reports.tabs.breakdown")}</TabsTrigger>
+            <TabsTrigger value="commission" data-testid="tab-commission">{t("reports.tabs.commission")}</TabsTrigger>
+            <TabsTrigger value="rep-leaderboard" data-testid="tab-rep-leaderboard">{t("reports.tabs.leaderboard")}</TabsTrigger>
             {summary?.scopeInfo?.role !== "REP" && (
-              <TabsTrigger value="team-production" data-testid="tab-team-production">Team Production</TabsTrigger>
+              <TabsTrigger value="team-production" data-testid="tab-team-production">{t("reports.tabs.teamProduction")}</TabsTrigger>
             )}
             {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE" || summary?.scopeInfo?.role === "DIRECTOR") && (
-              <TabsTrigger value="override-invoices" data-testid="tab-override-invoices">Override by Invoice</TabsTrigger>
+              <TabsTrigger value="override-invoices" data-testid="tab-override-invoices">{t("reports.tabs.overrideInvoices")}</TabsTrigger>
             )}
             {(summary?.scopeInfo?.role === "ADMIN" || summary?.scopeInfo?.role === "OPERATIONS" || summary?.scopeInfo?.role === "EXECUTIVE" || summary?.scopeInfo?.role === "DIRECTOR") && (
-              <TabsTrigger value="payroll" data-testid="tab-payroll">Payroll Summary</TabsTrigger>
+              <TabsTrigger value="payroll" data-testid="tab-payroll">{t("reports.tabs.payroll")}</TabsTrigger>
             )}
             {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "DIRECTOR"].includes(summary?.scopeInfo?.role || "") && (
-              <TabsTrigger value="profitability" data-testid="tab-profitability">Profitability</TabsTrigger>
+              <TabsTrigger value="profitability" data-testid="tab-profitability">{t("reports.tabs.profitability")}</TabsTrigger>
             )}
             {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "DIRECTOR"].includes(summary?.scopeInfo?.role || "") && (
-              <TabsTrigger value="product-mix" data-testid="tab-product-mix">Product Mix</TabsTrigger>
+              <TabsTrigger value="product-mix" data-testid="tab-product-mix">{t("reports.tabs.productMix")}</TabsTrigger>
             )}
-            <TabsTrigger value="user-activity" data-testid="tab-user-activity">User Activity</TabsTrigger>
+            <TabsTrigger value="user-activity" data-testid="tab-user-activity">{t("reports.tabs.userActivity")}</TabsTrigger>
             {["ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR"].includes(summary?.scopeInfo?.role || "") && (
-              <TabsTrigger value="sales-tracker" data-testid="tab-sales-tracker">Sales Tracker</TabsTrigger>
+              <TabsTrigger value="sales-tracker" data-testid="tab-sales-tracker">{t("reports.tabs.salesTracker")}</TabsTrigger>
             )}
             {["ADMIN", "OPERATIONS"].includes(summary?.scopeInfo?.role || "") && (
-              <TabsTrigger value="email-reports" data-testid="tab-email-reports">Email Reports</TabsTrigger>
+              <TabsTrigger value="email-reports" data-testid="tab-email-reports">{t("reports.tabs.emailReports")}</TabsTrigger>
             )}
           </TabsList>
           <div className="flex items-center gap-3 flex-wrap">
