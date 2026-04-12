@@ -69,6 +69,7 @@ import {
   Phone,
   MessageSquare,
   BarChart2,
+  Globe2,
 } from "lucide-react";
 import logoImage from "@assets/image_1767725638779.png";
 import { useState } from "react";
@@ -156,6 +157,7 @@ const MENU = {
   referrals: { titleKey: "sidebar.menu.referrals", url: "/referrals", icon: Phone },
   messages: { titleKey: "sidebar.menu.messages", url: "/messages", icon: MessageSquare },
   myPerformance: { titleKey: "sidebar.menu.myPerformance", url: "/my-performance", icon: BarChart2 },
+  geography: { titleKey: "sidebar.menu.geography", url: "/geography", icon: Globe2 },
 };
 
 // ============ COMPOSED MENU GROUPS ============
@@ -235,6 +237,7 @@ const adminInsightsItems: MenuItem[] = [
   MENU.reports,
   MENU.execReports,
   MENU.savedReports,
+  MENU.geography,
 ];
 
 // Admin: System Settings group
@@ -285,22 +288,22 @@ function getRoleMenu(role: string): { sales: MenuItem[]; personal: MenuItem[]; r
       };
     case "LEAD":
       return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments, MENU.referrals, MENU.pipelineForecast, MENU.coachingScorecards],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments, MENU.referrals, MENU.pipelineForecast, MENU.coachingScorecards, MENU.geography],
         ...repBase,
       };
     case "MANAGER":
       return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments, MENU.pipelineForecast, MENU.coachingScorecards, MENU.userActivity],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.adjustments, MENU.pipelineForecast, MENU.coachingScorecards, MENU.geography, MENU.userActivity],
         ...base,
       };
     case "DIRECTOR":
       return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.orders, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.execReports, MENU.pipelineForecast, MENU.coachingScorecards, MENU.overrideApprovals, MENU.userActivity, MENU.adjustments],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.orders, MENU.quickEntry, MENU.leads, MENU.leadPool, MENU.reports, MENU.execReports, MENU.pipelineForecast, MENU.coachingScorecards, MENU.geography, MENU.overrideApprovals, MENU.userActivity, MENU.adjustments],
         ...base,
       };
     case "EXECUTIVE":
       return {
-        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.reports, MENU.execReports, MENU.pipelineForecast, MENU.coachingScorecards, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users, MENU.userActivity],
+        sales: [MENU.dashboard, MENU.orderTracker, MENU.quickEntry, MENU.leads, MENU.orders, MENU.leadPool, MENU.reports, MENU.execReports, MENU.pipelineForecast, MENU.coachingScorecards, MENU.geography, MENU.mduReview, MENU.payRuns, MENU.exports, MENU.adjustments, MENU.queues, MENU.audit, MENU.users, MENU.userActivity],
         ...base,
       };
     default:

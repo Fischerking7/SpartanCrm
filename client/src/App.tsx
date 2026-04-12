@@ -91,6 +91,7 @@ import EarningsSimulator from "@/pages/earnings-simulator";
 import Referrals from "@/pages/referrals";
 import Messages from "@/pages/messages";
 import MyPerformance from "@/pages/my-performance";
+import Geography from "@/pages/geography";
 
 function Dashboard() {
   const { user } = useAuth();
@@ -331,6 +332,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
     "/accounting/cash-flow": t("sidebar.menu.cashFlow"),
     "/admin/compliance-calendar": t("sidebar.menu.complianceCalendar"),
     "/admin/disputes": t("sidebar.menu.adminDisputes"),
+    "/geography": t("sidebar.menu.geography"),
   };
 
   const pageTitle = routeTitles[location] || routeTitles[location.split("/").slice(0, 2).join("/")] || "";
@@ -494,6 +496,10 @@ function Router() {
         
         {["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER", "DIRECTOR"].includes(user.role) && (
           <Route path="/admin/user-activity" component={UserActivityPage} />
+        )}
+
+        {["ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"].includes(user.role) && (
+          <Route path="/geography" component={Geography} />
         )}
 
         {canViewOpsAutomation && (

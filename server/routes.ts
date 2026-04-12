@@ -26714,4 +26714,208 @@ function registerReportRoutes(app: Express, auth: any) {
       res.status(500).json({ message: errMsg });
     }
   });
+
+  // ========== Geographic Intelligence ==========
+
+  app.get("/api/geo/team-locations", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"), async (req: AuthRequest, res) => {
+    try {
+      const allUsers = await db.select().from(users).where(isNull(users.deletedAt));
+      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+      const teamMembers = allUsers.filter(u => u.repId && visibleRepIds.includes(u.repId));
+
+      const result = teamMembers.map(u => ({
+        id: u.id,
+        name: u.name,
+        repId: u.repId,
+        role: u.role,
+        lastLoginLocation: u.lastLoginLocation,
+        lastLoginAt: u.lastLoginAt,
+        lastActiveAt: u.lastActiveAt,
+        isOnline: u.lastActiveAt ? (Date.now() - new Date(u.lastActiveAt).getTime()) < 5 * 60 * 1000 : false,
+      }));
+
+      const locationCounts: Record<string, number> = {};
+      for (const m of result) {
+        if (m.lastLoginLocation) {
+          locationCounts[m.lastLoginLocation] = (locationCounts[m.lastLoginLocation] || 0) + 1;
+        }
+      }
+
+      res.json({ members: result, locationCounts });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/geo/sales-by-region", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"), async (req: AuthRequest, res) => {
+    try {
+      const allUsers = await db.select().from(users).where(isNull(users.deletedAt));
+      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+      if (visibleRepIds.length === 0) return res.json({ byCity: [], byZip: [], totalOrders: 0, rangeDays: 90 });
+      const allowedRanges = [30, 90, 180, 365];
+      const rawRange = parseInt(req.query.range as string) || 90;
+      const range = allowedRanges.includes(rawRange) ? rawRange : 90;
+      const sinceDate = new Date();
+      sinceDate.setDate(sinceDate.getDate() - range);
+      const sinceDateStr = sinceDate.toISOString().split("T")[0];
+
+      const orders = await db.select({
+        city: salesOrders.city,
+        zipCode: salesOrders.zipCode,
+        repId: salesOrders.repId,
+        jobStatus: salesOrders.jobStatus,
+        baseCommissionEarned: salesOrders.baseCommissionEarned,
+      }).from(salesOrders).where(
+        and(
+          inArray(salesOrders.repId, visibleRepIds),
+          gte(salesOrders.dateSold, sinceDateStr)
+        )
+      );
+
+      const byCity: Record<string, { total: number; completed: number; revenue: number }> = {};
+      const byZip: Record<string, { total: number; completed: number; revenue: number }> = {};
+
+      for (const o of orders) {
+        const cityKey = (o.city || "Unknown").trim();
+        const zipKey = (o.zipCode || "Unknown").trim();
+
+        if (!byCity[cityKey]) byCity[cityKey] = { total: 0, completed: 0, revenue: 0 };
+        byCity[cityKey].total++;
+        if (o.jobStatus === "COMPLETED") byCity[cityKey].completed++;
+        byCity[cityKey].revenue += parseFloat(o.baseCommissionEarned || "0");
+
+        if (!byZip[zipKey]) byZip[zipKey] = { total: 0, completed: 0, revenue: 0 };
+        byZip[zipKey].total++;
+        if (o.jobStatus === "COMPLETED") byZip[zipKey].completed++;
+        byZip[zipKey].revenue += parseFloat(o.baseCommissionEarned || "0");
+      }
+
+      const cityData = Object.entries(byCity)
+        .map(([name, data]) => ({ name, ...data }))
+        .sort((a, b) => b.total - a.total);
+
+      const zipData = Object.entries(byZip)
+        .map(([name, data]) => ({ name, ...data }))
+        .sort((a, b) => b.total - a.total);
+
+      res.json({ byCity: cityData, byZip: zipData, totalOrders: orders.length, rangeDays: range });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/geo/lead-density", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"), async (req: AuthRequest, res) => {
+    try {
+      const allUsers = await db.select().from(users).where(isNull(users.deletedAt));
+      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+      if (visibleRepIds.length === 0) return res.json({ byCity: [], byZip: [], byState: [], totalLeads: 0 });
+
+      const allLeads = await db.select({
+        city: leads.city,
+        state: leads.state,
+        zipCode: leads.zipCode,
+        status: leads.status,
+        pipelineStage: leads.pipelineStage,
+        disposition: leads.disposition,
+        convertedToOrderId: leads.convertedToOrderId,
+      }).from(leads).where(inArray(leads.repId, visibleRepIds));
+
+      const byCity: Record<string, { total: number; converted: number; active: number; lost: number }> = {};
+      const byZip: Record<string, { total: number; converted: number; active: number; lost: number }> = {};
+      const byState: Record<string, { total: number; converted: number; active: number; lost: number }> = {};
+
+      for (const l of allLeads) {
+        const cityKey = (l.city || "Unknown").trim();
+        const zipKey = (l.zipCode || "Unknown").trim();
+        const stateKey = (l.state || "Unknown").trim();
+        const isConverted = !!l.convertedToOrderId;
+        const isLost = l.pipelineStage === "LOST" || l.status === "LOST";
+        const isActive = !isConverted && !isLost;
+
+        for (const [key, map] of [[cityKey, byCity], [zipKey, byZip], [stateKey, byState]] as const) {
+          if (!(map as any)[key]) (map as any)[key] = { total: 0, converted: 0, active: 0, lost: 0 };
+          (map as any)[key].total++;
+          if (isConverted) (map as any)[key].converted++;
+          if (isActive) (map as any)[key].active++;
+          if (isLost) (map as any)[key].lost++;
+        }
+      }
+
+      const transform = (obj: Record<string, any>) =>
+        Object.entries(obj)
+          .map(([name, data]) => ({ name, ...data, conversionRate: data.total > 0 ? Math.round((data.converted / data.total) * 100) : 0 }))
+          .sort((a: any, b: any) => b.total - a.total);
+
+      res.json({ byCity: transform(byCity), byZip: transform(byZip), byState: transform(byState), totalLeads: allLeads.length });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/geo/rep-territory", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"), async (req: AuthRequest, res) => {
+    try {
+      const allUsers = await db.select().from(users).where(isNull(users.deletedAt));
+      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+      if (visibleRepIds.length === 0) return res.json({ territories: [], rangeDays: 90 });
+      const allowedRanges = [30, 90, 180, 365];
+      const rawRange = parseInt(req.query.range as string) || 90;
+      const range = allowedRanges.includes(rawRange) ? rawRange : 90;
+      const sinceDate = new Date();
+      sinceDate.setDate(sinceDate.getDate() - range);
+      const sinceDateStr = sinceDate.toISOString().split("T")[0];
+
+      const orders = await db.select({
+        repId: salesOrders.repId,
+        city: salesOrders.city,
+        zipCode: salesOrders.zipCode,
+        jobStatus: salesOrders.jobStatus,
+      }).from(salesOrders).where(
+        and(
+          inArray(salesOrders.repId, visibleRepIds),
+          gte(salesOrders.dateSold, sinceDateStr)
+        )
+      );
+
+      const repMap: Record<string, { name: string; role: string; cities: Set<string>; zips: Set<string>; totalOrders: number; completedOrders: number }> = {};
+
+      const usersByRepId: Record<string, { name: string; role: string }> = {};
+      for (const u of allUsers) {
+        if (u.repId) usersByRepId[u.repId] = { name: u.name, role: u.role };
+      }
+
+      for (const o of orders) {
+        if (!o.repId) continue;
+        if (!repMap[o.repId]) {
+          const uInfo = usersByRepId[o.repId] || { name: o.repId, role: "REP" };
+          repMap[o.repId] = { name: uInfo.name, role: uInfo.role, cities: new Set(), zips: new Set(), totalOrders: 0, completedOrders: 0 };
+        }
+        const entry = repMap[o.repId];
+        entry.totalOrders++;
+        if (o.jobStatus === "COMPLETED") entry.completedOrders++;
+        if (o.city) entry.cities.add(o.city.trim());
+        if (o.zipCode) entry.zips.add(o.zipCode.trim());
+      }
+
+      const repTerritories = Object.entries(repMap).map(([repId, data]) => ({
+        repId,
+        name: data.name,
+        role: data.role,
+        cityCount: data.cities.size,
+        zipCount: data.zips.size,
+        cities: Array.from(data.cities).sort(),
+        zips: Array.from(data.zips).sort(),
+        totalOrders: data.totalOrders,
+        completedOrders: data.completedOrders,
+        completionRate: data.totalOrders > 0 ? Math.round((data.completedOrders / data.totalOrders) * 100) : 0,
+      })).sort((a, b) => b.totalOrders - a.totalOrders);
+
+      res.json({ territories: repTerritories, rangeDays: range });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed";
+      res.status(500).json({ message: errMsg });
+    }
+  });
 }

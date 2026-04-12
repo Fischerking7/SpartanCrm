@@ -34,6 +34,7 @@ Preferred communication style: Simple, everyday language.
 - **Negative Balance Carry-Forward**: Floors negative net pay to $0 and carries forward the outstanding balance to future pay periods.
 - **Rolling Reserve System**: Implements a comprehensive chargeback and rolling reserve policy with withholding, chargeback deductions, equipment recovery, separation handling, and maturity-based release.
 - **Rep Self-Service Portal**: In-app messaging system (`rep_messages` table) for reps to communicate with supervisors/managers, commission inquiry button on commissions page, My Performance page with MTD/weekly metrics, goals progress, daily chart, streak tracking, and rankings. Mobile bottom nav with unread message badge. Manager team inbox for viewing messages from direct reports.
+- **Geographic Intelligence Dashboard**: 4-tab analytics page (`/geography`) showing Team Locations (login-based), Sales by Region (city/zip aggregation with charts), Lead Density (city/state/zip with conversion rates), and Rep Territory Coverage (expandable per-rep city/zip breakdown with completion rates). Available to LEAD+ roles via `getVisibleRepIds` scoping. Endpoints: `/api/geo/team-locations`, `/api/geo/sales-by-region`, `/api/geo/lead-density`, `/api/geo/rep-territory`.
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
