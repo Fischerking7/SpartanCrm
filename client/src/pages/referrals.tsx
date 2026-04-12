@@ -323,6 +323,7 @@ function FollowUpItem({ item, onComplete, onCancel }: { item: FollowUp; onComple
 }
 
 export default function Referrals() {
+  const { t } = useTranslation();
   const { toast } = useToast();
 
   const { data: referralsData, isLoading: referralsLoading } = useQuery<ReferralsData>({
