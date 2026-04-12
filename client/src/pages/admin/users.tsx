@@ -587,6 +587,7 @@ export default function AdminUsers() {
     name: "",
     repId: "",
     password: "",
+    phone: "",
     role: "REP",
     assignedSupervisorId: __NONE__,
     assignedManagerId: __NONE__,
@@ -718,7 +719,7 @@ export default function AdminUsers() {
   });
 
   const resetForm = () => {
-    setFormData({ name: "", repId: "", password: "", role: "REP", assignedSupervisorId: __NONE__, assignedManagerId: __NONE__, assignedExecutiveId: __NONE__ });
+    setFormData({ name: "", repId: "", password: "", phone: "", role: "REP", assignedSupervisorId: __NONE__, assignedManagerId: __NONE__, assignedExecutiveId: __NONE__ });
     setSkipValidation(false);
   };
 
@@ -760,6 +761,7 @@ export default function AdminUsers() {
       name: user.name,
       repId: user.repId,
       password: "",
+      phone: user.phone || "",
       role: user.role,
       assignedSupervisorId: user.assignedSupervisorId || __NONE__,
       assignedManagerId: user.assignedManagerId || __NONE__,
@@ -875,6 +877,21 @@ export default function AdminUsers() {
                 placeholder="Password"
                 data-testid="input-password"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Phone Number</Label>
+              <Input
+                type="tel"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                placeholder="e.g. +1234567890"
+                data-testid="input-phone"
+              />
+              {["REP", "LEAD", "MANAGER"].includes(formData.role) && (
+                <p className="text-xs text-muted-foreground">
+                  Providing a phone number for Rep, Supervisor, or Manager roles will automatically trigger onboarding via SMS.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
@@ -999,6 +1016,7 @@ export default function AdminUsers() {
                   const updateData: any = { 
                     name: submitData.name, 
                     role: submitData.role, 
+                    phone: formData.phone || null,
                     assignedSupervisorId: submitData.assignedSupervisorId,
                     assignedManagerId: submitData.assignedManagerId,
                     assignedExecutiveId: submitData.assignedExecutiveId,

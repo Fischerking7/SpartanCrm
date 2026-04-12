@@ -4704,7 +4704,7 @@ Rules:
   app.patch("/api/admin/users/:id", auth, requirePermission("users:edit"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const { password, name, role, repId, status, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
+      const { password, name, role, repId, status, phone, assignedSupervisorId, assignedManagerId, assignedExecutiveId, skipValidation } = req.body;
       const isFounder = req.user!.role === "OPERATIONS";
       
       // Get existing user for before snapshot
@@ -4717,6 +4717,7 @@ Rules:
       if (name !== undefined) updateData.name = name;
       if (role !== undefined) updateData.role = role;
       if (status !== undefined) updateData.status = status;
+      if (phone !== undefined) updateData.phone = phone;
       if (assignedSupervisorId !== undefined) updateData.assignedSupervisorId = assignedSupervisorId || null;
       if (assignedManagerId !== undefined) updateData.assignedManagerId = assignedManagerId || null;
       if (assignedExecutiveId !== undefined) updateData.assignedExecutiveId = assignedExecutiveId || null;
