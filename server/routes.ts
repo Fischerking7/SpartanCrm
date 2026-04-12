@@ -21788,6 +21788,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
 
       const ssnEncrypted = formData.ssn ? encryptSsn(formData.ssn) : null;
       const ssnLast4 = formData.ssn ? extractSsnLast4(formData.ssn) : null;
+      const w9TinLast4 = formData.ssn ? extractSsnLast4(formData.ssn) : null;
       const routingNumberEncrypted = formData.routingNumber ? encryptSsn(formData.routingNumber) : null;
       const accountNumberEncrypted = formData.accountNumber ? encryptSsn(formData.accountNumber) : null;
       const accountNumberLast4 = formData.accountNumber ? formData.accountNumber.slice(-4) : null;
@@ -21844,6 +21845,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         w9TaxClassification: formData.w9TaxClassification || null,
         w9LlcType: formData.w9LlcType || null,
         w9TinType: formData.w9TinType || null,
+        w9TinLast4: w9TinLast4,
         backgroundCheckSignature: formData.backgroundCheckSignature,
         chargebackPolicySignature: formData.chargebackPolicySignature,
         contractorAppSignature: formData.contractorAppSignature,

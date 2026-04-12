@@ -399,7 +399,19 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
     setFormFields(prev => ({ ...prev, [key]: value }));
   };
 
-  const getFieldsForDoc = () => {
+  interface FieldOption {
+    value: string;
+    label: string;
+  }
+  interface FormFieldConfig {
+    key: string;
+    label: string;
+    type: "text" | "date" | "checkbox" | "select";
+    options?: FieldOption[];
+    showIf?: string;
+  }
+
+  const getFieldsForDoc = (): FormFieldConfig[] => {
     switch (docKey) {
       case "background_check":
         return [
@@ -488,7 +500,7 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
         </div>
 
         <div className="space-y-4">
-          {fields.map((field: any) => {
+          {fields.map((field) => {
             if (field.showIf && formFields.taxClassification !== field.showIf) return null;
             return (
             <div key={field.key}>
@@ -512,7 +524,7 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
                     data-testid={`select-${field.key}`}
                   >
                     <option value="">{t("onboarding.form.selectOption")}</option>
-                    {field.options?.map((opt: { value: string; label: string }) => (
+                    {field.options?.map((opt) => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>

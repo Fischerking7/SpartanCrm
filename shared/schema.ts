@@ -2442,6 +2442,7 @@ export const onboardingSubmissions = pgTable("onboarding_submissions", {
   w9TaxClassification: varchar("w9_tax_classification"),
   w9LlcType: varchar("w9_llc_type"),
   w9TinType: varchar("w9_tin_type"),
+  w9TinLast4: varchar("w9_tin_last4", { length: 4 }),
   backgroundCheckSignature: text("background_check_signature"),
   chargebackPolicySignature: text("chargeback_policy_signature"),
   contractorAppSignature: text("contractor_app_signature"),
