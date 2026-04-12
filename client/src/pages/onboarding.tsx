@@ -447,9 +447,25 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
         return [
           { key: "fullName", label: t("onboarding.docs.w9.fullName"), type: "text" },
           { key: "businessName", label: t("onboarding.docs.w9.businessName"), type: "text" },
+          { key: "taxClassification", label: t("onboarding.docs.w9.taxClassification"), type: "select", options: [
+            { value: "individual", label: t("onboarding.docs.w9.taxOptions.individual") },
+            { value: "c_corp", label: t("onboarding.docs.w9.taxOptions.cCorp") },
+            { value: "s_corp", label: t("onboarding.docs.w9.taxOptions.sCorp") },
+            { value: "partnership", label: t("onboarding.docs.w9.taxOptions.partnership") },
+            { value: "trust_estate", label: t("onboarding.docs.w9.taxOptions.trustEstate") },
+            { value: "llc", label: t("onboarding.docs.w9.taxOptions.llc") },
+            { value: "other", label: t("onboarding.docs.w9.taxOptions.other") },
+          ]},
+          { key: "llcType", label: t("onboarding.docs.w9.llcType"), type: "text", showIf: "llc" },
           { key: "address", label: t("onboarding.docs.w9.address"), type: "text" },
-          { key: "cityStateZip", label: t("onboarding.docs.w9.cityStateZip"), type: "text" },
-          { key: "ssn", label: t("onboarding.docs.w9.ssn"), type: "text" },
+          { key: "city", label: t("onboarding.docs.w9.city"), type: "text" },
+          { key: "state", label: t("onboarding.docs.w9.state"), type: "text" },
+          { key: "zip", label: t("onboarding.docs.w9.zip"), type: "text" },
+          { key: "tinType", label: t("onboarding.docs.w9.tinType"), type: "select", options: [
+            { value: "ssn", label: t("onboarding.docs.w9.tinOptions.ssn") },
+            { value: "ein", label: t("onboarding.docs.w9.tinOptions.ein") },
+          ]},
+          { key: "ssn", label: t("onboarding.docs.w9.tin"), type: "text" },
           { key: "certify", label: t("onboarding.docs.w9.certify"), type: "checkbox" },
         ];
       default:
@@ -472,7 +488,9 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
         </div>
 
         <div className="space-y-4">
-          {fields.map((field) => (
+          {fields.map((field: any) => {
+            if (field.showIf && formFields.taxClassification !== field.showIf) return null;
+            return (
             <div key={field.key}>
               {field.type === "checkbox" ? (
                 <label className="flex items-start gap-3 cursor-pointer" data-testid={`field-${field.key}`}>
@@ -484,6 +502,21 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
                   />
                   <span className="text-sm">{field.label}</span>
                 </label>
+              ) : field.type === "select" ? (
+                <div>
+                  <Label className="text-sm">{field.label}</Label>
+                  <select
+                    value={formFields[field.key] || ""}
+                    onChange={(e) => updateField(field.key, e.target.value)}
+                    className="mt-1 h-12 w-full rounded-lg border border-input bg-background px-3 text-sm"
+                    data-testid={`select-${field.key}`}
+                  >
+                    <option value="">{t("onboarding.form.selectOption")}</option>
+                    {field.options?.map((opt: { value: string; label: string }) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
               ) : (
                 <div>
                   <Label className="text-sm">{field.label}</Label>
@@ -497,7 +530,8 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="mt-6">
@@ -606,7 +640,12 @@ function ReviewStep({ token, repInfo, onBack }: {
                 w9FullName: draftData.draft.fullName || "",
                 w9BusinessName: draftData.draft.businessName || "",
                 w9Address: draftData.draft.address || "",
-                w9CityStateZip: draftData.draft.cityStateZip || "",
+                w9City: draftData.draft.city || "",
+                w9State: draftData.draft.state || "",
+                w9Zip: draftData.draft.zip || "",
+                w9TaxClassification: draftData.draft.taxClassification || "",
+                w9LlcType: draftData.draft.llcType || "",
+                w9TinType: draftData.draft.tinType || "",
               };
             }
           }

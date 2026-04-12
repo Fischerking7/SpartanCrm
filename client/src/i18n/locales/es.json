@@ -1843,7 +1843,8 @@
       "saveDraft": "Guardar Borrador",
       "nextDoc": "Siguiente Documento",
       "draftSaved": "Borrador guardado",
-      "saveFailed": "Error al guardar"
+      "saveFailed": "Error al guardar",
+      "selectOption": "Seleccionar..."
     },
     "docs": {
       "background_check": {
@@ -1892,9 +1893,27 @@
         "name": "Formulario W-9 del IRS",
         "fullName": "Nombre Legal Completo (como aparece en su declaración de impuestos)",
         "businessName": "Nombre Comercial (si es diferente al anterior, opcional)",
+        "taxClassification": "Clasificación Fiscal Federal",
+        "taxOptions": {
+          "individual": "Individual / Propietario Único",
+          "cCorp": "Corporación C",
+          "sCorp": "Corporación S",
+          "partnership": "Sociedad",
+          "trustEstate": "Fideicomiso / Patrimonio",
+          "llc": "Compañía de Responsabilidad Limitada (LLC)",
+          "other": "Otro"
+        },
+        "llcType": "Clasificación Fiscal de LLC (C, S o P)",
         "address": "Dirección",
-        "cityStateZip": "Ciudad, Estado y Código Postal",
-        "ssn": "Número de Seguro Social",
+        "city": "Ciudad",
+        "state": "Estado",
+        "zip": "Código Postal",
+        "tinType": "Tipo de Número de Identificación de Contribuyente",
+        "tinOptions": {
+          "ssn": "Número de Seguro Social (SSN)",
+          "ein": "Número de Identificación del Empleador (EIN)"
+        },
+        "tin": "Número de Identificación de Contribuyente",
         "certify": "Certifico bajo pena de perjurio que la información proporcionada es correcta y soy una persona de EE.UU."
       }
     },

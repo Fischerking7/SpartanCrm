@@ -1843,7 +1843,8 @@
       "saveDraft": "Save Draft",
       "nextDoc": "Next Document",
       "draftSaved": "Draft saved",
-      "saveFailed": "Save failed"
+      "saveFailed": "Save failed",
+      "selectOption": "Select..."
     },
     "docs": {
       "background_check": {
@@ -1892,9 +1893,27 @@
         "name": "IRS Form W-9",
         "fullName": "Full Legal Name (as shown on your income tax return)",
         "businessName": "Business Name (if different from above, optional)",
+        "taxClassification": "Federal Tax Classification",
+        "taxOptions": {
+          "individual": "Individual / Sole Proprietor",
+          "cCorp": "C Corporation",
+          "sCorp": "S Corporation",
+          "partnership": "Partnership",
+          "trustEstate": "Trust / Estate",
+          "llc": "Limited Liability Company (LLC)",
+          "other": "Other"
+        },
+        "llcType": "LLC Tax Classification (C, S, or P)",
         "address": "Street Address",
-        "cityStateZip": "City, State, and ZIP Code",
-        "ssn": "Social Security Number",
+        "city": "City",
+        "state": "State",
+        "zip": "ZIP Code",
+        "tinType": "Taxpayer Identification Number Type",
+        "tinOptions": {
+          "ssn": "Social Security Number (SSN)",
+          "ein": "Employer Identification Number (EIN)"
+        },
+        "tin": "Taxpayer Identification Number",
         "certify": "I certify under penalties of perjury that the information provided is correct and I am a U.S. person"
       }
     },

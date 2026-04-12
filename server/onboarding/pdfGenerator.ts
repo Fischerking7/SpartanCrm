@@ -43,8 +43,22 @@ function getDocumentBody(docType: string, sub: any): string {
       const w9Name = sub.w9FullName || name;
       const w9Business = sub.w9BusinessName || "N/A";
       const w9Addr = sub.w9Address || "On file";
-      const w9CityStateZip = sub.w9CityStateZip || "On file";
-      return `IRS FORM W-9 — Request for Taxpayer Identification Number and Certification\n\nName (as shown on your income tax return): ${w9Name}\nBusiness name / disregarded entity name (if different from above): ${w9Business}\n\nFederal tax classification: Individual/sole proprietor\n\nExemptions (codes apply only to certain entities): N/A\n\nAddress: ${w9Addr}\nCity, state, and ZIP code: ${w9CityStateZip}\n\nTaxpayer Identification Number (TIN):\nSocial Security Number: ${ssnMasked} (on file)\n\nCERTIFICATION\n\nUnder penalties of perjury, I certify that:\n1. The number shown on this form is my correct taxpayer identification number (or I am waiting for a number to be issued to me);\n2. I am not subject to backup withholding because: (a) I am exempt from backup withholding, or (b) I have not been notified by the Internal Revenue Service (IRS) that I am subject to backup withholding as a result of a failure to report all interest or dividends, or (c) the IRS has notified me that I am no longer subject to backup withholding;\n3. I am a U.S. citizen or other U.S. person (defined in IRS instructions);\n4. The FATCA code(s) entered on this form (if any) indicating that I am exempt from FATCA reporting is correct.\n\nThe Internal Revenue Service does not require your consent to any provision of this document other than the certifications required to avoid backup withholding.\n\nGoverning Law: Internal Revenue Code`;
+      const w9City = sub.w9City || "";
+      const w9State = sub.w9State || "";
+      const w9Zip = sub.w9Zip || "";
+      const w9CityLine = [w9City, w9State, w9Zip].filter(Boolean).join(", ") || "On file";
+      const taxClassLabels: Record<string, string> = {
+        individual: "Individual/sole proprietor",
+        c_corp: "C Corporation",
+        s_corp: "S Corporation",
+        partnership: "Partnership",
+        trust_estate: "Trust/estate",
+        llc: `Limited liability company (${sub.w9LlcType || "—"})`,
+        other: "Other",
+      };
+      const taxClass = taxClassLabels[sub.w9TaxClassification || "individual"] || "Individual/sole proprietor";
+      const tinTypeLabel = sub.w9TinType === "ein" ? "Employer Identification Number (EIN)" : "Social Security Number (SSN)";
+      return `IRS FORM W-9 — Request for Taxpayer Identification Number and Certification\n\nName (as shown on your income tax return): ${w9Name}\nBusiness name / disregarded entity name (if different from above): ${w9Business}\n\nFederal tax classification: ${taxClass}\n\nExemptions (codes apply only to certain entities): N/A\n\nAddress: ${w9Addr}\nCity, state, and ZIP code: ${w9CityLine}\n\nTaxpayer Identification Number (TIN):\nTIN Type: ${tinTypeLabel}\nTIN: ${ssnMasked} (on file)\n\nCERTIFICATION\n\nUnder penalties of perjury, I certify that:\n1. The number shown on this form is my correct taxpayer identification number (or I am waiting for a number to be issued to me);\n2. I am not subject to backup withholding because: (a) I am exempt from backup withholding, or (b) I have not been notified by the Internal Revenue Service (IRS) that I am subject to backup withholding as a result of a failure to report all interest or dividends, or (c) the IRS has notified me that I am no longer subject to backup withholding;\n3. I am a U.S. citizen or other U.S. person (defined in IRS instructions);\n4. The FATCA code(s) entered on this form (if any) indicating that I am exempt from FATCA reporting is correct.\n\nThe Internal Revenue Service does not require your consent to any provision of this document other than the certifications required to avoid backup withholding.\n\nGoverning Law: Internal Revenue Code`;
     }
     default:
       return "";
