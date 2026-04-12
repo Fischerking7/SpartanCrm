@@ -19,6 +19,7 @@ import { differenceInDays, isBefore } from "date-fns";
 import { AlertTriangle, XCircle, Shield } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "@/i18n/config";
+import { TutorialWizard } from "@/components/tutorial-wizard";
 
 import Login from "@/pages/login";
 import ChangePassword from "@/pages/change-password";
@@ -359,6 +360,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
           <MobileBottomNav />
         </div>
       </div>
+      <TutorialWizard />
     </SidebarProvider>
   );
 }

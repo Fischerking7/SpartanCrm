@@ -13693,6 +13693,7 @@ Rules:
           emailLowPerformanceWarning: true,
           emailPayStubDelivery: true,
           pendingApprovalDaysThreshold: 3,
+          tutorialEnabled: true,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -13708,18 +13709,63 @@ Rules:
   app.patch("/api/notification-preferences", auth, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      const { emailOrderApproved, emailOrderRejected, emailPayRunFinalized, emailChargebackApplied, emailAdvanceUpdates, emailPayStubDelivery } = req.body;
+      const { emailOrderApproved, emailOrderRejected, emailPayRunFinalized, emailChargebackApplied, emailAdvanceUpdates, emailPayStubDelivery, tutorialEnabled } = req.body;
       
-      const updates: Record<string, boolean> = {};
+      const updates: Record<string, boolean | number> = {};
       if (emailOrderApproved !== undefined) updates.emailOrderApproved = emailOrderApproved;
       if (emailOrderRejected !== undefined) updates.emailOrderRejected = emailOrderRejected;
       if (emailPayRunFinalized !== undefined) updates.emailPayRunFinalized = emailPayRunFinalized;
       if (emailChargebackApplied !== undefined) updates.emailChargebackApplied = emailChargebackApplied;
       if (emailAdvanceUpdates !== undefined) updates.emailAdvanceUpdates = emailAdvanceUpdates;
       if (emailPayStubDelivery !== undefined) updates.emailPayStubDelivery = emailPayStubDelivery;
+      if (tutorialEnabled !== undefined) updates.tutorialEnabled = tutorialEnabled;
       
       const prefs = await storage.upsertNotificationPreferences(user.id, updates);
+      
+      // If re-enabling the tutorial, also reset the user's tutorial completion state
+      if (tutorialEnabled === true) {
+        await storage.updateUser(user.id, { tutorialCompleted: false });
+      }
+      
       res.json(prefs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Tutorial: Get tutorial status
+  app.get("/api/tutorial/status", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const fullUser = await storage.getUserById(user.id);
+      const prefs = await storage.getNotificationPreferences(user.id);
+      res.json({
+        tutorialCompleted: fullUser?.tutorialCompleted ?? false,
+        tutorialEnabled: prefs?.tutorialEnabled ?? true,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Tutorial: Mark tutorial as complete
+  app.post("/api/tutorial/complete", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      await storage.updateUser(user.id, { tutorialCompleted: true });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Tutorial: Reset tutorial (re-enable it)
+  app.post("/api/tutorial/reset", auth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      await storage.updateUser(user.id, { tutorialCompleted: false });
+      await storage.upsertNotificationPreferences(user.id, { tutorialEnabled: true });
+      res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

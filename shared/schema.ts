@@ -94,6 +94,7 @@ export const users = pgTable("users", {
   drugTestExpiresAt: timestamp("drug_test_expires_at"),
   commissionBlockedDueToExpiry: boolean("commission_blocked_due_to_expiry").notNull().default(false),
   commissionBlockedReason: text("commission_blocked_reason"),
+  tutorialCompleted: boolean("tutorial_completed").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1762,6 +1763,7 @@ export const notificationPreferences = pgTable("notification_preferences", {
   emailLowPerformanceWarning: boolean("email_low_performance_warning").notNull().default(true),
   emailPayStubDelivery: boolean("email_pay_stub_delivery").notNull().default(true),
   pendingApprovalDaysThreshold: integer("pending_approval_days_threshold").notNull().default(3),
+  tutorialEnabled: boolean("tutorial_enabled").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
