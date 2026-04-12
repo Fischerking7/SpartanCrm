@@ -13703,8 +13703,8 @@ Rules:
       }
       const result = await emailService.sendTestEmail(recipientEmail);
       res.json({ ...result, sentTo: recipientEmail });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch {
+      res.status(500).json({ success: false, error: "An unexpected error occurred while sending the test email." });
     }
   });
 
