@@ -379,6 +379,38 @@ const ROLE_HIERARCHY: Record<string, number> = {
   OPERATIONS: 6,
 };
 
+function getVisibleRepIds(caller: { id: string; repId: string; role: string }, allUsers: { id: string; repId: string | null; role: string; status: string; deletedAt: Date | null; assignedSupervisorId: string | null; assignedManagerId: string | null }[]): string[] {
+  const globalRoles = ["ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR"];
+  if (globalRoles.includes(caller.role)) {
+    return allUsers.filter(u => !u.deletedAt && u.status === "ACTIVE" && u.repId).map(u => u.repId!);
+  }
+  const visible = new Set<string>();
+  if (caller.repId) visible.add(caller.repId);
+
+  if (caller.role === "LEAD") {
+    for (const u of allUsers) {
+      if (u.deletedAt || u.status !== "ACTIVE" || !u.repId) continue;
+      if (u.assignedSupervisorId === caller.id) visible.add(u.repId);
+    }
+  } else if (caller.role === "MANAGER") {
+    const myLeadIds = new Set<string>();
+    for (const u of allUsers) {
+      if (u.deletedAt || u.status !== "ACTIVE" || !u.repId) continue;
+      if (u.assignedManagerId === caller.id) {
+        visible.add(u.repId);
+        if (u.role === "LEAD") myLeadIds.add(u.id);
+      }
+    }
+    for (const u of allUsers) {
+      if (u.deletedAt || u.status !== "ACTIVE" || !u.repId) continue;
+      if (u.assignedSupervisorId && myLeadIds.has(u.assignedSupervisorId)) {
+        visible.add(u.repId);
+      }
+    }
+  }
+  return Array.from(visible);
+}
+
 // Generate secure temporary password
 function generateTempPassword(): string {
   return crypto.randomBytes(12).toString("base64url").slice(0, 16);
@@ -7239,64 +7271,23 @@ Rules:
       const page = Math.max(1, parseInt(pageStr || "1", 10) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(limitStr || "50", 10) || 50));
       
-      // Determine which rep's leads to fetch
-      let targetRepId = req.user!.repId;
-      const canViewOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
-      
-      // Handle "All Team" option - fetch leads from all visible reps
+      const allUsers = await storage.getUsers();
+      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+      const canViewOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR"].includes(req.user!.role);
+
       let leads: Awaited<ReturnType<typeof storage.getLeadsByRepId>> = [];
-      
+
       if (viewRepId === "__all_team__" && canViewOthers) {
-        // Fetch leads from all team members
-        const users = await storage.getUsers();
-        const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
-        const callerId = req.user!.id;
-        
-        // Collect repIds that this user can view
-        const visibleRepIds: string[] = [];
-        for (const u of users) {
-          if (u.deletedAt || u.status !== "ACTIVE" || !u.repId) continue;
-          
-          if (req.user!.role === "LEAD") {
-            // LEAD sees self and direct reports
-            if (u.id === callerId || u.assignedSupervisorId === callerId) {
-              visibleRepIds.push(u.repId);
-            }
-          } else {
-            // MANAGER+ sees users at or below their level
-            const userLevel = ROLE_HIERARCHY[u.role] || 0;
-            if (userLevel <= callerLevel) {
-              visibleRepIds.push(u.repId);
-            }
-          }
-        }
-        
-        // Fetch leads for all visible reps
         const allLeads = await storage.getAllLeadsForReporting({ zipCode, city, dateFrom, dateTo, houseNumber, streetName, customerName, disposition });
         leads = allLeads.filter(l => visibleRepIds.includes(l.repId));
       } else if (viewRepId && canViewOthers) {
-        // Verify caller can view this rep's leads
-        const users = await storage.getUsers();
-        const targetUser = users.find(u => u.repId === viewRepId && !u.deletedAt);
-        if (targetUser) {
-          const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
-          const targetLevel = ROLE_HIERARCHY[targetUser.role] || 0;
-          
-          // For LEAD role: can only view direct reports or self
-          if (req.user!.role === "LEAD") {
-            const isDirectReport = targetUser.assignedSupervisorId === req.user!.id;
-            const isSelf = targetUser.id === req.user!.id;
-            if (isSelf || isDirectReport) {
-              targetRepId = viewRepId;
-            }
-          } else if (targetLevel <= callerLevel) {
-            // For MANAGER+: use role hierarchy
-            targetRepId = viewRepId;
-          }
+        if (visibleRepIds.includes(viewRepId)) {
+          leads = await storage.getLeadsByRepId(viewRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, customerName, disposition });
+        } else {
+          leads = await storage.getLeadsByRepId(req.user!.repId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, customerName, disposition });
         }
-        leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, customerName, disposition });
       } else {
-        leads = await storage.getLeadsByRepId(targetRepId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, customerName, disposition });
+        leads = await storage.getLeadsByRepId(req.user!.repId, { zipCode, street, city, dateFrom, dateTo, houseNumber, streetName, customerName, disposition });
       }
       
       // When LEAD+ is viewing another rep's leads, include SOLD/REJECTED leads
@@ -7319,59 +7310,30 @@ Rules:
   // Get lead counts per rep for LEAD+ roles
   app.get("/api/leads/counts", auth, async (req: AuthRequest, res) => {
     try {
-      const canViewOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"].includes(req.user!.role);
+      const canViewOthers = ["LEAD", "MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR"].includes(req.user!.role);
       if (!canViewOthers) {
         return res.status(403).json({ message: "Only supervisors and above can view lead counts" });
       }
-      
-      const users = await storage.getUsers();
-      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
-      const callerId = req.user!.id;
-      
-      // Get all leads
+
+      const allUsers = await storage.getUsers();
+      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+      const visibleSet = new Set(visibleRepIds);
+
       const allLeads = await storage.getAllLeadsForReporting({});
-      
-      // Helper to check if a user is in the caller's org tree
-      const isInOrgTree = (userId: string, visited = new Set<string>()): boolean => {
-        if (visited.has(userId)) return false;
-        visited.add(userId);
-        const u = users.find(x => x.id === userId);
-        if (!u) return false;
-        if (u.id === callerId) return true;
-        if (u.assignedSupervisorId) return isInOrgTree(u.assignedSupervisorId, visited);
-        if (u.assignedManagerId) return isInOrgTree(u.assignedManagerId, visited);
-        return false;
-      };
-      
-      // Count leads per rep for users visible to caller
+
+      const usersByRepId: Record<string, typeof allUsers[0]> = {};
+      allUsers.forEach(u => { if (u.repId) usersByRepId[u.repId] = u; });
+
       const counts: { repId: string; name: string; role: string; count: number }[] = [];
-      
-      for (const user of users) {
-        if (user.deletedAt || user.status !== "ACTIVE" || !user.repId) continue;
-        
-        // For LEAD role: show self and direct reports only
-        if (req.user!.role === "LEAD") {
-          const isDirectReport = user.assignedSupervisorId === callerId;
-          const isSelf = user.id === callerId;
-          if (!isSelf && !isDirectReport) continue;
-        } else {
-          // For MANAGER+: use role hierarchy and org tree
-          const userLevel = ROLE_HIERARCHY[user.role] || 0;
-          if (userLevel > callerLevel) continue;
-        }
-        
-        const userLeads = allLeads.filter(l => l.repId === user.repId && !["SOLD", "REJECT"].includes(l.disposition || ""));
-        counts.push({
-          repId: user.repId,
-          name: user.name,
-          role: user.role,
-          count: userLeads.length,
-        });
+
+      for (const repId of visibleRepIds) {
+        const user = usersByRepId[repId];
+        if (!user) continue;
+        const userLeads = allLeads.filter(l => l.repId === repId && !["SOLD", "REJECT"].includes(l.disposition || ""));
+        counts.push({ repId, name: user.name, role: user.role, count: userLeads.length });
       }
-      
-      // Sort by count descending
+
       counts.sort((a, b) => b.count - a.count);
-      
       res.json(counts);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch lead counts" });
@@ -7381,24 +7343,17 @@ Rules:
   // Get Sales Pipeline data - disposition funnel for MANAGER+ and OPERATIONS
   app.get("/api/leads/pipeline", auth, async (req: AuthRequest, res) => {
     try {
-      const allowedRoles = ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS"];
+      const allowedRoles = ["MANAGER", "EXECUTIVE", "ADMIN", "OPERATIONS", "DIRECTOR"];
       if (!allowedRoles.includes(req.user!.role)) {
         return res.status(403).json({ message: "Only managers and above can view sales pipeline" });
       }
-      
+
       const users = await storage.getUsers();
-      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
-      
-      // Get all leads
+      const visibleRepIds = getVisibleRepIds(req.user as any, users as any);
+      const visibleSet = new Set(visibleRepIds);
+
       const allLeads = await storage.getAllLeadsForReporting({});
-      
-      // Filter to leads from users at or below caller's level
-      const accessibleLeads = allLeads.filter(lead => {
-        const leadOwner = users.find(u => u.repId === lead.repId);
-        if (!leadOwner) return false;
-        const ownerLevel = ROLE_HIERARCHY[leadOwner.role] || 0;
-        return ownerLevel <= callerLevel;
-      });
+      const accessibleLeads = allLeads.filter(lead => visibleSet.has(lead.repId));
       
       // Aggregate by disposition
       const dispositionCounts: Record<string, number> = {};
@@ -7643,17 +7598,18 @@ Rules:
         return res.status(404).json({ message: "Lead not found" });
       }
       
-      // Verify target user exists and is a valid lead assignee
-      const users = await storage.getUsers();
-      const targetUser = users.find(u => u.repId === targetRepId && !u.deletedAt && u.status === "ACTIVE");
+      const allUsers = await storage.getUsers();
+      const targetUser = allUsers.find(u => u.repId === targetRepId && !u.deletedAt && u.status === "ACTIVE");
       if (!targetUser) {
         return res.status(400).json({ message: `User with rep ID '${targetRepId}' not found` });
       }
-      // Users can only assign leads to users at or below their role level
-      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
-      const targetLevel = ROLE_HIERARCHY[targetUser.role] || 0;
-      if (targetLevel > callerLevel) {
-        return res.status(400).json({ message: "You can only assign leads to users at or below your role level" });
+      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+      const visibleSet = new Set(visibleRepIds);
+      if (!visibleSet.has(targetRepId)) {
+        return res.status(403).json({ message: "You can only assign leads to users on your team" });
+      }
+      if (!visibleSet.has(lead.repId)) {
+        return res.status(403).json({ message: "You don't have permission to reassign this lead" });
       }
       
       const oldRepId = lead.repId;
@@ -7692,13 +7648,25 @@ Rules:
         limit: typeof limit === "string" ? Math.min(parseInt(limit, 10), 100) : 50, // Max 100 per page
       };
       
-      // REPs can only see their own leads, LEAD+ can see all or filter by rep
       if (!isAdmin) {
         filters.repId = req.user!.repId;
       } else if (typeof repId === "string" && repId !== "ALL") {
-        filters.repId = repId;
+        const allUsers = await storage.getUsers();
+        const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+        if (visibleRepIds.includes(repId)) {
+          filters.repId = repId;
+        } else {
+          filters.repId = req.user!.repId;
+        }
+      } else {
+        const allUsers = await storage.getUsers();
+        const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+        const result = await storage.getLeadPool(filters);
+        result.data = result.data.filter(l => visibleRepIds.includes(l.repId));
+        result.total = result.data.length;
+        return res.json(result);
       }
-      
+
       const result = await storage.getLeadPool(filters);
       res.json(result);
     } catch (error) {
@@ -8675,46 +8643,29 @@ Rules:
         return res.status(400).json({ message: "newRepId required" });
       }
       
-      const callerLevel = ROLE_HIERARCHY[req.user!.role] || 0;
-      
-      // Verify target rep exists and is active
       const targetRep = await storage.getUserByRepId(newRepId);
       if (!targetRep || targetRep.status !== "ACTIVE") {
         return res.status(400).json({ message: "Target rep not found or inactive" });
       }
-      
-      // Verify caller can assign to target (target role at or below caller role)
-      const targetLevel = ROLE_HIERARCHY[targetRep.role] || 0;
-      if (targetLevel > callerLevel) {
-        return res.status(403).json({ message: "You can only assign leads to users at or below your role level" });
+
+      const allUsers = await storage.getUsers();
+      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+      const visibleSet = new Set(visibleRepIds);
+
+      if (!visibleSet.has(newRepId)) {
+        return res.status(403).json({ message: "You can only assign leads to users on your team" });
       }
-      
-      const users = await storage.getUsers();
-      const usersByRepId: Record<string, typeof users[0]> = {};
-      users.forEach(u => { if (u.repId) usersByRepId[u.repId] = u; });
-      
-      // Validate each lead's ownership is within caller's authority
+
       const allowedIds: string[] = [];
       const deniedIds: string[] = [];
-      
+
       for (const leadId of ids) {
         const lead = await storage.getLeadById(leadId);
         if (!lead || lead.deletedAt) {
           deniedIds.push(leadId);
           continue;
         }
-        
-        const leadOwner = usersByRepId[lead.repId];
-        const ownerLevel = leadOwner ? (ROLE_HIERARCHY[leadOwner.role] || 0) : 0;
-        
-        if (req.user!.role === "LEAD") {
-          const isSelf = leadOwner?.id === req.user!.id;
-          const isDirectReport = leadOwner?.assignedSupervisorId === req.user!.id;
-          if (!isSelf && !isDirectReport) {
-            deniedIds.push(leadId);
-            continue;
-          }
-        } else if (ownerLevel > callerLevel) {
+        if (!visibleSet.has(lead.repId)) {
           deniedIds.push(leadId);
           continue;
         }
@@ -8850,13 +8801,22 @@ Rules:
   // Get leads with follow-ups due (for reminders)
   app.get("/api/leads/follow-ups", auth, async (req: AuthRequest, res) => {
     try {
-      const isAdmin = ["ADMIN", "OPERATIONS", "EXECUTIVE", "MANAGER"].includes(req.user!.role);
+      const globalRoles = ["ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR"];
       const now = new Date();
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      
-      const repId = isAdmin ? undefined : req.user!.repId || undefined;
-      const followUps = await storage.getLeadsWithFollowUpsDue(repId, tomorrow);
+
+      let followUps;
+      if (globalRoles.includes(req.user!.role)) {
+        followUps = await storage.getLeadsWithFollowUpsDue(undefined, tomorrow);
+      } else if (["LEAD", "MANAGER"].includes(req.user!.role)) {
+        const allUsers = await storage.getUsers();
+        const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+        const allFollowUps = await storage.getLeadsWithFollowUpsDue(undefined, tomorrow);
+        followUps = allFollowUps.filter(f => visibleRepIds.includes(f.repId));
+      } else {
+        followUps = await storage.getLeadsWithFollowUpsDue(req.user!.repId || undefined, tomorrow);
+      }
       
       // Categorize follow-ups
       const overdue = followUps.filter(f => f.scheduledFollowUp && f.scheduledFollowUp < now);
