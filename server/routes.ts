@@ -26946,7 +26946,12 @@ function registerReportRoutes(app: Express, auth: any) {
           repId: leads.repId,
           city: leads.city,
           zipCode: leads.zipCode,
-        }).from(leads).where(inArray(leads.repId, visibleRepIds)),
+        }).from(leads).where(
+          and(
+            inArray(leads.repId, visibleRepIds),
+            gte(leads.importedAt, sinceDate)
+          )
+        ),
       ]);
 
       const repMap: Record<string, { name: string; role: string; cities: Set<string>; zips: Set<string>; totalOrders: number; completedOrders: number; totalLeads: number }> = {};
