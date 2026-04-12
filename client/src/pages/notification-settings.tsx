@@ -1,11 +1,13 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, Mail, CheckCircle, XCircle, DollarSign, AlertTriangle, CreditCard, FileText, BookOpen } from "lucide-react";
-import { getAuthHeaders } from "@/lib/auth";
+import { Bell, Mail, CheckCircle, XCircle, DollarSign, AlertTriangle, CreditCard, FileText, BookOpen, Send, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useTranslation } from "react-i18next";
 
@@ -22,6 +24,7 @@ interface NotificationPreferences {
 export default function NotificationSettings() {
   const { toast } = useToast();
   const { t } = useTranslation();
+  const { user } = useAuth();
 
   const { data: preferences, isLoading } = useQuery<NotificationPreferences>({
     queryKey: ["/api/notification-preferences"],
@@ -198,9 +201,87 @@ export default function NotificationSettings() {
         </CardContent>
       </Card>
 
+      {(user?.role === "ADMIN" || user?.role === "OPERATIONS") && (
+        <TestEmailCard />
+      )}
+
       <p className="text-sm text-muted-foreground mt-4 text-center">
         {t("notificationSettings.note")}
       </p>
     </div>
+  );
+}
+
+function TestEmailCard() {
+  const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [resultMessage, setResultMessage] = useState("");
+
+  const handleTestEmail = async () => {
+    setStatus("sending");
+    setResultMessage("");
+    try {
+      const res = await fetch("/api/admin/test-email", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus("success");
+        setResultMessage(`Test email sent to ${data.sentTo}`);
+      } else {
+        setStatus("error");
+        setResultMessage(data.error || "Failed to send test email");
+      }
+    } catch {
+      setStatus("error");
+      setResultMessage("Network error — could not reach the server.");
+    }
+  };
+
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Send className="h-5 w-5" />
+          Test Email Connection
+        </CardTitle>
+        <CardDescription>
+          Send a test email to verify your SMTP connection is working. The email will be sent to your account's email address.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={handleTestEmail}
+            disabled={status === "sending"}
+            data-testid="button-test-email"
+          >
+            {status === "sending" ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Send className="h-4 w-4 mr-2" />
+                Send Test Email
+              </>
+            )}
+          </Button>
+        </div>
+        {status === "success" && (
+          <div className="mt-3 flex items-start gap-2 p-3 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-md" data-testid="text-test-email-success">
+            <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-green-700 dark:text-green-400">{resultMessage}</p>
+          </div>
+        )}
+        {status === "error" && (
+          <div className="mt-3 flex items-start gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-md" data-testid="text-test-email-error">
+            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700 dark:text-red-400">{resultMessage}</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

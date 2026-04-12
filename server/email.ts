@@ -267,6 +267,67 @@ export const emailService = {
     });
   },
 
+  async sendTestEmail(to: string): Promise<{ success: boolean; error?: string }> {
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASSWORD;
+
+    if (!smtpHost || !smtpUser || !smtpPass) {
+      return { success: false, error: "SMTP is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASSWORD environment variables." };
+    }
+
+    try {
+      const nodemailer = await import("nodemailer");
+      const transporter = nodemailer.default.createTransport({
+        host: smtpHost,
+        port: parseInt(process.env.SMTP_PORT || "587"),
+        secure: process.env.SMTP_SECURE === "true",
+        auth: { user: smtpUser, pass: smtpPass },
+        connectionTimeout: 15000,
+        greetingTimeout: 10000,
+      });
+
+      await transporter.verify();
+
+      const now = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+      await transporter.sendMail({
+        from: smtpUser,
+        to,
+        subject: "Iron Crest CRM — Test Email",
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:#1e293b;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">
+              <h2 style="margin:0;font-size:20px;">Email Connection Test</h2>
+            </div>
+            <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
+              <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:16px;margin-bottom:16px;">
+                <p style="margin:0;font-size:16px;color:#166534;font-weight:bold;">Email is working correctly.</p>
+              </div>
+              <p style="margin:0;font-size:14px;color:#475569;">This test email was sent from Iron Crest CRM at ${now} ET.</p>
+              <p style="margin:12px 0 0;font-size:13px;color:#94a3b8;">SMTP Host: ${smtpHost} | Port: ${process.env.SMTP_PORT || "587"}</p>
+            </div>
+          </div>`,
+      });
+
+      console.log(`[Email Service] Test email sent successfully to ${to}`);
+      return { success: true };
+    } catch (error: any) {
+      const msg = error.message || "Unknown error";
+      let friendlyError = msg;
+      if (msg.includes("EAUTH") || msg.includes("Invalid login")) {
+        friendlyError = "Authentication failed. Check your SMTP username and password (use an App Password for Office 365).";
+      } else if (msg.includes("ECONNREFUSED")) {
+        friendlyError = `Connection refused to ${smtpHost}. Check the SMTP host and port.`;
+      } else if (msg.includes("ETIMEDOUT") || msg.includes("ECONNRESET")) {
+        friendlyError = `Connection timed out to ${smtpHost}. The server may be unreachable or blocked.`;
+      } else if (msg.includes("ESOCKET") || msg.includes("self signed")) {
+        friendlyError = "TLS/SSL error. Try setting SMTP_SECURE to 'false' for STARTTLS on port 587.";
+      }
+      console.error(`[Email Service] Test email failed:`, msg);
+      return { success: false, error: friendlyError };
+    }
+  },
+
   async sendHtmlEmail(to: string, subject: string, htmlBody: string): Promise<boolean> {
     const smtpHost = process.env.SMTP_HOST;
     const smtpUser = process.env.SMTP_USER;
@@ -329,6 +390,7 @@ export const emailService = {
         <td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;text-align:center;">${p.percent.toFixed(1)}%</td>
       </tr>`).join("");
 
+    const orderCount = salesRows.length;
     const html = `
     <div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;">
       <div style="background:#1e293b;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">
@@ -337,8 +399,19 @@ export const emailService = {
       </div>
 
       <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
-        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:16px;margin-bottom:24px;">
-          <p style="margin:0;font-size:14px;color:#166534;">Total Sales: <strong>${salesRows.length}</strong> &nbsp;|&nbsp; Total Gross Commission: <strong>$${totalGross.toFixed(2)}</strong></p>
+        <div style="text-align:center;padding:20px 16px;margin-bottom:20px;background:#1e293b;border-radius:8px;">
+          <p style="margin:0;font-size:42px;font-weight:bold;color:#C9A84C;">${orderCount}</p>
+          <p style="margin:4px 0 0;font-size:16px;color:#e2e8f0;">${orderCount === 1 ? "Order Entered Today" : "Orders Entered Today"}</p>
+        </div>
+        <div style="display:flex;gap:16px;margin-bottom:24px;">
+          <div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:14px 16px;text-align:center;">
+            <p style="margin:0;font-size:22px;font-weight:bold;color:#166534;">$${totalGross.toFixed(2)}</p>
+            <p style="margin:4px 0 0;font-size:13px;color:#166534;">Total Gross Commission</p>
+          </div>
+          <div style="flex:1;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:14px 16px;text-align:center;">
+            <p style="margin:0;font-size:22px;font-weight:bold;color:#1e40af;">${providerMix.length}</p>
+            <p style="margin:4px 0 0;font-size:13px;color:#1e40af;">Providers</p>
+          </div>
         </div>
 
         <h3 style="margin:0 0 12px;font-size:16px;color:#1e293b;">Sales Details</h3>

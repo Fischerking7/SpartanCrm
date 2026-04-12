@@ -13693,6 +13693,21 @@ Rules:
     }
   });
 
+  app.post("/api/admin/test-email", auth, requireRoles("ADMIN", "OPERATIONS"), async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      const fullUser = await storage.getUserById(user.id);
+      const recipientEmail = fullUser?.email;
+      if (!recipientEmail) {
+        return res.status(400).json({ success: false, error: "Your account does not have an email address configured." });
+      }
+      const result = await emailService.sendTestEmail(recipientEmail);
+      res.json({ ...result, sentTo: recipientEmail });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // Tutorial: Get tutorial status
   app.get("/api/tutorial/status", auth, async (req: AuthRequest, res) => {
     try {
