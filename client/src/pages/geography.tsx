@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { useTranslation } from "react-i18next";
@@ -17,10 +17,11 @@ import {
   Search,
   Globe,
   Circle,
-  BarChart3,
   Target,
   Layers,
   AlertTriangle,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import {
   BarChart,
@@ -37,64 +38,55 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-
-const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#14b8a6"];
+import "leaflet.markercluster";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
 const CITY_COORDS: Record<string, [number, number]> = {
-  "New York": [40.7128, -74.006],
-  "Los Angeles": [34.0522, -118.2437],
-  "Chicago": [41.8781, -87.6298],
-  "Houston": [29.7604, -95.3698],
-  "Phoenix": [33.4484, -112.074],
-  "Philadelphia": [39.9526, -75.1652],
-  "San Antonio": [29.4241, -98.4936],
-  "San Diego": [32.7157, -117.1611],
-  "Dallas": [32.7767, -96.797],
-  "San Jose": [37.3382, -121.8863],
-  "Austin": [30.2672, -97.7431],
-  "Jacksonville": [30.3322, -81.6557],
-  "Fort Worth": [32.7555, -97.3308],
-  "Columbus": [39.9612, -82.9988],
-  "Charlotte": [35.2271, -80.8431],
-  "Indianapolis": [39.7684, -86.1581],
-  "San Francisco": [37.7749, -122.4194],
-  "Seattle": [47.6062, -122.3321],
-  "Denver": [39.7392, -104.9903],
-  "Nashville": [36.1627, -86.7816],
-  "Oklahoma City": [35.4676, -97.5164],
-  "El Paso": [31.7619, -106.485],
-  "Washington": [38.9072, -77.0369],
-  "Boston": [42.3601, -71.0589],
-  "Portland": [45.5152, -122.6784],
-  "Las Vegas": [36.1699, -115.1398],
-  "Memphis": [35.1495, -90.049],
-  "Louisville": [38.2527, -85.7585],
-  "Baltimore": [39.2904, -76.6122],
-  "Milwaukee": [43.0389, -87.9065],
-  "Albuquerque": [35.0844, -106.6504],
-  "Tucson": [32.2226, -110.9747],
-  "Fresno": [36.7378, -119.7871],
-  "Sacramento": [38.5816, -121.4944],
-  "Mesa": [33.4152, -111.8315],
-  "Kansas City": [39.0997, -94.5786],
-  "Atlanta": [33.749, -84.388],
-  "Omaha": [41.2565, -95.9345],
-  "Colorado Springs": [38.8339, -104.8214],
-  "Raleigh": [35.7796, -78.6382],
-  "Miami": [25.7617, -80.1918],
-  "Tampa": [27.9506, -82.4572],
-  "Orlando": [28.5383, -81.3792],
-  "Minneapolis": [44.9778, -93.265],
-  "Cleveland": [41.4993, -81.6944],
-  "Pittsburgh": [40.4406, -79.9959],
-  "St. Louis": [38.627, -90.1994],
-  "Cincinnati": [39.1031, -84.512],
-  "Detroit": [42.3314, -83.0458],
-  "Salt Lake City": [40.7608, -111.891],
-  "Richmond": [37.5407, -77.436],
-  "Norfolk": [36.8508, -76.2859],
-  "Virginia Beach": [36.8529, -75.978],
+  "New York": [40.7128, -74.006], "Los Angeles": [34.0522, -118.2437], "Chicago": [41.8781, -87.6298],
+  "Houston": [29.7604, -95.3698], "Phoenix": [33.4484, -112.074], "Philadelphia": [39.9526, -75.1652],
+  "San Antonio": [29.4241, -98.4936], "San Diego": [32.7157, -117.1611], "Dallas": [32.7767, -96.797],
+  "San Jose": [37.3382, -121.8863], "Austin": [30.2672, -97.7431], "Jacksonville": [30.3322, -81.6557],
+  "Fort Worth": [32.7555, -97.3308], "Columbus": [39.9612, -82.9988], "Charlotte": [35.2271, -80.8431],
+  "Indianapolis": [39.7684, -86.1581], "San Francisco": [37.7749, -122.4194], "Seattle": [47.6062, -122.3321],
+  "Denver": [39.7392, -104.9903], "Nashville": [36.1627, -86.7816], "Oklahoma City": [35.4676, -97.5164],
+  "El Paso": [31.7619, -106.485], "Washington": [38.9072, -77.0369], "Boston": [42.3601, -71.0589],
+  "Portland": [45.5152, -122.6784], "Las Vegas": [36.1699, -115.1398], "Memphis": [35.1495, -90.049],
+  "Louisville": [38.2527, -85.7585], "Baltimore": [39.2904, -76.6122], "Milwaukee": [43.0389, -87.9065],
+  "Albuquerque": [35.0844, -106.6504], "Tucson": [32.2226, -110.9747], "Fresno": [36.7378, -119.7871],
+  "Sacramento": [38.5816, -121.4944], "Mesa": [33.4152, -111.8315], "Kansas City": [39.0997, -94.5786],
+  "Atlanta": [33.749, -84.388], "Omaha": [41.2565, -95.9345], "Colorado Springs": [38.8339, -104.8214],
+  "Raleigh": [35.7796, -78.6382], "Miami": [25.7617, -80.1918], "Tampa": [27.9506, -82.4572],
+  "Orlando": [28.5383, -81.3792], "Minneapolis": [44.9778, -93.265], "Cleveland": [41.4993, -81.6944],
+  "Pittsburgh": [40.4406, -79.9959], "St. Louis": [38.627, -90.1994], "Cincinnati": [39.1031, -84.512],
+  "Detroit": [42.3314, -83.0458], "Salt Lake City": [40.7608, -111.891], "Richmond": [37.5407, -77.436],
+  "Norfolk": [36.8508, -76.2859], "Virginia Beach": [36.8529, -75.978], "Boise": [43.615, -116.2023],
+  "Spokane": [47.6588, -117.426], "Des Moines": [41.5868, -93.625], "Little Rock": [34.7465, -92.2896],
+  "Birmingham": [33.5207, -86.8025], "Charleston": [32.7765, -79.9311], "Columbia": [34.0007, -81.0348],
+  "Knoxville": [35.9606, -83.9207], "Chattanooga": [35.0456, -85.3097], "Lexington": [38.0406, -84.5037],
+  "Greensboro": [36.0726, -79.792], "Winston-Salem": [36.0999, -80.2442], "Durham": [35.994, -78.8986],
+  "Newark": [40.7357, -74.1724], "Jersey City": [40.7178, -74.0431], "Akron": [41.0814, -81.519],
+  "Toledo": [41.6528, -83.5379], "Madison": [43.0731, -89.4012], "Baton Rouge": [30.4515, -91.1871],
+  "New Orleans": [29.9511, -90.0715], "Anchorage": [61.2181, -149.9003], "Honolulu": [21.3069, -157.8583],
+  "Tulsa": [36.154, -95.9928], "Wichita": [37.6872, -97.3301], "Arlington": [32.7357, -97.1081],
+  "Aurora": [39.7294, -104.8319], "Bakersfield": [35.3733, -119.0187], "Anaheim": [33.8366, -117.9143],
+  "Santa Ana": [33.7455, -117.8677], "Riverside": [33.9806, -117.3755], "Corpus Christi": [27.8006, -97.3964],
+  "Henderson": [36.0395, -114.9817], "Stockton": [37.9577, -121.2908], "Irvine": [33.6846, -117.8265],
+  "St. Petersburg": [27.7676, -82.6403], "Lubbock": [33.5779, -101.8552], "Chandler": [33.3062, -111.8413],
+  "Scottsdale": [33.4942, -111.9261], "Glendale": [33.5387, -112.1860], "Plano": [33.0198, -96.6989],
+  "Laredo": [27.5036, -99.5076], "Gilbert": [33.3528, -111.789], "Reno": [39.5296, -119.8138],
 };
+
+function lookupCoords(locationStr: string): [number, number] | null {
+  const cityPart = locationStr.split(",")[0].trim();
+  if (CITY_COORDS[cityPart]) return CITY_COORDS[cityPart];
+  for (const [name, coords] of Object.entries(CITY_COORDS)) {
+    if (cityPart.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(cityPart.toLowerCase())) {
+      return coords;
+    }
+  }
+  return null;
+}
 
 function ErrorState({ onRetry }: { onRetry: () => void }) {
   return (
@@ -130,8 +122,8 @@ type TeamMember = {
   isOnline: boolean;
 };
 
-type RegionData = { name: string; total: number; completed: number; revenue: number };
-type LeadRegion = { name: string; total: number; converted: number; active: number; lost: number; conversionRate: number };
+type RegionData = { name: string; total: number; completed: number; revenue: number; avgCommission: number };
+type LeadRegion = { name: string; total: number; converted: number; active: number; lost: number; conversionRate: number; topDispositions: DispositionEntry[] };
 type DispositionEntry = { disposition: string; count: number };
 type OverlapEntry = { zip: string; reps: { repId: string; name: string }[] };
 type RepTerritory = {
@@ -144,14 +136,32 @@ type RepTerritory = {
   zips: string[];
   totalOrders: number;
   completedOrders: number;
+  totalLeads: number;
   completionRate: number;
   overlapZipCount: number;
   overlapZips: string[];
 };
 
-function TeamMapComponent({ members, locationCounts }: { members: TeamMember[]; locationCounts: Record<string, number> }) {
+type SortConfig = { key: string; dir: "asc" | "desc" };
+
+function SortHeader({ label, sortKey, sort, setSort }: { label: string; sortKey: string; sort: SortConfig; setSort: (s: SortConfig) => void }) {
+  const active = sort.key === sortKey;
+  return (
+    <button
+      className="flex items-center gap-1 font-medium hover:text-foreground"
+      onClick={() => setSort({ key: sortKey, dir: active && sort.dir === "asc" ? "desc" : "asc" })}
+      data-testid={`sort-${sortKey}`}
+    >
+      {label}
+      {active && (sort.dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+    </button>
+  );
+}
+
+function TeamMapComponent({ members }: { members: TeamMember[] }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
+  const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
 
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
@@ -167,6 +177,7 @@ function TeamMapComponent({ members, locationCounts }: { members: TeamMember[]; 
     return () => {
       map.remove();
       mapInstance.current = null;
+      clusterRef.current = null;
     };
   }, []);
 
@@ -174,9 +185,16 @@ function TeamMapComponent({ members, locationCounts }: { members: TeamMember[]; 
     if (!mapInstance.current) return;
     const map = mapInstance.current;
 
-    map.eachLayer(layer => {
-      if (layer instanceof L.CircleMarker) map.removeLayer(layer);
+    if (clusterRef.current) {
+      map.removeLayer(clusterRef.current);
+    }
+
+    const cluster = L.markerClusterGroup({
+      maxClusterRadius: 50,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
     });
+    clusterRef.current = cluster;
 
     const membersWithLocation = members.filter(m => m.lastLoginLocation);
     const locationGroups: Record<string, TeamMember[]> = {};
@@ -186,10 +204,15 @@ function TeamMapComponent({ members, locationCounts }: { members: TeamMember[]; 
       locationGroups[loc].push(m);
     }
 
+    let plotted = 0;
+    let unmatched = 0;
+
     for (const [location, groupMembers] of Object.entries(locationGroups)) {
-      const cityName = location.split(",")[0].trim();
-      const coords = CITY_COORDS[cityName];
-      if (!coords) continue;
+      const coords = lookupCoords(location);
+      if (!coords) {
+        unmatched += groupMembers.length;
+        continue;
+      }
 
       const onlineCount = groupMembers.filter(m => m.isOnline).length;
       const total = groupMembers.length;
@@ -202,10 +225,10 @@ function TeamMapComponent({ members, locationCounts }: { members: TeamMember[]; 
         color: "#fff",
         weight: 2,
         fillOpacity: 0.8,
-      }).addTo(map);
+      });
 
       const container = document.createElement("div");
-      container.style.minWidth = "180px";
+      container.style.minWidth = "200px";
 
       const title = document.createElement("strong");
       title.style.fontSize = "14px";
@@ -218,11 +241,11 @@ function TeamMapComponent({ members, locationCounts }: { members: TeamMember[]; 
       container.appendChild(subtitle);
 
       const list = document.createElement("div");
-      list.style.cssText = "max-height:150px;overflow-y:auto;";
+      list.style.cssText = "max-height:180px;overflow-y:auto;";
 
       for (const m of groupMembers) {
         const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #eee;";
+        row.style.cssText = "display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #eee;";
 
         const dot = document.createElement("span");
         dot.style.cssText = `width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.isOnline ? "#10b981" : "#d1d5db"};`;
@@ -239,16 +262,33 @@ function TeamMapComponent({ members, locationCounts }: { members: TeamMember[]; 
         detailEl.textContent = `${m.repId} · ${m.role}`;
         info.appendChild(detailEl);
 
+        const loginEl = document.createElement("div");
+        loginEl.style.cssText = "font-size:10px;color:#999;";
+        loginEl.textContent = m.isOnline ? "Online now" : `Last login: ${formatTimeAgo(m.lastLoginAt)}`;
+        info.appendChild(loginEl);
+
         row.appendChild(info);
         list.appendChild(row);
       }
       container.appendChild(list);
 
       marker.bindPopup(container);
+      cluster.addLayer(marker);
+      plotted += groupMembers.length;
+    }
+
+    map.addLayer(cluster);
+
+    if (unmatched > 0) {
+      const unmatchedNote = document.createElement("div");
+      unmatchedNote.className = "leaflet-unmatched-note";
+      unmatchedNote.style.cssText = "position:absolute;bottom:8px;left:8px;z-index:1000;background:rgba(255,255,255,0.9);padding:4px 8px;border-radius:4px;font-size:11px;color:#666;pointer-events:none;";
+      unmatchedNote.textContent = `${plotted} plotted · ${unmatched} locations not mapped`;
+      mapRef.current?.appendChild(unmatchedNote);
     }
   }, [members]);
 
-  return <div ref={mapRef} className="h-[400px] rounded-lg border" data-testid="map-team-locations" />;
+  return <div ref={mapRef} className="h-[400px] rounded-lg border relative" data-testid="map-team-locations" />;
 }
 
 function TeamLocationsTab() {
@@ -317,7 +357,7 @@ function TeamLocationsTab() {
         </Card>
       </div>
 
-      <TeamMapComponent members={members} locationCounts={locationCounts} />
+      <TeamMapComponent members={members} />
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card data-testid="card-geo-location-list">
@@ -345,9 +385,7 @@ function TeamLocationsTab() {
 
         <Card>
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">Team Members</CardTitle>
-            </div>
+            <CardTitle className="text-lg">Team Members</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="relative mb-3">
@@ -362,7 +400,7 @@ function TeamLocationsTab() {
             </div>
             <div className="max-h-64 overflow-y-auto space-y-1">
               {filtered.map(m => (
-                <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded hover-elevate text-sm" data-testid={`row-geo-member-${m.repId}`}>
+                <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/50 text-sm" data-testid={`row-geo-member-${m.repId}`}>
                   <div className="flex items-center gap-2 min-w-0">
                     <Circle className={`h-2.5 w-2.5 shrink-0 ${m.isOnline ? "fill-green-500 text-green-500" : "fill-muted text-muted"}`} />
                     <div className="min-w-0">
@@ -370,7 +408,10 @@ function TeamLocationsTab() {
                       <span className="text-xs text-muted-foreground ml-1.5">{m.repId}</span>
                     </div>
                   </div>
-                  <div className="text-xs text-muted-foreground shrink-0">{m.lastLoginLocation || "—"}</div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xs text-muted-foreground">{m.lastLoginLocation || "—"}</div>
+                    <div className="text-xs text-muted-foreground">{formatTimeAgo(m.lastLoginAt)}</div>
+                  </div>
                 </div>
               ))}
               {filtered.length === 0 && <p className="py-4 text-center text-muted-foreground text-sm">No members found</p>}
@@ -387,6 +428,7 @@ function SalesByRegionTab() {
   const [viewMode, setViewMode] = useState<"city" | "zip">("city");
   const [filterRepId, setFilterRepId] = useState("");
   const [filterProviderId, setFilterProviderId] = useState("");
+  const [sort, setSort] = useState<SortConfig>({ key: "total", dir: "desc" });
   const isMobile = useIsMobile();
 
   const { data: repsData } = useQuery<{ repId: string; name: string }[]>({
@@ -412,7 +454,7 @@ function SalesByRegionTab() {
   if (filterRepId) queryParams.set("repId", filterRepId);
   if (filterProviderId) queryParams.set("providerId", filterProviderId);
 
-  const { data, isLoading, isError, refetch } = useQuery<{ byCity: RegionData[]; byZip: RegionData[]; totalOrders: number; rangeDays: number }>({
+  const { data, isLoading, isError, refetch } = useQuery<{ byCity: RegionData[]; byZip: RegionData[]; totalOrders: number; rangeDays: number; avgCommission: number }>({
     queryKey: ["/api/geo/sales-by-region", rangeDays, filterRepId, filterProviderId],
     queryFn: async () => {
       const res = await fetch(`/api/geo/sales-by-region?${queryParams}`, { headers: getAuthHeaders() });
@@ -421,10 +463,21 @@ function SalesByRegionTab() {
     },
   });
 
+  const regionData = viewMode === "city" ? (data?.byCity || []) : (data?.byZip || []);
+
+  const sortedData = useMemo(() => {
+    const arr = [...regionData];
+    arr.sort((a, b) => {
+      const aVal = (a as Record<string, unknown>)[sort.key] as number;
+      const bVal = (b as Record<string, unknown>)[sort.key] as number;
+      return sort.dir === "asc" ? aVal - bVal : bVal - aVal;
+    });
+    return arr;
+  }, [regionData, sort]);
+
   if (isLoading) return <Skeleton className="h-96" />;
   if (isError) return <ErrorState onRetry={() => refetch()} />;
 
-  const regionData = viewMode === "city" ? (data?.byCity || []) : (data?.byZip || []);
   const topRegions = regionData.slice(0, 15);
   const totalRevenue = regionData.reduce((s, r) => s + r.revenue, 0);
 
@@ -475,7 +528,7 @@ function SalesByRegionTab() {
         </Select>
       </div>
 
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card data-testid="stat-geo-total-orders">
           <CardContent className="p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Total Orders</p>
@@ -492,6 +545,12 @@ function SalesByRegionTab() {
           <CardContent className="p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Total Commission</p>
             <p className="text-2xl font-bold font-mono">${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="stat-geo-avg-commission">
+          <CardContent className="p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Avg Commission</p>
+            <p className="text-2xl font-bold font-mono">${(data?.avgCommission || 0).toFixed(2)}</p>
           </CardContent>
         </Card>
       </div>
@@ -524,23 +583,34 @@ function SalesByRegionTab() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-lg">All Regions</CardTitle>
-          <CardDescription>{regionData.length} regions found</CardDescription>
+          <CardDescription>{regionData.length} regions found · Click column headers to sort</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left py-2.5 px-2 font-medium">{viewMode === "city" ? "City" : "Zip Code"}</th>
-                  <th className="text-right py-2.5 px-2 font-medium">Orders</th>
-                  <th className="text-right py-2.5 px-2 font-medium">Connected</th>
+                  <th className="text-left py-2.5 px-2">
+                    <SortHeader label={viewMode === "city" ? "City" : "Zip"} sortKey="name" sort={sort} setSort={setSort} />
+                  </th>
+                  <th className="text-right py-2.5 px-2">
+                    <div className="flex justify-end"><SortHeader label="Orders" sortKey="total" sort={sort} setSort={setSort} /></div>
+                  </th>
+                  <th className="text-right py-2.5 px-2">
+                    <div className="flex justify-end"><SortHeader label="Connected" sortKey="completed" sort={sort} setSort={setSort} /></div>
+                  </th>
                   <th className="text-right py-2.5 px-2 font-medium">Rate</th>
-                  <th className="text-right py-2.5 px-2 font-medium">Commission</th>
+                  <th className="text-right py-2.5 px-2">
+                    <div className="flex justify-end"><SortHeader label="Commission" sortKey="revenue" sort={sort} setSort={setSort} /></div>
+                  </th>
+                  <th className="text-right py-2.5 px-2">
+                    <div className="flex justify-end"><SortHeader label="Avg" sortKey="avgCommission" sort={sort} setSort={setSort} /></div>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {regionData.slice(0, 50).map(r => (
-                  <tr key={r.name} className="border-b last:border-0 hover-elevate" data-testid={`row-region-${r.name}`}>
+                {sortedData.slice(0, 50).map(r => (
+                  <tr key={r.name} className="border-b last:border-0 hover:bg-muted/30" data-testid={`row-region-${r.name}`}>
                     <td className="py-2.5 px-2 font-medium">
                       <div className="flex items-center gap-1.5">
                         <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -555,6 +625,7 @@ function SalesByRegionTab() {
                       </Badge>
                     </td>
                     <td className="py-2.5 px-2 text-right font-mono">${r.revenue.toFixed(2)}</td>
+                    <td className="py-2.5 px-2 text-right font-mono">${r.avgCommission.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -571,6 +642,7 @@ function LeadDensityTab() {
   const [viewMode, setViewMode] = useState<"city" | "zip" | "state">("city");
   const [filterRepId, setFilterRepId] = useState("");
   const [filterRange, setFilterRange] = useState("");
+  const [expandedRegion, setExpandedRegion] = useState<string | null>(null);
 
   const { data: repsData } = useQuery<{ repId: string; name: string }[]>({
     queryKey: ["/api/geo/reps-list-leads"],
@@ -741,7 +813,7 @@ function LeadDensityTab() {
       {topDispositions.length > 0 && (
         <Card data-testid="card-top-dispositions">
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Top Dispositions by Area</CardTitle>
+            <CardTitle className="text-lg">Top Dispositions (Global)</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -759,6 +831,7 @@ function LeadDensityTab() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-lg">Lead Density by Region</CardTitle>
+          <CardDescription>Click a row to see top dispositions for that area</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -775,23 +848,45 @@ function LeadDensityTab() {
               </thead>
               <tbody>
                 {regionData.slice(0, 50).map(r => (
-                  <tr key={r.name} className="border-b last:border-0 hover-elevate" data-testid={`row-lead-${r.name}`}>
-                    <td className="py-2.5 px-2 font-medium">
-                      <div className="flex items-center gap-1.5">
-                        <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        {r.name}
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-2 text-right font-mono">{r.total}</td>
-                    <td className="py-2.5 px-2 text-right font-mono text-blue-600">{r.active}</td>
-                    <td className="py-2.5 px-2 text-right font-mono text-green-600">{r.converted}</td>
-                    <td className="py-2.5 px-2 text-right font-mono text-red-500">{r.lost}</td>
-                    <td className="py-2.5 px-2 text-right">
-                      <Badge variant={r.conversionRate >= 30 ? "default" : "outline"} className="text-xs font-mono">
-                        {r.conversionRate}%
-                      </Badge>
-                    </td>
-                  </tr>
+                  <>
+                    <tr
+                      key={r.name}
+                      className={`border-b last:border-0 hover:bg-muted/30 cursor-pointer ${expandedRegion === r.name ? "bg-muted/40" : ""}`}
+                      onClick={() => setExpandedRegion(expandedRegion === r.name ? null : r.name)}
+                      data-testid={`row-lead-${r.name}`}
+                    >
+                      <td className="py-2.5 px-2 font-medium">
+                        <div className="flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          {r.name}
+                          {r.topDispositions.length > 0 && <span className="text-xs text-muted-foreground ml-1">▸</span>}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-2 text-right font-mono">{r.total}</td>
+                      <td className="py-2.5 px-2 text-right font-mono text-blue-600">{r.active}</td>
+                      <td className="py-2.5 px-2 text-right font-mono text-green-600">{r.converted}</td>
+                      <td className="py-2.5 px-2 text-right font-mono text-red-500">{r.lost}</td>
+                      <td className="py-2.5 px-2 text-right">
+                        <Badge variant={r.conversionRate >= 30 ? "default" : "outline"} className="text-xs font-mono">
+                          {r.conversionRate}%
+                        </Badge>
+                      </td>
+                    </tr>
+                    {expandedRegion === r.name && r.topDispositions.length > 0 && (
+                      <tr key={`${r.name}-disp`}>
+                        <td colSpan={6} className="py-2 px-4 bg-muted/20">
+                          <div className="flex flex-wrap gap-2 items-center">
+                            <span className="text-xs text-muted-foreground font-medium mr-1">Top dispositions:</span>
+                            {r.topDispositions.map(d => (
+                              <Badge key={d.disposition} variant="secondary" className="text-xs">
+                                {d.disposition.replace(/_/g, " ")} ({d.count})
+                              </Badge>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 ))}
               </tbody>
             </table>
@@ -916,14 +1011,14 @@ function RepTerritoryTab() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-lg">Rep Territory Coverage</CardTitle>
-          <CardDescription>Click a row to see territory details</CardDescription>
+          <CardDescription>Coverage from orders and leads · Click a row for details</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
             {filtered.map(t => (
               <div key={t.repId} className={`border rounded-lg ${t.overlapZipCount > 0 ? "border-amber-300 dark:border-amber-700" : ""}`} data-testid={`card-territory-${t.repId}`}>
                 <button
-                  className="w-full flex items-center justify-between p-3 text-left hover-elevate rounded-lg"
+                  className="w-full flex items-center justify-between p-3 text-left hover:bg-muted/30 rounded-lg"
                   onClick={() => setExpandedRep(expandedRep === t.repId ? null : t.repId)}
                   data-testid={`button-expand-${t.repId}`}
                 >
@@ -942,7 +1037,7 @@ function RepTerritoryTab() {
                   </div>
                   <div className="flex items-center gap-4 shrink-0">
                     <div className="text-right">
-                      <div className="text-sm font-mono">{t.totalOrders} orders</div>
+                      <div className="text-sm font-mono">{t.totalOrders} orders · {t.totalLeads} leads</div>
                       <div className="text-xs text-muted-foreground">{t.cityCount} cities · {t.zipCount} zips</div>
                     </div>
                     <div className="w-20">
@@ -982,14 +1077,18 @@ function RepTerritoryTab() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+                    <div className="mt-3 grid grid-cols-4 gap-3 text-center">
                       <div className="p-2 rounded bg-muted/50">
                         <p className="text-lg font-bold font-mono">{t.totalOrders}</p>
-                        <p className="text-xs text-muted-foreground">Total Orders</p>
+                        <p className="text-xs text-muted-foreground">Orders</p>
                       </div>
                       <div className="p-2 rounded bg-muted/50">
                         <p className="text-lg font-bold font-mono text-green-600">{t.completedOrders}</p>
                         <p className="text-xs text-muted-foreground">Connected</p>
+                      </div>
+                      <div className="p-2 rounded bg-muted/50">
+                        <p className="text-lg font-bold font-mono text-blue-600">{t.totalLeads}</p>
+                        <p className="text-xs text-muted-foreground">Leads</p>
                       </div>
                       <div className="p-2 rounded bg-muted/50">
                         <p className="text-lg font-bold font-mono">{t.completionRate}%</p>

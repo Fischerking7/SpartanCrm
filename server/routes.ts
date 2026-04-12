@@ -26784,8 +26784,9 @@ function registerReportRoutes(app: Express, auth: any) {
         baseCommissionEarned: salesOrders.baseCommissionEarned,
       }).from(salesOrders).where(and(...conditions));
 
-      const byCity: Record<string, { total: number; completed: number; revenue: number }> = {};
-      const byZip: Record<string, { total: number; completed: number; revenue: number }> = {};
+      type SalesBucket = { total: number; completed: number; revenue: number };
+      const byCity: Record<string, SalesBucket> = {};
+      const byZip: Record<string, SalesBucket> = {};
 
       for (const o of orders) {
         const cityKey = (o.city || "Unknown").trim();
@@ -26802,15 +26803,19 @@ function registerReportRoutes(app: Express, auth: any) {
         byZip[zipKey].revenue += parseFloat(o.baseCommissionEarned || "0");
       }
 
-      const cityData = Object.entries(byCity)
-        .map(([name, data]) => ({ name, ...data }))
-        .sort((a, b) => b.total - a.total);
+      const transformSales = (obj: Record<string, SalesBucket>) =>
+        Object.entries(obj)
+          .map(([name, data]) => ({
+            name,
+            ...data,
+            avgCommission: data.total > 0 ? Math.round((data.revenue / data.total) * 100) / 100 : 0,
+          }))
+          .sort((a, b) => b.total - a.total);
 
-      const zipData = Object.entries(byZip)
-        .map(([name, data]) => ({ name, ...data }))
-        .sort((a, b) => b.total - a.total);
+      const totalRevenue = orders.reduce((s, o) => s + parseFloat(o.baseCommissionEarned || "0"), 0);
+      const avgCommission = orders.length > 0 ? Math.round((totalRevenue / orders.length) * 100) / 100 : 0;
 
-      res.json({ byCity: cityData, byZip: zipData, totalOrders: orders.length, rangeDays: range });
+      res.json({ byCity: transformSales(byCity), byZip: transformSales(byZip), totalOrders: orders.length, rangeDays: range, avgCommission });
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : "Failed";
       res.status(500).json({ message: errMsg });
@@ -26853,11 +26858,11 @@ function registerReportRoutes(app: Express, auth: any) {
           : inArray(leads.repId, targetRepIds)
       );
 
-      type LeadBucket = { total: number; converted: number; active: number; lost: number };
+      type LeadBucket = { total: number; converted: number; active: number; lost: number; dispositions: Record<string, number> };
       const byCity: Record<string, LeadBucket> = {};
       const byZip: Record<string, LeadBucket> = {};
       const byState: Record<string, LeadBucket> = {};
-      const dispositionCounts: Record<string, number> = {};
+      const globalDispositions: Record<string, number> = {};
 
       for (const l of allLeads) {
         const cityKey = (l.city || "Unknown").trim();
@@ -26866,27 +26871,41 @@ function registerReportRoutes(app: Express, auth: any) {
         const isConverted = !!l.convertedToOrderId;
         const isLost = l.pipelineStage === "LOST" || l.status === "LOST";
         const isActive = !isConverted && !isLost;
+        const disp = l.disposition && l.disposition !== "NONE" ? l.disposition : null;
 
         const buckets: [string, Record<string, LeadBucket>][] = [[cityKey, byCity], [zipKey, byZip], [stateKey, byState]];
         for (const [key, map] of buckets) {
-          if (!map[key]) map[key] = { total: 0, converted: 0, active: 0, lost: 0 };
+          if (!map[key]) map[key] = { total: 0, converted: 0, active: 0, lost: 0, dispositions: {} };
           map[key].total++;
           if (isConverted) map[key].converted++;
           if (isActive) map[key].active++;
           if (isLost) map[key].lost++;
+          if (disp) map[key].dispositions[disp] = (map[key].dispositions[disp] || 0) + 1;
         }
 
-        if (l.disposition && l.disposition !== "NONE") {
-          dispositionCounts[l.disposition] = (dispositionCounts[l.disposition] || 0) + 1;
-        }
+        if (disp) globalDispositions[disp] = (globalDispositions[disp] || 0) + 1;
       }
 
       const transformBucket = (obj: Record<string, LeadBucket>) =>
         Object.entries(obj)
-          .map(([name, data]) => ({ name, ...data, conversionRate: data.total > 0 ? Math.round((data.converted / data.total) * 100) : 0 }))
+          .map(([name, data]) => {
+            const topDisps = Object.entries(data.dispositions)
+              .sort(([, a], [, b]) => b - a)
+              .slice(0, 5)
+              .map(([disposition, count]) => ({ disposition, count }));
+            return {
+              name,
+              total: data.total,
+              converted: data.converted,
+              active: data.active,
+              lost: data.lost,
+              conversionRate: data.total > 0 ? Math.round((data.converted / data.total) * 100) : 0,
+              topDispositions: topDisps,
+            };
+          })
           .sort((a, b) => b.total - a.total);
 
-      const topDispositions = Object.entries(dispositionCounts)
+      const topDispositions = Object.entries(globalDispositions)
         .map(([disposition, count]) => ({ disposition, count }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 10);
@@ -26911,36 +26930,55 @@ function registerReportRoutes(app: Express, auth: any) {
       sinceDate.setDate(sinceDate.getDate() - range);
       const sinceDateStr = sinceDate.toISOString().split("T")[0];
 
-      const orders = await db.select({
-        repId: salesOrders.repId,
-        city: salesOrders.city,
-        zipCode: salesOrders.zipCode,
-        jobStatus: salesOrders.jobStatus,
-      }).from(salesOrders).where(
-        and(
-          inArray(salesOrders.repId, visibleRepIds),
-          gte(salesOrders.dateSold, sinceDateStr)
-        )
-      );
+      const [orders, repLeads] = await Promise.all([
+        db.select({
+          repId: salesOrders.repId,
+          city: salesOrders.city,
+          zipCode: salesOrders.zipCode,
+          jobStatus: salesOrders.jobStatus,
+        }).from(salesOrders).where(
+          and(
+            inArray(salesOrders.repId, visibleRepIds),
+            gte(salesOrders.dateSold, sinceDateStr)
+          )
+        ),
+        db.select({
+          repId: leads.repId,
+          city: leads.city,
+          zipCode: leads.zipCode,
+        }).from(leads).where(inArray(leads.repId, visibleRepIds)),
+      ]);
 
-      const repMap: Record<string, { name: string; role: string; cities: Set<string>; zips: Set<string>; totalOrders: number; completedOrders: number }> = {};
+      const repMap: Record<string, { name: string; role: string; cities: Set<string>; zips: Set<string>; totalOrders: number; completedOrders: number; totalLeads: number }> = {};
 
       const usersByRepId: Record<string, { name: string; role: string }> = {};
       for (const u of allUsers) {
         if (u.repId) usersByRepId[u.repId] = { name: u.name, role: u.role };
       }
 
+      const ensureRep = (repId: string) => {
+        if (!repMap[repId]) {
+          const uInfo = usersByRepId[repId] || { name: repId, role: "REP" };
+          repMap[repId] = { name: uInfo.name, role: uInfo.role, cities: new Set(), zips: new Set(), totalOrders: 0, completedOrders: 0, totalLeads: 0 };
+        }
+        return repMap[repId];
+      };
+
       for (const o of orders) {
         if (!o.repId) continue;
-        if (!repMap[o.repId]) {
-          const uInfo = usersByRepId[o.repId] || { name: o.repId, role: "REP" };
-          repMap[o.repId] = { name: uInfo.name, role: uInfo.role, cities: new Set(), zips: new Set(), totalOrders: 0, completedOrders: 0 };
-        }
-        const entry = repMap[o.repId];
+        const entry = ensureRep(o.repId);
         entry.totalOrders++;
         if (o.jobStatus === "COMPLETED") entry.completedOrders++;
         if (o.city) entry.cities.add(o.city.trim());
         if (o.zipCode) entry.zips.add(o.zipCode.trim());
+      }
+
+      for (const l of repLeads) {
+        if (!l.repId) continue;
+        const entry = ensureRep(l.repId);
+        entry.totalLeads++;
+        if (l.city) entry.cities.add(l.city.trim());
+        if (l.zipCode) entry.zips.add(l.zipCode.trim());
       }
 
       const zipToReps: Record<string, string[]> = {};
@@ -26976,11 +27014,12 @@ function registerReportRoutes(app: Express, auth: any) {
           zips: Array.from(data.zips).sort(),
           totalOrders: data.totalOrders,
           completedOrders: data.completedOrders,
+          totalLeads: data.totalLeads,
           completionRate: data.totalOrders > 0 ? Math.round((data.completedOrders / data.totalOrders) * 100) : 0,
           overlapZipCount: repOverlapZips.length,
           overlapZips: repOverlapZips.sort(),
         };
-      }).sort((a, b) => b.totalOrders - a.totalOrders);
+      }).sort((a, b) => (b.totalOrders + b.totalLeads) - (a.totalOrders + a.totalLeads));
 
       res.json({ territories: repTerritories, overlaps, rangeDays: range });
     } catch (error: unknown) {
