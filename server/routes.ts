@@ -26717,10 +26717,13 @@ function registerReportRoutes(app: Express, auth: any) {
 
   // ========== Geographic Intelligence ==========
 
+  type GeoVisibleUser = { id: string; repId: string | null; role: string; status: string; deletedAt: Date | null; assignedSupervisorId: string | null; assignedManagerId: string | null };
+
   app.get("/api/geo/team-locations", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"), async (req: AuthRequest, res) => {
     try {
       const allUsers = await db.select().from(users).where(isNull(users.deletedAt));
-      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+      const caller = req.user as { id: string; repId: string; role: string };
+      const visibleRepIds = getVisibleRepIds(caller, allUsers as GeoVisibleUser[]);
       const teamMembers = allUsers.filter(u => u.repId && visibleRepIds.includes(u.repId));
 
       const result = teamMembers.map(u => ({
@@ -26751,7 +26754,8 @@ function registerReportRoutes(app: Express, auth: any) {
   app.get("/api/geo/sales-by-region", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"), async (req: AuthRequest, res) => {
     try {
       const allUsers = await db.select().from(users).where(isNull(users.deletedAt));
-      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
+      const caller = req.user as { id: string; repId: string; role: string };
+      const visibleRepIds = getVisibleRepIds(caller, allUsers as GeoVisibleUser[]);
       if (visibleRepIds.length === 0) return res.json({ byCity: [], byZip: [], totalOrders: 0, rangeDays: 90 });
       const allowedRanges = [30, 90, 180, 365];
       const rawRange = parseInt(req.query.range as string) || 90;
@@ -26760,18 +26764,25 @@ function registerReportRoutes(app: Express, auth: any) {
       sinceDate.setDate(sinceDate.getDate() - range);
       const sinceDateStr = sinceDate.toISOString().split("T")[0];
 
+      const filterRepId = req.query.repId as string | undefined;
+      const filterProviderId = req.query.providerId as string | undefined;
+
+      const targetRepIds = filterRepId ? visibleRepIds.filter(r => r === filterRepId) : visibleRepIds;
+      if (targetRepIds.length === 0) return res.json({ byCity: [], byZip: [], totalOrders: 0, rangeDays: range });
+
+      const conditions = [
+        inArray(salesOrders.repId, targetRepIds),
+        gte(salesOrders.dateSold, sinceDateStr),
+      ];
+      if (filterProviderId) conditions.push(eq(salesOrders.providerId, filterProviderId));
+
       const orders = await db.select({
         city: salesOrders.city,
         zipCode: salesOrders.zipCode,
         repId: salesOrders.repId,
         jobStatus: salesOrders.jobStatus,
         baseCommissionEarned: salesOrders.baseCommissionEarned,
-      }).from(salesOrders).where(
-        and(
-          inArray(salesOrders.repId, visibleRepIds),
-          gte(salesOrders.dateSold, sinceDateStr)
-        )
-      );
+      }).from(salesOrders).where(and(...conditions));
 
       const byCity: Record<string, { total: number; completed: number; revenue: number }> = {};
       const byZip: Record<string, { total: number; completed: number; revenue: number }> = {};
@@ -26809,8 +26820,24 @@ function registerReportRoutes(app: Express, auth: any) {
   app.get("/api/geo/lead-density", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"), async (req: AuthRequest, res) => {
     try {
       const allUsers = await db.select().from(users).where(isNull(users.deletedAt));
-      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
-      if (visibleRepIds.length === 0) return res.json({ byCity: [], byZip: [], byState: [], totalLeads: 0 });
+      const caller = req.user as { id: string; repId: string; role: string };
+      const visibleRepIds = getVisibleRepIds(caller, allUsers as GeoVisibleUser[]);
+      if (visibleRepIds.length === 0) return res.json({ byCity: [], byZip: [], byState: [], totalLeads: 0, topDispositions: [] });
+
+      const filterRepId = req.query.repId as string | undefined;
+      const targetRepIds = filterRepId ? visibleRepIds.filter(r => r === filterRepId) : visibleRepIds;
+      if (targetRepIds.length === 0) return res.json({ byCity: [], byZip: [], byState: [], totalLeads: 0, topDispositions: [] });
+
+      const filterRange = req.query.range as string | undefined;
+      let dateCondition: ReturnType<typeof gte> | undefined;
+      if (filterRange) {
+        const allowedRanges = [30, 90, 180, 365];
+        const parsedRange = parseInt(filterRange) || 90;
+        const range = allowedRanges.includes(parsedRange) ? parsedRange : 90;
+        const sinceDate = new Date();
+        sinceDate.setDate(sinceDate.getDate() - range);
+        dateCondition = gte(leads.importedAt, sinceDate);
+      }
 
       const allLeads = await db.select({
         city: leads.city,
@@ -26820,11 +26847,17 @@ function registerReportRoutes(app: Express, auth: any) {
         pipelineStage: leads.pipelineStage,
         disposition: leads.disposition,
         convertedToOrderId: leads.convertedToOrderId,
-      }).from(leads).where(inArray(leads.repId, visibleRepIds));
+      }).from(leads).where(
+        dateCondition
+          ? and(inArray(leads.repId, targetRepIds), dateCondition)
+          : inArray(leads.repId, targetRepIds)
+      );
 
-      const byCity: Record<string, { total: number; converted: number; active: number; lost: number }> = {};
-      const byZip: Record<string, { total: number; converted: number; active: number; lost: number }> = {};
-      const byState: Record<string, { total: number; converted: number; active: number; lost: number }> = {};
+      type LeadBucket = { total: number; converted: number; active: number; lost: number };
+      const byCity: Record<string, LeadBucket> = {};
+      const byZip: Record<string, LeadBucket> = {};
+      const byState: Record<string, LeadBucket> = {};
+      const dispositionCounts: Record<string, number> = {};
 
       for (const l of allLeads) {
         const cityKey = (l.city || "Unknown").trim();
@@ -26834,21 +26867,31 @@ function registerReportRoutes(app: Express, auth: any) {
         const isLost = l.pipelineStage === "LOST" || l.status === "LOST";
         const isActive = !isConverted && !isLost;
 
-        for (const [key, map] of [[cityKey, byCity], [zipKey, byZip], [stateKey, byState]] as const) {
-          if (!(map as any)[key]) (map as any)[key] = { total: 0, converted: 0, active: 0, lost: 0 };
-          (map as any)[key].total++;
-          if (isConverted) (map as any)[key].converted++;
-          if (isActive) (map as any)[key].active++;
-          if (isLost) (map as any)[key].lost++;
+        const buckets: [string, Record<string, LeadBucket>][] = [[cityKey, byCity], [zipKey, byZip], [stateKey, byState]];
+        for (const [key, map] of buckets) {
+          if (!map[key]) map[key] = { total: 0, converted: 0, active: 0, lost: 0 };
+          map[key].total++;
+          if (isConverted) map[key].converted++;
+          if (isActive) map[key].active++;
+          if (isLost) map[key].lost++;
+        }
+
+        if (l.disposition && l.disposition !== "NONE") {
+          dispositionCounts[l.disposition] = (dispositionCounts[l.disposition] || 0) + 1;
         }
       }
 
-      const transform = (obj: Record<string, any>) =>
+      const transformBucket = (obj: Record<string, LeadBucket>) =>
         Object.entries(obj)
           .map(([name, data]) => ({ name, ...data, conversionRate: data.total > 0 ? Math.round((data.converted / data.total) * 100) : 0 }))
-          .sort((a: any, b: any) => b.total - a.total);
+          .sort((a, b) => b.total - a.total);
 
-      res.json({ byCity: transform(byCity), byZip: transform(byZip), byState: transform(byState), totalLeads: allLeads.length });
+      const topDispositions = Object.entries(dispositionCounts)
+        .map(([disposition, count]) => ({ disposition, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10);
+
+      res.json({ byCity: transformBucket(byCity), byZip: transformBucket(byZip), byState: transformBucket(byState), totalLeads: allLeads.length, topDispositions });
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : "Failed";
       res.status(500).json({ message: errMsg });
@@ -26858,8 +26901,9 @@ function registerReportRoutes(app: Express, auth: any) {
   app.get("/api/geo/rep-territory", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"), async (req: AuthRequest, res) => {
     try {
       const allUsers = await db.select().from(users).where(isNull(users.deletedAt));
-      const visibleRepIds = getVisibleRepIds(req.user as any, allUsers as any);
-      if (visibleRepIds.length === 0) return res.json({ territories: [], rangeDays: 90 });
+      const caller = req.user as { id: string; repId: string; role: string };
+      const visibleRepIds = getVisibleRepIds(caller, allUsers as GeoVisibleUser[]);
+      if (visibleRepIds.length === 0) return res.json({ territories: [], overlaps: [], rangeDays: 90 });
       const allowedRanges = [30, 90, 180, 365];
       const rawRange = parseInt(req.query.range as string) || 90;
       const range = allowedRanges.includes(rawRange) ? rawRange : 90;
@@ -26899,20 +26943,46 @@ function registerReportRoutes(app: Express, auth: any) {
         if (o.zipCode) entry.zips.add(o.zipCode.trim());
       }
 
-      const repTerritories = Object.entries(repMap).map(([repId, data]) => ({
-        repId,
-        name: data.name,
-        role: data.role,
-        cityCount: data.cities.size,
-        zipCount: data.zips.size,
-        cities: Array.from(data.cities).sort(),
-        zips: Array.from(data.zips).sort(),
-        totalOrders: data.totalOrders,
-        completedOrders: data.completedOrders,
-        completionRate: data.totalOrders > 0 ? Math.round((data.completedOrders / data.totalOrders) * 100) : 0,
-      })).sort((a, b) => b.totalOrders - a.totalOrders);
+      const zipToReps: Record<string, string[]> = {};
+      for (const [repId, data] of Object.entries(repMap)) {
+        for (const z of data.zips) {
+          if (!zipToReps[z]) zipToReps[z] = [];
+          zipToReps[z].push(repId);
+        }
+      }
 
-      res.json({ territories: repTerritories, rangeDays: range });
+      const overlaps: { zip: string; reps: { repId: string; name: string }[] }[] = [];
+      for (const [zip, repIds] of Object.entries(zipToReps)) {
+        if (repIds.length > 1) {
+          overlaps.push({
+            zip,
+            reps: repIds.map(r => ({ repId: r, name: usersByRepId[r]?.name || r })),
+          });
+        }
+      }
+      overlaps.sort((a, b) => b.reps.length - a.reps.length);
+
+      const overlapZips = new Set(overlaps.map(o => o.zip));
+
+      const repTerritories = Object.entries(repMap).map(([repId, data]) => {
+        const repOverlapZips = Array.from(data.zips).filter(z => overlapZips.has(z));
+        return {
+          repId,
+          name: data.name,
+          role: data.role,
+          cityCount: data.cities.size,
+          zipCount: data.zips.size,
+          cities: Array.from(data.cities).sort(),
+          zips: Array.from(data.zips).sort(),
+          totalOrders: data.totalOrders,
+          completedOrders: data.completedOrders,
+          completionRate: data.totalOrders > 0 ? Math.round((data.completedOrders / data.totalOrders) * 100) : 0,
+          overlapZipCount: repOverlapZips.length,
+          overlapZips: repOverlapZips.sort(),
+        };
+      }).sort((a, b) => b.totalOrders - a.totalOrders);
+
+      res.json({ territories: repTerritories, overlaps, rangeDays: range });
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : "Failed";
       res.status(500).json({ message: errMsg });

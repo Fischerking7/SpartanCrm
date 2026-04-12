@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { useTranslation } from "react-i18next";
@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 import {
   MapPin,
   Users,
@@ -19,6 +20,7 @@ import {
   BarChart3,
   Target,
   Layers,
+  AlertTriangle,
 } from "lucide-react";
 import {
   BarChart,
@@ -33,10 +35,66 @@ import {
   Cell,
 } from "recharts";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { Button } from "@/components/ui/button";
-import { AlertTriangle } from "lucide-react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#14b8a6"];
+
+const CITY_COORDS: Record<string, [number, number]> = {
+  "New York": [40.7128, -74.006],
+  "Los Angeles": [34.0522, -118.2437],
+  "Chicago": [41.8781, -87.6298],
+  "Houston": [29.7604, -95.3698],
+  "Phoenix": [33.4484, -112.074],
+  "Philadelphia": [39.9526, -75.1652],
+  "San Antonio": [29.4241, -98.4936],
+  "San Diego": [32.7157, -117.1611],
+  "Dallas": [32.7767, -96.797],
+  "San Jose": [37.3382, -121.8863],
+  "Austin": [30.2672, -97.7431],
+  "Jacksonville": [30.3322, -81.6557],
+  "Fort Worth": [32.7555, -97.3308],
+  "Columbus": [39.9612, -82.9988],
+  "Charlotte": [35.2271, -80.8431],
+  "Indianapolis": [39.7684, -86.1581],
+  "San Francisco": [37.7749, -122.4194],
+  "Seattle": [47.6062, -122.3321],
+  "Denver": [39.7392, -104.9903],
+  "Nashville": [36.1627, -86.7816],
+  "Oklahoma City": [35.4676, -97.5164],
+  "El Paso": [31.7619, -106.485],
+  "Washington": [38.9072, -77.0369],
+  "Boston": [42.3601, -71.0589],
+  "Portland": [45.5152, -122.6784],
+  "Las Vegas": [36.1699, -115.1398],
+  "Memphis": [35.1495, -90.049],
+  "Louisville": [38.2527, -85.7585],
+  "Baltimore": [39.2904, -76.6122],
+  "Milwaukee": [43.0389, -87.9065],
+  "Albuquerque": [35.0844, -106.6504],
+  "Tucson": [32.2226, -110.9747],
+  "Fresno": [36.7378, -119.7871],
+  "Sacramento": [38.5816, -121.4944],
+  "Mesa": [33.4152, -111.8315],
+  "Kansas City": [39.0997, -94.5786],
+  "Atlanta": [33.749, -84.388],
+  "Omaha": [41.2565, -95.9345],
+  "Colorado Springs": [38.8339, -104.8214],
+  "Raleigh": [35.7796, -78.6382],
+  "Miami": [25.7617, -80.1918],
+  "Tampa": [27.9506, -82.4572],
+  "Orlando": [28.5383, -81.3792],
+  "Minneapolis": [44.9778, -93.265],
+  "Cleveland": [41.4993, -81.6944],
+  "Pittsburgh": [40.4406, -79.9959],
+  "St. Louis": [38.627, -90.1994],
+  "Cincinnati": [39.1031, -84.512],
+  "Detroit": [42.3314, -83.0458],
+  "Salt Lake City": [40.7608, -111.891],
+  "Richmond": [37.5407, -77.436],
+  "Norfolk": [36.8508, -76.2859],
+  "Virginia Beach": [36.8529, -75.978],
+};
 
 function ErrorState({ onRetry }: { onRetry: () => void }) {
   return (
@@ -74,6 +132,8 @@ type TeamMember = {
 
 type RegionData = { name: string; total: number; completed: number; revenue: number };
 type LeadRegion = { name: string; total: number; converted: number; active: number; lost: number; conversionRate: number };
+type DispositionEntry = { disposition: string; count: number };
+type OverlapEntry = { zip: string; reps: { repId: string; name: string }[] };
 type RepTerritory = {
   repId: string;
   name: string;
@@ -85,7 +145,111 @@ type RepTerritory = {
   totalOrders: number;
   completedOrders: number;
   completionRate: number;
+  overlapZipCount: number;
+  overlapZips: string[];
 };
+
+function TeamMapComponent({ members, locationCounts }: { members: TeamMember[]; locationCounts: Record<string, number> }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstance = useRef<L.Map | null>(null);
+
+  useEffect(() => {
+    if (!mapRef.current || mapInstance.current) return;
+
+    const map = L.map(mapRef.current).setView([39.8283, -98.5795], 4);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 18,
+    }).addTo(map);
+
+    mapInstance.current = map;
+
+    return () => {
+      map.remove();
+      mapInstance.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mapInstance.current) return;
+    const map = mapInstance.current;
+
+    map.eachLayer(layer => {
+      if (layer instanceof L.CircleMarker) map.removeLayer(layer);
+    });
+
+    const membersWithLocation = members.filter(m => m.lastLoginLocation);
+    const locationGroups: Record<string, TeamMember[]> = {};
+    for (const m of membersWithLocation) {
+      const loc = m.lastLoginLocation!;
+      if (!locationGroups[loc]) locationGroups[loc] = [];
+      locationGroups[loc].push(m);
+    }
+
+    for (const [location, groupMembers] of Object.entries(locationGroups)) {
+      const cityName = location.split(",")[0].trim();
+      const coords = CITY_COORDS[cityName];
+      if (!coords) continue;
+
+      const onlineCount = groupMembers.filter(m => m.isOnline).length;
+      const total = groupMembers.length;
+      const radius = Math.min(8 + total * 3, 30);
+      const color = onlineCount > 0 ? "#10b981" : "#6b7280";
+
+      const marker = L.circleMarker(coords, {
+        radius,
+        fillColor: color,
+        color: "#fff",
+        weight: 2,
+        fillOpacity: 0.8,
+      }).addTo(map);
+
+      const container = document.createElement("div");
+      container.style.minWidth = "180px";
+
+      const title = document.createElement("strong");
+      title.style.fontSize = "14px";
+      title.textContent = location;
+      container.appendChild(title);
+
+      const subtitle = document.createElement("div");
+      subtitle.style.cssText = "margin:6px 0;font-size:12px;color:#666;";
+      subtitle.textContent = `${total} member${total > 1 ? "s" : ""} · ${onlineCount} online`;
+      container.appendChild(subtitle);
+
+      const list = document.createElement("div");
+      list.style.cssText = "max-height:150px;overflow-y:auto;";
+
+      for (const m of groupMembers) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #eee;";
+
+        const dot = document.createElement("span");
+        dot.style.cssText = `width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.isOnline ? "#10b981" : "#d1d5db"};`;
+        row.appendChild(dot);
+
+        const info = document.createElement("div");
+        const nameEl = document.createElement("div");
+        nameEl.style.cssText = "font-size:12px;font-weight:500;";
+        nameEl.textContent = m.name;
+        info.appendChild(nameEl);
+
+        const detailEl = document.createElement("div");
+        detailEl.style.cssText = "font-size:10px;color:#999;";
+        detailEl.textContent = `${m.repId} · ${m.role}`;
+        info.appendChild(detailEl);
+
+        row.appendChild(info);
+        list.appendChild(row);
+      }
+      container.appendChild(list);
+
+      marker.bindPopup(container);
+    }
+  }, [members]);
+
+  return <div ref={mapRef} className="h-[400px] rounded-lg border" data-testid="map-team-locations" />;
+}
 
 function TeamLocationsTab() {
   const [search, setSearch] = useState("");
@@ -111,7 +275,6 @@ function TeamLocationsTab() {
 
   const onlineCount = members.filter(m => m.isOnline).length;
   const locEntries = Object.entries(locationCounts).sort(([, a], [, b]) => b - a);
-  const locationChartData = locEntries.slice(0, 10).map(([name, value]) => ({ name, value }));
 
   return (
     <div className="space-y-6">
@@ -154,31 +317,9 @@ function TeamLocationsTab() {
         </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {locationChartData.length > 0 && (
-          <Card data-testid="card-geo-location-chart">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <BarChart3 className="h-5 w-5" />
-                Team by Location
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={locationChartData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                    <XAxis type="number" tick={{ fontSize: 12 }} allowDecimals={false} />
-                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={140} />
-                    <Tooltip />
-                    <Bar dataKey="value" name="Members" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+      <TeamMapComponent members={members} locationCounts={locationCounts} />
 
+      <div className="grid gap-6 md:grid-cols-2">
         <Card data-testid="card-geo-location-list">
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
@@ -201,13 +342,15 @@ function TeamLocationsTab() {
             </div>
           </CardContent>
         </Card>
-      </div>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Team Members</CardTitle>
-            <div className="relative w-64">
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">Team Members</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="relative mb-3">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search..."
@@ -217,45 +360,24 @@ function TeamLocationsTab() {
                 data-testid="input-geo-team-search"
               />
             </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="text-left py-2.5 px-2 font-medium">Status</th>
-                  <th className="text-left py-2.5 px-2 font-medium">Name</th>
-                  <th className="text-left py-2.5 px-2 font-medium">Role</th>
-                  <th className="text-left py-2.5 px-2 font-medium">Location</th>
-                  <th className="text-left py-2.5 px-2 font-medium">Last Active</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(m => (
-                  <tr key={m.id} className="border-b last:border-0 hover-elevate" data-testid={`row-geo-member-${m.repId}`}>
-                    <td className="py-2.5 px-2">
-                      <Circle className={`h-2.5 w-2.5 ${m.isOnline ? "fill-green-500 text-green-500" : "fill-muted text-muted"}`} />
-                    </td>
-                    <td className="py-2.5 px-2">
-                      <div className="font-medium">{m.name}</div>
-                      <div className="text-xs text-muted-foreground">{m.repId}</div>
-                    </td>
-                    <td className="py-2.5 px-2"><Badge variant="outline" className="text-xs">{m.role}</Badge></td>
-                    <td className="py-2.5 px-2">
-                      {m.lastLoginLocation ? (
-                        <div className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" /><span>{m.lastLoginLocation}</span></div>
-                      ) : <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="py-2.5 px-2 text-muted-foreground">{formatTimeAgo(m.lastActiveAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {filtered.length === 0 && <p className="py-8 text-center text-muted-foreground">No members found</p>}
-          </div>
-        </CardContent>
-      </Card>
+            <div className="max-h-64 overflow-y-auto space-y-1">
+              {filtered.map(m => (
+                <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded hover-elevate text-sm" data-testid={`row-geo-member-${m.repId}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Circle className={`h-2.5 w-2.5 shrink-0 ${m.isOnline ? "fill-green-500 text-green-500" : "fill-muted text-muted"}`} />
+                    <div className="min-w-0">
+                      <span className="font-medium">{m.name}</span>
+                      <span className="text-xs text-muted-foreground ml-1.5">{m.repId}</span>
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground shrink-0">{m.lastLoginLocation || "—"}</div>
+                </div>
+              ))}
+              {filtered.length === 0 && <p className="py-4 text-center text-muted-foreground text-sm">No members found</p>}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -263,12 +385,37 @@ function TeamLocationsTab() {
 function SalesByRegionTab() {
   const [rangeDays, setRangeDays] = useState("90");
   const [viewMode, setViewMode] = useState<"city" | "zip">("city");
+  const [filterRepId, setFilterRepId] = useState("");
+  const [filterProviderId, setFilterProviderId] = useState("");
   const isMobile = useIsMobile();
 
-  const { data, isLoading, isError, refetch } = useQuery<{ byCity: RegionData[]; byZip: RegionData[]; totalOrders: number; rangeDays: number }>({
-    queryKey: ["/api/geo/sales-by-region", rangeDays],
+  const { data: repsData } = useQuery<{ repId: string; name: string }[]>({
+    queryKey: ["/api/geo/reps-list"],
     queryFn: async () => {
-      const res = await fetch(`/api/geo/sales-by-region?range=${rangeDays}`, { headers: getAuthHeaders() });
+      const res = await fetch("/api/geo/team-locations", { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      const d = await res.json();
+      return (d.members || []).map((m: TeamMember) => ({ repId: m.repId, name: m.name }));
+    },
+  });
+
+  const { data: providersData } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/admin/providers-list"],
+    queryFn: async () => {
+      const res = await fetch("/api/providers", { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const queryParams = new URLSearchParams({ range: rangeDays });
+  if (filterRepId) queryParams.set("repId", filterRepId);
+  if (filterProviderId) queryParams.set("providerId", filterProviderId);
+
+  const { data, isLoading, isError, refetch } = useQuery<{ byCity: RegionData[]; byZip: RegionData[]; totalOrders: number; rangeDays: number }>({
+    queryKey: ["/api/geo/sales-by-region", rangeDays, filterRepId, filterProviderId],
+    queryFn: async () => {
+      const res = await fetch(`/api/geo/sales-by-region?${queryParams}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -295,13 +442,35 @@ function SalesByRegionTab() {
             <SelectItem value="365">Last year</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={viewMode} onValueChange={(v) => setViewMode(v as "city" | "zip")}>
+        <Select value={viewMode} onValueChange={(v: string) => setViewMode(v as "city" | "zip")}>
           <SelectTrigger className="w-32" data-testid="select-geo-view-mode">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="city">By City</SelectItem>
             <SelectItem value="zip">By Zip Code</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={filterRepId || "all"} onValueChange={v => setFilterRepId(v === "all" ? "" : v)}>
+          <SelectTrigger className="w-44" data-testid="select-geo-rep-filter">
+            <SelectValue placeholder="All Reps" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Reps</SelectItem>
+            {(repsData || []).map(r => (
+              <SelectItem key={r.repId} value={r.repId}>{r.name} ({r.repId})</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterProviderId || "all"} onValueChange={v => setFilterProviderId(v === "all" ? "" : v)}>
+          <SelectTrigger className="w-40" data-testid="select-geo-provider-filter">
+            <SelectValue placeholder="All Providers" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Providers</SelectItem>
+            {(providersData || []).map(p => (
+              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -400,11 +569,28 @@ function SalesByRegionTab() {
 
 function LeadDensityTab() {
   const [viewMode, setViewMode] = useState<"city" | "zip" | "state">("city");
+  const [filterRepId, setFilterRepId] = useState("");
+  const [filterRange, setFilterRange] = useState("");
 
-  const { data, isLoading, isError, refetch } = useQuery<{ byCity: LeadRegion[]; byZip: LeadRegion[]; byState: LeadRegion[]; totalLeads: number }>({
-    queryKey: ["/api/geo/lead-density"],
+  const { data: repsData } = useQuery<{ repId: string; name: string }[]>({
+    queryKey: ["/api/geo/reps-list-leads"],
     queryFn: async () => {
-      const res = await fetch("/api/geo/lead-density", { headers: getAuthHeaders() });
+      const res = await fetch("/api/geo/team-locations", { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      const d = await res.json();
+      return (d.members || []).map((m: TeamMember) => ({ repId: m.repId, name: m.name }));
+    },
+  });
+
+  const queryParams = new URLSearchParams();
+  if (filterRepId) queryParams.set("repId", filterRepId);
+  if (filterRange) queryParams.set("range", filterRange);
+
+  const { data, isLoading, isError, refetch } = useQuery<{ byCity: LeadRegion[]; byZip: LeadRegion[]; byState: LeadRegion[]; totalLeads: number; topDispositions: DispositionEntry[] }>({
+    queryKey: ["/api/geo/lead-density", filterRepId, filterRange],
+    queryFn: async () => {
+      const qs = queryParams.toString();
+      const res = await fetch(`/api/geo/lead-density${qs ? `?${qs}` : ""}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -417,6 +603,7 @@ function LeadDensityTab() {
   const top10 = regionData.slice(0, 10);
   const totalConverted = regionData.reduce((s, r) => s + r.converted, 0);
   const totalActive = regionData.reduce((s, r) => s + r.active, 0);
+  const topDispositions = data?.topDispositions || [];
 
   const pieData = [
     { name: "Active", value: totalActive },
@@ -426,16 +613,41 @@ function LeadDensityTab() {
 
   return (
     <div className="space-y-6">
-      <Select value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
-        <SelectTrigger className="w-32" data-testid="select-lead-view">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="city">By City</SelectItem>
-          <SelectItem value="zip">By Zip Code</SelectItem>
-          <SelectItem value="state">By State</SelectItem>
-        </SelectContent>
-      </Select>
+      <div className="flex flex-wrap gap-3 items-center">
+        <Select value={viewMode} onValueChange={(v: string) => setViewMode(v as "city" | "zip" | "state")}>
+          <SelectTrigger className="w-32" data-testid="select-lead-view">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="city">By City</SelectItem>
+            <SelectItem value="zip">By Zip Code</SelectItem>
+            <SelectItem value="state">By State</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={filterRepId || "all"} onValueChange={v => setFilterRepId(v === "all" ? "" : v)}>
+          <SelectTrigger className="w-44" data-testid="select-lead-rep-filter">
+            <SelectValue placeholder="All Reps" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Reps</SelectItem>
+            {(repsData || []).map(r => (
+              <SelectItem key={r.repId} value={r.repId}>{r.name} ({r.repId})</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterRange || "all"} onValueChange={v => setFilterRange(v === "all" ? "" : v)}>
+          <SelectTrigger className="w-36" data-testid="select-lead-range">
+            <SelectValue placeholder="All Time" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Time</SelectItem>
+            <SelectItem value="30">Last 30 days</SelectItem>
+            <SelectItem value="90">Last 90 days</SelectItem>
+            <SelectItem value="180">Last 180 days</SelectItem>
+            <SelectItem value="365">Last year</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
@@ -526,6 +738,24 @@ function LeadDensityTab() {
         )}
       </div>
 
+      {topDispositions.length > 0 && (
+        <Card data-testid="card-top-dispositions">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Top Dispositions by Area</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {topDispositions.map(d => (
+                <div key={d.disposition} className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/30">
+                  <span className="text-sm font-medium truncate">{d.disposition.replace(/_/g, " ")}</span>
+                  <Badge variant="outline" className="font-mono text-xs ml-2 shrink-0">{d.count}</Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-lg">Lead Density by Region</CardTitle>
@@ -578,7 +808,7 @@ function RepTerritoryTab() {
   const [search, setSearch] = useState("");
   const [expandedRep, setExpandedRep] = useState<string | null>(null);
 
-  const { data, isLoading, isError, refetch } = useQuery<{ territories: RepTerritory[]; rangeDays: number }>({
+  const { data, isLoading, isError, refetch } = useQuery<{ territories: RepTerritory[]; overlaps: OverlapEntry[]; rangeDays: number }>({
     queryKey: ["/api/geo/rep-territory", rangeDays],
     queryFn: async () => {
       const res = await fetch(`/api/geo/rep-territory?range=${rangeDays}`, { headers: getAuthHeaders() });
@@ -591,6 +821,7 @@ function RepTerritoryTab() {
   if (isError) return <ErrorState onRetry={() => refetch()} />;
 
   const territories = data?.territories || [];
+  const overlaps = data?.overlaps || [];
   const filtered = territories.filter(t => {
     if (!search) return true;
     const q = search.toLowerCase();
@@ -647,11 +878,40 @@ function RepTerritoryTab() {
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Avg Cities/Rep</p>
-            <p className="text-2xl font-bold font-mono">{territories.length > 0 ? (totalCities / territories.length).toFixed(1) : 0}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Overlap Zones</p>
+            <p className="text-2xl font-bold font-mono text-amber-600">{overlaps.length}</p>
           </CardContent>
         </Card>
       </div>
+
+      {overlaps.length > 0 && (
+        <Card className="border-amber-200 dark:border-amber-800" data-testid="card-territory-overlaps">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-5 w-5" />
+              Territory Overlaps ({overlaps.length} zip codes)
+            </CardTitle>
+            <CardDescription>Zip codes where multiple reps are operating</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {overlaps.slice(0, 12).map(o => (
+                <div key={o.zip} className="flex items-start gap-2 p-2.5 rounded-lg border bg-amber-50/50 dark:bg-amber-950/20" data-testid={`overlap-${o.zip}`}>
+                  <Badge variant="outline" className="font-mono text-xs shrink-0 mt-0.5">{o.zip}</Badge>
+                  <div className="min-w-0">
+                    {o.reps.map(r => (
+                      <div key={r.repId} className="text-xs text-muted-foreground truncate">{r.name} ({r.repId})</div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {overlaps.length > 12 && (
+              <p className="text-xs text-muted-foreground mt-2 text-center">+ {overlaps.length - 12} more overlapping zip codes</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-2">
@@ -661,7 +921,7 @@ function RepTerritoryTab() {
         <CardContent>
           <div className="space-y-2">
             {filtered.map(t => (
-              <div key={t.repId} className="border rounded-lg" data-testid={`card-territory-${t.repId}`}>
+              <div key={t.repId} className={`border rounded-lg ${t.overlapZipCount > 0 ? "border-amber-300 dark:border-amber-700" : ""}`} data-testid={`card-territory-${t.repId}`}>
                 <button
                   className="w-full flex items-center justify-between p-3 text-left hover-elevate rounded-lg"
                   onClick={() => setExpandedRep(expandedRep === t.repId ? null : t.repId)}
@@ -669,7 +929,14 @@ function RepTerritoryTab() {
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="min-w-0">
-                      <div className="font-medium truncate">{t.name}</div>
+                      <div className="font-medium truncate">
+                        {t.name}
+                        {t.overlapZipCount > 0 && (
+                          <Badge variant="outline" className="ml-2 text-xs text-amber-600 border-amber-300">
+                            {t.overlapZipCount} overlap{t.overlapZipCount > 1 ? "s" : ""}
+                          </Badge>
+                        )}
+                      </div>
                       <div className="text-xs text-muted-foreground">{t.repId} · {t.role}</div>
                     </div>
                   </div>
@@ -699,9 +966,18 @@ function RepTerritoryTab() {
                       <div>
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">Zip Codes ({t.zipCount})</p>
                         <div className="flex flex-wrap gap-1.5">
-                          {t.zips.map(z => (
-                            <Badge key={z} variant="secondary" className="text-xs font-mono">{z}</Badge>
-                          ))}
+                          {t.zips.map(z => {
+                            const isOverlap = t.overlapZips.includes(z);
+                            return (
+                              <Badge
+                                key={z}
+                                variant={isOverlap ? "destructive" : "secondary"}
+                                className={`text-xs font-mono ${isOverlap ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300" : ""}`}
+                              >
+                                {z}{isOverlap && " ⚠"}
+                              </Badge>
+                            );
+                          })}
                           {t.zips.length === 0 && <span className="text-xs text-muted-foreground">None</span>}
                         </div>
                       </div>
@@ -747,7 +1023,7 @@ export default function Geography() {
         <TabsList className="flex flex-wrap w-full h-auto gap-1">
           <TabsTrigger value="team" data-testid="tab-geo-team">
             <Users className="h-4 w-4 mr-1.5" />
-            Team Locations
+            Team Map
           </TabsTrigger>
           <TabsTrigger value="sales" data-testid="tab-geo-sales">
             <TrendingUp className="h-4 w-4 mr-1.5" />
@@ -755,7 +1031,7 @@ export default function Geography() {
           </TabsTrigger>
           <TabsTrigger value="leads" data-testid="tab-geo-leads">
             <Layers className="h-4 w-4 mr-1.5" />
-            Lead Density
+            Lead Heatmap
           </TabsTrigger>
           <TabsTrigger value="territory" data-testid="tab-geo-territory">
             <Target className="h-4 w-4 mr-1.5" />
