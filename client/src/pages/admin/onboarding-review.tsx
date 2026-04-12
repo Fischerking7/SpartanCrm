@@ -203,7 +203,7 @@ export default function OnboardingReview() {
                       </div>
                       <div>
                         <p className="font-medium text-sm">{s.repName}</p>
-                        <p className="text-xs text-muted-foreground">Rep ID: {s.repId} · {s.documentsCompleted}/6 docs · Submitted {fmt(s.submittedAt)}</p>
+                        <p className="text-xs text-muted-foreground">Rep ID: {s.repId} · {s.documentsCompleted}/7 docs · Submitted {fmt(s.submittedAt)}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -226,7 +226,7 @@ export default function OnboardingReview() {
                 <div key={s.id} className="flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-muted/50" onClick={() => setSelectedId(s.id)} data-testid={`submission-all-${s.id}`}>
                   <div>
                     <p className="text-sm font-medium">{s.repName} <span className="text-muted-foreground">({s.repId})</span></p>
-                    <p className="text-xs text-muted-foreground">{s.documentsCompleted}/6 docs · Submitted {fmt(s.submittedAt)} {s.reviewedBy && `· Reviewed by ${s.reviewedBy}`}</p>
+                    <p className="text-xs text-muted-foreground">{s.documentsCompleted}/7 docs · Submitted {fmt(s.submittedAt)} {s.reviewedBy && `· Reviewed by ${s.reviewedBy}`}</p>
                   </div>
                   {statusBadge(s.status)}
                 </div>
@@ -280,6 +280,7 @@ export default function OnboardingReview() {
                     { key: "directDepositCompleted", label: "Direct Deposit" },
                     { key: "drugTestCompleted", label: "Drug Test Consent" },
                     { key: "ndaCompleted", label: "NDA" },
+                    { key: "w9Completed", label: "IRS Form W-9" },
                   ].map(doc => (
                     <div key={doc.key} className="flex items-center gap-1.5 text-xs">
                       {detail[doc.key] ? <CheckCircle className="h-3.5 w-3.5 text-green-500" /> : <Clock className="h-3.5 w-3.5 text-muted-foreground" />}

@@ -21698,6 +21698,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
           directDeposit: existingSub?.directDepositCompleted || false,
           drugTest: existingSub?.drugTestCompleted || false,
           nda: existingSub?.ndaCompleted || false,
+          w9: existingSub?.w9Completed || false,
         },
         drafts: drafts.map(d => d.documentType),
       });
@@ -21706,7 +21707,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
     }
   });
 
-  const validDocTypes = ["background_check", "chargeback_policy", "contractor_app", "direct_deposit", "drug_test", "nda"];
+  const validDocTypes = ["background_check", "chargeback_policy", "contractor_app", "direct_deposit", "drug_test", "nda", "w9"];
 
   app.post("/api/onboarding/draft/:documentType", onboardingAuth as any, async (req: any, res: Response) => {
     try {
@@ -21715,7 +21716,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
       if (!validDocTypes.includes(documentType)) return res.status(400).json({ message: "Invalid document type" });
 
       let draftData = { ...req.body };
-      if (documentType === "direct_deposit") {
+      if (documentType === "direct_deposit" || documentType === "w9") {
         delete draftData.ssn;
         delete draftData.routingNumber;
         delete draftData.accountNumber;
@@ -21779,7 +21780,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
       const ua = req.headers["user-agent"] || "unknown";
       const formData = typeof req.body.data === "string" ? JSON.parse(req.body.data) : req.body;
 
-      const requiredSigs = ["backgroundCheckSignature", "chargebackPolicySignature", "contractorAppSignature", "directDepositSignature", "drugTestSignature", "ndaSignature"];
+      const requiredSigs = ["backgroundCheckSignature", "chargebackPolicySignature", "contractorAppSignature", "directDepositSignature", "drugTestSignature", "ndaSignature", "w9Signature"];
       const missing = requiredSigs.filter(s => !formData[s]);
       if (missing.length > 0) return res.status(400).json({ message: "Missing signatures", missing });
 
@@ -21832,12 +21833,15 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         drugTestSignedAt: now,
         ndaCompleted: true,
         ndaSignedAt: now,
+        w9Completed: true,
+        w9SignedAt: now,
         backgroundCheckSignature: formData.backgroundCheckSignature,
         chargebackPolicySignature: formData.chargebackPolicySignature,
         contractorAppSignature: formData.contractorAppSignature,
         directDepositSignature: formData.directDepositSignature,
         drugTestSignature: formData.drugTestSignature,
         ndaSignature: formData.ndaSignature,
+        w9Signature: formData.w9Signature,
         ssnEncrypted,
         ssnLast4,
         routingNumberEncrypted,
@@ -21911,7 +21915,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
           userId,
           "ONBOARDING_SUBMITTED",
           "New Contractor Onboarding Submitted",
-          `${formData.repName} has completed all 6 onboarding documents and is ready for review.`
+          `${formData.repName} has completed all 7 onboarding documents and is ready for review.`
         );
       } catch (emailErr: any) {
         console.error("[Onboarding] Email notification failed (non-fatal):", emailErr.message);
@@ -21921,7 +21925,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
 
       await db.insert(onboardingAuditLog).values({
         userId, action: "ONBOARDING_SUBMITTED", ipAddress: ip, userAgent: ua,
-        detail: JSON.stringify({ payloadHash, documentsCompleted: 6, submissionId: submission.id }),
+        detail: JSON.stringify({ payloadHash, documentsCompleted: 7, submissionId: submission.id }),
       });
 
       res.json({
@@ -22010,7 +22014,7 @@ function registerExecutiveRoutes(app: Express, storage: any, auth: any) {
         status: s.status,
         documentsCompleted: [
           s.backgroundCheckCompleted, s.chargebackPolicyCompleted, s.contractorAppCompleted,
-          s.directDepositCompleted, s.drugTestCompleted, s.ndaCompleted,
+          s.directDepositCompleted, s.drugTestCompleted, s.ndaCompleted, s.w9Completed,
         ].filter(Boolean).length,
         reviewedBy: s.reviewedByUserId ? reviewerMap.get(s.reviewedByUserId) : null,
         reviewedAt: s.reviewedAt,

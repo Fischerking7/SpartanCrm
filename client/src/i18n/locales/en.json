@@ -1826,7 +1826,7 @@
     "portal": {
       "welcome": "Welcome, {{name}}",
       "loading": "Loading...",
-      "completeCount": "{{count}} of 6 complete",
+      "completeCount": "{{count}} of 7 complete",
       "badges": {
         "complete": "Complete",
         "signed": "Signed",
@@ -1887,6 +1887,15 @@
         "name": "Non-Disclosure Agreement",
         "acknowledged": "I agree to maintain confidentiality of all company information",
         "fullName": "Full Legal Name"
+      },
+      "w9": {
+        "name": "IRS Form W-9",
+        "fullName": "Full Legal Name (as shown on your income tax return)",
+        "businessName": "Business Name (if different from above, optional)",
+        "address": "Street Address",
+        "cityStateZip": "City, State, and ZIP Code",
+        "ssn": "Social Security Number",
+        "certify": "I certify under penalties of perjury that the information provided is correct and I am a U.S. person"
       }
     },
     "review": {

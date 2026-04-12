@@ -17,6 +17,7 @@ const DOCS = [
   { type: "direct_deposit", title: "DIRECT DEPOSIT AUTHORIZATION" },
   { type: "drug_test", title: "DRUG TEST CONSENT FORM" },
   { type: "nda", title: "NON-DISCLOSURE AGREEMENT" },
+  { type: "w9", title: "IRS FORM W-9 — REQUEST FOR TAXPAYER IDENTIFICATION NUMBER" },
 ] as const;
 
 function getDocumentBody(docType: string, sub: any): string {
@@ -38,6 +39,8 @@ function getDocumentBody(docType: string, sub: any): string {
       return `DRUG TEST CONSENT FORM\n\nI, ${name}, hereby consent to submit to drug and/or alcohol testing as required by Iron Crest Solutions LLC.\n\nI understand that:\n1. Testing may be required as a condition of engagement.\n2. A positive result or refusal to test may result in denial of engagement or termination.\n3. Results will be kept confidential.\n\nGoverning Law: State of New Jersey`;
     case "nda":
       return `NON-DISCLOSURE AGREEMENT\n\nI, ${name}, agree not to disclose any confidential or proprietary information of Iron Crest Solutions LLC including but not limited to: customer lists, pricing strategies, sales processes, commission structures, internal tools, and business plans.\n\nThis obligation survives termination of the contractor relationship for a period of 2 years.\n\nViolation of this agreement may result in legal action for damages.\n\nGoverning Law: State of New Jersey`;
+    case "w9":
+      return `IRS FORM W-9 — Request for Taxpayer Identification Number and Certification\n\nName (as shown on your income tax return): ${name}\nBusiness name / disregarded entity name (if different from above): N/A\n\nFederal tax classification: Individual/sole proprietor\n\nExemptions (codes apply only to certain entities): N/A\n\nAddress: On file\nCity, state, and ZIP code: On file\n\nTaxpayer Identification Number (TIN):\nSocial Security Number: ${ssnMasked} (on file)\n\nCERTIFICATION\n\nUnder penalties of perjury, I certify that:\n1. The number shown on this form is my correct taxpayer identification number (or I am waiting for a number to be issued to me);\n2. I am not subject to backup withholding because: (a) I am exempt from backup withholding, or (b) I have not been notified by the Internal Revenue Service (IRS) that I am subject to backup withholding as a result of a failure to report all interest or dividends, or (c) the IRS has notified me that I am no longer subject to backup withholding;\n3. I am a U.S. citizen or other U.S. person (defined in IRS instructions);\n4. The FATCA code(s) entered on this form (if any) indicating that I am exempt from FATCA reporting is correct.\n\nThe Internal Revenue Service does not require your consent to any provision of this document other than the certifications required to avoid backup withholding.\n\nGoverning Law: Internal Revenue Code`;
     default:
       return "";
   }
@@ -48,28 +51,28 @@ async function generateSinglePdf(docType: string, title: string, sub: any): Prom
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  const page = doc.addPage([612, 792]);
-  const { width, height } = page.getSize();
+  let activePage = doc.addPage([612, 792]);
+  const { width, height } = activePage.getSize();
   let y = height - 50;
 
-  page.drawText("IRON CREST SOLUTIONS LLC", { x: 50, y, font: boldFont, size: 14, color: rgb(0.1, 0.1, 0.4) });
+  activePage.drawText("IRON CREST SOLUTIONS LLC", { x: 50, y, font: boldFont, size: 14, color: rgb(0.1, 0.1, 0.4) });
   y -= 30;
-  page.drawText(title, { x: 50, y, font: boldFont, size: 12 });
+  activePage.drawText(title, { x: 50, y, font: boldFont, size: 12 });
   y -= 25;
 
   const body = getDocumentBody(docType, sub);
   const lines = body.split("\n");
   for (const line of lines) {
     if (y < 100) {
-      const newPage = doc.addPage([612, 792]);
-      y = newPage.getSize().height - 50;
+      activePage = doc.addPage([612, 792]);
+      y = activePage.getSize().height - 50;
     }
     const words = line.split(" ");
     let currentLine = "";
     for (const word of words) {
       const test = currentLine ? `${currentLine} ${word}` : word;
       if (font.widthOfTextAtSize(test, 10) > width - 100) {
-        page.drawText(currentLine, { x: 50, y, font, size: 10 });
+        activePage.drawText(currentLine, { x: 50, y, font, size: 10 });
         y -= 14;
         currentLine = word;
       } else {
@@ -77,28 +80,32 @@ async function generateSinglePdf(docType: string, title: string, sub: any): Prom
       }
     }
     if (currentLine) {
-      page.drawText(currentLine, { x: 50, y, font, size: 10 });
+      activePage.drawText(currentLine, { x: 50, y, font, size: 10 });
       y -= 14;
     }
     y -= 4;
   }
 
   y -= 20;
+  if (y < 120) {
+    activePage = doc.addPage([612, 792]);
+    y = activePage.getSize().height - 50;
+  }
   const dateStr = new Date(sub.submittedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const timeStr = new Date(sub.submittedAt).toLocaleTimeString("en-US");
 
-  page.drawText("ELECTRONIC SIGNATURE", { x: 50, y, font: boldFont, size: 10 });
+  activePage.drawText("ELECTRONIC SIGNATURE", { x: 50, y, font: boldFont, size: 10 });
   y -= 16;
-  page.drawText(`Signed by: ${sub.repName}`, { x: 50, y, font, size: 10 });
+  activePage.drawText(`Signed by: ${sub.repName}`, { x: 50, y, font, size: 10 });
   y -= 14;
-  page.drawText(`Date: ${dateStr} at ${timeStr}`, { x: 50, y, font, size: 10 });
+  activePage.drawText(`Date: ${dateStr} at ${timeStr}`, { x: 50, y, font, size: 10 });
   y -= 14;
-  page.drawText(`IP Address: ${sub.ipAddress}`, { x: 50, y, font, size: 10 });
+  activePage.drawText(`IP Address: ${sub.ipAddress}`, { x: 50, y, font, size: 10 });
   y -= 14;
-  page.drawText(`Document Hash: ${crypto.createHash("sha256").update(`${sub.id}:${docType}`).digest("hex").substring(0, 16)}`, { x: 50, y, font, size: 10 });
+  activePage.drawText(`Document Hash: ${crypto.createHash("sha256").update(`${sub.id}:${docType}`).digest("hex").substring(0, 16)}`, { x: 50, y, font, size: 10 });
   y -= 20;
 
-  page.drawText("This document was electronically signed in compliance with E-SIGN Act and UETA.", { x: 50, y, font, size: 8, color: rgb(0.4, 0.4, 0.4) });
+  activePage.drawText("This document was electronically signed in compliance with E-SIGN Act and UETA.", { x: 50, y, font, size: 8, color: rgb(0.4, 0.4, 0.4) });
 
   const pdfBytes = await doc.save();
   return {

@@ -1826,7 +1826,7 @@
     "portal": {
       "welcome": "Bienvenido, {{name}}",
       "loading": "Cargando...",
-      "completeCount": "{{count}} de 6 completados",
+      "completeCount": "{{count}} de 7 completados",
       "badges": {
         "complete": "Completado",
         "signed": "Firmado",
@@ -1887,6 +1887,15 @@
         "name": "Acuerdo de Confidencialidad",
         "acknowledged": "Acepto mantener la confidencialidad de toda la información de la empresa",
         "fullName": "Nombre Legal Completo"
+      },
+      "w9": {
+        "name": "Formulario W-9 del IRS",
+        "fullName": "Nombre Legal Completo (como aparece en su declaración de impuestos)",
+        "businessName": "Nombre Comercial (si es diferente al anterior, opcional)",
+        "address": "Dirección",
+        "cityStateZip": "Ciudad, Estado y Código Postal",
+        "ssn": "Número de Seguro Social",
+        "certify": "Certifico bajo pena de perjurio que la información proporcionada es correcta y soy una persona de EE.UU."
       }
     },
     "review": {

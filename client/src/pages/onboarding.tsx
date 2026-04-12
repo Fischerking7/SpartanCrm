@@ -22,6 +22,7 @@ const DOCUMENTS = [
   { key: "direct_deposit", name: "Direct Deposit Setup", time: "~5 min" },
   { key: "drug_test", name: "Drug Test Consent", time: "~2 min" },
   { key: "nda", name: "Non-Disclosure Agreement", time: "~3 min" },
+  { key: "w9", name: "IRS Form W-9", time: "~4 min" },
 ];
 
 function formatDate(d: string | Date) {
@@ -86,6 +87,7 @@ export default function OnboardingPortal() {
     direct_deposit: "directDeposit",
     drug_test: "drugTest",
     nda: "nda",
+    w9: "w9",
   };
   const isDocSubmitted = (docKey: string) => {
     const camelKey = docKeyToCamel[docKey];
@@ -94,7 +96,7 @@ export default function OnboardingPortal() {
   const isDocDrafted = (docKey: string) => savedDrafts.includes(docKey);
   const isDocReady = (docKey: string) => isDocSubmitted(docKey) || isDocDrafted(docKey);
   const completedCount = DOCUMENTS.filter(d => isDocReady(d.key)).length;
-  const progressPct = (completedCount / 6) * 100;
+  const progressPct = (completedCount / DOCUMENTS.length) * 100;
 
   if (step === 1) {
     return <OtpStep
@@ -146,7 +148,7 @@ export default function OnboardingPortal() {
 
           {repInfoLoading ? (
             <div className="space-y-3">
-              {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-20 w-full rounded-2xl" />)}
+              {[1,2,3,4,5,6,7].map(i => <Skeleton key={i} className="h-20 w-full rounded-2xl" />)}
             </div>
           ) : (
             <div className="space-y-3">
@@ -198,7 +200,7 @@ export default function OnboardingPortal() {
             </div>
           )}
 
-          {completedCount === 6 && (
+          {completedCount === DOCUMENTS.length && (
             <Button
               className="w-full h-14 mt-6 rounded-2xl bg-[#C9A84C] hover:bg-[#b8973e] text-white text-base font-semibold"
               onClick={() => setStep(4)}
@@ -441,6 +443,15 @@ function DocumentForm({ docKey, token, onBack, onNext }: {
           { key: "acknowledged", label: t("onboarding.docs.nda.acknowledged"), type: "checkbox" },
           { key: "fullName", label: t("onboarding.docs.nda.fullName"), type: "text" },
         ];
+      case "w9":
+        return [
+          { key: "fullName", label: t("onboarding.docs.w9.fullName"), type: "text" },
+          { key: "businessName", label: t("onboarding.docs.w9.businessName"), type: "text" },
+          { key: "address", label: t("onboarding.docs.w9.address"), type: "text" },
+          { key: "cityStateZip", label: t("onboarding.docs.w9.cityStateZip"), type: "text" },
+          { key: "ssn", label: t("onboarding.docs.w9.ssn"), type: "text" },
+          { key: "certify", label: t("onboarding.docs.w9.certify"), type: "checkbox" },
+        ];
       default:
         return [];
     }
@@ -567,6 +578,7 @@ function ReviewStep({ token, repInfo, onBack }: {
         direct_deposit: "directDepositSignature",
         drug_test: "drugTestSignature",
         nda: "ndaSignature",
+        w9: "w9Signature",
       };
       const signatures: Record<string, string> = {};
       let directDepositFields: Record<string, string> = {};
