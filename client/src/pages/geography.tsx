@@ -42,6 +42,18 @@ import "leaflet.markercluster";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
+const ROLE_COLORS: Record<string, string> = {
+  ADMIN: "#ef4444",
+  OPERATIONS: "#f97316",
+  EXECUTIVE: "#8b5cf6",
+  DIRECTOR: "#6366f1",
+  MANAGER: "#0ea5e9",
+  LEAD: "#14b8a6",
+  REP: "#3b82f6",
+  MDU: "#10b981",
+  ACCOUNTING: "#f59e0b",
+};
+
 const CITY_COORDS: Record<string, [number, number]> = {
   "New York": [40.7128, -74.006], "Los Angeles": [34.0522, -118.2437], "Chicago": [41.8781, -87.6298],
   "Houston": [29.7604, -95.3698], "Phoenix": [33.4484, -112.074], "Philadelphia": [39.9526, -75.1652],
@@ -214,78 +226,64 @@ function TeamMapComponent({ members }: { members: TeamMember[] }) {
         continue;
       }
 
-      const onlineCount = groupMembers.filter(m => m.isOnline).length;
-      const total = groupMembers.length;
-      const radius = Math.min(8 + total * 3, 30);
-      const color = onlineCount > 0 ? "#10b981" : "#6b7280";
-
-      const marker = L.circleMarker(coords, {
-        radius,
-        fillColor: color,
-        color: "#fff",
-        weight: 2,
-        fillOpacity: 0.8,
-      });
-
-      const container = document.createElement("div");
-      container.style.minWidth = "200px";
-
-      const title = document.createElement("strong");
-      title.style.fontSize = "14px";
-      title.textContent = location;
-      container.appendChild(title);
-
-      const subtitle = document.createElement("div");
-      subtitle.style.cssText = "margin:6px 0;font-size:12px;color:#666;";
-      subtitle.textContent = `${total} member${total > 1 ? "s" : ""} · ${onlineCount} online`;
-      container.appendChild(subtitle);
-
-      const list = document.createElement("div");
-      list.style.cssText = "max-height:180px;overflow-y:auto;";
-
       for (const m of groupMembers) {
-        const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #eee;";
+        const jitterLat = coords[0] + (Math.random() - 0.5) * 0.005;
+        const jitterLng = coords[1] + (Math.random() - 0.5) * 0.005;
+        const roleColor = ROLE_COLORS[m.role] || "#6b7280";
+        const borderColor = m.isOnline ? "#10b981" : "#fff";
 
-        const dot = document.createElement("span");
-        dot.style.cssText = `width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${m.isOnline ? "#10b981" : "#d1d5db"};`;
-        row.appendChild(dot);
+        const marker = L.circleMarker([jitterLat, jitterLng], {
+          radius: 8,
+          fillColor: roleColor,
+          color: borderColor,
+          weight: m.isOnline ? 3 : 2,
+          fillOpacity: 0.85,
+        });
 
-        const info = document.createElement("div");
-        const nameEl = document.createElement("div");
-        nameEl.style.cssText = "font-size:12px;font-weight:500;";
+        const container = document.createElement("div");
+        container.style.minWidth = "180px";
+
+        const nameEl = document.createElement("strong");
+        nameEl.style.fontSize = "13px";
         nameEl.textContent = m.name;
-        info.appendChild(nameEl);
+        container.appendChild(nameEl);
 
-        const detailEl = document.createElement("div");
-        detailEl.style.cssText = "font-size:10px;color:#999;";
-        detailEl.textContent = `${m.repId} · ${m.role}`;
-        info.appendChild(detailEl);
+        const roleEl = document.createElement("div");
+        roleEl.style.cssText = "font-size:11px;margin:2px 0;";
+        const roleDot = document.createElement("span");
+        roleDot.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${roleColor};margin-right:4px;vertical-align:middle;`;
+        roleEl.appendChild(roleDot);
+        roleEl.appendChild(document.createTextNode(`${m.repId} · ${m.role}`));
+        container.appendChild(roleEl);
 
-        const loginEl = document.createElement("div");
-        loginEl.style.cssText = "font-size:10px;color:#999;";
-        loginEl.textContent = m.isOnline ? "Online now" : `Last login: ${formatTimeAgo(m.lastLoginAt)}`;
-        info.appendChild(loginEl);
+        const locEl = document.createElement("div");
+        locEl.style.cssText = "font-size:11px;color:#666;";
+        locEl.textContent = location;
+        container.appendChild(locEl);
 
-        row.appendChild(info);
-        list.appendChild(row);
+        const statusEl = document.createElement("div");
+        statusEl.style.cssText = `font-size:11px;margin-top:4px;color:${m.isOnline ? "#10b981" : "#999"};font-weight:500;`;
+        statusEl.textContent = m.isOnline ? "● Online now" : `○ Last login: ${formatTimeAgo(m.lastLoginAt)}`;
+        container.appendChild(statusEl);
+
+        marker.bindPopup(container);
+        cluster.addLayer(marker);
+        plotted++;
       }
-      container.appendChild(list);
-
-      marker.bindPopup(container);
-      cluster.addLayer(marker);
-      plotted += groupMembers.length;
     }
 
     map.addLayer(cluster);
 
-    if (unmatched > 0) {
-      const unmatchedNote = document.createElement("div");
-      unmatchedNote.className = "leaflet-unmatched-note";
-      unmatchedNote.style.cssText = "position:absolute;bottom:8px;left:8px;z-index:1000;background:rgba(255,255,255,0.9);padding:4px 8px;border-radius:4px;font-size:11px;color:#666;pointer-events:none;";
-      unmatchedNote.textContent = `${plotted} plotted · ${unmatched} locations not mapped`;
-      mapRef.current?.appendChild(unmatchedNote);
-    }
+    const existingNotes = mapRef.current?.querySelectorAll(".leaflet-info-note");
+    existingNotes?.forEach(n => n.remove());
+
+    const infoNote = document.createElement("div");
+    infoNote.className = "leaflet-info-note";
+    infoNote.style.cssText = "position:absolute;bottom:8px;left:8px;z-index:1000;background:rgba(255,255,255,0.92);padding:6px 10px;border-radius:6px;font-size:11px;color:#555;pointer-events:none;box-shadow:0 1px 3px rgba(0,0,0,0.1);";
+    const lines = [`${plotted} plotted`];
+    if (unmatched > 0) lines.push(`${unmatched} unmapped`);
+    infoNote.textContent = lines.join(" · ");
+    mapRef.current?.appendChild(infoNote);
   }, [members]);
 
   return <div ref={mapRef} className="h-[400px] rounded-lg border relative" data-testid="map-team-locations" />;
@@ -358,6 +356,17 @@ function TeamLocationsTab() {
       </div>
 
       <TeamMapComponent members={members} />
+
+      <div className="flex flex-wrap gap-3 items-center px-1" data-testid="legend-role-colors">
+        <span className="text-xs text-muted-foreground font-medium">Role colors:</span>
+        {Object.entries(ROLE_COLORS).map(([role, color]) => (
+          <div key={role} className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
+            <span className="text-xs text-muted-foreground">{role}</span>
+          </div>
+        ))}
+        <span className="text-xs text-muted-foreground ml-2">● green border = online</span>
+      </div>
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card data-testid="card-geo-location-list">

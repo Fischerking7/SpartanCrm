@@ -591,7 +591,7 @@ export function AppSidebar() {
       <CollapsibleSection
         title={t("sidebar.insights")}
         icon={TrendingUp}
-        items={[MENU.reports, MENU.execReports, MENU.userActivity]}
+        items={[MENU.reports, MENU.execReports, MENU.userActivity, MENU.geography]}
         location={location}
       />
       <CollapsibleSection
