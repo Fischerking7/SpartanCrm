@@ -456,7 +456,6 @@ async function getWeeklyTeamConnects(userId: string, role: string, dateSold: str
       eq(salesOrders.approvalStatus, "APPROVED"),
       gte(salesOrders.dateSold, weekStartStr),
       lte(salesOrders.dateSold, weekEndStr),
-      isNull(salesOrders.deletedAt)
     ));
 
   return Number(result[0]?.count || 0);
@@ -23378,7 +23377,6 @@ function registerReportRoutes(app: Express, auth: any) {
         .where(and(
           gte(salesOrders.dateSold, startDate),
           lte(salesOrders.dateSold, endDate),
-          isNull(salesOrders.deletedAt),
           isNotNull(salesOrders.repId),
         ))
         .orderBy(salesOrders.repId);
@@ -23391,7 +23389,6 @@ function registerReportRoutes(app: Express, auth: any) {
         .where(and(
           gte(salesOrders.dateSold, startDate),
           lte(salesOrders.dateSold, endDate),
-          isNull(salesOrders.deletedAt),
         ));
 
       const exceptionsByOrder = new Map<string, string[]>();
@@ -24754,7 +24751,6 @@ function registerReportRoutes(app: Express, auth: any) {
       }).from(salesOrders)
         .where(and(
           gte(salesOrders.dateSold, cutoff.toISOString().split("T")[0]),
-          isNull(salesOrders.deletedAt),
           ne(salesOrders.approvalStatus, "REJECTED"),
         ));
 
@@ -25289,7 +25285,6 @@ function registerReportRoutes(app: Express, auth: any) {
           ne(salesOrders.paymentStatus, "PAID"),
           ne(salesOrders.approvalStatus, "REJECTED"),
           ne(salesOrders.jobStatus, "CANCELED"),
-          isNull(salesOrders.deletedAt),
         ));
 
       const allProviders = await db.select({ id: providers.id, name: providers.name }).from(providers);
@@ -25352,7 +25347,6 @@ function registerReportRoutes(app: Express, auth: any) {
         .where(and(
           eq(salesOrders.paymentStatus, "PAID"),
           gte(salesOrders.paidDate, new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString().split("T")[0]),
-          isNull(salesOrders.deletedAt),
         ));
 
       const historicalByMonth: Record<string, { actual: number; label: string }> = {};
@@ -25497,7 +25491,7 @@ function registerReportRoutes(app: Express, auth: any) {
       const cutoff = new Date(now.getTime() - 90 * 86400000);
 
       const orders = await db.select().from(salesOrders)
-        .where(and(gte(salesOrders.dateSold, cutoff), isNull(salesOrders.deletedAt)));
+        .where(gte(salesOrders.dateSold, cutoff));
 
       let emitted = 0;
       for (const order of orders) {
@@ -25659,7 +25653,6 @@ function registerReportRoutes(app: Express, auth: any) {
       const conditions: any[] = [
         gte(salesOrders.dateSold, startStr),
         lte(salesOrders.dateSold, endStr),
-        isNull(salesOrders.deletedAt),
       ];
       if (repIds.length > 0) conditions.push(inArray(salesOrders.repId, repIds));
       if (providerId && typeof providerId === "string") conditions.push(eq(salesOrders.providerId, providerId));
@@ -25747,7 +25740,6 @@ function registerReportRoutes(app: Express, auth: any) {
         const conds: any[] = [
           gte(salesOrders.dateSold, startStr),
           lte(salesOrders.dateSold, endStr),
-          isNull(salesOrders.deletedAt),
         ];
         if (repIds.length > 0) conds.push(inArray(salesOrders.repId, repIds));
 
@@ -25852,7 +25844,6 @@ function registerReportRoutes(app: Express, auth: any) {
         }).from(salesOrders).where(and(
           eq(salesOrders.repId, rep.repId),
           gte(salesOrders.dateSold, startStr),
-          isNull(salesOrders.deletedAt)
         ));
 
         const sold = orders.length;
@@ -25961,7 +25952,6 @@ function registerReportRoutes(app: Express, auth: any) {
           }).from(salesOrders).where(and(
             eq(salesOrders.repId, rep.repId),
             gte(salesOrders.dateSold, startStr),
-            isNull(salesOrders.deletedAt)
           )),
           db.select({
             approvalStatus: salesOrders.approvalStatus,
@@ -25971,7 +25961,6 @@ function registerReportRoutes(app: Express, auth: any) {
             eq(salesOrders.repId, rep.repId),
             gte(salesOrders.dateSold, priorStartStr),
             lte(salesOrders.dateSold, priorEndStr),
-            isNull(salesOrders.deletedAt)
           ))
         ]);
 
@@ -26070,7 +26059,6 @@ function registerReportRoutes(app: Express, auth: any) {
         }).from(salesOrders).where(and(
           eq(salesOrders.repId, targetUser.repId),
           gte(salesOrders.dateSold, last30Start.toISOString().split("T")[0]),
-          isNull(salesOrders.deletedAt)
         )),
         db.select({
           approvalStatus: salesOrders.approvalStatus,
@@ -26080,7 +26068,6 @@ function registerReportRoutes(app: Express, auth: any) {
           eq(salesOrders.repId, targetUser.repId),
           gte(salesOrders.dateSold, last60Start.toISOString().split("T")[0]),
           lte(salesOrders.dateSold, last30Start.toISOString().split("T")[0]),
-          isNull(salesOrders.deletedAt)
         ))
       ]);
 
@@ -26178,7 +26165,6 @@ function registerReportRoutes(app: Express, auth: any) {
       }).from(salesOrders).where(and(
         eq(salesOrders.repId, user.repId),
         gte(salesOrders.dateSold, mtdStart),
-        isNull(salesOrders.deletedAt)
       ));
 
       const mtdSold = mtdOrders.length;
