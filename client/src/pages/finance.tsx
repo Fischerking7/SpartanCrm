@@ -953,7 +953,7 @@ export default function Finance() {
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label>Rate/Amount</Label>
+                      <Label>Rate/Amount <span className="text-muted-foreground font-normal">(Optional)</span></Label>
                       <Select value={columnMapping.rate} onValueChange={(v) => setColumnMapping({ ...columnMapping, rate: v })}>
                         <SelectTrigger data-testid="map-rate">
                           <SelectValue placeholder="Select column" />

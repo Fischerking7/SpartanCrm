@@ -1224,16 +1224,17 @@ async function executeFinanceImportPost(importId: string, financeImport: any, us
             if (videoCents > 0) serviceBreakdown.push({ type: 'VIDEO', amountCents: videoCents, installDate: order.tvInstallDate || order.installDate });
             if (mobileCents > 0) serviceBreakdown.push({ type: 'MOBILE', amountCents: mobileCents, installDate: order.mobileInstallDate || order.installDate });
 
+            const noAmountImported = totalPaidCents === 0;
             let paidRemaining = totalPaidCents;
             for (let i = 0; i < serviceBreakdown.length; i++) {
               const svc = serviceBreakdown[i];
               const isFirst = i === 0;
-              const allocated = Math.min(paidRemaining, svc.amountCents);
-              paidRemaining -= allocated;
-              const svcVariance = allocated - svc.amountCents;
-              let svcStatus = 'OPEN';
-              if (allocated > 0 && allocated >= svc.amountCents) svcStatus = 'SATISFIED';
-              else if (allocated > 0) svcStatus = 'PARTIAL';
+              const allocated = noAmountImported ? 0 : Math.min(paidRemaining, svc.amountCents);
+              if (!noAmountImported) paidRemaining -= allocated;
+              const svcVariance = noAmountImported ? 0 : allocated - svc.amountCents;
+              let svcStatus = noAmountImported ? 'SATISFIED' : 'OPEN';
+              if (!noAmountImported && allocated > 0 && allocated >= svc.amountCents) svcStatus = 'SATISFIED';
+              else if (!noAmountImported && allocated > 0) svcStatus = 'PARTIAL';
 
               await storage.createArExpectation({
                 clientId: financeImport.clientId,
@@ -1264,10 +1265,11 @@ async function executeFinanceImportPost(importId: string, financeImport: any, us
               }
             }
           } else {
-            const varianceCents = totalPaidCents - expectedCents;
-            let arStatus = 'OPEN';
-            if (totalPaidCents > 0 && totalPaidCents >= expectedCents) arStatus = 'SATISFIED';
-            else if (totalPaidCents > 0) arStatus = 'PARTIAL';
+            const noAmtFallback = totalPaidCents === 0;
+            const varianceCents = noAmtFallback ? 0 : totalPaidCents - expectedCents;
+            let arStatus = noAmtFallback ? 'SATISFIED' : 'OPEN';
+            if (!noAmtFallback && totalPaidCents > 0 && totalPaidCents >= expectedCents) arStatus = 'SATISFIED';
+            else if (!noAmtFallback && totalPaidCents > 0) arStatus = 'PARTIAL';
             await storage.createArExpectation({
               clientId: financeImport.clientId,
               orderId,
@@ -1294,10 +1296,11 @@ async function executeFinanceImportPost(importId: string, financeImport: any, us
             }
           }
         } else {
-          const varianceCents = totalPaidCents - expectedCents;
-          let arStatus = 'OPEN';
-          if (totalPaidCents > 0 && totalPaidCents >= expectedCents) arStatus = 'SATISFIED';
-          else if (totalPaidCents > 0) arStatus = 'PARTIAL';
+          const noAmtSimple = totalPaidCents === 0;
+          const varianceCents = noAmtSimple ? 0 : totalPaidCents - expectedCents;
+          let arStatus = noAmtSimple ? 'SATISFIED' : 'OPEN';
+          if (!noAmtSimple && totalPaidCents > 0 && totalPaidCents >= expectedCents) arStatus = 'SATISFIED';
+          else if (!noAmtSimple && totalPaidCents > 0) arStatus = 'PARTIAL';
           await storage.createArExpectation({
             clientId: financeImport.clientId,
             orderId,
@@ -1366,6 +1369,7 @@ async function executeFinanceImportPost(importId: string, financeImport: any, us
 
     for (const ar of allNewArRows) {
       if (!ar.orderId || !ar.varianceAmountCents || ar.varianceAmountCents === 0) continue;
+      if (ar.actualAmountCents === 0) continue;
       if (existingEntityIds.has(ar.id)) continue;
 
       const varPct = ar.expectedAmountCents > 0
