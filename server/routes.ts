@@ -1342,8 +1342,16 @@ async function executeFinanceImportPost(importId: string, financeImport: any, us
     afterJson: JSON.stringify({ arCreated, ordersAccepted, ordersRejected, ...extraContext }),
   });
 
-  // Automatically emit PAYMENT_VARIANCE exceptions for any newly-created AR expectations with significant variances
-  // Thresholds are read from system_settings (keys: variance_threshold_pct, variance_threshold_cents) with safe defaults
+  const noAmountOrderIds = new Set<string>();
+  for (const [oid, groupRows] of Object.entries(orderRowGroups)) {
+    const enrolledRows = groupRows.filter(r => {
+      const s = (r.clientStatus || '').toUpperCase();
+      return s === 'ENROLLED' || s === 'ACCEPTED' || s === 'COMPLETED' || s === 'ACTIVE';
+    });
+    const total = enrolledRows.reduce((sum, r) => sum + (r.paidAmountCents || 0), 0);
+    if (total === 0) noAmountOrderIds.add(oid);
+  }
+
   try {
     const [pctSetting] = await db.select({ value: systemSettings.value })
       .from(systemSettings).where(eq(systemSettings.key, "variance_threshold_pct")).limit(1);
@@ -1369,7 +1377,7 @@ async function executeFinanceImportPost(importId: string, financeImport: any, us
 
     for (const ar of allNewArRows) {
       if (!ar.orderId || !ar.varianceAmountCents || ar.varianceAmountCents === 0) continue;
-      if (ar.actualAmountCents === 0) continue;
+      if (noAmountOrderIds.has(ar.orderId)) continue;
       if (existingEntityIds.has(ar.id)) continue;
 
       const varPct = ar.expectedAmountCents > 0
