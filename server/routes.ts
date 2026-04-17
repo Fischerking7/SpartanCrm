@@ -1528,6 +1528,11 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/config/maps-key", auth, (_req, res) => {
+    const key = process.env.GOOGLE_MAPS_API_KEY || null;
+    res.json({ key });
+  });
+
   app.get("/api/auth/me", auth, async (req: AuthRequest, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
     res.json({ user: { ...req.user, passwordHash: undefined, onboardingOtpHash: undefined } });
@@ -3315,7 +3320,7 @@ Rules:
       const user = req.user!;
       
       // Same required field validation as POST /api/orders
-      const { clientId, providerId, serviceId, dateSold, customerName, customerPhone, customerAddress, accountNumber, mobileLines, repId: submittedRepId } = req.body;
+      const { clientId, providerId, serviceId, dateSold, customerName, customerPhone, customerAddress, houseNumber: mobileHouseNumber, streetName: mobileStreetName, aptUnit: mobileAptUnit, city: mobileCity, zipCode: mobileZipCode, accountNumber, mobileLines, repId: submittedRepId } = req.body;
       if (!clientId || !providerId || !serviceId || !dateSold || !customerName) {
         return res.status(400).json({ message: "Missing required fields: clientId, providerId, serviceId, dateSold, customerName" });
       }
@@ -3352,6 +3357,11 @@ Rules:
         customerName,
         customerPhone: customerPhone || null,
         customerAddress: customerAddress || null,
+        houseNumber: mobileHouseNumber || null,
+        streetName: mobileStreetName || null,
+        aptUnit: mobileAptUnit || null,
+        city: mobileCity || null,
+        zipCode: mobileZipCode || null,
         accountNumber: accountNumber || null,
         tvSold: false,
         mobileSold: true,
@@ -6320,6 +6330,22 @@ Rules:
     } catch (error: any) { res.status(500).json({ message: error.message || "Failed" }); }
   });
 
+  // Geocode an address string using Google Maps Geocoding API
+  async function geocodeAddress(address: string): Promise<{ lat: string; lng: string } | null> {
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    if (!apiKey || !address.trim()) return null;
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
+      const resp = await fetch(url);
+      const data = await resp.json() as any;
+      if (data.status === "OK" && data.results?.[0]?.geometry?.location) {
+        const { lat, lng } = data.results[0].geometry.location;
+        return { lat: String(lat), lng: String(lng) };
+      }
+    } catch { /* leave coordinates blank on error */ }
+    return null;
+  }
+
   // Accounting Export/Import
   app.post("/api/admin/accounting/export-approved", auth, requirePermission("admin:export:approved"), async (req: AuthRequest, res) => {
     try {
@@ -6385,7 +6411,14 @@ Rules:
         
         // Look up user name by repId
         const user = await storage.getUserByRepId(o.repId);
-        
+
+        // Build geocodable address — prefer components, fall back to full text
+        const addrParts = [o.houseNumber, o.streetName, o.aptUnit, o.city, o.zipCode].filter(Boolean);
+        const addrForGeocode = addrParts.length >= 2
+          ? addrParts.join(" ")
+          : (o.customerAddress || "");
+        const coords = await geocodeAddress(addrForGeocode);
+
         return {
           "Invoice #": o.invoiceNumber || "",
           "Rep ID": o.repId,
@@ -6398,6 +6431,8 @@ Rules:
           "City": o.city || "",
           "Zip Code": o.zipCode || "",
           "Address": o.customerAddress || "",
+          "Latitude": coords?.lat || "",
+          "Longitude": coords?.lng || "",
           "Date Sold": formatDate(o.dateSold),
           "Install Date": formatDate(o.installDate),
           "Install Type": o.installType ? (typeLabels[o.installType] || o.installType) : "",
@@ -26894,6 +26929,59 @@ function registerReportRoutes(app: Express, auth: any) {
       }).sort((a, b) => (b.totalOrders + b.totalLeads) - (a.totalOrders + a.totalLeads));
 
       res.json({ territories: repTerritories, overlaps, rangeDays: range });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed";
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  // Returns completed orders with geocoded lat/lng for the Orders Map
+  app.get("/api/geo/orders-map", auth, requireRoles("ADMIN", "OPERATIONS", "EXECUTIVE", "DIRECTOR", "MANAGER", "LEAD"), async (req: AuthRequest, res) => {
+    try {
+      const allOrders = await db.select().from(salesOrders).where(
+        and(
+          eq(salesOrders.jobStatus, "COMPLETED"),
+          eq(salesOrders.approvalStatus, "APPROVED"),
+        )
+      );
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+
+      const results = await Promise.all(allOrders.map(async (o: any) => {
+        const addrParts = [o.houseNumber, o.streetName, o.aptUnit, o.city, o.zipCode].filter(Boolean);
+        const addrStr = addrParts.length >= 2 ? addrParts.join(" ") : (o.customerAddress || "");
+        let lat: number | null = null;
+        let lng: number | null = null;
+
+        if (apiKey && addrStr.trim()) {
+          try {
+            const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addrStr)}&key=${apiKey}`;
+            const resp = await fetch(url);
+            const data = await resp.json() as any;
+            if (data.status === "OK" && data.results?.[0]?.geometry?.location) {
+              lat = data.results[0].geometry.location.lat;
+              lng = data.results[0].geometry.location.lng;
+            }
+          } catch { /* skip */ }
+        }
+
+        return {
+          id: o.id,
+          invoiceNumber: o.invoiceNumber,
+          customerName: o.customerName,
+          accountNumber: o.accountNumber,
+          address: addrStr,
+          houseNumber: o.houseNumber,
+          streetName: o.streetName,
+          city: o.city,
+          zipCode: o.zipCode,
+          repId: o.repId,
+          dateSold: o.dateSold,
+          lat,
+          lng,
+        };
+      }));
+
+      res.json(results.filter(r => r.lat !== null));
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : "Failed";
       res.status(500).json({ message: errMsg });

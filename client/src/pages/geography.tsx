@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { setOptions as setMapsOptions, importLibrary } from "@googlemaps/js-api-loader";
 import { useQuery } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { useTranslation } from "react-i18next";
@@ -927,6 +928,187 @@ function RepTerritoryTab() {
   );
 }
 
+const MY_MAPS_MID = "1vrV8yuU0fckSB5Qebg5Gzurv8t0vthc";
+
+type OrderPin = {
+  id: string;
+  invoiceNumber: string;
+  customerName: string;
+  accountNumber: string | null;
+  address: string;
+  repId: string;
+  dateSold: string | null;
+  lat: number;
+  lng: number;
+};
+
+function OrdersMapTab() {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<google.maps.Marker[]>([]);
+  const heatmapRef = useRef<google.maps.visualization.HeatmapLayer | null>(null);
+  const [status, setStatus] = useState<"loading" | "no-key" | "ready" | "error">("loading");
+  const [viewMode, setViewMode] = useState<"pins" | "heatmap">("pins");
+
+  const { data: orders, isLoading: ordersLoading } = useQuery<OrderPin[]>({
+    queryKey: ["/api/geo/orders-map"],
+    queryFn: async () => {
+      const res = await fetch("/api/geo/orders-map", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: status === "ready",
+  });
+
+  useEffect(() => {
+    fetch("/api/config/maps-key", { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: any) => {
+        if (!d?.key) { setStatus("no-key"); return; }
+        initMap(d.key);
+      })
+      .catch(() => setStatus("no-key"));
+  }, []);
+
+  async function initMap(apiKey: string) {
+    try {
+      setMapsOptions({ key: apiKey, v: "weekly", libraries: ["visualization"] });
+      const { Map, KmlLayer } = await importLibrary("maps") as google.maps.MapsLibrary;
+      if (!mapRef.current) return;
+      const map = new Map(mapRef.current, {
+        center: { lat: 39.5, lng: -98.35 },
+        zoom: 4,
+      });
+      new KmlLayer({
+        url: `https://www.google.com/maps/d/kml?mid=${MY_MAPS_MID}&forcekml=1`,
+        map,
+        preserveViewport: true,
+      });
+      mapInstanceRef.current = map;
+      setStatus("ready");
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !orders?.length) return;
+
+    (async () => {
+      const { Marker } = await importLibrary("marker") as google.maps.MarkerLibrary;
+      const { InfoWindow } = await importLibrary("maps") as google.maps.MapsLibrary;
+      await importLibrary("visualization");
+
+      // Build markers
+      const newMarkers: google.maps.Marker[] = [];
+      for (const order of orders) {
+        const marker = new Marker({
+          position: { lat: order.lat, lng: order.lng },
+          map: viewMode === "pins" ? map : null,
+          title: order.customerName,
+        });
+        const infoWindow = new InfoWindow({
+          content: `<div style="font-family:sans-serif;font-size:13px;line-height:1.6;min-width:180px"><strong>${order.customerName}</strong><br/>${order.address}<br/><span style="color:#666">Invoice: ${order.invoiceNumber || "—"} &nbsp;|&nbsp; Rep: ${order.repId}</span></div>`,
+        });
+        marker.addListener("click", () => infoWindow.open(map, marker));
+        newMarkers.push(marker);
+      }
+
+      // Remove old markers
+      markersRef.current.forEach(m => m.setMap(null));
+      markersRef.current = newMarkers;
+
+      // Build heatmap
+      if (heatmapRef.current) heatmapRef.current.setMap(null);
+      const latLngs = orders.map(o => new google.maps.LatLng(o.lat, o.lng));
+      const heatmap = new (google.maps.visualization.HeatmapLayer as any)({
+        data: latLngs,
+        map: viewMode === "heatmap" ? map : null,
+        radius: 30,
+        opacity: 0.7,
+      });
+      heatmapRef.current = heatmap;
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders]);
+
+  // Toggle visibility without rebuilding
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    markersRef.current.forEach(m => m.setMap(viewMode === "pins" ? map : null));
+    if (heatmapRef.current) heatmapRef.current.setMap(viewMode === "heatmap" ? map : null);
+  }, [viewMode]);
+
+  if (status === "no-key") {
+    return (
+      <Card>
+        <CardContent className="py-16 text-center space-y-2">
+          <MapPin className="h-8 w-8 mx-auto text-muted-foreground" />
+          <p className="font-medium">Google Maps API key required</p>
+          <p className="text-sm text-muted-foreground">Set <code className="bg-muted px-1 rounded">GOOGLE_MAPS_API_KEY</code> in your environment to enable this map.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <Card>
+        <CardContent className="py-16 text-center">
+          <AlertTriangle className="h-8 w-8 mx-auto text-destructive mb-2" />
+          <p className="font-medium">Failed to load Google Maps</p>
+          <p className="text-sm text-muted-foreground">Check that your API key has the Maps JavaScript API enabled.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          {(status === "loading" || ordersLoading) && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Skeleton className="h-4 w-4 rounded-full" />
+              {status === "loading" ? "Loading map…" : "Geocoding completed orders…"}
+            </div>
+          )}
+          {status === "ready" && orders && (
+            <p className="text-sm text-muted-foreground">
+              Showing <strong>{orders.length}</strong> completed order{orders.length !== 1 ? "s" : ""} — your My Maps layer is also loaded.
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-1 rounded-lg border p-1 bg-muted/40">
+          <Button
+            variant={viewMode === "pins" ? "default" : "ghost"}
+            size="sm"
+            className="h-7 px-3 text-xs"
+            onClick={() => setViewMode("pins")}
+            data-testid="btn-view-pins"
+          >
+            <MapPin className="h-3.5 w-3.5 mr-1.5" />
+            Pins
+          </Button>
+          <Button
+            variant={viewMode === "heatmap" ? "default" : "ghost"}
+            size="sm"
+            className="h-7 px-3 text-xs"
+            onClick={() => setViewMode("heatmap")}
+            data-testid="btn-view-heatmap"
+          >
+            <Layers className="h-3.5 w-3.5 mr-1.5" />
+            Heat Map
+          </Button>
+        </div>
+      </div>
+      <div ref={mapRef} className="w-full rounded-lg border" style={{ height: 560 }} />
+    </div>
+  );
+}
+
 export default function Geography() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("team");
@@ -956,6 +1138,10 @@ export default function Geography() {
             <Target className="h-4 w-4 mr-1.5" />
             Rep Territory
           </TabsTrigger>
+          <TabsTrigger value="orders-map" data-testid="tab-geo-orders-map">
+            <Globe className="h-4 w-4 mr-1.5" />
+            Orders Map
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="team" className="mt-4">
@@ -969,6 +1155,9 @@ export default function Geography() {
         </TabsContent>
         <TabsContent value="territory" className="mt-4">
           <RepTerritoryTab />
+        </TabsContent>
+        <TabsContent value="orders-map" className="mt-4">
+          <OrdersMapTab />
         </TabsContent>
       </Tabs>
     </div>
