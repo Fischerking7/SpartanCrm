@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { scheduler } from "./scheduler";
 import { initForceLogoutFromDb } from "./auth";
 import { storage } from "./storage";
+import { mcpRouter } from "../mcp-server/router";
 
 const app = express();
 const httpServer = createServer(app);
@@ -75,6 +76,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  app.use("/mcp", mcpRouter);
   await registerRoutes(httpServer, app);
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
