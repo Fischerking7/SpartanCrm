@@ -17,6 +17,8 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import rateLimit from "express-rate-limit";
 import { encryptSsn, decryptSsn, extractSsnLast4, maskSsn } from "./encryption";
 import { fetchGoogleSheet, parseUploadedCsv } from "./google-sheets";
+import { verifyAddresses } from "./astound/verifier";
+import { config as appConfig } from "./config";
 import { matchInstallationsToOrders, normalizeWoStatus, computeRowHash, type OrderSummary, type DedupEntry, getCustomerName, getAddress, getCity, getZip, getRepName, getAccountNumber, getWoStatus, getWorkOrderNumber, getScheduleDate, getCheckInDate, getCancelCode, getCancelCodeDesc, getInternetMdm, getSalesmanNumber, getOffice, getWorkOrderType, getDataInstallsQty, getMobileInstallsQty, getVideoInstallsQty, detectCarrierProfile, buildCarrierContext, extractField, determineServiceLine, type CarrierContext } from "./claude-matching";
 import { emailService } from "./email";
 import { getOrCreateReserve, applyWithholding, applyChargebackToReserve, applyEquipmentRecovery, handleRepSeparation, checkAndReleaseMaturedReserves, calculateWithholding, isReserveEligibleRole } from "./reserves/reserveService";
@@ -2645,6 +2647,38 @@ export async function registerRoutes(
   });
 
   // Admin: Manage sales goals
+  app.get("/api/admin/astound/config-status", auth, requirePermission("admin:overrides:manage"), async (_req: AuthRequest, res) => {
+    res.json({
+      portalBaseUrlConfigured: Boolean(appConfig.astound.portalBaseUrl),
+      passwordConfigured: Boolean(appConfig.astound.password),
+      repId: appConfig.astound.repId,
+      sweepTurfSheetIdConfigured: Boolean(appConfig.googleSheets.sweepTurfSheetId),
+      sweepTurfSheetTab: appConfig.googleSheets.sweepTurfSheetTab,
+      serviceAccountConfigured: Boolean(appConfig.googleSheets.serviceAccountJson),
+    });
+  });
+
+  app.post("/api/admin/astound/verify", auth, requirePermission("admin:overrides:manage"), async (req: AuthRequest, res) => {
+    const schema = z.object({
+      addresses: z.array(z.string().min(1)).min(1).max(50).optional(),
+      address: z.string().min(1).optional(),
+      writeToSheet: z.boolean().optional(),
+    }).refine((v) => v.addresses || v.address, { message: "address or addresses is required" });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid input" });
+    }
+    const addresses = parsed.data.addresses ?? [parsed.data.address!];
+    try {
+      const results = await verifyAddresses(addresses, { writeToSheet: parsed.data.writeToSheet });
+      res.json({ results });
+    } catch (error: any) {
+      console.error("Astound verify error:", error);
+      res.status(500).json({ message: error.message || "Astound verification failed" });
+    }
+  });
+
   app.get("/api/admin/sales-goals", auth, requirePermission("admin:overrides:manage"), async (req: AuthRequest, res) => {
     try {
       const goals = await storage.getAllSalesGoals();

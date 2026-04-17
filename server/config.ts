@@ -71,4 +71,17 @@ export const config = {
   revenue: {
     multiplier: parseFloat(process.env.REVENUE_MULTIPLIER || '1'),
   },
+  astound: {
+    portalBaseUrl: process.env.ASTOUND_PORTAL_BASE_URL || '',
+    loginPath: process.env.ASTOUND_LOGIN_PATH || '/login',
+    lookupPath: process.env.ASTOUND_LOOKUP_PATH || '/serviceability',
+    repId: process.env.ASTOUND_REP_ID || '66116',
+    password: process.env.ASTOUND_PASSWORD || '',
+    requestTimeoutMs: parseInt(process.env.ASTOUND_REQUEST_TIMEOUT_MS || '20000'),
+  },
+  googleSheets: {
+    serviceAccountJson: process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON || '',
+    sweepTurfSheetId: process.env.SWEEP_TURF_SHEET_ID || '',
+    sweepTurfSheetTab: process.env.SWEEP_TURF_SHEET_TAB || 'Sheet1',
+  },
 } as const;
